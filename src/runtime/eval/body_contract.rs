@@ -16,9 +16,16 @@ pub(super) enum PreparedValidationContract {
 }
 
 impl PreparedValidationContract {
-    fn interface_gate(&self) -> bool {
+    fn interface_gate(&self, site: &CanonicalBodyContractSite, interface: Option<&CheckedCallableContract>) -> bool {
         match self {
-            Self::Parameter { check, formal, .. } | Self::Return { check, formal, .. } => check.as_ref().is_none_or(|check| check.schema.is_none() && formal.as_ref() == Some(&check.ty)),
+            Self::Parameter { check, formal, .. } | Self::Return { check, formal, .. } => check.as_ref().is_none_or(|check| {
+                formal.as_ref() == Some(&check.ty) && (check.schema.is_none() || interface.is_some_and(|interface| {
+                    site.implicit_interface_schema(interface.scheme()).is_some_and(|(ty, schema)| {
+                        interface.structural_interface_schema(ty, schema, &check.ty)
+                            && check.schema.as_ref().is_some_and(|schema| schema.matches_type(&check.ty))
+                    })
+                }))
+            }),
             _ => false,
         }
     }
@@ -63,8 +70,10 @@ impl CheckedBodyContract {
         };
         if !preserved { return false; }
         if self.validations.len() != candidate.validations.len() { return false; }
-        self.validations.iter().all(|(site, original)| candidate.validations.get(site).is_some_and(|candidate| {
-            original == candidate || interface_proven && original.len() == candidate.len() && original.iter().zip(candidate).all(|(original, candidate)| original.interface_gate() && candidate.interface_gate())
+        self.validations.iter().all(|(site, original)| candidate.validations.get(site).is_some_and(|records| {
+            original == records || interface_proven && original.len() == records.len() && original.iter().zip(records).all(|(original, record)| {
+                original.interface_gate(site, self.interface.as_ref()) && record.interface_gate(site, candidate.interface.as_ref())
+            })
         }))
     }
 }
@@ -131,6 +140,39 @@ mod tests {
 
     fn declaration(source: &str) -> CheckedBodyContract {
         snapshots(source).into_iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap()
+    }
+
+    #[test]
+    fn structural_interface_aliases_preserve_prepared_ground_boundaries() {
+        for (original, candidate) in [
+            ("type Pieces = {texts: List[Str], kinds: List[Int]}\npure keep() -> Pieces { {texts: [\"a\"], kinds: [0]} }\n",
+             "type Pieces = {texts: List[Str], kinds: List[Int]}\npure keep() { {texts: [\"a\"], kinds: [0]} }\n"),
+            ("type Entry = {value: Int}\npure keep(value: Entry) -> Int { value.value }\n",
+             "type Other = {value: Int}\npure keep(value: Other) -> Int { value.value }\n"),
+        ] {
+            let original = declaration(original);
+            let candidate = declaration(candidate);
+            assert!(original.preserved_by(&candidate), "{original:?}\n{candidate:?}");
+        }
+    }
+
+    #[test]
+    fn structural_interface_projection_retains_external_and_explicit_checks() {
+        for (original, candidate) in [
+            ("type Entry = {value: Int}\npure keep(value: Entry) -> Int { 1 }\n",
+             "pure keep(value) -> Int { 1 }\n"),
+            ("type Entry = {value: Int}\nproc keep(value: Any) [error] -> Int { value.require(Entry)?.value }\n",
+             "type Other = {value: Int}\nproc keep(value: Any) [error] -> Int { value.require(Other)?.value }\n"),
+            ("type First = {value: Int}\ntype Other = {value: Int}\npure keep() -> First { First(value: 1) }\n",
+             "type First = {value: Int}\ntype Other = {value: Int}\npure keep() -> First { Other(value: 1) }\n"),
+            ("type Entry = {value: UInt}\npure keep(value: Int) -> Entry { {value} }\n",
+             "type Entry = {value: UInt}\npure keep(value: Int) { {value} }\n"),
+            ("pure keep() -> Result[Int] { 1 }\n", "pure keep() { 1 }\n"),
+        ] {
+            let original = declaration(original);
+            let candidate = declaration(candidate);
+            assert!(!original.preserved_by(&candidate), "{original:?}\n{candidate:?}");
+        }
     }
 
     fn entry(source: &str) -> CheckedBodyContract {
@@ -212,7 +254,7 @@ mod tests {
         let first = declaration("type First = {label: Str}\npure keep(value: First) -> Bool { \"x\".starts_with(\"x\") }\n");
         let second = declaration("type Second = {label: Str}\npure keep(value: Second) -> Bool { \"x\".starts_with(\"x\") }\n");
         assert!(first.preserved_by(&first));
-        assert!(!first.preserved_by(&second));
+        assert!(first.preserved_by(&second));
     }
 
     #[test]

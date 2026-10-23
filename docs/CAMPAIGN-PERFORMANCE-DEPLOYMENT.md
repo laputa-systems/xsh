@@ -39,11 +39,43 @@ and genuine unsigned/schema meaning changes. No new removal credit is awarded.
 Products and logs remain in `.work/wt/full-inference-body-wave-qualification/`
 and `.work/wt/full-inference-body-library-qualification/`.
 
-Later provisional source `953d1e0ff` integrates focused-verified callback
-ownership, canonical record constructors and bare pipeline-input relationships.
-Their native fixtures and combined qualification remain pending. Open work
-includes constructor finalization, semantic contract comparison, nullable-target
-argument relationships, remaining pipeline families and practical Laputa imports.
+Provisional combined source `c0e6e773fde352d12abd261643d260ddee1cbf31`, tree
+`835823f555ce9a2732870d1097813e66af45bcfb`, additionally integrates the reviewed
+constructor-finalization, structural-interface comparison, nested Result source,
+known pipeline-item, fold/reduce and keyed/parallel callback repairs. Independent
+integration review finds no merge defect. Its warning-free products build and
+its full Rust library boundary passes: 2,343 pass, zero fail and three remain
+ignored. Source and cleanup guards pass. Products and logs remain in the
+separate immutable `.work/wt/full-inference-six-{wave,library}-qualification/`
+checkouts. XSH is 42,735,592 bytes, SHA-256
+`0a4141329935f84d6c926bae9eea5fe41ca318681f5261b81660cc48346ba8d6`;
+XSHT is 51,086,544 bytes, SHA-256
+`1bf9029bc0ed30d574d8a6035af70def929a313ed8ecdfdba75c29e82a71d5af`.
+All six API selectors pass. The historical replay again reaches interface
+qualification after both views' roots and exact runtime selectors; qualification
+still fails. Header contract reports fall from 116 to 43 and body reports from
+373 to 303 on this same cohort; these are repeated contexts, not independent
+causes or removal credit. The comparison-only local-validation repair and
+classification of actual meaning selectors remain open.
+
+Normal and forced native qualification stop before execution: the source has
+146 family cases but discovery lists 142. The four missing cases belong to one
+new pipeline-input fixture using two removed `.contains(...)` calls. Its owner
+is repairing canonical membership syntax and the actual diagnostic prefix.
+This failed roster check earns no native credit. The intended boundary retains
+the full family and legacy/API selectors and adds the callback, fold, keyed,
+parallel and pattern fixtures plus the changed negative-index case. Fixture-only
+repairs may reuse these products only after compiler-input equivalence is proved;
+no formatter or autofixer is run. The real current Laputa `pm.make` import still
+fails its unique-temporary-binding guard with these products and is under an
+actual owner/slot trace, without a guard relaxation.
+
+Open expert work covers nullable-target arguments, scoped parametric constructor
+schemas, actual sort/count key predicates, collection-expression bodies, local
+structural comparison and the real Laputa `pm.make` temporary-binding failure.
+The canonical application, scheme and execution authorities remain mandatory.
+Pyramid caller retirement proceeds independently; supported selectors and
+historical evidence remain until actual consumers justify their removal.
 
 Earlier return-repair source `ae7128949` integrates the strict process-word,
 boxed Null-return and pure conditional Result-tail repairs. Focused checks

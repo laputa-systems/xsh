@@ -3553,7 +3553,7 @@ impl Checker {
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
                     let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
                     let result = match self.type_constraints.source_sealed_operation(owner, span) {
-                        Some(operation) => operation.result().clone(),
+                        Some(operation) => operation.result().expect("arithmetic operations have a value result").clone(),
                         None => {
                             let level = self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level());
                             self.type_constraints.fresh_at_level(span, level)
@@ -4301,7 +4301,7 @@ impl Checker {
     ) -> Type {
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         let result = match self.type_constraints.source_sealed_operation(owner, span) {
-            Some(operation) => operation.result().clone(),
+            Some(operation) => operation.result().expect("postfix operations have a value result").clone(),
             None => {
                 let level = self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level());
                 self.type_constraints.fresh_at_level(span, level)

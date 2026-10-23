@@ -545,7 +545,11 @@ pub(super) fn is_body_expression(
                     let callback = matches!(stage.kind,
                         crate::syntax::node::StreamStageKind::Map | crate::syntax::node::StreamStageKind::Where
                         | crate::syntax::node::StreamStageKind::FlatMap | crate::syntax::node::StreamStageKind::Any
-                        | crate::syntax::node::StreamStageKind::All);
+                        | crate::syntax::node::StreamStageKind::All | crate::syntax::node::StreamStageKind::ParMap
+                        | crate::syntax::node::StreamStageKind::GroupBy | crate::syntax::node::StreamStageKind::UniqueBy
+                        | crate::syntax::node::StreamStageKind::SortBy)
+                        || (stage.kind == crate::syntax::node::StreamStageKind::Count && stage.block.is_some());
+                    let fold = matches!(stage.kind, crate::syntax::node::StreamStageKind::Fold | crate::syntax::node::StreamStageKind::Reduce);
                     let descriptor = if callback {
                         match crate::sema::stage_arguments::stage_callable_argument(program, stage, |expression| types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type)) {
                             Ok(descriptor) => descriptor,
@@ -553,7 +557,7 @@ pub(super) fn is_body_expression(
                         }
                     } else { None };
                     if let Some(block) = stage.block {
-                        if !callback { return false; }
+                        if !callback && !fold { return false; }
                         let Some(inner) = handler_bindings(program, bindings, available, block) else { return false; };
                         if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, BodyCompletion::Value) { return false; }
                     } else if let Some((_, callee)) = descriptor {
@@ -562,7 +566,7 @@ pub(super) fn is_body_expression(
                         crate::syntax::node::StreamStageKind::Enumerate | crate::syntax::node::StreamStageKind::Drop
                         | crate::syntax::node::StreamStageKind::Take | crate::syntax::node::StreamStageKind::Collect
                         | crate::syntax::node::StreamStageKind::Count | crate::syntax::node::StreamStageKind::First
-                        | crate::syntax::node::StreamStageKind::Last)
+                        | crate::syntax::node::StreamStageKind::Last | crate::syntax::node::StreamStageKind::Sort)
                     { return false; }
                     for (entry, argument) in program.arena.call_args(stage.args).iter().enumerate() {
                         if descriptor.is_some_and(|(selected, _)| selected == entry) { continue; }

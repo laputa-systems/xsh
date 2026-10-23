@@ -19,6 +19,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
     budget.charge(1)?;
     let span = crate::source::Span::at(store.source_id, 0);
     Ok(match encoded {
+        FullSealedOperation::TypePredicate { domain, subject: key } => SealedOperation::TypePredicate { domain, subject: substitution.ty(store, scope, key, budget)?, span },
         FullSealedOperation::Binary { left, right, result, operator } => SealedOperation::Binary(SealedBinaryOperation {
             operator, left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, result: substitution.ty(store, scope, result, budget)?, span,
         }),
@@ -41,17 +42,22 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         budget.charge_scheme_clone(ty)?;
         ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("selected operation has no closed input tuple"))
     })?;
+    if let SealedOperation::TypePredicate { domain, subject: key, .. } = &closed {
+        return if domain.accepts(key) { Ok(SealedOperationSignature::TypePredicate(*domain)) }
+            else { Err(IrVerifyError::new("key predicate has no supported canonical domain")) };
+    }
     let selected = match &closed {
         SealedOperation::Binary(operation) => arithmetic_selection(operation.operator, &operation.left, &operation.right).map(|(signature, result)| (SealedOperationSignature::Binary(signature), result)),
         SealedOperation::Index { receiver, key, constant_key, .. } => index_selection(receiver, key, *constant_key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
+        SealedOperation::TypePredicate { .. } => unreachable!(),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
     let matches = if matches!(operation, SealedOperation::RecordOverride { .. }) {
-        operation.result().closed_ground_type().as_ref() == Some(&result)
-    } else { body_type_matches(&SchemeType::Ground(result), operation.result(), budget)? };
+        operation.result().unwrap().closed_ground_type().as_ref() == Some(&result)
+    } else { body_type_matches(&SchemeType::Ground(result), operation.result().unwrap(), budget)? };
     if !matches { return Err(IrVerifyError::new("sealed operation result disagrees with its input signature")); }
     Ok(signature)
 }
@@ -61,7 +67,7 @@ pub(super) fn symbolic_output_binders(
     substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<BTreeSet<usize>, IrVerifyError> {
     let mut evidence = BTreeSet::new();
-    if matches!(encoded, FullSealedOperation::Binary { .. }) { return Ok(evidence); }
+    if matches!(encoded, FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
         SealedOperation::Index { mut receiver, key, constant_key, .. } => {
@@ -91,7 +97,7 @@ pub(super) fn symbolic_output_binders(
         }
         SealedOperation::RecordOverride { mut receiver, overrides, .. } => {
             while let SchemeType::Validated(_, inner) = receiver { budget.charge(1)?; receiver = *inner; }
-            let parameter = decode_scheme_type(store, scope, encoded.result(), budget, 0)?;
+            let parameter = decode_scheme_type(store, scope, encoded.result().unwrap(), budget, 0)?;
             let SchemeType::Record { fields: expected, .. } = parameter else { return Ok(evidence) };
             let mut fields = match receiver {
                 SchemeType::Record { fields, .. } => fields,
@@ -109,10 +115,10 @@ pub(super) fn symbolic_output_binders(
             }
             return Ok(evidence);
         }
-        SealedOperation::Binary(_) => unreachable!(),
+        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } => unreachable!(),
     };
     if let Some(projection) = projection {
-        let parameter = decode_scheme_type(store, scope, encoded.result(), budget, 0)?;
+        let parameter = decode_scheme_type(store, scope, encoded.result().unwrap(), budget, 0)?;
         verify_symbolic_argument_evidence(&parameter, &projection, scope, substitution, SymbolicEvidenceSource::Projection, &mut evidence, budget, 0)?;
     }
     Ok(evidence)
@@ -124,6 +130,24 @@ pub(super) fn verify_ground(store: &FullStore, scope: &SchemeScope, substitution
         selection(&operation, budget)?;
     }
     Ok(())
+}
+
+pub(super) fn verify_key_domain(
+    store: &FullStore, scope: &SchemeScope, domain: crate::sema::sealed_operation::TypeDomain,
+    key: &SchemeType, budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    budget.charge_scheme_clone(key)?;
+    if let Some(ty) = key.closed_ground_type() {
+        return if domain.accepts(&ty) { Ok(()) } else { Err(IrVerifyError::new("pipeline key has an unsupported canonical domain")) };
+    }
+    for operation in bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")? {
+        budget.charge(1)?;
+        let FullSealedOperation::TypePredicate { domain: required, .. } = operation else { continue; };
+        if *required != domain { continue; }
+        let SealedOperation::TypePredicate { subject: required, .. } = decode(store, scope, *operation, &ApplicationSubstitution::Identity, budget)? else { unreachable!() };
+        if body_types_equal(key, &required) { return Ok(()); }
+    }
+    Err(IrVerifyError::new("generic pipeline key lacks its scoped canonical domain predicate"))
 }
 
 pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &SchemeScope, substitution: ApplicationSubstitution<'_>, caller: Option<(&FullScheme, &SchemeScope)>, bindings: &[FullOperationBinding], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {

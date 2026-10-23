@@ -17,6 +17,7 @@ pub(crate) enum SealedOperationError {
     Resolution(ConstraintResolutionError),
     Constraint(ConstraintConflict),
     MapKey(super::MapKeyConstraintError),
+    UnsupportedTypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: Type },
     UnsupportedIndex { receiver: Type, key: Type },
     UnsupportedSlice { receiver: Type },
     UnsupportedRecordSpread { receiver: Type },
@@ -215,6 +216,7 @@ impl std::fmt::Display for SealedOperationError {
             Self::Resolution(error) => write!(formatter, "operation type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
+            Self::UnsupportedTypePredicate { domain, subject } => write!(formatter, "{domain:?} does not support {subject}"),
             Self::UnsupportedIndex { receiver, key } => write!(formatter, "indexing is not defined for {receiver} with key {:?}", Some(key)),
             Self::UnsupportedSlice { receiver } => write!(formatter, "slicing is not defined for {receiver} with key None"),
             Self::UnsupportedRecordSpread { receiver } => write!(formatter, "record spread is not defined for {receiver} with key None"),
@@ -303,6 +305,13 @@ impl SealedOperations {
 }
 
 impl TypeConstraints {
+    pub(crate) fn require_type_predicate(&mut self, owner: super::CallableApplicationScope, domain: crate::sema::sealed_operation::TypeDomain, subject: &Type, span: Span) -> Result<(), SealedOperationError> {
+        self.commit_constraint_transaction(|constraints| {
+            constraints.register_source_sealed_operation(owner, SealedOperation::TypePredicate { domain, subject: subject.clone(), span })?;
+            constraints.solve_sealed_operations()
+        })
+    }
+
     fn operation_dependencies(&self, operation: &SealedOperation<Type>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
         enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
         let mut pending = operation.types().into_iter().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
@@ -386,6 +395,28 @@ impl TypeConstraints {
                 }
                 for dependency in dependencies { this.operations.watch(dependency, id, changes); }
                 let operation = match operation {
+                    SealedOperation::TypePredicate { domain, subject: key, .. } => {
+                        let key = this.resolve_with_changes(&key, 0, changes)?;
+                        if !domain.may_accept(&key) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }); }
+                        if let Type::Inference(variable) = key.unvalidated() {
+                            if let Some(record) = this.record_binding(*variable)? {
+                                let fields = this.resolve_row(&record.shape)?.fields;
+                                if domain != crate::sema::sealed_operation::TypeDomain::SortKey {
+                                    return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key });
+                                }
+                                for ty in fields.values() {
+                                    if !domain.may_accept(ty) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: ty.clone() }); }
+                                }
+                            }
+                            continue;
+                        }
+                        if key.contains_inference() { continue; }
+                        if !domain.accepts(&key) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }); }
+                        let selection = SealedOperationSignature::TypePredicate(domain);
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
                     SealedOperation::Binary(operation) => operation,
                     SealedOperation::Index { receiver, key, result, constant_key, span, .. } => {
                         let receiver = this.resolve_with_changes(&receiver, 0, changes)?;

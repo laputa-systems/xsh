@@ -3788,3 +3788,28 @@ assert mixed({2, 1})? == [1, 2]
         }
     }
 }
+
+#[test]
+fn pipeline_result_source_views_preserve_opaque_items_and_explicit_peeling() {
+    let source = r#"pure collect_values(values: Result[List[Result[Int, Str]]]) -> List[Result[Int, Str]] { values |> collect }
+pure collect_nested(values: Result[Result[List[Int]]]) -> Result[List[Int]] { values? |> collect }
+stream source_values() [] -> Stream[Int] { yield 1; yield 2 }
+proc collect_nested_stream(values: Result[Result[Stream[Int]]]) [error] -> Result[List[Int]] { values? |> collect }
+let values: Result[List[Result[Int, Str]]] = Ok([Err("opaque")])
+let observed = collect_values(values)
+assert match observed[0] { Ok(_) => false, Err(message) => message == "opaque" }
+let nested: Result[Result[List[Int]]] = Ok(Ok([1, 2]))
+assert collect_nested(nested)? == [1, 2]
+let nested_stream: Result[Result[Stream[Int]]] = Ok(Ok(source_values()))
+assert collect_nested_stream(nested_stream)? == [1, 2]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}

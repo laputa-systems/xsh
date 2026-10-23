@@ -18,6 +18,28 @@ pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SliceBounds { Unbounded, Start, End, Both }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TypeDomain { SortKey, CountKey }
+
+impl TypeDomain {
+    pub(crate) fn may_accept(self, ty: &Type) -> bool {
+        match ty.unvalidated() {
+            Type::Inference(_) => true,
+            Type::Record(fields) if self == Self::SortKey => fields.values().all(|ty| self.may_accept(ty)),
+            ty => self.accepts(ty),
+        }
+    }
+
+    pub(crate) fn accepts(self, ty: &Type) -> bool {
+        match (self, ty.unvalidated()) {
+            (Self::SortKey, Type::Int | Type::Str | Type::Bool | Type::Path)
+            | (Self::CountKey, Type::Int | Type::UInt | Type::Str | Type::Bool) => true,
+            (Self::SortKey, Type::Record(fields)) => fields.values().all(|ty| self.accepts(ty)),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RecordOverrideField<T> {
     pub(crate) name: crate::symbol::Name,
@@ -26,6 +48,7 @@ pub(crate) struct RecordOverrideField<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SealedOperation<T> {
+    TypePredicate { domain: TypeDomain, subject: T, span: Span },
     Binary(SealedBinaryOperation<T>),
     Index { receiver: T, key: T, result: T, syntax: IndexSyntax, constant_key: Option<crate::symbol::Name>, span: Span },
     Slice { receiver: T, result: T, bounds: SliceBounds, span: Span },
@@ -34,6 +57,7 @@ pub(crate) enum SealedOperation<T> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SealedOperationSignature {
+    TypePredicate(TypeDomain),
     Binary(ArithmeticSignature),
     IndexList,
     IndexMap,
@@ -51,13 +75,14 @@ impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
 
 impl<T> SealedOperation<T> {
     pub(crate) fn span(&self) -> Span {
-        match self { Self::Binary(operation) => operation.span, Self::Index { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
+        match self { Self::Binary(operation) => operation.span, Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
     }
-    pub(crate) fn result(&self) -> &T {
-        match self { Self::Binary(operation) => &operation.result, Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => result }
+    pub(crate) fn result(&self) -> Option<&T> {
+        match self { Self::TypePredicate { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(crate) fn inputs(&self) -> impl Iterator<Item = &T> {
         let (fixed, overrides): (_, &[RecordOverrideField<T>]) = match self {
+            Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary(operation) => ([Some(&operation.left), Some(&operation.right)], &[]),
             Self::Index { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
             Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
@@ -65,9 +90,10 @@ impl<T> SealedOperation<T> {
         };
         fixed.into_iter().flatten().chain(overrides.iter().map(|field| &field.ty))
     }
-    pub(crate) fn types(&self) -> impl Iterator<Item = &T> { self.inputs().chain(std::iter::once(self.result())) }
+    pub(crate) fn types(&self) -> impl Iterator<Item = &T> { self.inputs().chain(self.result()) }
     pub(crate) fn types_mut(&mut self) -> impl Iterator<Item = &mut T> where T: Clone {
         let (fixed, overrides): (_, &mut [RecordOverrideField<T>]) = match self {
+            Self::TypePredicate { subject: key, .. } => ([Some(key), None, None], &mut []),
             Self::Binary(operation) => ([Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)], &mut []),
             Self::Index { receiver, key, result, .. } => ([Some(receiver), Some(key), Some(result)], &mut []),
             Self::Slice { receiver, result, .. } => ([Some(receiver), Some(result), None], &mut []),
@@ -77,6 +103,7 @@ impl<T> SealedOperation<T> {
     }
     pub(crate) fn same_kind<U>(&self, other: &SealedOperation<U>) -> bool {
         match (self, other) {
+            (Self::TypePredicate { domain, .. }, SealedOperation::TypePredicate { domain: right, .. }) => domain == right,
             (Self::Binary(left), SealedOperation::Binary(right)) => left.operator == right.operator,
             (Self::Index { syntax, constant_key, .. }, SealedOperation::Index { syntax: right_syntax, constant_key: right_key, .. }) => syntax == right_syntax && constant_key == right_key,
             (Self::Slice { bounds, .. }, SealedOperation::Slice { bounds: right, .. }) => bounds == right,
@@ -92,6 +119,7 @@ impl<T> SealedOperation<T> {
     }
     pub(crate) fn try_map<U, E>(&self, mut map: impl FnMut(&T) -> Result<U, E>) -> Result<SealedOperation<U>, E> {
         Ok(match self {
+            Self::TypePredicate { domain, subject: key, span } => SealedOperation::TypePredicate { domain: *domain, subject: map(key)?, span: *span },
             Self::Binary(operation) => SealedOperation::Binary(SealedBinaryOperation { operator: operation.operator, left: map(&operation.left)?, right: map(&operation.right)?, result: map(&operation.result)?, span: operation.span }),
             Self::Index { receiver, key, result, syntax, constant_key, span } => SealedOperation::Index { receiver: map(receiver)?, key: map(key)?, result: map(result)?, syntax: *syntax, constant_key: *constant_key, span: *span },
             Self::Slice { receiver, result, bounds, span } => SealedOperation::Slice { receiver: map(receiver)?, result: map(result)?, bounds: *bounds, span: *span },

@@ -510,6 +510,7 @@ pub(super) use crate::sema::wrapper_operation::WrapperBinding as FullWrapperBind
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
 pub(super) enum FullSealedOperation {
+    TypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: SchemeTypeId },
     Binary { left: SchemeTypeId, right: SchemeTypeId, result: SchemeTypeId, operator: xsh_registry::signature::ArithmeticOperator },
     Index { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId, syntax: crate::sema::sealed_operation::IndexSyntax, constant_key: u32 },
     Slice { receiver: SchemeTypeId, result: SchemeTypeId, bounds: crate::sema::sealed_operation::SliceBounds },
@@ -519,6 +520,7 @@ pub(super) enum FullSealedOperation {
 impl FullSealedOperation {
     pub(super) fn inputs(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         let (fixed, overrides): (_, &[FullSchemeField]) = match self {
+            Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary { left, right, .. } => ([Some(left), Some(right)], &[]),
             Self::Index { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
             Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
@@ -529,11 +531,11 @@ impl FullSealedOperation {
         };
         Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
-    pub(super) fn result(self) -> SchemeTypeId {
-        match self { Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => result }
+    pub(super) fn result(self) -> Option<SchemeTypeId> {
+        match self { Self::TypePredicate { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
-        Ok(self.inputs(store)?.chain(std::iter::once(self.result())))
+        Ok(self.inputs(store)?.chain(self.result()))
     }
 }
 
@@ -901,6 +903,7 @@ impl FullBuilder {
         for operation in &scheme.callable().requirements().operations {
             let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
             let encoded = match operation {
+                crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, subject: key, .. } => FullSealedOperation::TypePredicate { domain, subject: key },
                 crate::sema::sealed_operation::SealedOperation::Binary(operation) => FullSealedOperation::Binary { left: operation.left, right: operation.right, result: operation.result, operator: operation.operator },
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, result, syntax, constant_key, .. } => FullSealedOperation::Index { receiver, key, result, syntax, constant_key: constant_key.map(|name| self.intern_string(name.as_str().as_str()).map(|id| id.raw())).transpose()?.unwrap_or(super::IR_NONE) },
                 crate::sema::sealed_operation::SealedOperation::Slice { receiver, result, bounds, .. } => FullSealedOperation::Slice { receiver, result, bounds },

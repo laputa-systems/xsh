@@ -125,6 +125,9 @@ the result or its nominal identity. A body result annotation cannot supply that
 source evidence or authorize a constructor from another function.
 Only checker-selected constructor callees use a static namespace role. Their
 arguments and independent module-value reads retain ordinary capture rules.
+Constructor instance completion closes schema arguments; surrounding callable
+generalization and final fact resolution own the supplied expressions. A closed
+constructor field does not close the open row from which its value was projected.
 
 Argument expansion shares one source-entry traversal for ordinary `Type` facts
 and generalized `SchemeType` facts. Each spread requires a checked finite closed
@@ -148,6 +151,16 @@ substitution. Imported schemes and callable contracts preserve the same bound.
 Cold verification requires it for symbolic Map and Set domains and rejects
 missing or malformed parameter metadata. These rows belong to the in-memory
 Full IR; they do not define a serialized program format.
+
+Pipeline key requirements use `SealedOperation::TypePredicate` in the existing
+operation authority. A predicate carries its actual subject type and has no
+result, invocation, effect, or computational use-site. `SortKey` accepts `Int`,
+`Str`, `Bool`, `Path`, and records of supported keys. `CountKey` accepts `Str`,
+`Int`, `UInt`, and `Bool`. These requirements remain distinct from `MapKey`.
+Generalization retains the whole subject, including row tails. Invocation
+substitution checks every actual field. Cold pipeline proof derives the key
+from its input or callback and requires the matching scoped predicate.
+Computational operations retain their existing use-site ownership checks.
 
 Cold generic verification proves actual fixed arguments, rest items and splices
 against the selected callable contract. Default prefixes require unique matching

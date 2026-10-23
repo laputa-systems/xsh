@@ -1,9 +1,10 @@
 use super::{CheckedFunctionDeclaration, Checker, CheckOutput};
-use crate::sema::constants::SchemaExpectation;
+use crate::sema::constants::{SchemaComponent, SchemaExpectation};
+use crate::sema::types::Type;
 use crate::sema::schemes::{CallableMonotype, SchemeRowParameterId,
     SchemeRowTail, SchemeType, SchemeTypeParameterId, SchemeEffectParameterId, TypeScheme};
 use crate::symbol::SymbolOwner;
-use crate::syntax::arena::{ArenaProgram, TypeDefId};
+use crate::syntax::arena::{ArenaProgram, ArenaTypeDefBody, TypeDefId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -33,6 +34,13 @@ pub enum ContractComparisonError {
 pub(super) struct SchemaIdentity {
     pub(super) module: Option<Arc<str>>,
     pub(super) name: crate::symbol::Name,
+    semantics: SchemaSemantics,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SchemaSemantics {
+    Structural(Arc<Type>),
+    Retained,
 }
 
 pub(crate) struct CallableInstanceEvidence {
@@ -125,8 +133,54 @@ pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::se
             Arc::from(program.modules.iter().find(|module| module.name == namespace)
                 .expect("checked schema belongs to a declared module").key.as_str())
         });
-        (definition, SchemaIdentity { module, name })
+        let declaration = program.arena.type_def(definition);
+        let semantics = match &declaration.body {
+            ArenaTypeDefBody::RecordSchema(fields)
+                if !declaration.nominal && declaration.bounds.is_none() && declaration.type_parameters.is_empty()
+                    && program.arena.schema_fields(*fields).iter().all(|field| field.default.is_none())
+                    && constructors.defaults(definition).is_some_and(BTreeMap::is_empty) =>
+            {
+                match constructors.instantiate_checked(&program.arena, definition, &[]) {
+                    Ok(ty) if structural_storage_type(&ty) => SchemaSemantics::Structural(Arc::new(ty)),
+                    _ => SchemaSemantics::Retained,
+                }
+            }
+            _ => SchemaSemantics::Retained,
+        };
+        (definition, SchemaIdentity { module, name, semantics })
     }).collect())
+}
+
+fn structural_storage_type(ty: &Type) -> bool {
+    match ty {
+        Type::Unit | Type::Null | Type::Bool | Type::Int | Type::Float | Type::Str
+        | Type::Bytes | Type::Duration | Type::Path => true,
+        Type::List(item) | Type::Optional(item) => structural_storage_type(item),
+        Type::Map(key, value) => structural_storage_type(key) && structural_storage_type(value),
+        Type::Record(fields) => fields.values().all(structural_storage_type),
+        _ => false,
+    }
+}
+
+fn project_structural_schema(schema: &SchemaExpectation, ty: &Type,
+    identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> SchemaExpectation
+{
+    let instances = schema.instances.iter().filter(|instance| {
+        !instance.arguments.is_empty() || !identities.get(&instance.definition).is_some_and(|identity| {
+            matches!(&identity.semantics, SchemaSemantics::Structural(expected) if expected.as_ref() == ty)
+        })
+    }).cloned().collect();
+    let children = schema.children.iter().map(|(component, schema)| {
+        let child = match (component, ty) {
+            (SchemaComponent::Field(name), Type::Record(fields)) => fields.get(name),
+            (SchemaComponent::Item, Type::List(item)) | (SchemaComponent::Optional, Type::Optional(item))
+            | (SchemaComponent::Success, Type::Result(item, _)) | (SchemaComponent::Error, Type::Result(_, item))
+            | (SchemaComponent::Value, Type::Map(_, item)) | (SchemaComponent::Key, Type::Map(item, _)) => Some(item.as_ref()),
+            _ => None,
+        };
+        (*component, child.map_or_else(|| schema.clone(), |ty| project_structural_schema(schema, ty, identities)))
+    }).collect();
+    SchemaExpectation { instances, children: Arc::new(children) }
 }
 
 pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
@@ -171,11 +225,22 @@ impl CheckedCallableContract {
             std::mem::size_of::<BTreeMap<TypeDefId, SchemaIdentity>>()
                 + self.schema_identities.len() * std::mem::size_of::<(TypeDefId, SchemaIdentity)>()
                 + self.schema_identities.values().filter_map(|identity| identity.module.as_ref()).map(|module| module.len()).sum::<usize>()
+                + self.schema_identities.values().map(|identity| match &identity.semantics {
+                    SchemaSemantics::Structural(ty) => ty.retained_bytes(),
+                    SchemaSemantics::Retained => 0,
+                }).sum::<usize>()
         } else { 0 };
         scheme.saturating_add(identities)
     }
 
     pub(crate) fn scheme(&self) -> &Arc<TypeScheme> { &self.scheme }
+
+    pub(crate) fn structural_interface_schema(&self, ty: &SchemeType, schema: Option<&SchemaExpectation>, checked: &Type) -> bool {
+        let Some(schema) = schema else { return false; };
+        let Some(ground) = ty.closed_ground_type() else { return false; };
+        ground == *checked && schema_has_obligations(schema)
+            && !schema_has_obligations(&project_structural_schema(schema, &ground, &self.schema_identities))
+    }
 
     pub(crate) fn binder_correspondence(
         &self,
@@ -255,10 +320,10 @@ impl CheckedCallableContract {
         }
         let schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
             self.scheme_callables.as_deref(), generalized.scheme_callables.as_deref());
-        if !schemas.schema(self.scheme.return_schema(), generalized.scheme.return_schema())
+        if !schemas.interface_schema(self.scheme.return_schema(), generalized.scheme.return_schema(), self.scheme.return_type(), generalized.scheme.return_type())
             || !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)| {
                 old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest
-                    && schemas.schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref())
+                    && schemas.interface_schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref(), &old.ty, &new.ty)
             })
         {
             return Ok(None);
@@ -463,7 +528,7 @@ impl BoundEquivalence<'_> {
             || left.row_parameters().len() != right.row_parameters().len()
             || !self.parameters(left.params(), right.params())
             || !self.ty(left.return_type(), right.return_type())
-            || !self.schema(left.return_schema(), right.return_schema())
+            || !self.interface_schema(left.return_schema(), right.return_schema(), left.return_type(), right.return_type())
             || !self.requirements(left.callable().requirements(), right.callable().requirements())
         { return false; }
         left.row_parameters().iter().all(|left| {
@@ -546,16 +611,27 @@ impl BoundEquivalence<'_> {
         }
     }
 
+    fn interface_schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>, left_type: &SchemeType, right_type: &SchemeType) -> bool {
+        match (left_type.closed_ground_type(), right_type.closed_ground_type()) {
+            (Some(left_type), Some(right_type)) if left_type == right_type => {
+                let left = left.map(|schema| project_structural_schema(schema, &left_type, self.left_schemas));
+                let right = right.map(|schema| project_structural_schema(schema, &right_type, self.right_schemas));
+                self.schema(left.as_ref(), right.as_ref())
+            }
+            _ => self.schema(left, right),
+        }
+    }
+
     fn parameters(&mut self, left: &[crate::sema::schemes::SchemeParameter], right: &[crate::sema::schemes::SchemeParameter]) -> bool {
         left.len() == right.len() && left.iter().zip(right).all(|(left, right)| {
             left.name == right.name && left.defaulted == right.defaulted && left.rest == right.rest
-                && self.schema(left.schema_expectation.as_ref(), right.schema_expectation.as_ref()) && self.ty(&left.ty, &right.ty)
+                && self.interface_schema(left.schema_expectation.as_ref(), right.schema_expectation.as_ref(), &left.ty, &right.ty) && self.ty(&left.ty, &right.ty)
         })
     }
 
     fn monotype(&mut self, left: &CallableMonotype, right: &CallableMonotype) -> bool {
         self.parameters(left.params(), right.params()) && self.ty(left.return_type(), right.return_type())
-            && self.schema(left.return_schema(), right.return_schema())
+            && self.interface_schema(left.return_schema(), right.return_schema(), left.return_type(), right.return_type())
     }
 
     fn effects(&self, left: &crate::sema::effects::EffectContract<SchemeEffectParameterId>, right: &crate::sema::effects::EffectContract<SchemeEffectParameterId>) -> bool {
@@ -731,19 +807,54 @@ mod tests {
     }
 
     #[test]
-    fn inferred_return_schema_retains_actual_constructor_identity() {
+    fn structural_interface_aliases_preserve_known_ground_contracts() {
+        let declared = root_schema_contract("type Pieces = {texts: List[Str], kinds: List[Int]}\npure describe() -> Pieces { {texts: [\"a\"], kinds: [0]} }\n");
+        let inferred = root_schema_contract("type Pieces = {texts: List[Str], kinds: List[Int]}\npure describe() { {texts: [\"a\"], kinds: [0]} }\n");
+        let before = declared.to_string();
+        assert!(declared.equivalent_to(&inferred));
+        assert!(declared.is_instance_of(&inferred).unwrap());
+        assert!(inferred.equivalent_to(&declared));
+        assert_eq!(declared.to_string(), before);
+        assert!(before.contains("schema Pieces[]"));
+        let named = root_schema_contract("type Entry = {value: Int}\npure describe(value: Entry) -> Int { value.value }\n");
+        let structural = root_schema_contract("type Other = {value: Int}\npure describe(value: Other) -> Int { value.value }\n");
+        assert!(named.equivalent_to(&structural));
+    }
+
+    #[test]
+    fn structural_interface_projection_retains_semantic_obligations() {
+        for (declarations, annotated, inferred) in [
+            ("type Count = {value: UInt}\n", "pure describe(value: Int) -> Count { {value} }\n", "pure describe(value: Int) { {value} }\n"),
+            ("", "pure describe() -> Result[Int] { 1 }\n", "pure describe() { 1 }\n"),
+            ("nominal type Entry = {value: Int}\n", "pure describe() -> Entry { Entry(value: 1) }\n", "pure describe() { {value: 1} }\n"),
+            ("type Entry = {value: Int = 1}\n", "pure describe() -> Entry { {value: 1} }\n", "pure describe() { {value: 1} }\n"),
+            ("type Entry[T] = {value: Int}\n", "pure describe() -> Entry[Int] { {value: 1} }\n", "pure describe() { {value: 1} }\n"),
+            ("type Inner = {value: Int = 1}\ntype Entry = {inner: Inner}\n", "pure describe() -> Entry { {inner: {value: 1}} }\n", "pure describe() { {inner: {value: 1}} }\n"),
+        ] {
+            let annotated = root_schema_contract(&format!("{declarations}{annotated}"));
+            let inferred = root_schema_contract(&format!("{declarations}{inferred}"));
+            assert!(!annotated.equivalent_to(&inferred));
+            assert!(!annotated.is_instance_of(&inferred).unwrap_or(false));
+        }
+        let annotated = root_schema_contract("type Entry = {value: Int}\npure describe(value: Entry) -> Int { 1 }\n");
+        let erased = root_schema_contract("pure describe(value) -> Int { 1 }\n");
+        assert!(!annotated.is_instance_of(&erased).unwrap_or(false));
+    }
+
+    #[test]
+    fn structural_return_interfaces_preserve_ground_shape_across_constructors() {
         let declarations = "type Disk = { mount: Str, used: Int }\ntype Other = { mount: Str, used: Int }\n";
         let original = root_schema_contract(&format!("{declarations}proc describe(mount: Str) -> Result[Disk] {{ Disk(mount: mount, used: mount.byte_len()) }}\n"));
         let inferred = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ Disk(mount: mount, used: mount.byte_len()) }}\n"));
         assert!(original.equivalent_to(&inferred));
         for body in ["Other(mount: mount, used: mount.byte_len())", "{ mount: mount, used: mount.byte_len() }"] {
             let changed = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ {body} }}\n"));
-            assert!(!original.equivalent_to(&changed), "{body}");
+            assert!(original.equivalent_to(&changed), "{body}");
         }
     }
 
     #[test]
-    fn inferred_return_schema_follows_aliases_and_every_completing_return() {
+    fn structural_return_interfaces_preserve_ground_shape_across_all_returns() {
         let declarations = "type Disk = { mount: Str, used: Int }\ntype Other = { mount: Str, used: Int }\n";
         for body in [
             "let result = Disk(mount: mount, used: 7); result",
@@ -763,7 +874,7 @@ mod tests {
             "var result = Disk(mount: mount, used: 7); result = Other(mount: mount, used: 9); let alias = result; alias",
         ] {
             let inferred = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ {body} }}\n"));
-            assert!(!original.equivalent_to(&inferred), "{body}");
+            assert!(original.equivalent_to(&inferred), "{body}");
         }
     }
 

@@ -16,13 +16,10 @@ pub(super) struct LocalInference {
     nullable_seed_cells: BTreeSet<TypeVariableId>,
     aggregate_scopes: Vec<AggregateSeedScope>,
     fixed_storage_checks: Vec<FixedStorageCheck>,
-    sort_key_checks: Vec<SortKeyCheck>,
+    pipeline_key_checks: Vec<PipelineKeyCheck>,
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
-    /// Expression facts recorded with inference identities since the last
-    /// record-constructor publication; every other fact is already canonical.
-    unresolved_expr_types: Vec<Span>,
 }
 
 #[derive(Clone)]
@@ -42,16 +39,17 @@ struct FixedStorageCheck {
 }
 
 #[derive(Clone)]
-struct SortKeyCheck {
+struct PipelineKeyCheck {
     owner: Option<super::EffectDeclarationId>,
-    key: Type,
+    domain: crate::sema::sealed_operation::TypeDomain,
+    subject: Type,
     contribution: Span,
 }
 
 pub(super) struct LocalBodyConstraints {
     collecting: bool,
     fixed_storage_start: usize,
-    sort_key_start: usize,
+    pipeline_key_start: usize,
 }
 
 enum LocalInferenceFailure {
@@ -79,11 +77,10 @@ impl LocalInference {
                 && other.nullable_seed_cells.is_empty()
                 && other.aggregate_scopes.is_empty()
                 && other.fixed_storage_checks.is_empty()
-                && other.sort_key_checks.is_empty()
+                && other.pipeline_key_checks.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
-                && other.checked_bindings.is_empty()
-                && other.unresolved_expr_types.is_empty(),
+                && other.checked_bindings.is_empty(),
             "module owner preparation must contain only local-inference seeds"
         );
         self.seeds.extend(other.seeds.iter().copied());
@@ -119,29 +116,7 @@ impl LocalInference {
 
 impl Checker {
     pub(super) fn record_expr_type(&mut self, span: Span, ty: Type) {
-        if ty.contains_inference() {
-            self.local_inference.unresolved_expr_types.push(span);
-        }
         self.expr_types.insert(span, ty);
-    }
-
-    pub(super) fn unresolved_expression_boundary(&self) -> usize {
-        self.local_inference.unresolved_expr_types.len()
-    }
-
-    pub(super) fn publish_unresolved_expr_types(&mut self, start: usize) {
-        for span in self.local_inference.unresolved_expr_types.drain(start..) {
-            if let Some(ty) = self.expr_types.get_mut(&span)
-                && ty.contains_inference()
-            {
-                *ty = self
-                    .type_constraints
-                    .resolve(ty)
-                    .ok()
-                    .filter(|resolved| !resolved.contains_inference())
-                    .unwrap_or(Type::Invalid);
-            }
-        }
     }
 
     pub(super) fn resolve_checked_types(&mut self) {
@@ -332,7 +307,7 @@ impl Checker {
         let enclosing = LocalBodyConstraints {
             collecting: self.local_inference.collecting,
             fixed_storage_start: self.local_inference.fixed_storage_checks.len(),
-            sort_key_start: self.local_inference.sort_key_checks.len(),
+            pipeline_key_start: self.local_inference.pipeline_key_checks.len(),
         };
         self.local_inference.collecting = true;
         enclosing
@@ -358,11 +333,10 @@ impl Checker {
                 self.report_inferred_type_conflict(conflict);
             }
         }
-        let checks = self.local_inference.sort_key_checks
-            .drain(enclosing.sort_key_start..).collect::<Vec<_>>();
+        let checks = self.local_inference.pipeline_key_checks.drain(enclosing.pipeline_key_start..).collect::<Vec<_>>();
         for check in checks {
             assert_eq!(check.owner, self.stream_origin_owner);
-            self.validate_stream_sort_key(&check.key, check.contribution);
+            self.validate_pipeline_key_domain(check.domain, &check.subject, check.contribution);
         }
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         match self.type_constraints.source_list_from_end_indexes(owner) {
@@ -372,13 +346,9 @@ impl Checker {
         self.local_inference.collecting = enclosing.collecting;
     }
 
-    pub(super) fn defer_stream_sort_key(&mut self, key: &Type, contribution: Span) -> bool {
-        if !self.local_inference.collecting || !key.contains_inference() { return false; }
-        self.local_inference.sort_key_checks.push(SortKeyCheck {
-            owner: self.stream_origin_owner,
-            key: key.clone(),
-            contribution,
-        });
+    pub(super) fn defer_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, subject: &Type, contribution: Span) -> bool {
+        if !self.local_inference.collecting || !subject.contains_inference() { return false; }
+        self.local_inference.pipeline_key_checks.push(PipelineKeyCheck { owner: self.stream_origin_owner, domain, subject: subject.clone(), contribution });
         true
     }
 
@@ -1350,6 +1320,41 @@ mod tests {
                 assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected));
             }
         }
+    }
+
+    #[test]
+    fn constructor_arguments_retain_open_row_facts_until_body_generalization() {
+        let source = "type Row = {value: Int}\npure sample(row) -> Row { Row(value: row.value) }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+            ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
+        }).unwrap();
+        let definition = parsed.arena.arena.function_def(definition);
+        let mut checker = Checker::new(super::super::CheckOptions::default());
+        checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
+        let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+        checker.record_constructors = super::super::RecordConstructors::collect_declarations_bundle(&view);
+        checker.collect_definitions_arena(&parsed.arena, Arc::new(parsed.arena.clone()), source, parsed.arena.arena.stmt_ids(parsed.arena.statements));
+        checker.local_inference = LocalInference::prepare(&view);
+        checker.check_function_arena(&parsed.arena, source, definition, true);
+        assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+        let (projection, base, name) = (0..parsed.arena.arena.expr_tags.len()).find_map(|index| {
+            let expression = ExprId::from_index(index);
+            match parsed.arena.arena.expr(expression).kind {
+                ArenaExprKind::Field { base, name } if &source[parsed.arena.arena.expr(expression).span.range()] == "row.value" => Some((expression, base, name)),
+                _ => None,
+            }
+        }).unwrap();
+        let projected = &checker.expr_types[&parsed.arena.arena.expr(projection).span];
+        assert_eq!(checker.type_constraints.resolve(projected), Ok(Type::Int));
+        let row = checker.expr_types[&parsed.arena.arena.expr(base).span].clone();
+        assert!(row.contains_inference(), "{row:?}");
+        let field = checker.type_constraints.project_record_field(&row, name, 1, parsed.arena.arena.expr(projection).span).unwrap();
+        assert_eq!(checker.type_constraints.resolve(&field), Ok(Type::Int));
+        assert_eq!(checker.record_constructor_instances.len(), 1);
+        assert!(checker.record_constructor_instances.values().all(|constructor| constructor.ty == Type::Record(BTreeMap::from([(name, Type::Int)]).into())));
     }
 
     #[test]

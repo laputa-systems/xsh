@@ -4160,8 +4160,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
         body: &mut Vec<BuildStmtId>,
     ) -> Option<Vec<CallArgument<SchemeType>>> {
+        let program = self.program;
+        self.lower_scheme_source_arguments(expression, program.arena.call_args(args), plan, slots, current_function, facts, visited, lowered_types, body)
+    }
+
+    fn lower_scheme_source_arguments(
+        &mut self, expression: ExprId, args: &[crate::syntax::arena::ArenaCallArg],
+        plan: Option<&crate::sema::schemes::RegisteredCallPlan>,
+        slots: &mut SlotScope, current_function: Name, facts: &SchemeBodyFacts,
+        visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+        body: &mut Vec<BuildStmtId>,
+    ) -> Option<Vec<CallArgument<SchemeType>>> {
         use crate::sema::arguments::{ArgumentValueSource, expand_scheme_named_arguments};
-        let expanded = match expand_scheme_named_arguments(self.program, self.program.arena.call_args(args), |value| facts.expression_types().get(&value).cloned()) {
+        let expanded = match expand_scheme_named_arguments(self.program, args, |value| facts.expression_types().get(&value).cloned()) {
             Ok(arguments) => arguments,
             Err(error) => { self.last_blocker_detail = Some((error.span, error.message)); return None; }
         };
@@ -4884,7 +4895,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let mut lowered_stages = Vec::new();
                 for stage in self.program.arena.stream_stages(stages).to_vec() {
-                    if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All) {
+                    if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All | StreamStageKind::ParMap | StreamStageKind::GroupBy | StreamStageKind::UniqueBy | StreamStageKind::SortBy)
+                        || (stage.kind == StreamStageKind::Count && stage.block.is_some())
+                    {
                         let (slot, value) = self.lower_scheme_pipeline_callback(&stage, &item_type, slots, current_function, facts, visited, lowered_types)?;
                         let result = lowered_types.get(&value)?.clone();
                         let lowered = match stage.kind {
@@ -4893,23 +4906,71 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             StreamStageKind::Where => LoweredPipelineStage::Where { slot, predicate: value },
                             StreamStageKind::Any => LoweredPipelineStage::Any { slot, predicate: value },
                             StreamStageKind::All => LoweredPipelineStage::All { slot, predicate: value },
+                            StreamStageKind::ParMap | StreamStageKind::SortBy => {
+                                let mut configuration = Vec::new();
+                                let entry = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.callable_entry;
+                                let arguments = self.program.arena.call_args(stage.args).iter().enumerate().filter(|(index, _)| Some(*index) != entry).map(|(_, argument)| argument.clone()).collect::<Vec<_>>();
+                                let arguments = self.lower_scheme_source_arguments(expression, &arguments, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+                                let configured = match arguments.as_slice() {
+                                    [] => None,
+                                    [argument] if self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() == [0] => {
+                                        let jobs = argument.lowered?;
+                                        let ty = lowered_types.get(&jobs)?.clone();
+                                        configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: jobs }));
+                                        let jobs = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+                                        lowered_types.insert(jobs, ty);
+                                        Some(jobs)
+                                    }
+                                    _ => return self.block_scheme_lowering_expr(expression),
+                                };
+                                if stage.kind == StreamStageKind::ParMap {
+                                    item_type = result;
+                                    LoweredPipelineStage::ParMap { slot, jobs: configured, value }
+                                } else { LoweredPipelineStage::SortBy { slot, key: value, descending: configured } }
+                            }
+                            StreamStageKind::GroupBy => {
+                                item_type = SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), result), (Name::intern("items"), SchemeType::List(Box::new(item_type)))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                LoweredPipelineStage::GroupBy { slot, key: value }
+                            }
+                            StreamStageKind::UniqueBy => LoweredPipelineStage::UniqueBy { slot, key: value },
+                            StreamStageKind::Count => LoweredPipelineStage::CountBy { slot, key: value },
                             _ => unreachable!(),
                         };
                         lowered_stages.push(lowered);
                         continue;
                     }
-                    if stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
+                    let fold = matches!(stage.kind, StreamStageKind::Fold | StreamStageKind::Reduce);
+                    if stage.block.is_some() && !fold { return self.block_scheme_lowering_expr(expression); }
                     let mut configuration = Vec::new();
                     let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
                     let lowered = match stage.kind {
-                        StreamStageKind::Drop | StreamStageKind::Take => {
+                        StreamStageKind::Drop | StreamStageKind::Take | StreamStageKind::Fold | StreamStageKind::Reduce => {
                             if arguments.len() != 1 || self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() != [0] { return self.block_scheme_lowering_expr(expression); }
                             let value = arguments[0].lowered?;
                             let ty = lowered_types.get(&value)?.clone();
                             configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
                             let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
                             lowered_types.insert(value, ty);
-                            if stage.kind == StreamStageKind::Drop { LoweredPipelineStage::Drop(value) } else { LoweredPipelineStage::Take(value) }
+                            match stage.kind {
+                                StreamStageKind::Drop => LoweredPipelineStage::Drop(value),
+                                StreamStageKind::Take => LoweredPipelineStage::Take(value),
+                                _ => self.lower_scheme_pipeline_fold(&stage, &item_type, value, slots, current_function, facts, visited, lowered_types)?,
+                            }
+                        }
+                        StreamStageKind::Sort => {
+                            let descending = match arguments.as_slice() {
+                                [] => None,
+                                [argument] if self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() == [0] => {
+                                    let value = argument.lowered?;
+                                    let ty = lowered_types.get(&value)?.clone();
+                                    configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                                    let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+                                    lowered_types.insert(value, ty);
+                                    Some(value)
+                                }
+                                _ => return self.block_scheme_lowering_expr(expression),
+                            };
+                            LoweredPipelineStage::Sort { descending }
                         }
                         StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
                             StreamStageKind::Enumerate => {
@@ -9950,6 +10011,24 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
         let instance = foreign_identity.bodies.resolved_type_expressions.instantiations[&other].clone();
         foreign_identity.bodies.resolved_type_expressions.instantiations.insert(call, instance);
         assert!(checked.build(&foreign_identity).is_err());
+    }
+
+    #[test]
+    fn generic_record_constructor_formals_constrain_open_field_producers() {
+        let source = "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet first = sample({value: 7, extra: \"kept\"})\nlet second = sample({value: 9, extra: false})\nassert first.value == 7\nassert second.value == 9\n";
+        let checked = CheckedSource::new("generic-record-constructor-field-context.xsh", source, Vec::new());
+        let result = checked.build(&checked.declarations);
+        assert!(result.is_ok(), "{result:?}");
+        for rejected in [
+            "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet result = sample({value: \"wrong\"})\n",
+            "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet result = sample({missing: 7})\n",
+            "type Box[T] = {value: T}\nlet result = Box(value: [])\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), rejected);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = crate::sema::check::Checker::check_arena(&parsed.arena, rejected);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{rejected}: {:?}", output.diagnostics);
+        }
     }
 
     #[test]

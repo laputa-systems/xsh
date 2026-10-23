@@ -198,18 +198,19 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     for operation in &scheme.callable().requirements().operations {
         let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
-        let result = render_scheme_type(operation.result(), names, identities, context);
+        let result = operation.result().map(|ty| render_scheme_type(ty, names, identities, context));
         parts.push(match operation {
-            crate::sema::sealed_operation::SealedOperation::Binary(operation) => format!("arithmetic({:?}, {inputs}) -> {result}", operation.operator),
+            crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, .. } => format!("{domain:?}({inputs})"),
+            crate::sema::sealed_operation::SealedOperation::Binary(operation) => format!("arithmetic({:?}, {inputs}) -> {}", operation.operator, result.unwrap()),
             crate::sema::sealed_operation::SealedOperation::Index { syntax, constant_key, .. } => {
                 let literal = match syntax { crate::sema::sealed_operation::IndexSyntax::Ordinary => String::new(), crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance) => format!(", negative-literal={distance}") };
                 let field = constant_key.map(|name| format!(", field={:?}", name.as_str().as_str())).unwrap_or_default();
-                format!("index({inputs}{literal}{field}) -> {result}")
+                format!("index({inputs}{literal}{field}) -> {}", result.unwrap())
             }
-            crate::sema::sealed_operation::SealedOperation::Slice { bounds, .. } => format!("slice({bounds:?}, {inputs}) -> {result}"),
+            crate::sema::sealed_operation::SealedOperation::Slice { bounds, .. } => format!("slice({bounds:?}, {inputs}) -> {}", result.unwrap()),
             crate::sema::sealed_operation::SealedOperation::RecordOverride { overrides, .. } => {
                 let names = overrides.iter().map(|field| field.name.as_str().to_string()).collect::<Vec<_>>().join(", ");
-                format!("record-override([{names}], {inputs}) -> {result}")
+                format!("record-override([{names}], {inputs}) -> {}", result.unwrap())
             }
         });
     }
