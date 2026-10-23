@@ -4554,6 +4554,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 Ok(())
             }
+            schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add | crate::syntax::node::BinaryOp::Sub
+                | crate::syntax::node::BinaryOp::Mul | crate::syntax::node::BinaryOp::Div | crate::syntax::node::BinaryOp::Rem, .. }
+                if expected.as_ref() == &Type::Int
+                    && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Int))) => Ok(()),
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, left, right, .. }
                 if matches!(expected.as_ref(), Type::List(_)) => {
                 self.expression(owner, left.raw() as usize, Arc::clone(&expected), false);

@@ -22632,6 +22632,73 @@ run true
     }
 
     #[test]
+    fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
+pure divide(value: Int, divisor: Int) -> Int { value / divisor }
+pure checked(days: Int) -> Int { divide(days + 719468, 146097) }
+pure shifted(days, marker) {
+    let _ = marker
+    let _ = true
+    let _ = "wrong"
+    let shifted = days + 719468
+    if shifted > 0 { divide(shifted, 146097) } else { 0 }
+}
+pure keep(value) { value }
+assert shifted(0, "marker") == 4
+assert shifted(0, "marker") == checked(0)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "shifted");
+            let other = scheme_fixture_root_function(&program, "keep");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let arithmetic = function_instruction_indices(&program, "shifted", FullTag::ExprBinary).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Binary { op: BinaryOp::Add, .. })
+            }).unwrap();
+            let schema::ExprView::Binary { left, right, .. } = decoder.expression_view(arithmetic).unwrap() else { unreachable!() };
+            let (left, right) = (left.raw() as usize, right.raw() as usize);
+            let text = function_instruction_indices(&program, "shifted", FullTag::ExprStr)[0];
+            let boolean = function_instruction_indices(&program, "shifted", FullTag::ExprBool)[0];
+            let marker = decoder.instruction_range.clone().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
+            }).unwrap();
+            let mut wrong_operand = (*program).clone();
+            wrong_operand.store.tags[right] = program.store.tags[text];
+            wrong_operand.store.data[right] = program.store.data[text];
+            assert!(FullVerifier::verify(&wrong_operand).is_err());
+            let words = program.store.data[arithmetic].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_operation = (*program).clone();
+            let operation = u32::try_from(wrong_operation.store.binary_ops.len()).unwrap();
+            wrong_operation.store.binary_ops.push(BinaryOp::Eq);
+            wrong_operation.store.extra[words.start] = operation;
+            assert!(FullVerifier::verify(&wrong_operation).is_err());
+            let mut wrong_result = (*program).clone();
+            wrong_result.store.scheme_body_facts[fact(arithmetic)].value = program.store.scheme_body_facts[fact(boolean)].value;
+            assert!(FullVerifier::verify(&wrong_result).is_err());
+            let mut wrong_binder = (*program).clone();
+            let words = program.store.data[left].range().bounds(program.store.extra.len()).unwrap();
+            wrong_binder.store.extra[words.start] = 1;
+            wrong_binder.store.scheme_body_facts[fact(left)].value = program.store.scheme_body_facts[fact(marker)].value;
+            assert!(FullVerifier::verify(&wrong_binder).is_err());
+            let mut foreign_owner = (*program).clone();
+            foreign_owner.store.scheme_body_facts[fact(arithmetic)].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+        });
+    }
+
+    #[test]
     fn generic_result_returns_preserve_symbolic_success_with_error_subtypes() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-result-error-subtype-return.xsh", r#"
