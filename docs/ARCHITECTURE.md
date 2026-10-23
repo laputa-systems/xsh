@@ -553,6 +553,16 @@ type substitution to select wrapping or preservation. The executor does not
 inspect the returned payload to select an envelope, and formal values keep their
 ordinary data wrapping.
 
+Proc completion normalizes a non-Error outer failure only when the checked
+return contract requires `Error`. Ground functions derive this from their
+checked return and signature. Scheme functions retain a defaulted-Proc flag
+in existing metadata and consult the actual prepared invocation substitution,
+including application-result parameters. Cold verification authenticates the
+flag against the scheme and limits callback error evidence to actual owned
+return sites. Normalization preserves existing structured errors and updates
+only a matching pending traceback's error identity, retaining its source span
+and frames. Nested Result values remain data.
+
 Checked callable contracts and aliases retain the canonical `CallableKind`.
 The Rust `TypedCallable.kind` field replaces its former purity flag.
 `Type::Function(kind)` represents an opaque callable and replaces `Type::Pure`

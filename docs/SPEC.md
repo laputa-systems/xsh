@@ -4083,6 +4083,15 @@ A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
 
+When an inferred proc completion has outer type `Result[T, Error]`, a
+propagated non-Error payload becomes a structured `Error` with kind
+`propagated`. Text and scalar payloads supply its message; other payloads
+produce `non-Error TYPE error payload`, where `TYPE` names the payload type.
+Existing `Error` and process errors retain their identity and causes.
+This conversion affects only the outer error: a `Result` carried as success
+data keeps its payload. An authored `Result[T, E]` contract retains its
+declared error type.
+
 At most 100000 function calls are open at once. The call that would be one
 more fails with the runtime error `stack-overflow`, whose message names the
 innermost open calls, so recursion that never ends is an error instead of a

@@ -28,10 +28,13 @@ repair. A separate grounded/generic comparison reproduces an explicit Any-return
 lowering gap. Omitted dynamic returns retain the existing grounded annotation
 policy.
 
-The separate inferred-Proc error repair passes eight focused controls, including
-generic relay errors and original traceback locations on both routes. Its new
-private metadata distinguishes inferred Error normalization from authored error
-contracts. Independent review and a callback-tail discriminator remain open.
+The inferred-Proc error repair `83634b225`, integrated as `016e925aa`, passes
+nine focused controls and final independent review. Ground normalization derives
+from the checked return and signature; defaulted Scheme Procs use their actual
+prepared invocation substitution, including callback-result parameters. Both
+routes preserve nested Result data, authored custom errors, cleanup and original
+traceback locations. Its flag reuses existing metadata storage. Combined-source
+qualification remains required.
 The grounded mixed Str/Error capture join and bare inferred `value?` input shape
 remain separate mandatory repairs. Callable-value storage and record remainder
 implementation follow these representation changes. Provisional focused results
