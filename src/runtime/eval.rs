@@ -1604,6 +1604,15 @@ struct LoweredTypeCheck {
     name: Arc<str>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum LoweredValueCheck {
+    Ground(LoweredTypeCheck),
+    Materialization(Arc<crate::sema::value_materialization::ValueMaterialization<
+        crate::sema::schemes::SchemeType,
+        crate::sema::schemes::CallInstantiation,
+    >>),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredReturnKind {
     Plain(LoweredType),

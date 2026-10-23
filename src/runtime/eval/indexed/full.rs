@@ -5,6 +5,7 @@ mod verify_schemes;
 mod verify_effects;
 mod schemes;
 mod scheme_values;
+mod value_materialization;
 use schemes::{
     FullCallableContract, FullSchemeId, FullSchemeTypeNode, SchemeTypeId,
 };
@@ -1393,14 +1394,14 @@ impl FullProgram {
         else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
         let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
         let mut substitution = verify_schemes::instantiate_invocation(
-            &self.store, self.store.scheme(id)?, &instance, &caller.substitution, &mut budget,
+            &self.store, self.store.scheme(id)?, &instance.arguments, &caller.substitution, &mut budget,
         )?;
         if let Some(selected) = selected {
             substitution.types = scheme_values::reorder_binders(&self.store, selected.types, substitution.types, &mut budget)?;
             substitution.rows = scheme_values::reorder_binders(&self.store, selected.rows, substitution.rows, &mut budget)?;
             substitution.effects = scheme_values::reorder_binders(&self.store, selected.effects, substitution.effects, &mut budget)?;
         }
-        let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
+        let range = instance.arguments.application_bindings.bounds(self.store.call_application_bindings.len())
             .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
         budget.charge(range.len())?;
         let mut layouts = Vec::with_capacity(range.len());
@@ -22456,7 +22457,7 @@ assert observed_words == [Ok("row")]
                     target.instruction == instance.instruction && target.function.index() == unwrap
                 })
             }).expect("generic propagation call retains its selected input instance");
-            let arguments = call.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
             assert_eq!(arguments.len(), 2);
             let mut wrong_input = (*program).clone();
             let payload = wrong_input.store.call_type_arguments[arguments.start].ty;
@@ -25151,7 +25152,7 @@ assert apply(40) == 42
             let result_binder = program.store.scheme_type_parameters[parameters.start + result.first as usize].id;
             assert_eq!(program.store.call_instantiations.len(), 1);
             let instance = program.store.call_instantiations[0];
-            let types = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            let types = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
             let result_argument = types.clone().find(|index| program.store.call_type_arguments[*index].binder == result_binder).unwrap();
             let result_type = program.store.call_type_arguments[result_argument].ty;
             assert!(types.clone().all(|index| index == result_argument || program.store.call_type_arguments[index].ty != result_type));
@@ -25164,7 +25165,7 @@ assert apply(40) == 42
             node.first = text.raw();
             wrong_result.store.scheme_types[result_type.index()] = node;
             assert_eq!(FullVerifier::verify(&wrong_result).unwrap_err().message, "selected application disagrees with its callable contract");
-            let effects = instance.effect_arguments.bounds(program.store.call_effect_arguments.len()).unwrap();
+            let effects = instance.arguments.effect_arguments.bounds(program.store.call_effect_arguments.len()).unwrap();
             assert_eq!(effects.len(), 1);
             let expression = program.store.call_effect_arguments[effects.start].expression;
             let direct = expression.direct.bounds(program.store.scheme_effects.len()).unwrap();
@@ -26128,7 +26129,7 @@ assert genuine_tail_runs == 0
             let instance = program.store.call_instantiations.iter().find(|instance| {
                 range.contains(&(instance.instruction as usize)) && program.store.tags[instance.instruction as usize] == FullTag::ExprParam
             }).expect("typed alias use has its own scheme instance");
-            let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
             assert_eq!(arguments.len(), 1);
             let ty = program.store.call_type_arguments[arguments.start].ty;
             assert_eq!(program.store.scheme_types[ty.index()].tag, schema::FullSchemeTypeTag::Ground);
@@ -26170,7 +26171,7 @@ assert genuine_tail_runs == 0
                     .binary_search_by_key(&target.instruction, |instance| instance.instruction)
                     .unwrap();
                 let type_arguments = program.store.call_instantiations[instantiation]
-                    .type_arguments
+                    .arguments.type_arguments
                     .bounds(program.store.call_type_arguments.len())
                     .unwrap();
                 assert_eq!(type_arguments.len(), 1);
@@ -26887,7 +26888,7 @@ assert genuine_tail_runs == 0
             .iter()
             .find(|row| row.instruction == instruction)
             .expect("scheme call substitution exists")
-            .type_arguments
+            .arguments.type_arguments
             .bounds(program.store.call_type_arguments.len())
             .unwrap();
         assert_eq!(type_argument_index.len(), 1);
@@ -26913,7 +26914,7 @@ assert genuine_tail_runs == 0
             .iter()
             .position(|row| row.instruction == instruction)
             .expect("scheme call substitution exists");
-        let range = program.store.call_instantiations[instantiation_index].type_arguments;
+        let range = program.store.call_instantiations[instantiation_index].arguments.type_arguments;
         assert!(argument_index < range.len as usize);
         let removed_type = program.store.call_type_arguments
             [range.start as usize + argument_index]
@@ -26924,11 +26925,11 @@ assert genuine_tail_runs == 0
             .call_type_arguments
             .remove(range.start as usize + argument_index);
         program.store.call_instantiations[instantiation_index]
-            .type_arguments
+            .arguments.type_arguments
             .len -= 1;
         for instantiation in &mut program.store.call_instantiations {
-            if instantiation.type_arguments.start > range.start {
-                instantiation.type_arguments.start -= 1;
+            if instantiation.arguments.type_arguments.start > range.start {
+                instantiation.arguments.type_arguments.start -= 1;
             }
         }
         let removed_index = removed_type.index();
@@ -26994,17 +26995,17 @@ assert genuine_tail_runs == 0
             .iter()
             .position(|row| row.instruction == instruction)
             .expect("scheme call substitution exists");
-        let range = program.store.call_instantiations[instantiation_index].row_arguments;
+        let range = program.store.call_instantiations[instantiation_index].arguments.row_arguments;
         assert!(argument_index < range.len as usize);
         let row_index = range.start as usize + argument_index;
         assert_eq!(program.store.call_row_arguments[row_index].fields.len, 0);
         program.store.call_row_arguments.remove(row_index);
         program.store.call_instantiations[instantiation_index]
-            .row_arguments
+            .arguments.row_arguments
             .len -= 1;
         for instantiation in &mut program.store.call_instantiations {
-            if instantiation.row_arguments.start > range.start {
-                instantiation.row_arguments.start -= 1;
+            if instantiation.arguments.row_arguments.start > range.start {
+                instantiation.arguments.row_arguments.start -= 1;
             }
         }
     }
@@ -27582,7 +27583,7 @@ assert genuine_tail_runs == 0
 
         let mut out_of_scope = program.clone();
         let type_argument = out_of_scope.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         out_of_scope.store.call_type_arguments[type_argument].binder = IR_NONE - 1;
         let error = FullVerifier::verify(&out_of_scope).unwrap_err();
@@ -27590,7 +27591,7 @@ assert genuine_tail_runs == 0
 
         let mut dynamic_type = program.clone();
         let type_argument = dynamic_type.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let any_type = scheme_fixture_any_type(&program);
         let any_scheme = dynamic_type.store.call_type_arguments[type_argument].ty;
@@ -27606,7 +27607,7 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == pair_call)
             .expect("pair call substitution exists");
         let pair_range = duplicate_binder.store.call_instantiations[pair_instantiation]
-            .type_arguments;
+            .arguments.type_arguments;
         assert_eq!(pair_range.len, 2);
         let first_binder = duplicate_binder.store.call_type_arguments[pair_range.start as usize].binder;
         duplicate_binder.store.call_type_arguments[pair_range.start as usize + 1].binder =
@@ -27668,7 +27669,7 @@ assert genuine_tail_runs == 0
 
         let mut escaped_type_id = program.clone();
         let type_argument = escaped_type_id.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         escaped_type_id.store.call_type_arguments[type_argument].ty =
             SchemeTypeId::from_raw(IR_NONE - 1).unwrap();
@@ -27698,7 +27699,7 @@ assert genuine_tail_runs == 0
 
         let mut out_of_scope_type = program.clone();
         let argument = out_of_scope_type.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let scheme_type = out_of_scope_type.store.call_type_arguments[argument].ty;
         assert_eq!(out_of_scope_type.store.scheme_types[scheme_type.index()].tag, FullSchemeTypeTag::Parameter);
@@ -27714,7 +27715,7 @@ assert genuine_tail_runs == 0
             .unwrap();
         let mut out_of_scope_row = program.clone();
         let row = out_of_scope_row.store.call_instantiations[name_of_instantiation]
-            .row_arguments
+            .arguments.row_arguments
             .start as usize;
         out_of_scope_row.store.call_row_arguments[row].tail = IR_NONE - 1;
         let error = FullVerifier::verify(&out_of_scope_row).unwrap_err();
@@ -27758,7 +27759,7 @@ assert genuine_tail_runs == 0
             .unwrap();
         let mut wrong_row_lacks = nested_program.clone();
         let row = wrong_row_lacks.store.call_instantiations[name_of_instantiation]
-            .row_arguments
+            .arguments.row_arguments
             .start as usize;
         wrong_row_lacks.store.call_row_arguments[row].tail = name_binder;
         let error = FullVerifier::verify(&wrong_row_lacks).unwrap_err();
@@ -27798,7 +27799,7 @@ assert genuine_tail_runs == 0
         assert_eq!(second_parameter.tag, FullSchemeTypeTag::Parameter);
         let mut wrong_argument = wrong_argument_program.clone();
         let argument = wrong_argument.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let scheme_type = wrong_argument.store.call_type_arguments[argument].ty;
         wrong_argument.store.scheme_types[scheme_type.index()].first = second_parameter.first;
@@ -27825,7 +27826,7 @@ assert genuine_tail_runs == 0
             .unwrap();
         let mut symbolic_root_type = root_program.clone();
         let argument = symbolic_root_type.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let scheme_type = symbolic_root_type.store.call_type_arguments[argument].ty;
         symbolic_root_type.store.scheme_types[scheme_type.index()].tag = FullSchemeTypeTag::Parameter;
@@ -27842,7 +27843,7 @@ assert genuine_tail_runs == 0
             .unwrap();
         let mut symbolic_root_row = root_program.clone();
         let row = symbolic_root_row.store.call_instantiations[name_of_instantiation]
-            .row_arguments
+            .arguments.row_arguments
             .start as usize;
         symbolic_root_row.store.call_row_arguments[row].tail = 0;
         let error = FullVerifier::verify(&symbolic_root_row).unwrap_err();
@@ -27888,7 +27889,7 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == identity_call)
             .expect("identity call substitution exists");
         let type_argument = program.store.call_instantiations[identity_instantiation]
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let int_type = (0..program.store.semantic.type_count())
             .map(|index| TypeId::from_raw(u32::try_from(index + 1).unwrap()).unwrap())
@@ -29677,7 +29678,7 @@ pure use_bool() -> Bool { let value = false; identity(value) }
             .find(|row| row.instruction == calls[spliced_tail])
             .unwrap();
         let argument = wrong_generic_rest_item.store.call_type_arguments
-            [instantiation.type_arguments.start as usize]
+            [instantiation.arguments.type_arguments.start as usize]
             .ty;
         wrong_generic_rest_item.store.scheme_types[argument.index()].first = uint_type.raw();
         wrong_generic_rest_item.store.checked_expr_types
@@ -29909,7 +29910,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
             .find(|row| row.instruction == annotated_empty_call)
             .unwrap();
         let argument = wrong_empty_type.store.call_type_arguments
-            [instantiation.type_arguments.start as usize]
+            [instantiation.arguments.type_arguments.start as usize]
             .ty;
         wrong_empty_type.store.scheme_types[argument.index()].first = uint_list.raw();
         wrong_empty_type.store.checked_expr_types
@@ -30660,7 +30661,7 @@ assert nullable_name == null
             .find(|row| row.instruction == scalar_call)
             .unwrap();
         let scalar_type_arguments = scalar_instantiation
-            .type_arguments
+            .arguments.type_arguments
             .bounds(forged_scalar.store.call_type_arguments.len())
             .unwrap();
         assert_eq!(scalar_type_arguments.len(), 1);
@@ -30711,7 +30712,7 @@ assert nullable_name == null
             .find(|row| row.instruction == list_call)
             .unwrap();
         let list_type_arguments = list_instantiation
-            .type_arguments
+            .arguments.type_arguments
             .bounds(forged_list.store.call_type_arguments.len())
             .unwrap();
         assert_eq!(list_type_arguments.len(), 1);
@@ -30767,7 +30768,7 @@ assert nullable_name == null
                 .iter()
                 .find(|row| row.instruction == instruction)
                 .expect("generic call substitution exists");
-            let argument = instantiation.type_arguments.start as usize;
+            let argument = instantiation.arguments.type_arguments.start as usize;
             let node = program
                 .store
                 .scheme_type(program.store.call_type_arguments[argument].ty)
@@ -30822,7 +30823,7 @@ assert nullable_name == null
             .iter()
             .find(|row| row.instruction == scalar_int)
             .unwrap()
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let argument = forged_scalar.store.call_type_arguments[scalar_argument_index].ty;
         forged_scalar.store.scheme_types[argument.index()].first = uint_argument.raw();
@@ -30891,7 +30892,7 @@ assert nullable_name == null
             .iter()
             .find(|row| row.instruction == list_int)
             .unwrap()
-            .type_arguments
+            .arguments.type_arguments
             .start as usize;
         let argument = forged_list.store.call_type_arguments[list_argument_index].ty;
         forged_list.store.scheme_types[argument.index()].first = uint_argument.raw();
@@ -31045,7 +31046,7 @@ assert nullable_name == null
 
         let mut lacks_violation = program.clone();
         let row = lacks_violation.store.call_instantiations[projection_instantiation]
-            .row_arguments
+            .arguments.row_arguments
             .start as usize;
         let field = lacks_violation.store.call_row_arguments[row].fields.start as usize;
         lacks_violation.store.call_row_fields[field].name =
@@ -31061,7 +31062,7 @@ assert nullable_name == null
             .intern_type(&mut wrong_row_field_type.store.semantic, &Type::UInt)
             .unwrap();
         let row = wrong_row_field_type.store.call_instantiations[projection_instantiation]
-            .row_arguments
+            .arguments.row_arguments
             .start as usize;
         let field = wrong_row_field_type.store.call_row_arguments[row].fields.start as usize;
         let field_type = wrong_row_field_type.store.call_row_fields[field].ty;
@@ -31085,7 +31086,7 @@ assert nullable_name == null
             .iter()
             .find(|row| row.instruction == deep_name_call)
             .unwrap();
-        assert_eq!(deep_name_instantiation.row_arguments.len, 2);
+        assert_eq!(deep_name_instantiation.arguments.row_arguments.len, 2);
         let mut missing_row_binder = missing_row_program.clone();
         remove_scheme_fixture_call_row_argument(&mut missing_row_binder, deep_name_call, 1);
         let error = FullVerifier::verify(&missing_row_binder).unwrap_err();
@@ -31093,7 +31094,7 @@ assert nullable_name == null
 
         let mut duplicate_row_binder = program.clone();
         let row_range = duplicate_row_binder.store.call_instantiations[projection_instantiation]
-            .row_arguments;
+            .arguments.row_arguments;
         let duplicate = duplicate_row_binder.store.call_row_arguments[row_range.start as usize];
         let empty_fields = u32::try_from(duplicate_row_binder.store.call_row_fields.len()).unwrap();
         duplicate_row_binder
@@ -31105,7 +31106,7 @@ assert nullable_name == null
                 tail: duplicate.tail,
             });
         duplicate_row_binder.store.call_instantiations[projection_instantiation]
-            .row_arguments
+            .arguments.row_arguments
             .len += 1;
         assert!(FullVerifier::verify(&duplicate_row_binder).is_err());
 
@@ -35371,6 +35372,7 @@ proc read(token, file: Path, spare: Str) [fs] {
             assert_eq!(std::mem::size_of::<schemes::FullMethodBinding>(), 8);
             assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 120);
             assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 60);
+            assert_eq!(std::mem::size_of::<schemes::FullInstantiation>(), 56);
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system time should be after epoch")
@@ -35462,7 +35464,7 @@ proc read(token, file: Path, spare: Str) [fs] {
             let instantiation = program.store.call_instantiations.iter()
                 .find(|instantiation| instantiation.instruction == call)
                 .expect("generic method call has retained method bindings");
-            let bindings = instantiation.method_bindings.bounds(program.store.call_method_bindings.len()).unwrap();
+            let bindings = instantiation.arguments.method_bindings.bounds(program.store.call_method_bindings.len()).unwrap();
             assert_eq!(bindings.len(), item_count_scheme.methods.len as usize);
             let schemes::FullSchemeBodyFactValue::Method(len_ordinal) = len_fact.value else { panic!("len has a retained method ordinal") };
             let api = crate::modules::api_spec();
@@ -42273,7 +42275,7 @@ assert stored_name(failed) == name(failed)
         let binder = program.store.scheme_type_parameters[parameters.start + result.first as usize].id;
         let instruction = scheme_fixture_root_call(&program, "fallback");
         let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == instruction).unwrap();
-        let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
         let argument = program.store.call_type_arguments[arguments].iter().find(|argument| argument.binder == binder).unwrap();
         let node = program.store.scheme_types[argument.ty.index()];
         assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
@@ -42293,7 +42295,7 @@ assert stored_name(failed) == name(failed)
             let owner = scheme_fixture_root_function(&program, owner);
             assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
             let range = program.store.function_instruction_range(owner).unwrap();
-            assert!(program.store.call_instantiations.iter().any(|instance| range.contains(&(instance.instruction as usize)) && instance.type_arguments.len > 0));
+            assert!(program.store.call_instantiations.iter().any(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.type_arguments.len > 0));
         }
     }
 
@@ -48797,7 +48799,7 @@ assert check_paths(p"relative")
                 assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
                 let range = program.store.function_instruction_range(owner).unwrap();
                 let instance = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize))).unwrap();
-                let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
                 let argument = program.store.call_type_arguments[arguments].iter().find(|argument| argument.binder == item_binder).unwrap();
                 let node = argument.ty;
                 assert_eq!(program.store.scheme_types[node.index()].tag, schema::FullSchemeTypeTag::Ground);
@@ -48831,7 +48833,7 @@ assert check_paths(p"relative")
                 let owner = scheme_fixture_root_function(&program, name);
                 let range = program.store.function_instruction_range(owner).unwrap();
                 let instance = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && program.store.tags[instance.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
-                let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
                 assert_eq!(arguments.len(), 1);
                 let node = program.store.call_type_arguments[arguments.start].ty;
                 assert_eq!(program.store.scheme_types[node.index()].tag, schema::FullSchemeTypeTag::Ground);
@@ -48854,7 +48856,7 @@ assert check_paths(p"relative")
                 assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
                 let range = program.store.function_instruction_range(owner).unwrap();
                 let call = program.store.call_instantiations.iter().find(|call| range.contains(&(call.instruction as usize))).unwrap();
-                let arguments = call.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
                 assert_eq!(arguments.len(), 1);
                 arguments.start
             };
@@ -48899,7 +48901,7 @@ assert check_paths(p"relative")
                 let owner = scheme_fixture_root_function(&program, name);
                 let range = program.store.function_instruction_range(owner).unwrap();
                 let call = program.store.call_instantiations.iter().find(|call| range.contains(&(call.instruction as usize))).unwrap();
-                let arguments = call.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
                 assert_eq!(arguments.len(), 1);
                 (call.instruction as usize, arguments.start)
             };

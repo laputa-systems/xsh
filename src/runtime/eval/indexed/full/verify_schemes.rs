@@ -644,24 +644,24 @@ fn verify_scheme_tables(
         let (owner, scope) = caller.map_or((scopes.len(), &empty_scope), |(id, scope)| {
             (id.index(), scope)
         });
-        effects.arguments(store, owner, scope, instantiation.effect_arguments)?;
-        mark_range(instantiation.wrapper_bindings, &store.call_wrapper_bindings, &mut wrapper_binding_coverage, "generic call wrapper binding range is invalid or overlaps")?;
-        for binding in mark_range(instantiation.operation_bindings, &store.call_operation_bindings, &mut operation_binding_coverage, "generic call operation binding range is invalid or overlaps")? {
+        effects.arguments(store, owner, scope, instantiation.arguments.effect_arguments)?;
+        mark_range(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, &mut wrapper_binding_coverage, "generic call wrapper binding range is invalid or overlaps")?;
+        for binding in mark_range(instantiation.arguments.operation_bindings, &store.call_operation_bindings, &mut operation_binding_coverage, "generic call operation binding range is invalid or overlaps")? {
             application_budget.charge(1)?;
             if let super::schemes::FullOperationBinding::Forwarded(ordinal) = *binding {
                 let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards an operation requirement")); };
                 if ordinal >= store.scheme(caller)?.operations.len { return Err(IrVerifyError::new("generic call operation ordinal is out of scope")); }
             }
         }
-        for binding in mark_range(instantiation.method_bindings, &store.call_method_bindings, &mut method_binding_coverage, "generic call method binding range is invalid or overlaps")? {
+        for binding in mark_range(instantiation.arguments.method_bindings, &store.call_method_bindings, &mut method_binding_coverage, "generic call method binding range is invalid or overlaps")? {
             application_budget.charge(1)?;
             if let super::schemes::FullMethodBinding::Forwarded(ordinal) = *binding {
                 let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards a method family")); };
                 if ordinal >= store.scheme(caller)?.methods.len { return Err(IrVerifyError::new("generic call method ordinal is out of scope")); }
             }
         }
-        application_budget.charge(instantiation.application_bindings.len as usize)?;
-        for binding in mark_range(instantiation.application_bindings, &store.call_application_bindings, &mut binding_coverage,
+        application_budget.charge(instantiation.arguments.application_bindings.len as usize)?;
+        for binding in mark_range(instantiation.arguments.application_bindings, &store.call_application_bindings, &mut binding_coverage,
             "generic call application binding range is invalid or overlaps")?
         {
             match *binding {
@@ -684,12 +684,12 @@ fn verify_scheme_tables(
             }
         }
         let type_rows = bounded(
-            instantiation.type_arguments,
+            instantiation.arguments.type_arguments,
             &store.call_type_arguments,
             "generic call type argument range is invalid",
         )?;
         let row_rows = bounded(
-            instantiation.row_arguments,
+            instantiation.arguments.row_arguments,
             &store.call_row_arguments,
             "generic call row argument range is invalid",
         )?;
@@ -2096,24 +2096,24 @@ fn verify_call_instantiations(
             .ok_or_else(|| IrVerifyError::new("generic call target has no binder scope"))?;
         let scheme = store.scheme(scheme_id)?;
         let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue);
-        if instantiation.operation_bindings.len != scheme.operations.len { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
-        if instantiation.method_bindings.len != scheme.methods.len { return Err(IrVerifyError::new("generic call method binding is incomplete")); }
-        if instantiation.application_bindings.len != scheme.applications.len {
+        if instantiation.arguments.operation_bindings.len != scheme.operations.len { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
+        if instantiation.arguments.method_bindings.len != scheme.methods.len { return Err(IrVerifyError::new("generic call method binding is incomplete")); }
+        if instantiation.arguments.application_bindings.len != scheme.applications.len {
             return Err(IrVerifyError::new("generic call application binding is incomplete"));
         }
         let type_rows = mark_range(
-            instantiation.type_arguments,
+            instantiation.arguments.type_arguments,
             &store.call_type_arguments,
             &mut type_argument_coverage,
             "generic call type argument range is invalid or overlaps",
         )?;
         let row_rows = mark_range(
-            instantiation.row_arguments,
+            instantiation.arguments.row_arguments,
             &store.call_row_arguments,
             &mut row_argument_coverage,
             "generic call row argument range is invalid or overlaps",
         )?;
-        let effect_rows = bounded(instantiation.effect_arguments, &store.call_effect_arguments,
+        let effect_rows = bounded(instantiation.arguments.effect_arguments, &store.call_effect_arguments,
             "generic call effect argument range is invalid")?;
         if let Some((caller_scheme, caller_scope)) =
             caller_scheme_for_instruction(store, instruction, scopes)?
@@ -2133,10 +2133,10 @@ fn verify_call_instantiations(
             applications::verify_bindings(store, scheme, scope,
                 applications::ApplicationSubstitution::Symbolic(&substitution),
                 Some((store.scheme(caller_scheme)?, caller_scope)),
-                bounded(instantiation.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut budget)?;
-            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut budget)?;
-            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut budget)?;
-            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut budget)?;
+                bounded(instantiation.arguments.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut budget)?;
+            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut budget)?;
+            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.arguments.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut budget)?;
+            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut budget)?;
             if reference {
                 let fact = scheme_body_fact_type(store, caller_scheme, instantiation.instruction, FullSchemeBodyFactKind::Expression)?
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked scheme type"))?;
@@ -2190,10 +2190,10 @@ fn verify_call_instantiations(
             effects::verify_predicates(store, scheme, scope, &substitution.effects, None, &mut materialization)?;
             applications::verify_bindings(store, scheme, scope,
                 applications::ApplicationSubstitution::Ground(&substitution), None,
-                bounded(instantiation.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut materialization)?;
-            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut materialization)?;
-            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut materialization)?;
-            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut materialization)?;
+                bounded(instantiation.arguments.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut materialization)?;
+            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut materialization)?;
+            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut materialization)?;
+            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut materialization)?;
             if reference {
                 let fact = checked_expression_type_id(store, instantiation.instruction)
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked type"))?;
@@ -5123,7 +5123,7 @@ pub(super) fn invocation_callable_type(
 }
 
 pub(super) fn instantiate_invocation(
-    store: &FullStore, scheme: &FullScheme, instance: &super::schemes::FullCallInstantiation,
+    store: &FullStore, scheme: &FullScheme, instance: &super::schemes::FullInstantiation,
     caller: &CallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<CallSubstitution, IrVerifyError> {
     let type_parameters = bounded(scheme.type_parameters, &store.scheme_type_parameters, "invocation type parameter range is invalid")?;

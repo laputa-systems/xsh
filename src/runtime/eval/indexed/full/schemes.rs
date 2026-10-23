@@ -373,6 +373,12 @@ pub(super) struct FullSchemeSchemaChild {
 #[repr(C)]
 pub(super) struct FullCallInstantiation {
     pub(super) instruction: u32,
+    pub(super) arguments: FullInstantiation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullInstantiation {
     pub(super) type_arguments: IrRange,
     pub(super) row_arguments: IrRange,
     pub(super) effect_arguments: IrRange,
@@ -852,6 +858,16 @@ impl FullBuilder {
                 instruction,
             ));
         }
+        let arguments = self.encode_instantiation(instantiation)?;
+        self.store.call_instantiations.push(FullCallInstantiation {
+            instruction: u32::try_from(instruction)
+                .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
+            arguments,
+        });
+        Ok(())
+    }
+
+    pub(super) fn encode_instantiation(&mut self, instantiation: &CallInstantiation) -> Result<FullInstantiation, IrBuildError> {
         let type_parameters = self
             .active_scheme
             .map(|scheme| self.scheme_type_parameter_map(scheme))
@@ -886,7 +902,7 @@ impl FullBuilder {
                         "scheme_call_row_tail_out_of_scope",
                         None,
                         0,
-                        instruction,
+                        id.0 as usize,
                     )
                 })?,
             };
@@ -936,15 +952,10 @@ impl FullBuilder {
         let wrappers_start = self.store.call_wrapper_bindings.len();
         self.store.call_wrapper_bindings.extend(instantiation.wrapper_bindings().iter().copied());
         let wrapper_bindings = super::table_range(wrappers_start, self.store.call_wrapper_bindings.len())?;
-        self.store.call_instantiations.push(FullCallInstantiation {
-            instruction: u32::try_from(instruction)
-                .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
-            type_arguments,
-            row_arguments,
-            effect_arguments,
+        Ok(FullInstantiation {
+            type_arguments, row_arguments, effect_arguments,
             application_bindings, operation_bindings, method_bindings, wrapper_bindings,
-        });
-        Ok(())
+        })
     }
 
     pub(super) fn record_scheme_body_fact(
@@ -1733,7 +1744,7 @@ mod tests {
             let call = builder.store.call_instantiations[0];
             assert_eq!(call.instruction, 4);
             let type_args = call
-                .type_arguments
+                .arguments.type_arguments
                 .bounds(builder.store.call_type_arguments.len())
                 .unwrap();
             assert_eq!(builder.store.call_type_arguments[type_args.start].binder, 7);
@@ -1750,7 +1761,7 @@ mod tests {
                 Type::Bool
             );
             let row_args = call
-                .row_arguments
+                .arguments.row_arguments
                 .bounds(builder.store.call_row_arguments.len())
                 .unwrap();
             let row_fields = builder.store.call_row_arguments[row_args.start]

@@ -13,6 +13,7 @@ pub(crate) mod schemes;
 pub(crate) mod scheme_callable;
 pub(crate) mod sealed_operation;
 pub(crate) mod wrapper_operation;
+pub(crate) mod value_materialization;
 pub mod types;
 pub mod validated;
 

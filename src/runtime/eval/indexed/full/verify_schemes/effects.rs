@@ -394,7 +394,7 @@ impl<'a> ScopedEffectProof<'a> {
         let index = self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction)
             .map_err(|_| IrVerifyError::new("generic invocation effects have no call substitution"))?;
         let instance = &self.store.call_instantiations[index];
-        let arguments = bounded(instance.effect_arguments, &self.store.call_effect_arguments, "generic invocation effect argument range is invalid")?;
+        let arguments = bounded(instance.arguments.effect_arguments, &self.store.call_effect_arguments, "generic invocation effect argument range is invalid")?;
         let substitutions = build_substitution(self.store, scope, caller, arguments, budget)?;
         substitute_contract(self.function_contract(target)?.as_ref(), scope, &substitutions, budget)
     }

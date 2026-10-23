@@ -2734,7 +2734,7 @@ mod tests {
         let scope = scopes[scheme.index()].as_ref().unwrap();
         let calls = program.store.call_instantiations.iter().filter(|call| program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)).collect::<Vec<_>>();
         assert_eq!(calls.len(), 1);
-        let arguments = bounded(calls[0].type_arguments, &program.store.call_type_arguments, "type arguments").unwrap();
+        let arguments = bounded(calls[0].arguments.type_arguments, &program.store.call_type_arguments, "type arguments").unwrap();
         let mut budget = SchemeInstantiationBudget::new(&program.store);
         let actual = arguments.iter().map(|argument| decode_scheme_type(&program.store, scope, argument.ty, &mut budget, 0).unwrap().closed_ground_type().unwrap()).collect::<Vec<_>>();
         assert!(actual.contains(&Type::Path));
@@ -2759,7 +2759,7 @@ mod tests {
         let scope = scopes[scheme_id.index()].as_ref().unwrap();
         let calls = program.store.call_instantiations.iter().filter(|call| program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)).collect::<Vec<_>>();
         assert_eq!(calls.len(), 1);
-        let arguments = bounded(calls[0].type_arguments, &program.store.call_type_arguments, "type arguments").unwrap();
+        let arguments = bounded(calls[0].arguments.type_arguments, &program.store.call_type_arguments, "type arguments").unwrap();
         let source = arguments.iter().find(|argument| argument.binder == source.id).unwrap();
         let mut budget = SchemeInstantiationBudget::new(&program.store);
         assert_eq!(decode_scheme_type(&program.store, scope, source.ty, &mut budget, 0).unwrap().closed_ground_type(), Some(Type::List(Box::new(Type::rel_path()))));
