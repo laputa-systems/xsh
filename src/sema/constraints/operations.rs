@@ -17,7 +17,9 @@ pub(crate) enum SealedOperationError {
     Resolution(ConstraintResolutionError),
     Constraint(ConstraintConflict),
     MapKey(super::MapKeyConstraintError),
-    UnsupportedPostfix { operation: &'static str, receiver: Type, key: Option<Type> },
+    UnsupportedIndex { receiver: Type, key: Type },
+    UnsupportedSlice { receiver: Type },
+    UnsupportedRecordSpread { receiver: Type },
     Unsupported { operator: crate::sema::sealed_operation::ArithmeticOperator, left: Type, right: Type },
 }
 
@@ -213,7 +215,9 @@ impl std::fmt::Display for SealedOperationError {
             Self::Resolution(error) => write!(formatter, "operation type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
-            Self::UnsupportedPostfix { operation, receiver, key } => write!(formatter, "{operation} is not defined for {receiver} with key {key:?}"),
+            Self::UnsupportedIndex { receiver, key } => write!(formatter, "indexing is not defined for {receiver} with key {:?}", Some(key)),
+            Self::UnsupportedSlice { receiver } => write!(formatter, "slicing is not defined for {receiver} with key None"),
+            Self::UnsupportedRecordSpread { receiver } => write!(formatter, "record spread is not defined for {receiver} with key None"),
             Self::Unsupported { operator, left, right } => write!(formatter, "{operator:?} is not defined for {left} and {right}"),
         }
     }
@@ -403,12 +407,12 @@ impl TypeConstraints {
                             Type::List(_) => Type::Int,
                             Type::Map(key, _) => (**key).clone(),
                             Type::Record(_) | Type::Module(_) if constant_key.is_some() => Type::Str,
-                            _ => return Err(SealedOperationError::UnsupportedPostfix { operation: "indexing", receiver, key: Some(key) }),
+                            _ => return Err(SealedOperationError::UnsupportedIndex { receiver, key }),
                         };
                         this.constrain_operation_type(&required, &key, span, changes)?;
                         let key = this.resolve_with_changes(&key, 0, changes)?;
                         let Some((selection, selected)) = index_selection(&receiver, &key, constant_key) else {
-                            return Err(SealedOperationError::UnsupportedPostfix { operation: "indexing", receiver, key: Some(key) });
+                            return Err(SealedOperationError::UnsupportedIndex { receiver, key });
                         };
                         this.constrain_operation_type(&result, &selected, span, changes)?;
                         if receiver.contains_inference() || key.contains_inference() { continue; }
@@ -451,7 +455,7 @@ impl TypeConstraints {
                             continue;
                         }
                         let Some((selection, selected)) = record_override_selection(&receiver, &overrides) else {
-                            return Err(SealedOperationError::UnsupportedPostfix { operation: "record spread", receiver, key: None });
+                            return Err(SealedOperationError::UnsupportedRecordSpread { receiver });
                         };
                         this.constrain_operation_type(&result, &selected, span, changes)?;
                         if receiver.contains_inference() || overrides.iter().any(|field| field.ty.contains_inference()) { continue; }
@@ -463,7 +467,7 @@ impl TypeConstraints {
                         let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
                         if matches!(receiver.unvalidated(), Type::Inference(_)) { continue; }
                         let Some((selection, selected)) = slice_selection(&receiver) else {
-                            return Err(SealedOperationError::UnsupportedPostfix { operation: "slicing", receiver, key: None });
+                            return Err(SealedOperationError::UnsupportedSlice { receiver });
                         };
                         this.constrain_operation_type(&result, &selected, span, changes)?;
                         if receiver.contains_inference() { continue; }

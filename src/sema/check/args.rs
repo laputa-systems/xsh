@@ -230,8 +230,17 @@ impl Checker {
                 }
                 let code = if matches!(error, crate::sema::constraints::CallableApplicationError::Effects(crate::sema::constraints::EffectConstraintError::Mismatch)) {
                     DiagnosticCode::CheckEffectViolation
-                } else if matches!(error, crate::sema::constraints::CallableApplicationError::Operation(_)) { DiagnosticCode::CheckOperatorType }
-                else if let crate::sema::constraints::CallableApplicationError::Wrapper(crate::sema::constraints::WrapperConstraintError::Invalid { operation, .. }) = &error {
+                } else if let crate::sema::constraints::CallableApplicationError::Operation(error) = &error {
+                    match error {
+                        crate::sema::constraints::SealedOperationError::UnsupportedIndex { .. } => DiagnosticCode::CheckIndexType,
+                        crate::sema::constraints::SealedOperationError::UnsupportedSlice { .. } => DiagnosticCode::CheckSliceType,
+                        crate::sema::constraints::SealedOperationError::UnsupportedRecordSpread { .. } => DiagnosticCode::CheckSpreadNotRecord,
+                        crate::sema::constraints::SealedOperationError::Resolution(_)
+                        | crate::sema::constraints::SealedOperationError::Constraint(_)
+                        | crate::sema::constraints::SealedOperationError::MapKey(_)
+                        | crate::sema::constraints::SealedOperationError::Unsupported { .. } => DiagnosticCode::CheckOperatorType,
+                    }
+                } else if let crate::sema::constraints::CallableApplicationError::Wrapper(crate::sema::constraints::WrapperConstraintError::Invalid { operation, .. }) = &error {
                     match operation {
                         crate::sema::wrapper_operation::WrapperOperationKind::Field => DiagnosticCode::CheckNullSafeField,
                         crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,

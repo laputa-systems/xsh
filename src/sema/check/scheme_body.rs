@@ -820,6 +820,34 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn generic_index_instances_report_index_diagnostics() {
+        accepts(
+            "pure select(values, key) { values[key] }",
+            "let integer: Int = select([7], 0)\nlet text: Str = select({[0]: \"value\"}, 0)",
+        );
+        let source = "pure select(values, key) { values[key] }\nlet _ = select(7, 0)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckIndexType)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckOperatorType)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_slice_instances_report_slice_diagnostics() {
+        accepts(
+            "pure select(values) { values[0..1] }",
+            "let integers: List[Int] = select([7, 8])\nlet text: Str = select(\"value\")",
+        );
+        let source = "pure select(values) { values[0..1] }\nlet _ = select(7)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckSliceType)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckOperatorType)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
     fn generic_list_from_end_index_preserves_the_element_parameter() {
         accepts(
             "pure select(value) { [value][-1] }",
