@@ -8329,10 +8329,10 @@ mod structural_input_tests {
             ("run.text /bin/echo fixed ?", Type::Unit, Type::Error),
             ("if true { run.text /bin/echo fixed ? } else { run.text /bin/echo other ? }", Type::Unit, Type::ProcessError),
             ("match true { true => { run.text /bin/echo fixed ? }; false => { run.text /bin/echo other ? } }", Type::Unit, Type::ProcessError),
-            ("return run.text /bin/echo fixed ?", Type::Str, Type::Error),
-            ("return (run.text /bin/echo fixed ?)", Type::Str, Type::Error),
-            ("return run.stream --text /bin/echo fixed ?", Type::Stream(Box::new(Type::Str)), Type::Error),
-            ("return (run.stream --text /bin/echo fixed ?)", Type::Stream(Box::new(Type::Str)), Type::Error),
+            ("return run.text /bin/echo fixed ?", Type::Str, Type::ProcessError),
+            ("return (run.text /bin/echo fixed ?)", Type::Str, Type::ProcessError),
+            ("return run.stream --text /bin/echo fixed ?", Type::Stream(Box::new(Type::Str)), Type::ProcessError),
+            ("return (run.stream --text /bin/echo fixed ?)", Type::Stream(Box::new(Type::Str)), Type::ProcessError),
         ] {
             let source = format!("proc send(marker) {{ let _ = marker; {form} }}\nlet integer = send(7)\nlet text = send(\"row\")\n");
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);

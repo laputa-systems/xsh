@@ -3896,6 +3896,11 @@ When that join has type `Error`, `try` and `retry` convert propagated payloads
 to ordinary `Error` values. Existing errors retain their identity; a nested
 Result returned as success data is preserved. A capture with no propagated
 errors imposes no constraint on its declared error type.
+The `?` operator constrains an otherwise unresolved input to `Result[T, E]`.
+For example, `proc unwrap(value) { value? }` preserves both input parameters
+in its inferred Result return. Independent calls may use different success
+and error types. The ordinary error effect and return-context checks still
+apply; a result annotation cannot turn a non-Result argument into a Result.
 
 Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
@@ -4056,8 +4061,10 @@ component publishes no member scheme.
   failure-only `Err(...)`), the proc returns `Result[Unit]`. Value tails that
   disagree are `check.type-mismatch`; there is no fallback to `Result[Unit]`.
   Failure-only completions (`Err(...)` tails and early `return Err(...)`) and
-  `?` propagations join into the error type: variants of one family join to
-  the family, anything else to `Error`.
+  `?` propagations join into the error type: matching types retain that type,
+  variants of one family join to the family, and incompatible types join to
+  `Error`. A plain value return uses its actual propagated error types when
+  present; a body without propagated errors retains the default `Error`.
 - Recursive `proc` value returns are solved within the same monomorphic
   component before generalization. `proc main` still needs an explicit value
   return type (`check.required-return`). Empty collections, error-only bodies, and

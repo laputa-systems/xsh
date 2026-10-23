@@ -39,7 +39,7 @@ and complete declaration validation remain authoritative: stale validation
 rejects cold, and malformed physical data behind a valid complete validator
 fails at the declaration before the generic call on both routes. Combined
 source `f2c1bae75` completes the unfiltered Rust library check: 2,078 selected,
-2,061 pass, fourteen fail and three are ignored. Nine failures hit the existing
+2,061 pass, fourteen fail and three are ignored. Eight failures hit the existing
 work bound; one synthetic resource-cleanup capture lacks its required contract.
 Those remain active repairs. Four stale controls are corrected at `5c70eff57`
 and pass their focused rerun: explicit Any preserves Result data, supported
@@ -49,6 +49,25 @@ without an auxiliary temporary row. The reduced fold still rejects a forged
 writer and executes on both routes. A fifth stale diagnostic assertion remains
 with the capture repair. No full-library pass or newer native result is claimed.
 The d546 verification products do not qualify this newer source.
+
+Capture discovery repair `c4270b66c`, integrated as `e624551a6`, passes eleven
+focused controls with independent review clear. The existing charged owner
+census now collects actual Capture/Retry roots, avoiding a second traversal of
+every instruction. All eight work-bound failures from the full run pass their
+focused controls. A synthetic resource-cleanup Capture retains its actual
+checked source type; its missing-contract failure also passes. The remaining
+stream-carrier failure was the expected diagnostic text, now updated while
+preserving rejection. Full-library qualification remains open.
+
+Bare-propagation repair `320d777b9`, integrated as `cd8713574`, passes two
+focused controls with independent review clear. `proc unwrap(value) { value? }`
+infers a Result input and preserves its success and error parameters. Direct,
+captured and retried calls retain Str and nominal failures on both execution
+routes after frontend disposal; wrong input and effect mutations reject cold.
+Plain inferred Proc returns now join actual propagated errors instead of always
+defaulting to Error. Compatibility checks remain required for that contract
+change. Phantom constructor context and generic tempdir support remain separate
+mandatory work.
 
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
@@ -94,7 +113,6 @@ prepared invocation substitution, including callback-result parameters. Both
 routes preserve nested Result data, authored custom errors, cleanup and original
 traceback locations. Its flag reuses existing metadata storage. Combined-source
 qualification remains required.
-The bare inferred `value?` input shape remains a separate mandatory repair.
 Callable-value storage and record remainder
 implementation follow these representation changes. Provisional focused results
 do not advance full campaign acceptance.

@@ -521,6 +521,11 @@ the ordinary producer proof also checks aliases and causes. Constructor
 recursion observes the existing argument-depth bound before descending.
 
 Generalized bodies retain their actual callable kind for cleanup permission.
+An unresolved propagation operand acquires a Result shape through the existing
+transactional constraint solver, with fresh children at the operand's level.
+The checker, application solver and cold verifier share the inferred Proc
+envelope rule: nonempty propagated errors determine the error type; an empty
+set retains the default Error. Execution uses the prepared error substitution.
 Proc cleanup uses the ordinary deferred-action rows and failure policy; inferred
 return envelopes include errors from actual statement and cleanup propagation.
 A terminal Proc command completes with Unit through the ordinary Result envelope.
