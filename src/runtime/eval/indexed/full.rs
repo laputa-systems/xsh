@@ -11268,6 +11268,7 @@ impl<'a> FullDecoder<'a> {
                 base.raw() as usize,
                 index.ordinary().map(|index| index.raw() as usize),
             ).map(Some),
+            schema::ExprView::IndexFromEnd { base, .. } => self.checked_index_result_type(base.raw() as usize, None).map(Some),
             schema::ExprView::Record(_) => self.derive_checked_record_type(instruction),
             schema::ExprView::RecordUpdate {
                 base,
@@ -11538,7 +11539,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::Field { .. }
-            | schema::ExprView::IndexFromEnd { .. }
             | schema::ExprView::Slice { .. }
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
@@ -41496,31 +41496,40 @@ pure rest_left(value: Pair, ...rows: List[Pair]) -> Stream[Int] {
 pure rest_right(value: Pair, ...rows: List[Pair]) -> Stream[Int] { rows[0].right }
 stream left_values() [] -> Stream[Int] { yield 11 }
 stream right_values() [] -> Stream[Int] { yield 22 }
-let selected_left = rest_left({left: left_values(), right: right_values()}, {left: left_values(), right: right_values()})
+stream last_left_values() [] -> Stream[Int] { yield 33 }
+stream last_right_values() [] -> Stream[Int] { yield 44 }
+let selected_left = rest_left({left: left_values(), right: right_values()}, {left: left_values(), right: right_values()}, {left: last_left_values(), right: last_right_values()})
 assert selected_left.collect() == [11]
-let selected_right = rest_right({left: left_values(), right: right_values()}, {left: left_values(), right: right_values()})
+let selected_right = rest_right({left: left_values(), right: right_values()}, {left: left_values(), right: right_values()}, {left: last_left_values(), right: last_right_values()})
 assert selected_right.collect() == [22]
 "#;
-            let program = Arc::new(fixture("indexed-record-rest-types.xsh", source));
-            FullVerifier::verify(&program).unwrap();
-            for force_frames in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.force_frames = force_frames;
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                for step in 0..program.driver_step_count().unwrap() {
-                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            for (index, expected_left, expected_right, tag) in [("0", 11, 22, FullTag::ExprIndex), ("-1", 33, 44, FullTag::ExprIndexFromEnd)] {
+                let source = source.replace("rows[0]", &format!("rows[{index}]"))
+                    .replace("== [11]", &format!("== [{expected_left}]"))
+                    .replace("== [22]", &format!("== [{expected_right}]"));
+                let program = Arc::new(fixture("indexed-record-rest-types.xsh", &source));
+                assert_eq!(function_instruction_indices(&program, "rest_left", tag).len(), 1);
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    }
                 }
+                if index == "-1" { continue; }
+                let owner = scheme_fixture_root_function(&program, "rest_left");
+                let decoder = function_view_decoder(&program.store, owner);
+                let range = program.store.function_instruction_range(owner).unwrap();
+                let key = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(0)))).unwrap();
+                let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("wrong")))).unwrap();
+                let mut invalid = (*program).clone();
+                invalid.store.tags.swap(key, wrong);
+                invalid.store.data.swap(key, wrong);
+                let error = FullVerifier::verify(&invalid).unwrap_err();
+                assert_eq!(error.message, "ground producer value disagrees with its checked contract");
             }
-            let owner = scheme_fixture_root_function(&program, "rest_left");
-            let decoder = function_view_decoder(&program.store, owner);
-            let range = program.store.function_instruction_range(owner).unwrap();
-            let key = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(0)))).unwrap();
-            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("wrong")))).unwrap();
-            let mut invalid = (*program).clone();
-            invalid.store.tags.swap(key, wrong);
-            invalid.store.data.swap(key, wrong);
-            let error = FullVerifier::verify(&invalid).unwrap_err();
-            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
         });
     }
 
