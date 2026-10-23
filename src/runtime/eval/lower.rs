@@ -5392,7 +5392,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     while ordered.last() == Some(&None) { ordered.pop(); }
                     if slots.guarded_postfixes.contains(&expression) {
                         let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
-                        ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments)?;
+                        ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments, &|name| self.declarations.wire_enums.mappings.contains_key(&name))?;
                     }
                     if receiver.is_none() && plan.signature.op == RuntimeOp::ProcessCommandArgv {
                         if ordered.len() > 16 { return self.block_scheme_lowering_expr(expression); }
@@ -5427,7 +5427,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 (Some(crate::modules::MethodReceiver::Path), Some(Type::Path))
                                 | (Some(crate::modules::MethodReceiver::FsRoot), Some(Type::FsRoot)))
                             || !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { name: selected, .. } | ArenaExprKind::NullSafeField { name: selected, .. } if selected.as_str().as_str() == plan.name.as_ref())
-                            || !crate::sema::builtin_templates::verify_registered_call(&plan, Some(receiver_type), &arguments, &ty)
+                            || !crate::sema::builtin_templates::verify_registered_call(&plan, Some(receiver_type), &arguments, &ty, &|name| self.declarations.wire_enums.mappings.contains_key(&name))
                         { return self.block_scheme_lowering_expr(expression); }
                         ordered.insert(0, Some(receiver));
                         push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.signature.op, args: ordered, span })

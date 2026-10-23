@@ -202,6 +202,15 @@ optional arguments. The closed receiver, result, effects, resource owner and
 native producer contract remain independently checked; no method spelling or
 caller supplies the receiver type.
 
+Generic native `json.encode` uses the registry's `JsonCompatible` argument role
+for its value. The shared rule checks the actual closed input type with
+`Type::is_json_compatible_with`. Wire tags require a retained declaring mapping.
+Selected JSON calls retain those mappings once per build. Publication scans the
+encoded call census once and preserves existing mapping indices.
+Explicit `Any` keeps the ordinary fallible runtime encoder. The optional Boolean
+and `Result[Str, Error]` use the existing template relationship. Cold proof retains
+every input producer and charges input and mapping traversal.
+
 Pipeline key requirements use `SealedOperation::TypePredicate` in the existing
 operation authority. A predicate carries its actual subject type and has no
 result, invocation, effect, or computational use-site. `SortKey` accepts `Int`,

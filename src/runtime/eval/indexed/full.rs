@@ -3773,6 +3773,17 @@ impl FullBuilder {
         }
     }
 
+    fn register_json_wire_mappings(&mut self, declarations: &CompactDeclOutput) {
+        if self.store.registered_calls.values().any(|plan| plan.signature.op == RuntimeOp::JsonEncode
+            && crate::sema::builtin_templates::registered_call_is_executable(plan))
+        {
+            let mut stored = self.store.wire_enums.iter().map(Arc::as_ptr).collect::<rustc_hash::FxHashSet<_>>();
+            for mapping in declarations.wire_enums.mappings.values() {
+                if stored.insert(Arc::as_ptr(mapping)) { self.store.wire_enums.push(Arc::clone(mapping)); }
+            }
+        }
+    }
+
     fn register_checked_pattern_variants(
         &mut self,
         scratch: &BuildScratch,
@@ -4164,6 +4175,7 @@ impl FullBuilder {
             error.committed_instructions = builder.store.tags.len();
             return Err(error);
         }
+        builder.register_json_wire_mappings(declarations);
         builder.finish(sources, symbols)
     }
 
@@ -55644,4 +55656,129 @@ assert identity(produce_tasks(["one", "two"]).deps) == ["one", "two"]
         }).unwrap().join().unwrap();
     }
 
+}
+
+#[cfg(all(test, feature = "native-tests"))]
+mod registered_json_tests {
+    fn prepare(source: &str) -> super::FullProgram {
+        let path = "registered-json-proof.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, crate::loader::entry_source_from_text(path, source.to_owned()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{}", renderer.render(&checked.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &checked, source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn generic_json_wire_parameters_keep_their_declaring_domain() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let program = prepare("enum Mode: Str { Ready = \"ready\" }\npure keep(payload, mode: Mode) { let _ = json.encode(mode)?; Ok(payload) }\n");
+            super::FullVerifier::verify(&program).unwrap();
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn generic_json_arguments_reject_truthful_incompatible_producers() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            for (annotation, value) in [("Path", "p\"wrong\""), ("Other", ".Unmapped")] {
+                let source = format!("enum Other {{ Unmapped }}\npure keep(payload, value: Any) {{ let encoded = json.encode(value, pretty: false); {{payload, encoded}} }}\nlet actual: {annotation} = {value}\nlet result = keep(7, actual)\nassert match result.encoded {{ Err(_) => true, Ok(_) => false }}\n");
+                let program = prepare(&source);
+                let _symbols = program.symbol_owner().enter();
+                let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keep").unwrap();
+                let concrete = program.store.driver_slots.iter().find(|slot| program.store.string(slot.name).ok() == Some("actual")).unwrap().type_id;
+                assert!(!program.store.semantic.to_type(concrete).unwrap().is_json_compatible());
+                let mut forged = program.clone();
+                forged.store.in_place.take();
+                let mut changed = 0;
+                for (node, original) in forged.store.scheme_types.iter_mut().zip(&program.store.scheme_types) {
+                    if original.tag == super::schema::FullSchemeTypeTag::Ground
+                        && program.store.semantic.to_type(super::TypeId::from_raw(original.first).unwrap()).unwrap() == super::Type::Any
+                    {
+                        node.first = concrete.raw();
+                        changed += 1;
+                    }
+                }
+                assert!(changed > 0);
+                let slots = forged.store.functions[owner].slot_type_facts.bounds(forged.store.slot_type_facts.len()).unwrap();
+                if forged.store.slot_type_facts[slots.start + 1] != super::IR_NONE {
+                    forged.store.slot_type_facts[slots.start + 1] = concrete.raw();
+                }
+                let error = super::FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("selected registry signature"), "{annotation}: {error:?}");
+            }
+            let program = prepare(r#"
+enum Mode: Str { Ready = "ready" }
+enum Other { Unmapped }
+pure keep(payload, wrong: Path, other: Other, mode: Mode) {
+    let data = {mode}
+    let _ = data
+    let _ = wrong
+    let _ = other
+    let encoded = json.encode(data, pretty: false)?
+    Ok(payload)
+}
+assert keep(7, p"wrong", .Unmapped, .Ready)? == 7
+"#);
+            let _symbols = program.symbol_owner().enter();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keep").unwrap();
+            let decoder = super::function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let call = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::ModuleCall { op: crate::modules::RuntimeOp::JsonEncode, .. }))).unwrap();
+            let super::schema::ExprView::ModuleCall { mut args, call_plan: None, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+            let value = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            let pretty = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(args.next().is_none());
+            assert!(matches!(decoder.expression_view(value).unwrap(), super::schema::ExprView::Param(_)));
+            let cold = || { let mut forged = program.clone(); forged.store.in_place.take(); forged };
+            let payload = program.store.data[call].range().bounds(program.store.extra.len()).unwrap();
+            let mut cursor = super::FullCursor::new(&program.store.extra[payload.clone()]);
+            let _ = <crate::modules::RuntimeOp as super::FullCodec>::decode(&decoder, &mut cursor).unwrap();
+            let _ = <Option<std::sync::Arc<crate::runtime::eval::ModuleCallPlan>> as super::FullCodec>::decode(&decoder, &mut cursor).unwrap();
+            let block = super::IrBlockId::from_raw(cursor.raw().unwrap()).unwrap();
+            let arguments = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(&program.store.extra[arguments.start..arguments.start + 5], &[2, 1, value as u32, 1, pretty as u32]);
+            let mut wrong_role = cold();
+            wrong_role.store.extra.swap(arguments.start + 2, arguments.start + 4);
+            assert!(super::FullVerifier::verify(&wrong_role).is_err());
+            let mut wrong_operation = cold();
+            let operation = program.store.extra[payload.start] as usize;
+            wrong_operation.store.runtime_ops[operation] = crate::modules::RuntimeOp::JsonDecode;
+            assert!(super::FullVerifier::verify(&wrong_operation).is_err());
+            let mut wrong_signature = cold();
+            let plan = wrong_signature.store.registered_calls.get_mut(&(call as u32)).unwrap();
+            std::sync::Arc::make_mut(plan).signature = &crate::modules::api_spec().module_overloads("json", "decode").unwrap()[0];
+            assert!(super::FullVerifier::verify(&wrong_signature).is_err());
+            assert!(!program.store.wire_enums.is_empty());
+            let mut missing_wire = cold();
+            missing_wire.store.wire_enums.clear();
+            assert!(super::FullVerifier::verify(&missing_wire).is_err());
+            let mut wrong_wire = cold();
+            std::sync::Arc::make_mut(&mut wrong_wire.store.wire_enums[0]).type_name = crate::symbol::Name::intern("Other");
+            assert!(super::FullVerifier::verify(&wrong_wire).is_err());
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn generic_json_records_execute_on_both_routes() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = include_str!("../../../../tests/fixtures/runtime/generic-json-compatible.xsh");
+            let path = "generic-json-compatible.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, crate::loader::entry_source_from_text(path, source.to_owned()), Vec::new());
+            let renderer = crate::diagnostic::DiagnosticRenderer::new();
+            assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{}", renderer.render(&checked.diagnostics, &sources));
+            let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+            for force_frames in [false, true] {
+                let result = prepared.eval_test("generic_json_records", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert_eq!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(crate::runtime::value::Value::Unit)))));
+            }
+        }).unwrap().join().unwrap();
+    }
 }

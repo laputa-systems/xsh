@@ -2662,7 +2662,7 @@ fn verify_body_expression(
                 if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
                     if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
                     let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
-                    if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver_ty), &references, ty) { return Err(IrVerifyError::new("generic host method disagrees with its selected registry signature")); }
+                    if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver_ty), &references, ty, &|_| false) { return Err(IrVerifyError::new("generic host method disagrees with its selected registry signature")); }
                     registered_coverage.insert(instruction as u32);
                     ty.clone()
                 } else { SchemeType::Ground(commands::nullary_method(&receiver_ty, name, &arguments, budget)?) }
@@ -2747,7 +2747,15 @@ fn verify_body_expression(
                 SchemeType::Ground(plan.signature.return_ty.clone())
             } else if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
                 let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
-                if call_plan.is_some() || plan.receiver.is_some() || plan.signature.op != op || !crate::sema::builtin_templates::verify_registered_call(plan, None, &references, ty) { return Err(IrVerifyError::new("generic module call disagrees with its selected registry signature")); }
+                let wire_types = if op == crate::modules::RuntimeOp::JsonEncode {
+                    if let Some(Some(actual)) = arguments.first() {
+                        budget.charge_scheme_clone(actual)?;
+                        if let Some(actual) = actual.closed_ground_type() { closed_type_contains_any(&actual, &mut |amount| budget.charge(amount))?; }
+                    }
+                    budget.charge(store.wire_enums.len())?;
+                    store.wire_enums.iter().map(|mapping| mapping.type_name).collect::<rustc_hash::FxHashSet<_>>()
+                } else { rustc_hash::FxHashSet::default() };
+                if call_plan.is_some() || plan.receiver.is_some() || plan.signature.op != op || !crate::sema::builtin_templates::verify_registered_call(plan, None, &references, ty, &|name| wire_types.contains(&name)) { return Err(IrVerifyError::new("generic module call disagrees with its selected registry signature")); }
                 registered_coverage.insert(instruction as u32);
                 ty.clone()
             } else if call_plan.is_none() {
