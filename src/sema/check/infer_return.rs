@@ -383,8 +383,17 @@ impl Checker {
                     for candidate in &candidates {
                         let expected = self.type_constraints.resolve(&ty);
                         let actual = self.type_constraints.resolve(&candidate.ty);
-                        if matches!((&expected, &actual), (Ok(expected), Ok(actual)) if actual.matches_expected(expected)) { continue; }
-                        self.expect_type(&ty, &candidate.ty, candidate.span);
+                        let expected = match (&expected, &actual) {
+                            (Ok(expected), Ok(actual)) => {
+                                if super::tail_type_matches_expected(expected, actual) { continue; }
+                                match expected {
+                                    Type::Result(success, _) if !actual.is_result() => success.as_ref(),
+                                    _ => expected,
+                                }
+                            }
+                            _ => &ty,
+                        };
+                        self.expect_type(expected, &candidate.ty, candidate.span);
                     }
                     if self.diagnostics[diagnostics..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
                         ty = Type::Invalid;
@@ -1161,4 +1170,68 @@ mod pure_error_return_tests {
                 || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
         }
     }
+}
+
+#[cfg(test)]
+mod pure_result_completion_tests {
+    fn accepts(annotation: &str) {
+        for (shape, definition, observation) in [
+            ("Int", "if failed { return Err(Local.Stop()) }; 7", "let result: Result[Int, Local] = attempt(false)"),
+            ("Int", "if !failed { return 7 }; Err(Local.Stop())", "let result: Result[Int, Local] = attempt(false)"),
+            ("Str", "if failed { return Err(Local.Stop()) }; \"kept\"", "let result: Result[Str, Local] = attempt(false)"),
+            ("Row", "if failed { return Err(Local.Stop()) }; {value: 7}", "let result: Result[Row, Local] = attempt(false)"),
+        ] {
+            let returned = annotation.replace("PAYLOAD", shape);
+            let source = format!("error Local = Stop\ntype Row = {{value: Int}}\npure attempt(failed: Bool) {returned} {{ {definition} }}\n{observation}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(errors.is_empty(), "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn typed_ground_result_returns_wrap_bare_success_values() {
+        accepts("-> Result[PAYLOAD, Local]");
+    }
+
+    #[test]
+    fn inferred_ground_result_returns_wrap_bare_success_values() {
+        accepts("");
+    }
+
+    #[test]
+    fn actual_result_candidates_keep_their_outer_error_domain() {
+        for source in [
+            "pure attempt(failed: Bool) { if failed { return Err(\"wrong\") }; Ok(7) }\n",
+            "pure attempt(failed: Bool) { if failed { return Err(\"wrong\") }; Ok(Ok(7)) }\n",
+            "pure attempt(failed: Bool) -> Result[Result[Int, Str], Error] { if failed { return Err(\"wrong\") }; Ok(Ok(7)) }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn inferred_pure_result_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/inferred-pure-result-completions.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("inferred-pure-result-completions.xsh", crate::loader::entry_source_from_text("inferred-pure-result-completions.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("inferred_pure_results_wrap_success_and_preserve_failures", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit)) || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{:?}", result.result);
+        }
+    }
+
 }
