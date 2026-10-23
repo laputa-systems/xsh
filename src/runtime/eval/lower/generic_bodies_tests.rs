@@ -4306,3 +4306,53 @@ fn generic_fsroot_native_fixture_executes_after_frontend_disposal_on_both_routes
     }
     });
 }
+
+#[test]
+fn concrete_stream_alias_result_preserves_creation_pull_failure_and_cleanup() {
+    let source = r#"error AliasFailure = Stopped(message: Str)
+var pulls = 0
+var closed = 0
+pure failure() -> Result[Unit, AliasFailure] { Err(AliasFailure.Stopped("late")) }
+stream values(value: Int) [error] -> Stream[Int] { defer { closed += 1 }; pulls += 1; yield value; let _ = failure()? }
+proc make() [error] -> Result[Stream[Int]] { let create = values; Ok(create(42)) }
+proc observed_pulls() [] -> Int { pulls }
+proc observed_closed() [] -> Int { closed }
+proc take_one(items: Stream[Int]) [error] -> Result[Int] { var found = 0; for item in items { found = item; break }; Ok(found) }
+proc drain(items: Stream[Int]) [error] -> Result[List[Int]] { items.collect() }
+"#;
+    for alias in [false, true] {
+      let source = source.replace("Ok(create(42))", if alias { "Ok(create(42))" } else { "Ok(values(42))" });
+      let (program, sources, source_id) = record_form_program(&source);
+      for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let span = Span::at(source_id, 0);
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        let success = |value| match value { Value::Result(ResultValue::Ok(value)) => *value, value => panic!("expected success, found {value:?}") };
+        let first = success(evaluator.call_indexed_direct(key("make"), CallableKind::Proc, &[], span).unwrap().unwrap());
+        assert!(matches!(&first, Value::Stream(_)));
+        for name in ["observed_pulls", "observed_closed"] { assert_eq!(evaluator.call_indexed_direct(key(name), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Int(0)); }
+        let first = evaluator.call_indexed_direct(key("take_one"), CallableKind::Proc, &[first], span).unwrap().unwrap();
+        assert_eq!(success(first), Value::Int(42));
+        for name in ["observed_pulls", "observed_closed"] { assert_eq!(evaluator.call_indexed_direct(key(name), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Int(1)); }
+        let later = success(evaluator.call_indexed_direct(key("make"), CallableKind::Proc, &[], span).unwrap().unwrap());
+        for name in ["observed_pulls", "observed_closed"] { assert_eq!(evaluator.call_indexed_direct(key(name), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Int(1)); }
+        let error = evaluator.call_indexed_direct(key("drain"), CallableKind::Proc, &[later], span).unwrap().expect_err("pulling past the first item retains the producer failure");
+        assert_eq!((&*error.family, &*error.variant, &*error.message), ("AliasFailure", "Stopped", "late"));
+        assert!(error.propagated);
+        assert_eq!(&source[error.span.unwrap().range()], "failure()?");
+        for name in ["observed_pulls", "observed_closed"] { assert_eq!(evaluator.call_indexed_direct(key(name), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Int(2)); }
+      }
+    }
+    for call in ["values(42)", "create(42)"] {
+        let source = format!("stream values(value: Int) [error] -> Stream[Int] {{ yield value }}\nproc make() [] -> Result[Stream[Int]] {{ let create = values; Ok({call}) }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)
+            && diagnostic.labels.iter().any(|label| &source[label.span.range()] == call)), "{source}\n{:?}", checked.diagnostics);
+    }
+
+}
