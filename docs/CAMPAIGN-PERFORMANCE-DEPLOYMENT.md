@@ -119,10 +119,19 @@ controls with independent review clear. After authenticating an instantiated
 read, storage proof retains its actual lexical contract instead of replacing
 the quantified relationship with a bare function kind. Original driver,
 captured, local and nested aliases execute on both routes; existing cold
-mutations reject. An additional imported-alias control fails in earlier
-structural producer validation on both the unchanged `15c71c323` source and
-the repaired lane. That separate defect remains open. Combined replay is
-required after integration.
+mutations reject. An additional imported-alias control exposed the same earlier structural
+producer defect on both sources. Repair `997205e28`, integrated as
+`2fc9d81ab`, authenticates that Param contract with the existing immutable
+import proof. Six focused controls pass; a strengthened one-test replay
+rejects an owned, same-signature alternate target for the precise structural
+producer reason. Independent source review is clear.
+
+Combined source `30d36decd` passes all 93 focused Rust selectors, with no
+failures, ignored tests or warnings. This includes the original 64, grounded
+callable branches, Index/Slice, lexical aliases and imported aliases. Two
+mechanical module-index adaptations at that source distinguish ordinary keys
+from negative literal operands. Matching verification products and complete
+native/API replay remain pending; this is not global compiler qualification.
 
 Generic Index and Slice at `48b66343f`, integrated as `8cfbceb34`, pass all
 twenty focused controls with independent review clear. Inputs select List,
