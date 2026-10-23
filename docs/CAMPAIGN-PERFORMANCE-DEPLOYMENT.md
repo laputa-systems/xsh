@@ -44,10 +44,13 @@ Products and native logs remain in `.work/wt/full-inference-return-wave-qualific
 
 Its historical paired replay passes all eleven roots in both views and all
 twenty-one original selectors. The reduced cut boundary then fails at
-`test_cut_keeps_adjacent_range_boundaries`: an empty merged-list access executes
-inside a guarded condition. Interface qualification does not run. This runtime
+`test_cut_keeps_adjacent_range_boundaries`: a negative list index fails inside
+a guarded condition. Interface qualification does not run. This runtime
 defect has a dedicated owner and blocks corpus credit. Its log is
 `.work/wt/full-inference-effect-corpus/.work/tmp/frozen-return-wave-replay-r2.log`.
+The remaining twenty reduced selectors pass a bounded diagnostic replay with
+matching source, products and input guards. That replay isolates the observed
+runtime failure. It supplies no full paired or interface qualification credit.
 
 Optional argument conversion, pattern-body support and pipeline-body support
 continue independently while the cut regression is repaired.
