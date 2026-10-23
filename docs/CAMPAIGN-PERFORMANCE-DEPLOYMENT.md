@@ -12,14 +12,34 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
-The latest combined replay uses source `2da01f69b` and completes the full Rust library run:
+The latest combined replay uses frozen source `4fafeefbb`: 2,193 Rust library
+tests pass, six fail, and three remain ignored. Matching verification products
+build without warnings. Logs are under
+`.work/wt/full-inference-qualified-uint/.work/tmp/joint-uint-{full-library,verification-build}.log`.
+Four failures concern ground index evidence or its work bound; two concern
+selected and forwarded index relationships. The new system-report fixture
+selector also fails before execution with missing ground index receiver
+evidence. This source is unqualified; the joint corpus adapter has not run.
+
+Focused repairs cover all six observed failures. Guard repair `9579ef283`,
+integrated as `39eca66cd`, skips receiver work only when the declared error
+channel already accepts Error. The three affected ground controls pass, as do
+the unsafe UInt-to-Str rejection and cold List/Any-narrowing controls. Binding
+repair `e91ebde50`, integrated as `be4a6fe93`, passes five controls, retaining
+verified ordinal mapping, Ground selection and lazy guarded-key evaluation.
+Budget repair `a8115ebe9`, integrated as `addf396ac`, prefers the existing scoped
+Optional narrowing proof before structural initializer work. Ten guard, record
+and forgery controls pass with unchanged limits. Both latter repairs have clear
+independent reviews. Combined replay and rebuilt products remain required.
+
+The previous combined replay uses source `2da01f69b` and completes the full Rust library run:
 2,183 pass, one fails, and three remain ignored. Its log is
 `.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-full-library.log`.
-The sole failure is the UInt-map error-contract control. The earlier
+Its sole failure is the UInt-map error-contract control. The earlier
 `e80adaf31` run has four failures. All three other failures now pass on the
 combined source. These results do not qualify the compiler.
 
-Matching verification products build without warnings. Normal and forced-frame
+At `2da01f69b`, matching verification products build without warnings. Normal and forced-frame
 native capability runs each pass all 143 selectors with no skips. Each run
 retains the earlier 140-selector boundary and adds three Proc-capture cases.
 All six API catalog selectors pass. Logs are under
@@ -77,8 +97,16 @@ relationships forward until settled, and independently supported inputs establis
 dependent callback binders. Runtime controls execute nested Results on both
 routes after frontend disposal. Cold ownership, target, substitution, cycle,
 Null, Any and phantom-binder mutations reject. Independent review is clear.
-The corrected forwarding proof also closes the provenance failure without a
-new stream-origin mechanism. This later integration needs a combined replay.
+The corrected forwarding proof closes the original pure-forwarder provenance
+failure through existing application evidence. This integration needs a combined replay.
+Selected-callback repair `5bc6d5a6d`, integrated as `25cbdb225`, passes three
+focused controls and independent review. It preserves exact left/right stream
+projections for same-signature callbacks, finite known-target unions, mixed
+unknown forwarding and imported stream aliases. Selection uses the actual
+settled layout and unique formal identities, without signature matching.
+Omitted defaults, rest signatures and grounded argument origins remain outside
+this expansion. Their valid-source discriminators remain open; an empty origin
+for a freshly created global stream is not itself evidence of a defect.
 The pristine system-report fixture exposed a separate record-field proof
 failure before execution. Repair `e385c1fb7`, integrated as `464ad3c27`, reuses
 the existing structural initializer proof beneath an actual complete storage

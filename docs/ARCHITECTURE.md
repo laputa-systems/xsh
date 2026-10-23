@@ -529,6 +529,15 @@ A deferred Proc return envelope refers to an explicit application identity and
 uses the existing ground Result/error join policy; type-cell equality alone
 cannot establish application-result provenance.
 
+Stream return origins specialize a selected callback through its actual
+application identity and settled argument layout. Unique formal type identities
+locate the supplied argument origins; known callable origins select the target
+summary and preserve its exact projections. Equal callable signatures do not
+identify a target. Imported normalized application ordinals remain independent
+of local pending declarations. Mixed or unsupported origins retain their
+unresolved relationship. This expansion excludes omitted defaults, rest
+signatures and arguments whose explicit types erase the formal type identity.
+
 Checked declaration effects use `CheckedEffects` and `CheckedEffectScope`.
 `FunctionEffectFact.effective`, `FunctionEffectFact.required`, and the callable
 effect projection retain these contracts. Concrete projection returns an unknown
