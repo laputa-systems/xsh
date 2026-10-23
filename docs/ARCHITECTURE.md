@@ -438,7 +438,12 @@ exact read site's active branch, short-circuit prefix, and preceding terminating
 branch while retaining the original broad storage contract and every writer
 proof. Completed structural ownership and return analysis populate the owner census
 before callable fact validation. Both that validation and the producer proof borrow
-its same charged ordered-prefix query. Physical optional carriers require the
+its same charged ordered-prefix query. Completed lexical binding queries belong to
+that transient census and retain the executable owner, physical read, and slot.
+Census and producer proofs reuse successful exact-site binding identities while
+writer enumeration and presence refinements keep their independent proofs. Each
+query and retained identity remains charged to the unchanged work bound.
+Physical optional carriers require the
 presence proof even when their checked-expression facts are absent. Completed
 presence evidence belongs to one physical gate in that owner. Reuse rechecks the
 schema, source child, type identity, and exact optional payload; failed queries

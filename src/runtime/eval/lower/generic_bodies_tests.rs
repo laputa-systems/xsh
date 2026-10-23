@@ -4146,3 +4146,43 @@ fn generic_collect_delegation_rejects_non_list_sources_and_callback_yield_escape
     let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
     assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckYield)), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn ground_resource_contracts_preserve_bounded_producer_verification() {
+    let declarations = [
+        "var argument_order = \"\"",
+        "proc selected_path(location: Path) [] -> Path { argument_order += \"p\"; location }",
+        "proc selected_order() [] -> Bool { argument_order += \"o\"; true }",
+        "proc observed_order() [] -> Str { argument_order }",
+        "proc closed(root: FsRoot) [fs] -> Result[Unit] { root.close() }",
+        "proc typed(root: FsRoot, location: Path) [fs, error] { root.children(ordered: selected_order(), path: selected_path(location))? }",
+        "proc listed(marker: Any, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.children(ordered: selected_order(), path: selected_path(location))? }",
+        "proc written(marker: Any, root: FsRoot, location: Path, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }",
+        "proc read(marker: Any, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.read_text(location)? }",
+    ];
+    let cases = [
+        ("children", vec![0, 1, 2, 5]),
+        ("children-marker", vec![0, 1, 2, 6]),
+        ("children-pair", vec![0, 1, 2, 5, 6]),
+        ("pair-write", vec![0, 1, 2, 5, 6, 7]),
+        ("pair-read", vec![0, 1, 2, 5, 6, 8]),
+        ("pair-write-read", vec![0, 1, 2, 5, 6, 7, 8]),
+        ("full", (0..declarations.len()).collect()),
+    ];
+    let mut failures = Vec::new();
+    for (name, selected) in cases {
+        let source = selected.into_iter().map(|index| declarations[index]).collect::<Vec<_>>().join("\n");
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("ground-resource-contracts.xsh", source.clone());
+        let parsed = Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{name}: {:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{name}: {:?}", checked.diagnostics);
+        assert!(checked.function_schemes.is_empty(), "{name}: ordinary ground functions");
+        match FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id) {
+            Ok(_) => {},
+            Err(error) => failures.push(format!("{name}: {error:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

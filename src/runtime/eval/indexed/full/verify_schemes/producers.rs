@@ -93,6 +93,7 @@ struct ProducerOwner {
     block_declarations: BTreeMap<(usize, usize), Vec<(usize, ProducerBinding)>>,
     lexical_slots: BTreeMap<usize, LexicalSlotIdentity>,
     inherited_bindings: RefCell<BTreeMap<(usize, usize), Option<ProducerBinding>>>,
+    bindings: RefCell<BTreeMap<(u32, usize, usize), ProducerBinding>>,
     #[cfg(test)]
     binding_work: Cell<(usize, usize, usize)>,
     #[cfg(test)]
@@ -968,13 +969,21 @@ impl ProducerOwner {
     }
 
     fn visible_binding(&self, store: &FullStore, owner: u32, at: usize, slot: usize) -> Result<Option<ProducerBinding>, IrVerifyError> {
-        self.resolve_binding(store, owner, at, slot, None)
+        self.work.borrow_mut().charge(1)?;
+        let key = (owner, at, slot);
+        if let Some(binding) = self.bindings.borrow().get(&key) { return Ok(Some(*binding)); }
+        let binding = self.resolve_binding(store, owner, at, slot, None)?;
+        if let Some(binding) = binding {
+            self.work.borrow_mut().charge(1)?;
+            self.bindings.borrow_mut().insert(key, binding);
+        }
+        Ok(binding)
     }
 
     fn resolve_binding(&self, store: &FullStore, owner: u32, mut at: usize, slot: usize,
         inherited_bindings: Option<&RefCell<BTreeMap<(usize, usize), Option<ProducerBinding>>>>,
     ) -> Result<Option<ProducerBinding>, IrVerifyError> {
-        self.work.borrow_mut().charge(1)?;
+        if inherited_bindings.is_some() { self.work.borrow_mut().charge(1)?; }
         #[cfg(test)] { let (queries, parents, comparisons) = self.binding_work.get(); self.binding_work.set((queries + 1, parents, comparisons)); }
         if !self.lexical_slots.contains_key(&slot) { return self.header_binding(store, owner, slot); }
         let mut inherited = Vec::new();
@@ -1300,7 +1309,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -1818,6 +1827,7 @@ impl GroundProducerIndex {
                     + owner.block_guards.len() * size_of::<(usize, Vec<(usize, usize)>)>()
                     + owner.block_guards.values().map(|guards| guards.capacity() * size_of::<(usize, usize)>()).sum::<usize>()
                     + owner.inherited_bindings.borrow().len() * size_of::<((usize, usize), Option<ProducerBinding>)>()
+                    + owner.bindings.borrow().len() * size_of::<((u32, usize, usize), ProducerBinding)>()
                     + owner.pattern_sources.len() * size_of::<(ProducerBinding, PatternProducer)>()
                     + owner.pattern_sources.values().map(|source| source.preceding.capacity() * size_of::<(u32, bool)>()).sum::<usize>()
                     + owner.comprehension_sources.len() * size_of::<(ProducerBinding, (usize, usize))>()
@@ -1937,7 +1947,6 @@ pub(super) struct ProducerProof<'a> {
     expressions: BTreeMap<(u32, usize), Vec<(Arc<Type>, bool)>>,
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
     operand_expansions: BTreeSet<(u32, usize)>,
-    bindings: BTreeMap<(u32, usize, usize), ProducerBinding>,
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
     slots: BTreeMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     prefixes: BTreeMap<(u32, usize, usize), Vec<Arc<Type>>>,
@@ -2375,7 +2384,7 @@ impl ConditionalProducerType {
 
 impl<'a> ProducerProof<'a> {
     pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>) -> Self {
-        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
         if index.demand == crate::runtime::eval::ProducerDemand::Needed {
             for call in &store.checked_call_targets {
                 if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
@@ -2498,11 +2507,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn binding(&mut self, owner: u32, at: usize, slot: usize) -> Result<ProducerBinding, IrVerifyError> {
-        self.budget.charge(1)?;
-        if let Some(binding) = self.bindings.get(&(owner, at, slot)) { return Ok(*binding); }
-        let binding = self.index.owners[&owner].binding(self.store, owner, at, slot)?;
-        self.bindings.insert((owner, at, slot), binding);
-        Ok(binding)
+        self.index.owners[&owner].binding(self.store, owner, at, slot)
     }
 
     fn scheme_parameter(&mut self, owner: u32, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
