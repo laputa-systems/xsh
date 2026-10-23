@@ -35,8 +35,22 @@ historical replay stops at the conditional Result-tail defect in `dev/main`,
 repaired in `ae7128949`. These failed runs remain failed qualification evidence.
 Logs and products remain in `.work/wt/full-inference-calendar-product-qualification/.work/`.
 
-The next matching-product wave freezes the integrated return repairs while
-Optional argument conversion and pattern-body support continue independently.
+Matching source `ae7128949`, tree `ebc36708681add9e4b751a75e26bbfd5da41efdf`,
+builds XSH, XSHT and XSHI without warnings. All 144 capability selectors pass
+in each normal and forced-frame mode. All six API selectors pass. The runner
+checks the exact listed and executed family roster in one container, then runs
+the eight legacy selectors individually. No required selector is removed.
+Products and native logs remain in `.work/wt/full-inference-return-wave-qualification/.work/`.
+
+Its historical paired replay passes all eleven roots in both views and all
+twenty-one original selectors. The reduced cut boundary then fails at
+`test_cut_keeps_adjacent_range_boundaries`: an empty merged-list access executes
+inside a guarded condition. Interface qualification does not run. This runtime
+defect has a dedicated owner and blocks corpus credit. Its log is
+`.work/wt/full-inference-effect-corpus/.work/tmp/frozen-return-wave-replay-r2.log`.
+
+Optional argument conversion, pattern-body support and pipeline-body support
+continue independently while the cut regression is repaired.
 Pyramid experts finish mixed execution, byte-safe input tracking and stale
 result reporting in separate worktrees. Product preparation overlaps source
 work, under the existing two-Cargo and single-native limits. Qualification
