@@ -113,7 +113,7 @@ impl Checker {
         match actual.into_unvalidated() {
             Type::List(item) => self.finish_collect_yield(*item, value_span),
             actual @ Type::Inference(_) => {
-                let item = self.type_constraints.fresh_at_level(value_span, self.wrapper_solver_level());
+                let item = self.type_constraints.fresh_at_level(value_span, self.callable_solver_level());
                 self.expect_type(&Type::List(Box::new(item.clone())), &actual, value_span);
                 self.finish_collect_yield(item, value_span);
             }
