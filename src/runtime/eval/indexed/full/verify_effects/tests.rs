@@ -30,9 +30,19 @@ fn execute_both(program: &FullProgram) {
         evaluator.indexed_program = Some(Arc::clone(&program));
         evaluator.force_frames = force_frames;
         for step in 0..program.driver_step_count().unwrap() {
-            evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            let flow = evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            assert!(matches!(&flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames} step={step}: {flow:?}");
         }
     }
+}
+
+#[test]
+fn driver_execution_oracle_rejects_uncaught_propagation() {
+    on_large_stack(|| {
+        let program = fixture("error Failure { Bad }\npure failed() -> Result[Unit] { Err(Failure.Bad(\"bad\")) }\nfailed()?\n");
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute_both(&program)));
+        assert!(outcome.is_err(), "an escaping script error cannot qualify successful execution");
+    });
 }
 
 #[test]
@@ -339,11 +349,11 @@ assert assertion_messages == 0
 let failed_int = deferred_failure(7)
 let failed_str = deferred_failure("token")
 assert match failed_int {
-    Err(AssertionError.Failed {message: message}) => message == "deferred assertion"
+    Err(AssertionError.Failed {message: message}) => message == "assertion failed: false: deferred assertion"
     _ => false
 }
 assert match failed_str {
-    Err(AssertionError.Failed {message: message}) => message == "deferred assertion"
+    Err(AssertionError.Failed {message: message}) => message == "assertion failed: false: deferred assertion"
     _ => false
 }
 assert assertion_messages == 2

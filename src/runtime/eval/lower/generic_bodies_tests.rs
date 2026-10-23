@@ -23,8 +23,9 @@ fn typed_driver_conditions_preserve_lexical_boolean_producers_on_both_routes() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 for step in 0..program.driver_step_count().unwrap() {
-                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
+                    let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
                         .unwrap_or_else(|error| panic!("{source}\nframes={force_frames}: {error:?}"));
+                    assert!(matches!(&flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{source}\nframes={force_frames} step={step}: {flow:?}");
                 }
             }
         }
