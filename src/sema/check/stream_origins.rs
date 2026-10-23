@@ -795,6 +795,93 @@ mod tests {
     }
 
     #[test]
+    fn explicitly_typed_callback_arguments_keep_their_formal_stream_projection() {
+        use crate::sema::check::Checker;
+        use crate::source::SourceId;
+        use crate::syntax::parser::Parser;
+
+        let source = "type Pair = {left: Stream[Int], right: Stream[Int]}\n\
+            pure left(value: Pair) -> Stream[Int] { value.left }\n\
+            pure right(value: Pair) -> Stream[Int] { value.right }\n\
+            pure select(first, second, value: Pair) -> Stream[Int] { second(value) }\n\
+            pure relay(value: Pair) -> Stream[Int] { select(left, right, value) }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let declaration = checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str().as_str() == "relay")
+            .expect("the typed-argument forwarder is checked");
+        let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+        let expected = [(
+            super::ProjectionPath::default(),
+            super::StreamOrigin::Formal {
+                owner,
+                parameter: 0,
+                projection: super::ProjectionPath(vec![StreamProjection::Field(crate::symbol::Name::intern("right"))]),
+            },
+        )].into_iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(checked.stream_origin_summaries.declarations[&owner].returned.0, expected);
+    }
+
+    #[test]
+    fn imported_typed_callback_arguments_keep_their_formal_stream_projection() {
+        use crate::sema::check::module_driver::CheckSession;
+        use crate::sema::check::CheckOptions;
+        use crate::source::SourceMap;
+        use crate::syntax::arena::ArenaProgramBuilder;
+        use crate::syntax::parser::Parser;
+        use std::sync::Arc;
+
+        let root_source = "use shared\n\
+            pure relay(value: shared.Pair) -> Stream[Int] { shared.select(shared.left, shared.right, value) }\n";
+        let module_source = "##! Stream callback helpers.\n\
+            ## A pair of stream projections.\n\
+            export type Pair = {left: Stream[Int], right: Stream[Int]}\n\
+            ## Select a stream with a callback.\n\
+            export pure select(first, second, value: Pair) -> Stream[Int] { second(value) }\n\
+            ## Select the left stream.\n\
+            export pure left(value: Pair) -> Stream[Int] { value.left }\n\
+            ## Select the right stream.\n\
+            export pure right(value: Pair) -> Stream[Int] { value.right }\n";
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let root_source_id = sources.add_file("entry.xsh", root_source);
+        let root = Parser::parse_source_into_arena_builder(root_source_id, root_source, &mut builder);
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        let module_source_id = sources.add_file("shared.xsh", module_source);
+        let module = Parser::parse_source_into_arena_builder(module_source_id, module_source, &mut builder);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let module_name = builder.symbol_owner().intern("shared");
+        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        for statement in builder.statement_ids(root.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                builder.set_use_resolved(use_id, Arc::from("shared"));
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(root.statements));
+        let checked = CheckSession::new(program, Arc::new(sources))
+            .check(root.statements, root_source_id, CheckOptions::default());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let declaration = checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str().as_str() == "relay")
+            .expect("the root forwarder is checked");
+        let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+        let expected = [(
+            super::ProjectionPath::default(),
+            super::StreamOrigin::Formal {
+                owner,
+                parameter: 0,
+                projection: super::ProjectionPath(vec![StreamProjection::Field(crate::symbol::Name::intern("right"))]),
+            },
+        )].into_iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(checked.stream_origin_summaries.declarations[&owner].returned.0, expected);
+    }
+
+    #[test]
     fn recursive_valueless_procs_keep_their_unit_boundary() {
         for (inferred, authored) in [
             ("proc again() [error, io] { if false { again() } }", "proc again() [error, io] -> Result[Unit] { if false { again() } }"),
@@ -1227,6 +1314,73 @@ impl Checker {
         slots.get(parameter).copied().flatten()
     }
 
+    fn source_formal_bindings(
+        &self,
+        arena: &crate::syntax::arena::ArenaProgram,
+        source: EffectDeclarationId,
+    ) -> Option<BTreeMap<super::BindingId, usize>> {
+        let target = self.stream_target_definitions.get(&source)?;
+        if target.namespace != source.namespace { return None; }
+        let definition = arena.arena.function_def(target.definition);
+        if arena.arena.span(arena.arena.block(definition.body).span) != source.body { return None; }
+        let mut bindings = BTreeMap::new();
+        for (slot, parameter) in arena.arena.params(definition.params).iter().enumerate() {
+            let site = (arena.arena.span(parameter.span), parameter.name);
+            let binding = *self.resolved_bindings.declaration_sites.get(&site)?;
+            if bindings.insert(binding, slot).is_some() { return None; }
+        }
+        Some(bindings)
+    }
+
+    fn source_argument_bindings(
+        &self,
+        arena: &crate::syntax::arena::ArenaProgram,
+        source: EffectDeclarationId,
+        requested: &BTreeSet<crate::source::Span>,
+    ) -> BTreeMap<crate::source::Span, Option<super::BindingId>> {
+        if requested.is_empty() { return BTreeMap::new(); }
+        let resolved_bindings = std::sync::Arc::clone(&self.resolved_bindings);
+        let mut cache = self.stream_argument_binding_cache.borrow_mut();
+        cache
+            .retain(|_, (bindings, _)| std::sync::Arc::ptr_eq(bindings, &resolved_bindings));
+        if !cache.contains_key(&source.body.source_id) {
+            let mut bindings = BTreeMap::new();
+            for expression in arena.arena.source_rows().expr_ids(source.body.source_id) {
+                if !matches!(&arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
+                let span = arena.arena.expr(expression).span;
+                let Some(binding) = resolved_bindings.expressions.get(&expression).copied() else { continue; };
+                bindings.entry(span).and_modify(|previous| *previous = None).or_insert(Some(binding));
+            }
+            cache.insert(source.body.source_id, (resolved_bindings, std::sync::Arc::new(bindings)));
+        }
+        let Some((_, source_bindings)) = cache.get(&source.body.source_id) else { return BTreeMap::new(); };
+        requested.iter().map(|span| (*span, source_bindings.get(span).copied().flatten())).collect()
+    }
+
+    fn source_argument_origins(
+        &self,
+        source: EffectDeclarationId,
+        span: crate::source::Span,
+        actuals: &BTreeMap<usize, StreamOrigins>,
+        formal_bindings: Option<&BTreeMap<super::BindingId, usize>>,
+        expression_bindings: &BTreeMap<crate::source::Span, Option<super::BindingId>>,
+    ) -> Option<StreamOrigins> {
+        if span.source_id != source.body.source_id || source.body.start() > span.start() || span.end() > source.body.end() {
+            return None;
+        }
+        if let Some(origin) = self.stream_expr_origins.get(&span) {
+            if origin.0.is_empty() || origin.0.iter().any(|(_, origin)| !matches!(origin,
+                StreamOrigin::Formal { owner, parameter, .. } | StreamOrigin::OpaqueFormal { owner, parameter, .. }
+                    if *owner == source && actuals.contains_key(parameter)
+            )) { return None; }
+            return origin.substitute(actuals).ok();
+        }
+        let formal_bindings = formal_bindings?;
+        let binding = expression_bindings.get(&span).copied().flatten()?;
+        let slot = formal_bindings.get(&binding)?;
+        actuals.get(slot).cloned()
+    }
+
     fn selected_stream_application_origins(
         &self,
         arena: &ArenaProgram,
@@ -1259,6 +1413,20 @@ impl Checker {
                 _ => {}
             }
         }
+        let requested_argument_spans = ordinals.iter()
+            .filter_map(|ordinal| requirements.get(*ordinal as usize))
+            .flat_map(|requirement| requirement.arguments.iter())
+            .filter(|argument| !matches!(&argument.ty, crate::sema::schemes::SchemeType::Parameter(_)))
+            .map(|argument| argument.span)
+            .filter(|span| span.source_id == source.body.source_id && source.body.start() <= span.start() && span.end() <= source.body.end())
+            .collect::<BTreeSet<_>>();
+        let missing_argument_origins = requested_argument_spans.iter()
+            .filter(|span| !self.stream_expr_origins.contains_key(*span))
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let source_formal_bindings = (!missing_argument_origins.is_empty())
+            .then(|| self.source_formal_bindings(arena, source)).flatten();
+        let source_argument_bindings = self.source_argument_bindings(arena, source, &missing_argument_origins);
         let mut selected = BTreeMap::new();
         for ordinal in ordinals {
             let requirement = requirements.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
@@ -1284,8 +1452,14 @@ impl Checker {
                 { complete = false; break; }
                 let mut callback_actuals = BTreeMap::<usize, StreamOrigins>::new();
                 for (argument, &slot) in requirement.arguments.iter().zip(&layout.argument_slots) {
-                    let Some(source_slot) = Self::direct_stream_formal_slot(&formal_slots, &argument.ty) else { complete = false; break; };
-                    let Some(origin) = actuals.get(&source_slot).cloned() else { complete = false; break; };
+                    let origin = if let Some(source_slot) = Self::direct_stream_formal_slot(&formal_slots, &argument.ty) {
+                        actuals.get(&source_slot).cloned()
+                    } else {
+                        self.source_argument_origins(
+                            source, argument.span, actuals, source_formal_bindings.as_ref(), &source_argument_bindings,
+                        )
+                    };
+                    let Some(origin) = origin else { complete = false; break; };
                     callback_actuals.entry(slot).or_default().join(&origin);
                 }
                 if !complete { break; }
