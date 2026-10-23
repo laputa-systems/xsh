@@ -3301,6 +3301,11 @@ checked value is already `Unit`. A generic proc's early value return uses the
 same success-envelope rule as its terminal value. Instantiating that value
 with a `Result` preserves the nested result as data.
 
+At a generic call, a plain value or `null` may fill an inferred fallback
+source through the ordinary Optional injection for the same checked payload
+type. An existing `Result` or Optional keeps its envelope. The callable's
+other body requirements still apply.
+
 At a direct call to an inferred quantified pure declaration, fixed required arguments
 may be positional or named. A final rest parameter has type `List[T]`; omitting
 its annotation introduces an inferred item type `T`. Each supplied rest item

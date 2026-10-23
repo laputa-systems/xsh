@@ -260,6 +260,37 @@ impl TypeConstraints {
 
     pub(crate) fn wrapper_at(&self, owner: CallableApplicationScope, span: Span) -> Option<WrapperOperationId> { self.wrappers.sources.get(&(owner, span)).copied() }
 
+    pub(super) fn optional_wrapper_call_argument_type(
+        &self, instance: &super::InstantiatedScheme, expected: &Type, actual: &Type,
+    ) -> Result<Option<Type>, ConstraintResolutionError> {
+        if actual.contains_inference() || actual.contains_any() || actual.contains_recovery()
+            || matches!(actual, Type::Optional(_) | Type::Result(_, _))
+        { return Ok(None); }
+        let expected = self.resolve(expected)?;
+        if !matches!(expected, Type::Inference(_) | Type::Optional(_)) { return Ok(None); }
+        for id in &instance.wrappers {
+            let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            let WrapperRequirementKind::Fallback { source, fallback, result } = &entry.requirement.kind else { continue; };
+            if self.resolve(source)? != expected { continue; }
+            if let Type::Optional(payload) = &expected {
+                if *actual != Type::Null && actual.matches_expected(payload) && !actual.matches_stored(payload) { return Ok(None); }
+                return Ok(Some(expected));
+            }
+            let result = self.resolve(result)?;
+            let payload = if !result.contains_inference() {
+                result
+            } else if *actual != Type::Null {
+                actual.clone()
+            } else {
+                let fallback = self.resolve(fallback)?;
+                if !fallback.contains_inference() && super::has_anchor(&fallback, false)? { fallback } else { result }
+            };
+            if *actual != Type::Null && !payload.contains_inference() && actual.matches_expected(&payload) && !actual.matches_stored(&payload) { return Ok(None); }
+            return Ok(Some(Type::Optional(Box::new(payload))));
+        }
+        Ok(None)
+    }
+
     pub(crate) fn wrapper_result_at(&self, owner: CallableApplicationScope, span: Span) -> Option<&Type> {
         let entry = self.wrappers.entries.get(&self.wrapper_at(owner, span)?)?;
         Some(match &entry.requirement.kind {

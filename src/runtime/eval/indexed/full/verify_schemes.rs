@@ -1645,6 +1645,8 @@ fn body_equality_matches(left: &SchemeType, right: &SchemeType, budget: &mut Sch
     }
     match (left, right) {
         (SchemeType::Ground(Type::Any), _) | (_, SchemeType::Ground(Type::Any)) => Ok(true),
+        (SchemeType::Parameter(_), SchemeType::Ground(Type::Null))
+        | (SchemeType::Ground(Type::Null), SchemeType::Parameter(_)) => Ok(true),
         (SchemeType::Validated(_, inner), right) => body_equality_matches(inner, right, budget),
         (left, SchemeType::Validated(_, inner)) => body_equality_matches(left, inner, budget),
         (SchemeType::Optional(_), SchemeType::Ground(Type::Null)) | (SchemeType::Ground(Type::Null), SchemeType::Optional(_)) => Ok(true),
@@ -5849,6 +5851,21 @@ mod tests {
     use super::*;
     use super::super::super::semantic::SemanticPoolBuilder;
     use super::super::schemes::FullSchemeTypeNode;
+
+    #[test]
+    fn symbolic_null_comparison_does_not_admit_other_unequal_domains() {
+        let parameter = SchemeType::Parameter(SchemeTypeParameterId(0));
+        let other = SchemeType::Parameter(SchemeTypeParameterId(1));
+        let null = SchemeType::Ground(Type::Null);
+        let integer = SchemeType::Ground(Type::Int);
+        let text = SchemeType::Ground(Type::Str);
+        let mut budget = SchemeInstantiationBudget { remaining: 4096, semantic_types: TypeMaterializationBudget::default() };
+        assert!(body_equality_matches(&parameter, &null, &mut budget).unwrap());
+        assert!(body_equality_matches(&null, &parameter, &mut budget).unwrap());
+        for (left, right) in [(&parameter, &integer), (&integer, &parameter), (&parameter, &other), (&integer, &text), (&integer, &null)] {
+            assert!(!body_equality_matches(left, right, &mut budget).unwrap(), "{left:?} {right:?}");
+        }
+    }
 
     #[test]
     fn checked_storage_source_validation_charges_hidden_record_fields() {

@@ -27252,6 +27252,48 @@ assert observed.scoped == Ok(8)
     }
 
     #[test]
+    fn generic_null_comparison_authenticates_null_producers_and_binders() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-null-comparison.xsh", "pure observe(value) { let _ = value != null; let _ = \"wrong\"; value }\nlet number: Int = observe(7)\n");
+            FullVerifier::verify(&program).unwrap();
+            let null = function_instruction_indices(&program, "observe", FullTag::ExprNull)[0];
+            let text = function_instruction_indices(&program, "observe", FullTag::ExprStr)[0];
+            let mut wrong_null = program.clone();
+            wrong_null.store.tags.swap(null, text);
+            wrong_null.store.data.swap(null, text);
+            assert!(FullVerifier::verify(&wrong_null).is_err());
+            let mut wrong_binder = program.clone();
+            let parameter = wrong_binder.store.scheme_types.iter_mut().find(|node| node.tag == schema::FullSchemeTypeTag::Parameter).unwrap();
+            parameter.first = IR_NONE - 1;
+            assert!(FullVerifier::verify(&wrong_binder).is_err());
+        });
+    }
+
+    #[test]
+    fn optional_fallback_call_injection_requires_its_checked_value_producer() {
+        run_with_large_stack(|| {
+            let program = fixture("optional-fallback-call-check.xsh", "pure fallback(value) { value ?? 0 }\nlet number: Int = fallback(7)\n");
+            FullVerifier::verify(&program).unwrap();
+            let call = scheme_fixture_call(&program, "fallback");
+            let argument = scheme_fixture_call_arguments(&program, call)[0].1 as usize;
+            let decoder = stage_view_decoder(&program.store);
+            let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(argument).unwrap() else { panic!("the Optional argument requires a checked producer") };
+            assert_eq!(check.ty.materialize().unwrap(), Type::Optional(Box::new(Type::Int)));
+            let value = value.raw();
+            let mut missing = program.clone();
+            let block = scheme_fixture_call_argument_block(&missing, call);
+            let range = missing.store.blocks[block.index()].instructions.bounds(missing.store.extra.len()).unwrap();
+            missing.store.extra[range.start + 2] = value;
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut wrong = program.clone();
+            let wrong_type = SemanticPoolBuilder::default().intern_type(&mut wrong.store.semantic, &Type::Optional(Box::new(Type::Str))).unwrap();
+            let payload = wrong.store.data[argument].range().bounds(wrong.store.extra.len()).unwrap();
+            wrong.store.extra[payload.start + 1] = wrong_type.raw();
+            assert!(FullVerifier::verify(&wrong).is_err());
+        });
+    }
+
+    #[test]
     fn generic_body_arguments_authenticate_conditional_optional_sources() {
         run_with_large_stack(|| {
             let program = fixture("generic-conditional-argument.xsh", concat!(

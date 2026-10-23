@@ -31,7 +31,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let function = self.function_index().checked_target_key(target)?;
         let span = self.program.arena.expr(id).span;
-        let lowered_args = self.lower_checked_function_arguments(id, args, function, slots, current_function, item_slot)?;
+        let lowered_args = self.lower_checked_function_arguments(id, args, function, slots, current_function, item_slot, |ty| Some(ty.clone()))?;
         let lowered = self.lower_checked_function_call_values(
             function,
             lowered_args,
@@ -74,6 +74,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_checked_function_arguments<T: Clone>(
         &mut self, id: ExprId, args: &[CallArgument<T>], function: LoweredFunctionKey,
         slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+        closed_argument_type: impl Fn(&T) -> Option<Type>,
     ) -> Option<Vec<LoweredCallArg>> {
         let span = self.program.arena.expr(id).span;
         let params = self
@@ -104,12 +105,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             self.validate_generic_rest_splices(id, args, rest_slot)?;
         }
-        let expanded_args = match rest_slot {
+        let mut expanded_args = match rest_slot {
             Some(rest_slot) if args.iter().any(|argument| argument.splice) => {
                 self.expand_static_positional_splices(args, rest_slot)?
             }
             _ => args.to_vec(),
         };
+        if let Some(scheme) = &scheme {
+            expanded_args = self.lower_optional_function_call_arguments(id, expanded_args, scheme.params(), slots, current_function, item_slot, closed_argument_type)?;
+        }
         self.lower_function_call_args(
             &expanded_args,
             scheme.as_deref().map(|scheme| CheckedCallParameters::Scheme(scheme.params())).or_else(|| params.as_deref().map(CheckedCallParameters::Ground)),
@@ -119,6 +123,44 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             current_function,
             item_slot,
         )
+    }
+
+    pub(super) fn lower_optional_function_call_arguments<T: Clone>(
+        &mut self, id: ExprId, mut args: Vec<CallArgument<T>>, parameters: &[crate::sema::schemes::SchemeParameter],
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+        closed_argument_type: impl Fn(&T) -> Option<Type>,
+    ) -> Option<Vec<CallArgument<T>>> {
+        if let Some(instance) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id)).cloned() {
+            let rest_slot = parameters.iter().position(|parameter| parameter.rest);
+            let named = args.iter().any(|argument| argument.name.is_some());
+            let argument_slots = self.call_argument_slots(id).map(<[usize]>::to_vec);
+            for (index, argument) in args.iter_mut().enumerate() {
+                if argument.splice { continue; }
+                let slot = if named { *argument_slots.as_ref()?.get(index)? } else { index.min(rest_slot.unwrap_or(index)) };
+                let Some(parameter) = parameters.get(slot) else { continue; };
+                let parameter_type = match &parameter.ty {
+                    crate::sema::schemes::SchemeType::List(item) if parameter.rest => item.as_ref(),
+                    ty => ty,
+                };
+                let crate::sema::schemes::SchemeType::Parameter(parameter) = parameter_type else { continue; };
+                let Some(expected) = instance.type_arguments().get(parameter).and_then(crate::sema::schemes::SchemeType::closed_ground_type) else { continue; };
+                let Type::Optional(payload) = &expected else { continue; };
+                let concrete = |ty: &Type| !ty.contains_any() && !ty.contains_inference() && !ty.contains_recovery();
+                let actual = closed_argument_type(&argument.ty).filter(&concrete).or_else(|| {
+                    let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.source else { return None; };
+                    self.bodies.expr_types.get(&expression).filter(|ty| concrete(ty)).cloned()
+                });
+                let Some(actual) = actual else { continue; };
+                if actual == expected || matches!(actual, Type::Optional(_) | Type::Result(_, _)) { continue; }
+                if actual != Type::Null && !actual.matches_stored(payload) { return None; }
+                let value = self.lower_call_argument(argument, slots, current_function, item_slot)?;
+                let expected = self.canonicalize_checked_type(expected);
+                let check = LoweredTypeCheck { name: Arc::from(expected.to_string()), ty: expected.clone(), schema: None };
+                let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span: argument.span });
+                argument.lowered = Some(checked);
+            }
+        }
+        Some(args)
     }
 
     fn checked_function_scheme(
@@ -601,7 +643,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(id)) {
             let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
-            let args = self.lower_function_call_args(&args_vec,
+            let adapted = self.lower_optional_function_call_arguments(id, args_vec.to_vec(), contract.canonical().scheme().params(), slots, current_function, item_slot, |ty| Some(ty.clone()))?;
+            let args = self.lower_function_call_args(&adapted,
                 Some(CheckedCallParameters::Scheme(contract.canonical().scheme().params())),
                 self.call_argument_slots(id), None, slots, current_function, item_slot)?;
             let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
