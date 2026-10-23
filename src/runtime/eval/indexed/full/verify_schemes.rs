@@ -3648,7 +3648,9 @@ fn checked_argument_type(
             if let Type::Result(ok, error) = declared.unvalidated() {
                 let expected = if success { ok.as_ref() } else { error.as_ref() };
                 let Some(payload) = checked_argument_type(store, current, use_instruction, value.raw() as usize, materialization, depth + 1)? else { return Ok(None) };
-                validate_annotated_initializer_type(payload, expected, materialization)?;
+                let runtime_validated = matches!(check, ArgumentAliasCheck::DriverValidatedAnnotation { .. })
+                    && matches!(&payload, CheckedArgumentType::Known(actual) if actual.matches_expected(expected));
+                if !runtime_validated { validate_annotated_initializer_type(payload, expected, materialization)?; }
                 break Some(CheckedArgumentType::Known(declared));
             }
         }

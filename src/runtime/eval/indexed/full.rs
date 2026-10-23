@@ -41417,6 +41417,47 @@ assert stored_name(failed) == name(failed)
     }
 
     #[test]
+    fn checked_result_constructor_unsigned_context_requires_runtime_validation() {
+        run_with_large_stack(|| {
+            let program = fixture("checked-result-unsigned-context.xsh", "pure retained(marker, value: Result[UInt, Str]) -> Result[UInt, Str] { let _ = marker; value }\nlet wrapped: Result[UInt, Str] = Ok(1)\nlet selected = retained(true, wrapped)\n");
+            FullVerifier::verify(&program).unwrap();
+            let (step, start, end) = program.store.driver_steps.iter().enumerate().find_map(|(step, row)| {
+                if row.tag != FullDriverTag::Let { return None; }
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                let mut payload = FullCursor::new(program.store.payload(row.data.range()).unwrap());
+                if Name::decode(&decoder, &mut payload).unwrap().as_str().as_str() != "wrapped" { return None; }
+                Option::<LoweredType>::decode(&decoder, &mut payload).unwrap();
+                let start = payload.index;
+                let check = Option::<LoweredTypeCheck>::decode(&decoder, &mut payload).unwrap().unwrap();
+                assert_eq!(check.ty, Type::Result(Box::new(Type::UInt), Box::new(Type::Str)));
+                assert!(check.schema.is_none());
+                Some((step, start, payload.index))
+            }).unwrap();
+            let row = program.store.driver_steps[step];
+            let payload = row.data.range().bounds(program.store.extra.len()).unwrap();
+            let mut missing = program.clone();
+            missing.store.extra.copy_within(payload.start + end..payload.end, payload.start + start + 1);
+            missing.store.extra[payload.start + start] = 0;
+            missing.store.driver_steps[step].data = IrData::new(row.data.range().start, row.data.range().len - (end - start - 1) as u32);
+            assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "annotated driver local is missing its runtime validation");
+            let negative = Arc::new(fixture("checked-result-unsigned-negative.xsh", "pure retained(marker, value: Result[UInt, Str]) -> Result[UInt, Str] { let _ = marker; value }\nlet negative: Int = -1\nlet wrapped: Result[UInt, Str] = Ok(negative)\nlet selected = retained(true, wrapped)\n"));
+            FullVerifier::verify(&negative).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*negative.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&negative));
+                let mut failure = None;
+                for step in 0..negative.driver_step_count().unwrap() {
+                    if let Err(error) = evaluator.eval_indexed_driver_step(step, Span::at(negative.store.source_id, 0)).unwrap() { failure = Some((step, error)); break; }
+                }
+                let (step, error) = failure.expect("the negative Result payload fails at its declaration");
+                assert_eq!(step, 2);
+                assert_eq!(error.kind, "type-error");
+            }
+        });
+    }
+
+    #[test]
     fn checked_result_constructor_aliases_retain_argument_depth_bounds() {
         run_with_large_stack(|| {
             let mut source = "pure retained(marker, value: Result[Any, Str]) -> List[Any] { let _ = marker; [value] }\nlet nested0: Result[Any, Str] = Ok(0)\n".to_string();
