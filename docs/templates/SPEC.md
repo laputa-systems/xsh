@@ -4667,6 +4667,11 @@ per item. `jobs`, `batch` limits, and chunk sizes must be positive; `take`,
 `drop`, and `repeat` accept zero. `batch` needs at least one limit, closes a
 batch at the first limit reached, and keeps a final short batch.
 `batch(max_argv: true)` sizes batches to fit an argv.
+Count-only batches preserve arbitrary item values. Byte-bounded and
+argv-bounded batches require argv-compatible items: `Str`, `Int`, `UInt`,
+`Bool`, `Path`, `Duration`, or a union whose members all support that
+conversion. Generic batches retain the same requirement for each call.
+An explicit `max_argv: false` adds no item conversion requirement.
 
 `par-map` maps items on a bounded pool of workers (by default about one per
 CPU) and keeps input order. The stage is eager: it maps every item before the

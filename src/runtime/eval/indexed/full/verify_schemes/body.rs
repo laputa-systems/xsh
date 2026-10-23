@@ -661,6 +661,50 @@ fn pipeline_callback_scope(
     Ok(inner)
 }
 
+fn pipeline_configuration_bool(
+    decoder: &FullDecoder<'_>, mut instruction: usize, name: &str,
+    expression_scopes: &BTreeMap<usize, LexicalScope>, scopes: &LexicalScopes,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Option<bool>, IrVerifyError> {
+    let mut field = Some(Name::intern(name));
+    let mut seen = BTreeSet::new();
+    loop {
+        budget.charge(1)?;
+        if !seen.insert(instruction) { return Err(IrVerifyError::new("pipeline configuration origin is cyclic")); }
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => {
+                let scope = expression_scopes.get(&instruction).ok_or_else(|| IrVerifyError::new("pipeline configuration has no proved lexical scope"))?;
+                let binding = scope.binding(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("pipeline configuration reads an unbound slot"))?;
+                if binding.mutable { return Ok(None); }
+                let Some((value, _)) = binding.initializer else { return Ok(None); };
+                instruction = value;
+            }
+            schema::ExprView::ValueBlock { body, .. } => {
+                let mut tail = None;
+                for statement in body { budget.charge(1)?; tail = Some(statement?.raw() as usize); }
+                let Some(tail) = tail else { return Ok(None); };
+                let schema::StmtView::Value { value } = decoder.statement_view(tail)? else { return Ok(None); };
+                instruction = value.raw() as usize;
+            }
+            schema::ExprView::Record(entries) if field.is_some() => {
+                let mut selected = None;
+                let mut names = BTreeSet::new();
+                for entry in entries {
+                    budget.charge(1)?;
+                    let super::super::decode::RecordEntryView::Field(name, value) = entry? else { return Ok(None); };
+                    if !names.insert(name) { return Err(IrVerifyError::new("pipeline configuration repeats a field")); }
+                    if Some(name) == field { selected = Some(value.raw() as usize); }
+                }
+                let Some(value) = selected else { return Ok(None); };
+                instruction = value;
+                field = None;
+            }
+            schema::ExprView::Bool(value) if field.is_none() => return Ok(Some(value)),
+            _ => return Ok(None),
+        }
+    }
+}
+
 fn assignment_replacement(
     actual: &SchemeType, expected: &SchemeType, op: crate::syntax::node::AssignOp,
     check: Option<super::super::decode::TypeCheckView<'_>>, budget: &mut SchemeInstantiationBudget,
@@ -885,6 +929,7 @@ pub(super) fn verify_body(
     let mut visited = BTreeSet::new();
     let mut visited_statements = BTreeSet::new();
     let mut stream_iterations = Vec::new();
+    let mut batch_argv_checks = Vec::new();
     let mut captures = Vec::new();
     let mut applications = BTreeSet::new();
     let mut application_returns = BTreeSet::new();
@@ -1106,7 +1151,80 @@ pub(super) fn verify_body(
                                         pending.push(Obligation::Expression(descending.raw() as usize, scope));
                                     }
                                 }
-                                super::super::StageView::Drop(value) | super::super::StageView::Take(value) => {
+                                super::super::StageView::BatchCount { count }
+                                | super::super::StageView::BatchMaxBytes { max_bytes: count } => {
+                                    if !body_type_matches(&expression_type(types, count.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch limit is not Int")); }
+                                    if matches!(stage.view, super::super::StageView::BatchMaxBytes { .. }) && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
+                                    pending.push(Obligation::Expression(count.raw() as usize, scope));
+                                    budget.charge(1)?;
+                                    item = SchemeType::List(Box::new(item));
+                                }
+                                super::super::StageView::BatchMaxArgv { max_argv } => {
+                                    if !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic argv-bounded batch item has no argv conversion")); }
+                                    if let Some(limit) = max_argv {
+                                        if !body_type_matches(&expression_type(types, limit.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch argv limit is not Int")); }
+                                        pending.push(Obligation::Expression(limit.raw() as usize, scope));
+                                    }
+                                    budget.charge(1)?;
+                                    item = SchemeType::List(Box::new(item));
+                                }
+                                super::super::StageView::BatchLimits { configuration } => {
+                                    let ty = expression_type(types, configuration.raw() as usize, budget)?;
+                                    let actual = BodyTypeRef::Scheme(&ty).unvalidated();
+                                    let Some((size, SchemeRowTail::Closed)) = actual.record_shape() else { return Err(IrVerifyError::new("generic batch configuration has no closed record")); };
+                                    let mut fields = 0;
+                                    let mut bytes = false;
+                                    let mut argv = false;
+                                    for (name, expected) in [("count", Type::Int), ("max_bytes", Type::Int), ("max_argv", Type::Bool)] {
+                                        if let Some(field) = actual.field(Name::intern(name)) {
+                                            fields += 1;
+                                            if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic batch configuration field has the wrong type")); }
+                                            bytes |= name == "max_bytes";
+                                            argv |= name == "max_argv";
+                                        }
+                                    }
+                                    if fields != size { return Err(IrVerifyError::new("generic batch configuration contains an unknown field")); }
+                                    if bytes && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
+                                    if argv && !bytes { budget.charge_scheme_clone(&item)?; batch_argv_checks.push((configuration.raw() as usize, item.clone())); }
+                                    pending.push(Obligation::Expression(configuration.raw() as usize, scope));
+                                    budget.charge(1)?;
+                                    item = SchemeType::List(Box::new(item));
+                                }
+                                super::super::StageView::Zip { other } => {
+                                    let source = expression_type(types, other.raw() as usize, budget)?;
+                                    let (right, stream) = pipeline_iteration_item(store, scheme_scope, &source, other.raw() as usize, budget)?;
+                                    if let Some(stream) = stream { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
+                                    budget.charge(3)?;
+                                    item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), item), (Name::intern("right"), right)]), tail: SchemeRowTail::Closed };
+                                    pending.push(Obligation::Expression(other.raw() as usize, scope));
+                                }
+                                super::super::StageView::Range { start, end } => {
+                                    let start_type = expression_type(types, start.raw() as usize, budget)?;
+                                    for ty in [&start_type, &expression_type(types, end.raw() as usize, budget)?] {
+                                        if !body_type_matches(ty, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic range bound is not Int")); }
+                                    }
+                                    if let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(start.raw() as usize)? {
+                                        if !visited.insert(start.raw() as usize) { return Err(IrVerifyError::new("generic range configuration is shared or cyclic")); }
+                                        expression_scopes.insert(start.raw() as usize, scope);
+                                        let inner = branch_scope(&scope, &mut scopes, budget)?;
+                                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                                        budget.charge(statements.len())?;
+                                        pending.push(Obligation::Expression(end.raw() as usize, inner));
+                                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: Some(start_type) });
+                                    } else {
+                                        pending.push(Obligation::Expression(start.raw() as usize, scope));
+                                        pending.push(Obligation::Expression(end.raw() as usize, scope));
+                                    }
+                                    item = SchemeType::Ground(Type::Int);
+                                }
+                                super::super::StageView::Shuffle { seed } => {
+                                    if let Some(seed) = seed {
+                                        if !body_type_matches(&expression_type(types, seed.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic shuffle seed is not Int")); }
+                                        pending.push(Obligation::Expression(seed.raw() as usize, scope));
+                                    }
+                                }
+                                super::super::StageView::Drop(value) | super::super::StageView::Take(value)
+                                | super::super::StageView::Repeat { count: value } => {
                                     if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
                                         return Err(IrVerifyError::new("generic pipeline count is not Int"));
                                     }
@@ -1666,6 +1784,11 @@ pub(super) fn verify_body(
                 for instruction in expressions { pending.push(Obligation::Expression(instruction, scope)); }
             }
         }
+    }
+    for (configuration, item) in batch_argv_checks {
+        if pipeline_configuration_bool(decoder, configuration, "max_argv", &expression_scopes, &scopes, budget)? != Some(false)
+            && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)?
+        { return Err(IrVerifyError::new("generic enabled argv batch item has no argv conversion")); }
     }
     let owner_range = store.function_instruction_range(IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("application return owner is invalid"))?.index())?;
     let first_return = store.scheme_application_returns.partition_point(|site| (site.instruction as usize) < owner_range.start);
@@ -4727,6 +4850,78 @@ mod structured_pipeline_tests {
         let binding = wrong_binding.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::SortKey)))).unwrap();
         *binding = SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::CountKey));
         assert!(FullVerifier::verify(&wrong_binding).is_err());
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_shapes_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-shapes.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-shapes.xsh", crate::loader::entry_source_from_text("generic-pipeline-shapes.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_shapes", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn generic_pipeline_shapes_authenticate_configuration_scopes_and_argv_modes() {
+        let program = prepare("pure batched(value) { [value] |> batch(count: 1, max_argv: false) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "batched").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let flag = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Bool(false)))).unwrap();
+        let mut enabled = program.clone();
+        enabled.store.extra[program.store.data[flag].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&enabled).is_err());
+        let program = prepare("pure ranged(value) { let first = [value] |> range(0, 2); [value] |> range(3, 5) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "ranged").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let ends = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                super::super::super::StageView::Range { end, .. } => Some(end.raw() as usize),
+                _ => None,
+            },
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(ends.len(), 2);
+        let schema::ExprView::Param(first) = decoder.expression_view(ends[0]).unwrap() else { panic!("range end retains its configured slot"); };
+        let mut escaped = program.clone();
+        escaped.store.extra[program.store.data[ends[1]].range().start as usize] = first as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
+    }
+
+    #[test]
+    fn generic_pipeline_shapes_reject_wrong_domains_and_retain_argv_bounds() {
+        use crate::sema::check::Checker;
+        use crate::syntax::parser::Parser;
+        for body in [
+            "[value] |> batch(count: \"wrong\")",
+            "[value] |> batch(max_argv: 1)",
+            "[value] |> zip(\"wrong\")",
+            "[value] |> repeat(\"wrong\")",
+            "[value] |> range(\"wrong\", 1)",
+            "[value] |> shuffle(seed: true)",
+        ] {
+            let source = format!("pure rejected(value) {{ {body} }}\n");
+            let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+        for (ty, valid) in [("Str", true), ("Int", true), ("UInt", true), ("Bool", true), ("Path", true), ("Duration", true), ("Words", true), ("Bytes", false), ("Any", false), ("Result[Int, Str]", false), ("List[Int]", false), ("FsLock", false), ("BadWords", false)] {
+            let source = format!("type Words = Union[Str, Int]\ntype BadWords = Union[Str, Bytes]\npure bounded(value) {{ [value] |> batch(max_bytes: 32) }}\npure observed(value: {ty}) {{ bounded(value) }}\n");
+            let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert_eq!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), valid, "{source}\n{:?}", checked.diagnostics);
+        }
     }
 
     #[test]

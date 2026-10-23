@@ -7,6 +7,62 @@ use super::{
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn lower_scheme_pipeline_shape_stage(
+        &mut self, expression: ExprId, stage: &ArenaStreamStage, item: SchemeType, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(LoweredPipelineStage, SchemeType)> {
+        if stage.block.is_some() { return None; }
+        let mut configuration = Vec::new();
+        let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+        let parameters = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
+        let binding = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?;
+        if arguments.len() != binding.argument_slots.len() || binding.callable_entry.is_some() { return None; }
+        let mut values = vec![None; parameters.len()];
+        for (argument, &slot) in arguments.iter().zip(&binding.argument_slots) {
+            if values.get_mut(slot)?.replace(argument.lowered?).is_some() { return None; }
+        }
+        let span = self.program.arena.span(stage.span);
+        let wrap = |this: &mut Self, value, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>| {
+            let ty = lowered_types.get(&value)?.clone();
+            let mut body = configuration.clone();
+            let tail = push_build_row!(this, stmt, super::BuildStmtRow::Value { value });
+            if ty.may_hold_resource() { this.scratch.borrow_mut().mark_resource_transfer(tail); }
+            body.push(tail);
+            let wrapped = push_build_row!(this, expr, BuildExprRow::ValueBlock { body, span });
+            lowered_types.insert(wrapped, ty);
+            Some(wrapped)
+        };
+        let output = match stage.kind {
+            StreamStageKind::Batch => SchemeType::List(Box::new(item)),
+            StreamStageKind::Zip => {
+                let right = Self::scheme_pipeline_item(lowered_types.get(&values[0]?)?, facts)?;
+                SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), item), (Name::intern("right"), right)]), tail: crate::sema::schemes::SchemeRowTail::Closed }
+            }
+            StreamStageKind::Range => SchemeType::Ground(Type::Int),
+            _ => item,
+        };
+        let lowered = match stage.kind {
+            StreamStageKind::Batch => match values.as_slice() {
+                [Some(count), None, None] => LoweredPipelineStage::BatchCount { count: wrap(self, *count, lowered_types)? },
+                [None, Some(max_bytes), None] => LoweredPipelineStage::BatchMaxBytes { max_bytes: wrap(self, *max_bytes, lowered_types)? },
+                _ => {
+                    let fields = parameters.iter().zip(&values).filter_map(|(parameter, value)| value.map(|value| super::LoweredRecordEntry::Field(parameter.name, value))).collect();
+                    let record = push_build_row!(self, expr, BuildExprRow::Record(fields));
+                    let ty = SchemeType::Record { fields: parameters.iter().zip(&values).filter_map(|(parameter, value)| value.map(|value| Some((parameter.name, lowered_types.get(&value)?.clone())))).collect::<Option<BTreeMap<_, _>>>()?, tail: crate::sema::schemes::SchemeRowTail::Closed };
+                    lowered_types.insert(record, ty);
+                    LoweredPipelineStage::BatchLimits { configuration: wrap(self, record, lowered_types)? }
+                }
+            },
+            StreamStageKind::Zip => LoweredPipelineStage::Zip { other: wrap(self, values[0]?, lowered_types)? },
+            StreamStageKind::Repeat => LoweredPipelineStage::Repeat { count: wrap(self, values[0]?, lowered_types)? },
+            StreamStageKind::Range => LoweredPipelineStage::Range { start: wrap(self, values[0]?, lowered_types)?, end: values[1]? },
+            StreamStageKind::Shuffle => LoweredPipelineStage::Shuffle { seed: match values[0] { Some(value) => Some(wrap(self, value, lowered_types)?), None => None } },
+            _ => return None,
+        };
+        Some((lowered, output))
+    }
+
     pub(super) fn scheme_pipeline_item(ty: &SchemeType, facts: &SchemeBodyFacts) -> Option<SchemeType> {
         match ty {
             SchemeType::List(item) | SchemeType::Stream(item) | SchemeType::Set(item) => Some((**item).clone()),

@@ -2160,9 +2160,14 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         let decoder = proof.owner(iteration.owner)?;
         if let PropagationBoundary::PipelineTransport { owner, instruction } = iteration.boundary {
             if owner != iteration.owner { return Err(IrVerifyError::new("pipeline transport has another source owner")); }
-            let schema::ExprView::ListPipeline { input, .. } = decoder.expression_view(instruction)? else { return Err(IrVerifyError::new("pipeline transport has no physical pipeline")); };
+            let schema::ExprView::ListPipeline { input, stages, .. } = decoder.expression_view(instruction)? else { return Err(IrVerifyError::new("pipeline transport has no physical pipeline")); };
             let source = match iteration.source { StreamProducer::Value(source) | StreamProducer::ResultSuccess(source) => source };
-            if source != input.raw() as usize { return Err(IrVerifyError::new("pipeline transport has another input producer")); }
+            let mut owned = source == input.raw() as usize;
+            for stage in stages {
+                proof.budget.charge(1)?;
+                if let super::super::StageView::Zip { other } = stage? { owned |= source == other.raw() as usize; }
+            }
+            if !owned { return Err(IrVerifyError::new("pipeline transport has another input producer")); }
         }
         if proof.stream_may_propagate_error(&decoder, iteration.source)? {
             let scope = if matches!(&iteration.boundary, PropagationBoundary::InferredProcError { completion_group: Some(_), .. }) {

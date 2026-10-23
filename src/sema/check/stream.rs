@@ -1130,7 +1130,7 @@ impl Checker {
             }
             if *item_ty == Type::Any {
                 self.reject_dynamic_use("a byte-bounded batch item", None, argument.span);
-            } else if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
+            } else if !self.require_value_conversion(item_ty, crate::sema::schemes::ValueConversion::Argv, argument.span) {
                 self.error(
                     argument.span,
                     "byte-bounded batches require argv-compatible items",

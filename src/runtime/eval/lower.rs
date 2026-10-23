@@ -4917,6 +4917,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let mut lowered_stages = Vec::new();
                 for stage in self.program.arena.stream_stages(stages).to_vec() {
+                    if matches!(stage.kind, StreamStageKind::Batch | StreamStageKind::Zip | StreamStageKind::Repeat | StreamStageKind::Range | StreamStageKind::Shuffle) {
+                        let (lowered, output) = self.lower_scheme_pipeline_shape_stage(expression, &stage, item_type, slots, current_function, facts, visited, lowered_types)?;
+                        item_type = output;
+                        lowered_stages.push(lowered);
+                        continue;
+                    }
                     if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All | StreamStageKind::ParMap | StreamStageKind::GroupBy | StreamStageKind::UniqueBy | StreamStageKind::SortBy)
                         || (stage.kind == StreamStageKind::Count && stage.block.is_some())
                     {

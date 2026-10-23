@@ -204,6 +204,15 @@ policy in the existing parameter row and rejects unknown tags or mismatched
 error payloads. Pipeline stream transport retains actual source-owner and
 producer proofs derived from the physical pipeline instruction.
 
+Generic shape stages reuse the existing indexed stage rows. Batch derives a
+list item, Zip derives both item fields, and Range replaces the item with Int.
+Stage configuration follows its checked argument slots and source order.
+Range configuration bindings remain visible only to that stage's bounds.
+Byte-bounded batches use the existing `Argv` conversion requirement. A disabled
+argv limit requires proof of the actual immutable false value before omitting
+that requirement. Zip stream transport authenticates its actual side producer
+against the same physical pipeline and source owner.
+
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
 bindings enter a child lexical frame. Filters use the checked control-condition
