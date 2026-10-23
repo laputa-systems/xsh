@@ -2151,12 +2151,28 @@ fn verify_body_expression(
         schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
             let actual = child(value, budget)?;
             let expected = store.semantic.to_type_with_budget(check.ty.id, &mut budget.semantic_types)?;
-            let materialized = store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok();
-            let source_matches = if materialized {
-                matches!(actual, SchemeType::SchemeCallable(_) | SchemeType::Ground(Type::SchemeCallable(_))) && matches!(expected, Type::Callable(_))
-            } else { body_type_matches_ground(&actual, &expected) };
-            if check.schema.is_some() || !source_matches || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
-            SchemeType::Ground(expected)
+            if check.schema.is_some() {
+                ensure_closed_type(&expected)?;
+                let Type::Record(fields) = expected.unvalidated() else { return Err(IrVerifyError::new("generic record constructor has no record contract")); };
+                budget.charge(fields.len())?;
+                let exact_fields = match &actual {
+                    SchemeType::Record { fields: actual, tail: SchemeRowTail::Closed } => actual.len() == fields.len(),
+                    SchemeType::Ground(Type::Record(actual)) => actual.len() == fields.len(),
+                    _ => false,
+                };
+                if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Record(_))
+                    || !exact_fields
+                    || !body_type_matches_ground(&actual, expected.unvalidated())
+                { return Err(IrVerifyError::new("generic record constructor disagrees with its actual field producers")); }
+                SchemeType::Ground(expected)
+            } else {
+                let materialized = store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok();
+                let source_matches = if materialized {
+                    matches!(actual, SchemeType::SchemeCallable(_) | SchemeType::Ground(Type::SchemeCallable(_))) && matches!(expected, Type::Callable(_))
+                } else { body_type_matches_ground(&actual, &expected) };
+                if !source_matches || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
+                SchemeType::Ground(expected)
+            }
         }
         schema::ExprView::Require { value, check, .. } => {
             let actual = child(value, budget)?;

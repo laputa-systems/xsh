@@ -4092,6 +4092,67 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    fn lower_scheme_record_constructor(
+        &mut self, expression: ExprId, args: crate::syntax::arena::ArenaRange,
+        construction: calls::CheckedRecordConstruction, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        let span = self.program.arena.expr(expression).span;
+        if facts.expression_types().get(&expression)?.closed_ground_type().as_ref() != Some(&construction.schema) {
+            return self.block_scheme_lowering_expr(expression);
+        }
+        let Type::Record(expected_fields) = construction.schema.unvalidated() else { return self.block_scheme_lowering_expr(expression); };
+        let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+        let mut supplied = FxHashSet::default();
+        let mut fields = Vec::new();
+        let mut actual_fields = BTreeMap::new();
+        for (index, argument) in arguments.iter().enumerate() {
+            if argument.splice { return self.block_scheme_lowering_expr(expression); }
+            let name = argument.name.or_else(|| construction.positional_fields.get(index).copied())?;
+            let expected = expected_fields.get(&name)?;
+            if !supplied.insert(name) { return self.block_scheme_lowering_expr(expression); }
+            let mut value = argument.lowered?;
+            if let crate::sema::arguments::ArgumentValueSource::Expression(source) = argument.source
+                && let Some(literal) = crate::sema::constants::LiteralConstant::analyze(&self.program.arena, source, &FxHashMap::default())
+            {
+                let contextual = literal.clone().in_type(expected);
+                if contextual != literal {
+                    let constant = lower_prepared_literal(&contextual, Some(&self.declarations.wire_enums))?;
+                    value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
+                    lowered_types.insert(value, SchemeType::Ground(expected.clone()));
+                }
+            }
+            if expected.has_unsigned_constraint() {
+                value = self.checked_unsigned_value(value, expected, argument.span);
+                self.record_scheme_storage_elaboration(value, &SchemeType::Ground(expected.clone()), lowered_types);
+            }
+            actual_fields.insert(name, lowered_types.get(&value)?.clone());
+            fields.push(LoweredRecordEntry::Field(name, value));
+        }
+        for (name, value) in &construction.defaults {
+            if supplied.contains(name) { continue; }
+            let expected = expected_fields.get(name)?;
+            let value = value.clone().in_type(expected);
+            if !value.matches_data_type(expected) { return self.block_scheme_lowering_expr(expression); }
+            let constant = lower_prepared_literal(&value, Some(&self.declarations.wire_enums))?;
+            let value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
+            let ty = SchemeType::Ground(expected.clone());
+            lowered_types.insert(value, ty.clone());
+            actual_fields.insert(*name, ty);
+            fields.push(LoweredRecordEntry::Field(*name, value));
+        }
+        if actual_fields.len() != expected_fields.len() { return self.block_scheme_lowering_expr(expression); }
+        let value = push_build_row!(self, expr, BuildExprRow::Record(fields));
+        lowered_types.insert(value, SchemeType::Record { fields: actual_fields, tail: crate::sema::schemes::SchemeRowTail::Closed });
+        let check = LoweredTypeCheck {
+            schema: Some(self.prepared_schema(construction.schema.clone())),
+            ty: construction.schema,
+            name: construction.name,
+        };
+        Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }))
+    }
+
     fn lower_scheme_call_arguments(
         &mut self, expression: ExprId, args: crate::syntax::arena::ArenaRange,
         plan: Option<&crate::sema::schemes::RegisteredCallPlan>,
@@ -5004,6 +5065,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                     if !recorded { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
+                if self.bodies.resolved_type_expressions.instantiations.contains_key(&expression) {
+                    let Some(construction) = self.checked_record_construction(expression) else { return self.block_scheme_lowering_expr(expression); };
+                    if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                    let value = self.lower_scheme_record_constructor(expression, args, construction, slots, current_function, facts, visited, lowered_types, body)?;
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
                 }
                 if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
@@ -9864,6 +9931,45 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             .remove(&call)
             .is_some());
         checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn generic_record_constructors_require_the_checked_instance_and_field_contract() {
+        let source = "type Counts = {value: Int, extra: Int = 9}\nnominal type Other = {value: Int, extra: Int = 9}\npure make(payload, count: Int) { let made = Counts(value: count); {payload, made} }\npure foreign(payload, count: Int) { let made = Other(value: count); {payload, made} }\n";
+        let checked = CheckedSource::new("generic-record-constructor-identity.xsh", source, Vec::new());
+        assert!(checked.build(&checked.declarations).is_ok());
+        let call = checked.expression_containing("Counts(value: count)");
+        let other = checked.expression_containing("Other(value: count)");
+        let mut missing_identity = checked.declarations.clone();
+        assert!(missing_identity.bodies.resolved_type_expressions.instantiations.remove(&call).is_some());
+        assert!(checked.build(&missing_identity).is_err());
+        let mut missing_type = checked.declarations.clone();
+        assert!(missing_type.bodies.expr_types.remove(&call).is_some());
+        assert!(checked.build(&missing_type).is_err());
+        let mut foreign_identity = checked.declarations.clone();
+        let instance = foreign_identity.bodies.resolved_type_expressions.instantiations[&other].clone();
+        foreign_identity.bodies.resolved_type_expressions.instantiations.insert(call, instance);
+        assert!(checked.build(&foreign_identity).is_err());
+    }
+
+    #[test]
+    fn generic_record_constructors_keep_imported_schema_ownership() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).unwrap();
+        let modules = tempfile::tempdir_in(&work).unwrap();
+        std::fs::write(modules.path().join("rows.xsh"), "##! Constructor ownership.\n## An integer row.\nexport type Row = {value: Int, extra: Int = 9}\n## A distinct branded row.\nexport nominal type Brand = {value: Int}\n").unwrap();
+        let source = "use rows\npure make(payload, count: Int) { let row = rows.Row(value: count); let brand = rows.Brand(value: count); {payload, row, brand} }\nlet result = make(7, 3)\nassert result.row.extra == 9\n";
+        let checked = CheckedSource::new("generic-imported-record-constructor.xsh", source, vec![modules.path().to_path_buf()]);
+        for fragment in ["rows.Row(value: count)", "rows.Brand(value: count)"] {
+            let call = checked.expression_containing(fragment);
+            let instance = &checked.declarations.bodies.resolved_type_expressions.instantiations[&call];
+            let canonical = checked.declarations.record_constructors.instantiate_checked(
+                &checked.parsed.arena.arena, instance.instance.definition, &instance.instance.arguments,
+            ).unwrap();
+            assert_eq!(checked.declarations.bodies.expr_types.get(&call), Some(&canonical), "{fragment}");
+        }
+        let result = checked.build(&checked.declarations);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[test]

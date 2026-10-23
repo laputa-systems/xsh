@@ -39505,6 +39505,123 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn generic_named_record_constructors_preserve_defaults_aliases_and_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-named-record-constructors.xsh", r#"
+type Counts = {value: Int, extra: Int = 9}
+type Alias = Counts
+nominal type Brand = {value: Int}
+type ByteCount = {high: UInt, low: UInt, overflow: Bool}
+type NestedCounts = {lines: Int, bytes: ByteCount}
+pure byte_count(size) { {high: size / 1000000000, low: size % 1000000000, overflow: false} }
+pure zero(payload) { let counts = NestedCounts(lines: 0, bytes: byte_count(0)); {payload, counts} }
+pure make(payload, count: Int) {
+    let counts = Alias(value: count)
+    let brand = Brand(value: count)
+    {payload, counts, brand}
+}
+let integer = make(7, 3)
+let text = make("kept", 4)
+let nested = zero("nested")
+assert integer.payload == 7
+assert integer.counts.value == 3
+assert integer.counts.extra == 9
+assert integer.brand.value == 3
+assert text.payload == "kept"
+assert text.counts.value == 4
+assert text.counts.extra == 9
+assert text.brand.value == 4
+assert nested.payload == "nested"
+assert nested.counts.bytes.high == 0
+assert nested.counts.bytes.low == 0
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_named_record_constructors_reject_forged_nominal_and_actual_field_evidence() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-named-record-constructor-proof.xsh", r#"
+nominal type Left = {value: Int}
+nominal type Right = {value: Int}
+pure make(payload, count: Int, wrong: Str) {
+    let made = Left(value: count)
+    let _ = wrong
+    {payload, made}
+}
+pure foreign(payload, count: Int) {
+    let made = Right(value: count)
+    {payload, made}
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "make");
+            let other = scheme_fixture_root_function(&program, "foreign");
+            let constructor = |owner| {
+                let decoder = function_view_decoder(&program.store, owner);
+                program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+                    Ok(schema::ExprView::CheckedValue { value, check: decode::ValueCheckView::Ground(check), .. }) if check.schema.is_some() => Some((instruction, value.raw() as usize)),
+                    _ => None,
+                }).unwrap()
+            };
+            let (instruction, record) = constructor(owner);
+            let (other_instruction, _) = constructor(other);
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+            let mut wrong_nominal = cold();
+            wrong_nominal.store.scheme_body_facts[fact(instruction)].value = program.store.scheme_body_facts[fact(other_instruction)].value;
+            FullVerifier::verify(&wrong_nominal).expect_err("an unrelated nominal body fact cannot supply constructor identity");
+            let mut foreign_owner = cold();
+            foreign_owner.store.scheme_body_facts[fact(instruction)].function = IrFunctionId::new(other).unwrap();
+            FullVerifier::verify(&foreign_owner).expect_err("a foreign function cannot own constructor evidence");
+            let decoder = function_view_decoder(&program.store, owner);
+            let schema::ExprView::Record(mut entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+            let decode::RecordEntryView::Field(_, field) = entries.next().unwrap().unwrap() else { unreachable!() };
+            let field = field.raw() as usize;
+            let schema::ExprView::Param(slot) = decoder.expression_view(field).unwrap() else { unreachable!() };
+            let (declaration, initializer) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+                _ => None,
+            }).unwrap();
+            assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { unreachable!() };
+            let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+            let wrong_type = program.store.scheme_params[parameters.start + 2].ty;
+            let wrong_node = program.store.scheme_types[wrong_type.index()];
+            let mut wrong_field = cold();
+            let words = wrong_field.store.data[initializer].range().bounds(wrong_field.store.extra.len()).unwrap();
+            assert_eq!(words.len(), 1);
+            wrong_field.store.extra[words.start] = 2;
+            for fact in &program.store.scheme_body_facts {
+                if [field, initializer, declaration].contains(&(fact.instruction as usize)) {
+                    let node = &mut wrong_field.store.scheme_types[fact.ty().unwrap().index()];
+                    assert_eq!(node.tag, wrong_node.tag);
+                    node.first = wrong_node.first;
+                }
+            }
+            let record_fact = fact(record);
+            let node = program.store.scheme_types[program.store.scheme_body_facts[record_fact].ty().unwrap().index()];
+            assert_eq!(node.tag, FullSchemeTypeTag::Record);
+            let fields = node.children.bounds(program.store.scheme_fields.len()).unwrap();
+            assert_eq!(fields.len(), 1);
+            let node = &mut wrong_field.store.scheme_types[program.store.scheme_fields[fields.start].ty.index()];
+            assert_eq!(node.tag, wrong_node.tag);
+            node.first = wrong_node.first;
+            let error = FullVerifier::verify(&wrong_field).expect_err("a claimed record result cannot replace actual field evidence");
+            assert_eq!(error.message, "generic record constructor disagrees with its actual field producers");
+        });
+    }
+
+    #[test]
     fn prepared_constant_helper_data_keeps_its_verified_work_allowance() {
         run_with_large_stack(|| {
             let values = (0..4096).map(|value| value.to_string()).collect::<Vec<_>>().join(",");

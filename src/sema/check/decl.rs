@@ -34,7 +34,7 @@ fn collect_body_type_facts(
     checked: &BTreeMap<Span, Type>,
     prepared: &crate::sema::constants::PreparedConstants,
     bindings: &super::ResolvedBindings,
-    selected_calls: &BTreeMap<Span, super::CheckedFunctionTarget>,
+    selected_callee: impl Fn(ExprId) -> bool,
     selected_nullary: impl Fn(ExprId) -> bool,
     command_sites: &BTreeMap<(Span, Name), super::BindingId>,
     defaults: &[ExprId],
@@ -72,7 +72,7 @@ fn collect_body_type_facts(
                 }
                 if prepared.values.contains_key(&id) || selected_nullary(id) { continue; }
                 if let crate::syntax::arena::ArenaExprKind::Call { callee, args } = arena.expr(id).kind
-                    && selected_calls.contains_key(&arena.expr(id).span)
+                    && selected_callee(id)
                 {
                     pending.push((ArenaChild::Expr(callee), BodyFactUse::SelectedCallee));
                     for argument in arena.call_args(args) {
@@ -248,7 +248,8 @@ impl Checker {
         for &definition in definitions {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-            let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls,
+            let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
             captures.extend(reads);
@@ -312,7 +313,8 @@ impl Checker {
         }
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
-            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls,
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
@@ -585,6 +587,12 @@ impl Checker {
                 ).map(|_| span)
             }));
             checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) { return None; }
+                let span = program.arena.expr(expression).span;
+                let constructor = self.record_constructor_instances.get(&span)?;
+                (ty.closed_ground_type().as_ref() == Some(&constructor.ty)).then_some(span)
+            }));
             checked_operations.extend(self.conversions.keys().filter(|span| expression_spans.contains(span)).copied());
             checked_operations.extend(self.requirement_targets.keys().filter(|span| expression_spans.contains(span)).copied());
             if matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream) {
@@ -2836,7 +2844,7 @@ mod imported_pure_tests {
 
     fn checked_imported_call(globals: &str, prefix: &str, argument: &str) -> (Arc<ArenaProgram>, super::super::CheckOutput, BlockId, super::super::BindingId) {
         let entry_text = format!("use api\n{globals}\npure invoke(row) {{ {prefix}api.required({argument}) }}\n");
-        let module_text = "##! Required operation.\n## Returns the supplied integer.\nexport pure required(value: Int) -> Int { value }\n## An ordinary module value.\nexport let marker = 7\n";
+        let module_text = "##! Required operation.\n## Returns the supplied integer.\nexport pure required(value: Int) -> Int { value }\n## An ordinary module value.\nexport let marker = 7\n## A checked record constructor.\nexport type Row = {value: Int}\n";
         let mut sources = SourceMap::new();
         let entry_source = sources.add_file("entry.xsh", &entry_text);
         let module_source = sources.add_file("api.xsh", module_text);
@@ -2873,15 +2881,47 @@ mod imported_pure_tests {
         let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
-        let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, |_| false, &BTreeMap::new(), &[]);
+        let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+            |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
         assert!(spans.contains(&program.arena.expr(callee).span));
         assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
-        let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), |_| false, &BTreeMap::new(), &[]);
+        let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, |_| false, |_| false, &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
         let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
         assert!(facts.read_bindings().contains(&parameter));
+    }
+
+    #[test]
+    fn checked_record_constructor_callees_do_not_capture_static_namespaces() {
+        let (program, output, body, namespace) = checked_imported_call("", "", "api.Row(value: 7).value");
+        let _symbols = program.symbol_owner().enter();
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
+        assert!(!facts.read_bindings().contains(&namespace));
+        let bindings = super::super::ResolvedBindings::collect(&program);
+        let (_, _, _, missing_constructor_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+            |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
+        assert!(missing_constructor_reads.contains(&namespace));
+    }
+
+    #[test]
+    fn checked_record_constructor_roles_keep_real_namespace_and_alias_reads() {
+        for (prefix, argument) in [
+            ("let saved = api; ", "api.Row(value: 7).value"),
+            ("", "api.Row(value: api.marker).value"),
+            ("let saved = api; ", "saved.Row(value: 7).value"),
+        ] {
+            let (program, output, body, namespace) = checked_imported_call("", prefix, argument);
+            let _symbols = program.symbol_owner().enter();
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{prefix} {argument}: {:?}", output.diagnostics);
+            let bindings = super::super::ResolvedBindings::collect(&program);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+                |expression| { let span = program.arena.expr(expression).span; output.selected_function_calls.contains_key(&span) || output.record_constructor_instances.contains_key(&span) },
+                |_| false, &BTreeMap::new(), &[]);
+            assert!(reads.contains(&namespace), "{prefix} {argument}");
+        }
     }
 
     #[test]
@@ -2899,7 +2939,8 @@ mod imported_pure_tests {
                 None => assert!(output.diagnostics.is_empty(), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
             }
             let bindings = super::super::ResolvedBindings::collect(&program);
-            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, |_| false, &BTreeMap::new(), &[]);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+                |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {

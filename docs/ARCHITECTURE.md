@@ -117,6 +117,15 @@ analysis supplies reachable loop exits, including bare `Unit` exits, even
 when ordinary producer demand is absent. Preparation retains no frontend tree
 for execution and performs no runtime type solving.
 
+Named record constructors in generic bodies reuse ordinary lowering's checked
+instance identity, field order, and defaults. Supplied source entries evaluate
+before defaults. A prepared constructor schema must match its exact checked type;
+cold proof independently derives every physical record field before accepting
+the result or its nominal identity. A body result annotation cannot supply that
+source evidence or authorize a constructor from another function.
+Only checker-selected constructor callees use a static namespace role. Their
+arguments and independent module-value reads retain ordinary capture rules.
+
 Argument expansion shares one source-entry traversal for ordinary `Type` facts
 and generalized `SchemeType` facts. Each spread requires a checked finite closed
 record. The existing binding map selects destination slots; lowering reads a
