@@ -1376,6 +1376,24 @@ mod tests {
     }
 
     #[test]
+    fn empty_list_splice_resolves_from_a_concrete_writer() {
+        let source = "pure splice_copy(value: Int) { var merged = []; merged = [@merged[..], value]; merged }\nlet result = splice_copy(7)\n";
+        with_checked_local_source(source, |checked| {
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+            assert!(checked.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Int))), "{source}: {:?}", checked.local_binding_types);
+            assert!(checked.function_return_types.values().any(|ty| *ty == Type::List(Box::new(Type::Int))), "{source}: {:?}", checked.function_return_types);
+        });
+        for source in [
+            "pure result_splice() { [@Err(1)] }\n",
+            "pure stream_splice() { [@range(1, 2)] }\n",
+        ] {
+            with_checked_local_source(source, |checked| {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckListSpliceType)), "{source}: {:?}", checked.diagnostics);
+            });
+        }
+    }
+
+    #[test]
     fn empty_list_local_completion_keeps_stored_and_material_domains_strict() {
         for source in [
             "pure sample() -> Unit { var items = []; items = items.push(7); items = items.push(\"wrong\"); let _ = items }\n",
