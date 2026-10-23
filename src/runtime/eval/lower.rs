@@ -4744,6 +4744,37 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.lower_scheme_set_of_list(list, span)?
                 } else { list }
             }
+            ArenaExprKind::StructuredPipeline { input, stages } => {
+                let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
+                let mut lowered_stages = Vec::new();
+                for stage in self.program.arena.stream_stages(stages).to_vec() {
+                    if stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
+                    let mut configuration = Vec::new();
+                    let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+                    let lowered = match stage.kind {
+                        StreamStageKind::Drop | StreamStageKind::Take => {
+                            if arguments.len() != 1 || self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() != [0] { return self.block_scheme_lowering_expr(expression); }
+                            let value = arguments[0].lowered?;
+                            let ty = lowered_types.get(&value)?.clone();
+                            configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                            let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+                            lowered_types.insert(value, ty);
+                            if stage.kind == StreamStageKind::Drop { LoweredPipelineStage::Drop(value) } else { LoweredPipelineStage::Take(value) }
+                        }
+                        StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
+                            StreamStageKind::Enumerate => LoweredPipelineStage::Enumerate,
+                            StreamStageKind::Collect => LoweredPipelineStage::Collect,
+                            StreamStageKind::Count => LoweredPipelineStage::Count,
+                            StreamStageKind::First => LoweredPipelineStage::First,
+                            StreamStageKind::Last => LoweredPipelineStage::Last,
+                            _ => unreachable!(),
+                        },
+                        _ => return self.block_scheme_lowering_expr(expression),
+                    };
+                    lowered_stages.push(lowered);
+                }
+                push_build_row!(self, expr, BuildExprRow::ListPipeline { input, stages: lowered_stages, span })
+            }
             ArenaExprKind::MapComp { key, value, qualifiers } => {
                 let saved = slots.enter();
                 let qualifiers = self.lower_scheme_comp_qualifiers(qualifiers, slots, current_function, facts, visited, lowered_types)?;
