@@ -3621,3 +3621,170 @@ assert b"abcdef"[-2..] == b"ef"
         }
     }
 }
+
+#[test]
+fn typed_bare_pipeline_sources_preserve_set_result_and_stream_domains() {
+    let source = r#"stream source_values() [] -> Stream[Int] { yield 1; yield 2 }
+pure collect_list(values: List[Int]) -> List[Int] { values |> collect }
+pure collect_set(values: Set[Int]) -> List[Int] { values |> collect }
+pure collect_pure_stream(values: Stream[Int]) -> List[Int] { values |> collect }
+proc collect_stream(values: Stream[Int]) [error] -> Result[List[Int]] { values |> collect }
+proc collect_result_list(values: Result[List[Int]]) [error] -> Result[List[Int]] { values |> collect }
+proc collect_result_stream(values: Result[Stream[Int]]) [error] -> Result[List[Int]] { values |> collect }
+assert collect_list([1, 2]) == [1, 2]
+assert collect_set({2, 1}) == [1, 2]
+assert collect_pure_stream(source_values()) == [1, 2]
+assert collect_stream(source_values())? == [1, 2]
+assert collect_result_list(Ok([1, 2]))? == [1, 2]
+assert collect_result_stream(Ok(source_values()))? == [1, 2]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn typed_pure_pipeline_collector_preserves_observed_stream_failure() {
+    let source = r#"error SourceFailure = Late(message: Str)
+proc fail() [] -> Result[Unit, SourceFailure] { Err(SourceFailure.Late(message: "late source failure")) }
+stream failing_values() [error] -> Stream[Int] { yield 1; fail()? }
+pure collect_values(values: Stream[Int]) -> List[Int] { values |> collect }
+let result = try { collect_values(failing_values()) }
+assert match result { Ok(_) => false, Err(error) => error.message == "late source failure" }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_bare_pipeline_sources_preserve_independent_container_domains() {
+    let source = r#"stream source_values() [] -> Stream[Int] { yield 1; yield 2 }
+pure collect_values(values) { values |> collect }
+pure text_source() -> Result[List[Str], Str] { Ok(["a", "b"]) }
+assert collect_values([1, 2]) == [1, 2]
+assert collect_values({2, 1}) == [1, 2]
+assert collect_values(source_values()) == [1, 2]
+assert collect_values(text_source()) == ["a", "b"]
+let wrapped_stream: Result[Stream[Int]] = Ok(source_values())
+assert collect_values(wrapped_stream) == [1, 2]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_pipeline_result_string_failure_matches_typed_transport() {
+    for force_frames in [false, true] {
+        let mut errors = Vec::new();
+        for annotation in [": Result[List[Int], Str]", ""] {
+            let source = format!("pure collect_values(values{annotation}) -> List[Int] {{ values |> collect }}\nlet stopped: Result[List[Int], Str] = Err(\"source failed\")\nlet _ = collect_values(stopped)\n");
+            let (program, sources, source_id) = record_form_program(&source);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut failure = None;
+            for step in 0..program.driver_step_count().unwrap() {
+                match evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap() {
+                    Ok(_) => {},
+                    Err(error) => { failure = Some(error); break; },
+                }
+            }
+            let error = failure.expect("the Result source must fail before exposing a collected list");
+            errors.push((error.family, error.kind, error.message, error.propagated));
+        }
+        assert_eq!(errors[0], errors[1]);
+        assert_eq!((&*errors[0].0, &*errors[0].1, &*errors[0].2, errors[0].3), ("Error", "stream-stage-error", "stream stage failed with Str", false));
+    }
+}
+
+#[test]
+fn generic_pipeline_input_preserves_lazy_pulls_cleanup_and_checked_errors() {
+    let source = r#"error SourceFailure = Late(message: Str)
+var pulls = 0
+var closed = 0
+proc close() [] { closed += 1 }
+proc fail() [] -> Result[Unit, SourceFailure] { Err(SourceFailure.Late(message: "late source failure")) }
+stream source_values() [error] -> Stream[Int] {
+  defer close()
+  pulls += 1
+  yield 1
+  pulls += 1
+  fail()?
+}
+pure take_values(values, count: Int) { values |> take(count) |> collect }
+assert take_values(source_values(), 0) == []
+assert pulls == 0
+assert closed == 0
+assert take_values(source_values(), 1) == [1]
+assert pulls == 1
+assert closed == 1
+let wrapped: Result[Stream[Int]] = Ok(source_values())
+assert take_values(wrapped, 0) == []
+assert pulls == 1
+assert closed == 1
+let wrapped_again: Result[Stream[Int]] = Ok(source_values())
+assert take_values(wrapped_again, 1) == [1]
+assert pulls == 2
+assert closed == 2
+let failed = try { take_values(source_values(), 2) }
+assert match failed { Ok(_) => false, Err(error) => error.message == "late source failure" }
+assert pulls == 4
+assert closed == 3
+let wrapped_failure: Result[Stream[Int]] = Ok(source_values())
+let failed_wrapped = try { take_values(wrapped_failure, 2) }
+assert match failed_wrapped { Ok(_) => false, Err(error) => error.message == "late source failure" }
+assert pulls == 6
+assert closed == 4
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_mixed_pipeline_and_for_sources_keep_the_for_error_bound() {
+    let source = r#"proc mixed(values) [error] -> Result[List[Int], Str] {
+  let _ = values |> take(0) |> collect
+  [item for item in values]
+}
+assert mixed([1, 2])? == [1, 2]
+let wrapped: Result[List[Int], Str] = Ok([1, 2])
+assert mixed(wrapped)? == [1, 2]
+assert mixed({2, 1})? == [1, 2]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}

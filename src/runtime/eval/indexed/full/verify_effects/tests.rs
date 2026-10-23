@@ -88,7 +88,7 @@ assert order == 11
         for &index in &constrained { missing.store.scheme_type_parameters[index].map_key = false; }
         assert!(FullVerifier::verify(&missing).is_err());
         let mut malformed = program.clone();
-        malformed.store.scheme_type_parameters[constrained[0]].reserved[0] = 1;
+        malformed.store.scheme_type_parameters[constrained[0]].iteration_policy = super::super::schemes::FullIterationPolicy::PipelineTransport as u8;
         assert!(FullVerifier::verify(&malformed).is_err());
         for source in [
             "pure sample(value) -> Bool { var entries = map.empty(); entries[\"item\"] = value; let _ = entries }\n",

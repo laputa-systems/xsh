@@ -104,13 +104,13 @@ fn compare_contracts(store: &FullStore, canonical: (&FullScheme, &SchemeScope), 
         budget.charge(1)?;
         let left = left_scope.type_parameters.get(index).ok_or_else(invalid)?;
         let right = right_scope.type_parameters.get(actual as usize).ok_or_else(invalid)?;
-        if left.map_key != right.map_key || left.conversions != right.conversions || left.iteration_source_kind != right.iteration_source_kind { return Err(invalid()); }
+        if left.map_key != right.map_key || left.conversions != right.conversions || left.iteration_source_kind != right.iteration_source_kind || left.iteration_policy != right.iteration_policy { return Err(invalid()); }
         let left = left.iteration()?;
         let right = right.iteration()?;
         let decode = |requirement: crate::sema::schemes::IterationRequirement<SchemeTypeId>, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget| {
-            use crate::sema::schemes::{IterationRequirement, IterationFailure};
+            use crate::sema::schemes::IterationRequirement;
             Ok::<_, IrVerifyError>(IterationRequirement { item: decode_scheme_type(store, scope, requirement.item, budget, 0)?,
-                failure: match requirement.failure { IterationFailure::Infallible => IterationFailure::Infallible, IterationFailure::Propagates(error) => IterationFailure::Propagates(decode_scheme_type(store, scope, error, budget, 0)?) }, source_kind: requirement.source_kind })
+                policy: requirement.policy.try_map(|error| decode_scheme_type(store, scope, *error, budget, 0))?, source_kind: requirement.source_kind })
         };
         let left = left.map(|item| decode(item, left_scope, budget)).transpose()?;
         let right = right.map(|item| decode(item, right_scope, budget)).transpose()?;

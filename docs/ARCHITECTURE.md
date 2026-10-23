@@ -172,6 +172,14 @@ ordered fields or collection payload. Display and map-key domains come from
 the checked operand types. Generated set conversion retains the canonical
 selected registry method and uses the same native-call proof as a source call.
 
+Inferred pipeline inputs use the existing iteration relationship with a narrowed
+container policy. Its five states distinguish ordinary iterable error bounds,
+pipeline error bounds, and pipeline error transport. Intersections retain both
+the pipeline domain and any enclosing iteration restriction. Full stores the
+policy in the existing parameter row and rejects unknown tags or mismatched
+error payloads. Pipeline stream transport retains actual source-owner and
+producer proofs derived from the physical pipeline instruction.
+
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
 bindings enter a child lexical frame. Filters use the checked control-condition

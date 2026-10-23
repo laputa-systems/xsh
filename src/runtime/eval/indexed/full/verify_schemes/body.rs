@@ -521,13 +521,14 @@ fn iteration_item(store: &FullStore, scheme_scope: &SchemeScope, source: &Scheme
     match source {
         SchemeType::Parameter(_) => {
             let iteration = iteration_contract(store, source, scheme_scope, budget)?;
-            let propagated = match &iteration.failure {
-                crate::sema::schemes::IterationFailure::Propagates(error) => {
+            let propagated = match &iteration.policy {
+                crate::sema::schemes::IterationPolicy::IterablePropagates(error) | crate::sema::schemes::IterationPolicy::PipelinePropagates(error) => {
                     body_propagated_error_matches_owner(store, Some(scheme_scope), error, boundary, budget)?;
                     budget.charge_scheme_clone(error)?;
                     Some(error.clone())
                 }
-                crate::sema::schemes::IterationFailure::Infallible => None,
+                crate::sema::schemes::IterationPolicy::IterableInfallible | crate::sema::schemes::IterationPolicy::PipelineInfallible => None,
+                crate::sema::schemes::IterationPolicy::PipelineTransport => return Err(IrVerifyError::new("generic iteration has only a pipeline transport contract")),
             };
             Ok((iteration.item, None, propagated))
         }
@@ -552,6 +553,18 @@ fn iteration_item(store: &FullStore, scheme_scope: &SchemeScope, source: &Scheme
             Ok((item, stream, None))
         }
     }
+}
+
+fn pipeline_iteration_item(store: &FullStore, scheme_scope: &SchemeScope, source: &SchemeType, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
+    let contract = iteration_contract(store, source, scheme_scope, budget)?;
+    if !contract.policy.is_pipeline() { return Err(IrVerifyError::new("generic pipeline source has no pipeline contract")); }
+    let stream = match BodyTypeRef::Scheme(source).unvalidated() {
+        BodyTypeRef::Scheme(SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::Stream(_)) => Some(super::producers::StreamProducer::Value(instruction)),
+        BodyTypeRef::Scheme(SchemeType::Result(ok, _)) if matches!(BodyTypeRef::Scheme(ok).unvalidated(), BodyTypeRef::Scheme(SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::Stream(_))) => Some(super::producers::StreamProducer::ResultSuccess(instruction)),
+        BodyTypeRef::Ground(Type::Result(ok, _)) if matches!(ok.unvalidated(), Type::Stream(_)) => Some(super::producers::StreamProducer::ResultSuccess(instruction)),
+        _ => None,
+    };
+    Ok((contract.item, stream))
 }
 
 fn direct_iteration_item(source: &SchemeType, stream_source: super::producers::StreamProducer, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
@@ -1003,10 +1016,7 @@ pub(super) fn verify_body(
                     schema::ExprView::ListPipeline { input, mut stages, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let source = expression_type(types, input.raw() as usize, budget)?;
-                        if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
-                            return Err(IrVerifyError::new("generic pipeline source has no list or stream contract"));
-                        }
-                        let (mut item, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(input.raw() as usize), budget)?;
+                        let (mut item, stream) = pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)?;
                         let mut terminal = None;
                         let mut stage_ids = Vec::new();
                         while let Some(stage) = stages.next_with_id() {
@@ -1068,7 +1078,7 @@ pub(super) fn verify_body(
                             let mut cardinality = super::super::IndexedCardinalityQuery::new(decoder);
                             let pulls = super::super::indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality)?;
                             budget.charge(cardinality.memo.len() + stage_ids.len())?;
-                            if !pulls[0].never { stream_iterations.push((stream, propagation_boundary(&scope, &scopes).clone())); }
+                            if !pulls[0].never { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
                         }
                         pending.push(Obligation::Expression(input.raw() as usize, scope));
                     }
@@ -3782,6 +3792,28 @@ pure other(payload) { payload }
     fn sealed_binary_operations_retain_set_item_key_requirements() {
         prepare("pure remove(values: Set[Int]) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
         prepare("pure remove(values) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
+    }
+
+    #[test]
+    fn generic_pipeline_input_policy_authenticates_domain_and_error_payload() {
+        let program = prepare("pure collect_values(values) { values |> collect }");
+        let (_, scheme) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme).unwrap();
+        let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        let parameter = program.store.scheme_type_parameters[parameters.clone()].iter().position(|parameter| parameter.iteration_item != IR_NONE).unwrap() + parameters.start;
+        use crate::runtime::eval::indexed::full::schemes::FullIterationPolicy;
+        for policy in [FullIterationPolicy::IterableInfallible as u8, FullIterationPolicy::PipelinePropagates as u8, u8::MAX] {
+            let mut changed = program.clone();
+            changed.store.scheme_type_parameters[parameter].iteration_policy = policy;
+            assert!(FullVerifier::verify(&changed).is_err(), "policy {policy}");
+        }
+        let mut changed = program.clone();
+        changed.store.scheme_type_parameters[parameter].iteration_error = changed.store.scheme_type_parameters[parameter].iteration_item;
+        assert!(FullVerifier::verify(&changed).is_err());
+        let mut changed = program.clone();
+        changed.store.scheme_type_parameters[parameter].iteration_item = IR_NONE;
+        changed.store.scheme_type_parameters[parameter].iteration_policy = FullIterationPolicy::IterableInfallible as u8;
+        assert!(FullVerifier::verify(&changed).is_err());
     }
 
     #[test]

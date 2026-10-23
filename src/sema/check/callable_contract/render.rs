@@ -183,15 +183,17 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     }
     for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
         let item = render_scheme_type(&iteration.item, names, identities, context);
-        let failure = match &iteration.failure {
-            crate::sema::schemes::IterationFailure::Infallible => "infallible".to_owned(),
-            crate::sema::schemes::IterationFailure::Propagates(error) => format!("error={}", render_scheme_type(error, names, identities, context)),
+        let failure = match &iteration.policy {
+            crate::sema::schemes::IterationPolicy::IterableInfallible | crate::sema::schemes::IterationPolicy::PipelineInfallible => "infallible".to_owned(),
+            crate::sema::schemes::IterationPolicy::IterablePropagates(error) | crate::sema::schemes::IterationPolicy::PipelinePropagates(error) => format!("error={}", render_scheme_type(error, names, identities, context)),
+            crate::sema::schemes::IterationPolicy::PipelineTransport => "pipeline-transport".to_owned(),
         };
         let source_kind = match iteration.source_kind {
             crate::sema::schemes::IterationSourceKind::Direct => "direct-iterable",
             crate::sema::schemes::IterationSourceKind::DirectOrResult => "iterable",
         };
-        parts.push(format!("{source_kind}({}, item={item}, {failure})", names.type_name(*source)));
+        let domain = if iteration.policy.is_pipeline() { ", domain=pipeline" } else { "" };
+        parts.push(format!("{source_kind}({}, item={item}, {failure}{domain})", names.type_name(*source)));
     }
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     for operation in &scheme.callable().requirements().operations {

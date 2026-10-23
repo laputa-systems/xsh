@@ -429,8 +429,8 @@ fn make_scope(
 ) -> Result<SchemeScope, IrVerifyError> {
     let mut type_binders = BTreeMap::new();
     for (index, parameter) in type_parameters.iter().enumerate() {
+        parameter.iteration()?;
         if parameter.id == IR_NONE
-            || parameter.reserved != [0; 1]
             || !ValueConversionSet::from_bits(parameter.conversions).is_some_and(|set| set.is_satisfiable(parameter.map_key))
             || parameter.binder as usize != index
             || type_binders.insert(parameter.id, index).is_some()
@@ -438,7 +438,6 @@ fn make_scope(
             return Err(IrVerifyError::new("scheme type binders are duplicated or out of scope"));
         }
     }
-    for parameter in &type_parameters { parameter.iteration()?; }
     let mut row_binders = BTreeMap::new();
     let mut row_lacks = Vec::with_capacity(row_parameters.len());
     for (index, parameter) in row_parameters.iter().enumerate() {
@@ -1409,6 +1408,7 @@ enum PropagationBoundary {
     },
     CaptureRelationship { instruction: usize, request: usize },
     StreamProducer(IrFunctionId),
+    PipelineTransport { owner: u32, instruction: usize },
     ProcApplication { owner: IrFunctionId, errors: Arc<[SchemeType]> },
     Unavailable,
 }
@@ -1565,7 +1565,7 @@ fn body_propagated_error_matches_owner(store: &FullStore, scope: Option<&SchemeS
             }
             true
         }
-        PropagationBoundary::CaptureRelationship { .. } => true,
+        PropagationBoundary::CaptureRelationship { .. } | PropagationBoundary::PipelineTransport { .. } => true,
         PropagationBoundary::StreamProducer(owner) => {
             if !store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.callable_kind == crate::sema::types::CallableKind::Stream) {
                 return Err(IrVerifyError::new("stream propagation boundary has no actual producer owner"));
@@ -2802,105 +2802,112 @@ fn scheme_conversion(ty: &SchemeType, conversion: ValueConversion, scope: &Schem
 fn iteration_contract(
     store: &FullStore, source: &SchemeType, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget,
 ) -> Result<crate::sema::schemes::IterationRequirement<SchemeType>, IrVerifyError> {
-    use crate::sema::schemes::{IterationFailure, IterationRequirement, IterationSourceKind};
+    use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind};
     budget.charge(1)?;
-    let item = match source {
+    let (item, policy, source_kind) = match source {
         SchemeType::Parameter(parameter) => {
             let binder = scope.type_binders.get(&parameter.0).ok_or_else(|| IrVerifyError::new("iteration source binder is out of scope"))?;
             let iteration = scope.type_parameters[*binder].iteration()?.ok_or_else(|| IrVerifyError::new("generic iteration source has no iterable contract"))?;
-            let item = decode_scheme_type(store, scope, iteration.item, budget, 0)?;
-            let failure = match iteration.failure {
-                IterationFailure::Infallible => IterationFailure::Infallible,
-                IterationFailure::Propagates(error) => IterationFailure::Propagates(decode_scheme_type(store, scope, error, budget, 0)?),
-            };
-            return Ok(IterationRequirement { item, failure, source_kind: iteration.source_kind });
+            return Ok(IterationRequirement {
+                item: decode_scheme_type(store, scope, iteration.item, budget, 0)?,
+                policy: iteration.policy.try_map(|error| decode_scheme_type(store, scope, *error, budget, 0))?,
+                source_kind: iteration.source_kind,
+            });
         }
-        SchemeType::List(item) | SchemeType::Set(item) => { budget.charge_scheme_clone(item)?; (**item).clone() }
+        SchemeType::List(item) | SchemeType::Set(item) => {
+            budget.charge_scheme_clone(item)?;
+            ((**item).clone(), IterationPolicy::PipelineInfallible, IterationSourceKind::Direct)
+        }
         SchemeType::Stream(item) => {
             budget.charge_scheme_clone(item)?;
-            return Ok(IterationRequirement { item: (**item).clone(), failure: IterationFailure::Propagates(SchemeType::Ground(Type::Error)), source_kind: IterationSourceKind::Direct });
+            ((**item).clone(), IterationPolicy::PipelinePropagates(SchemeType::Ground(Type::Error)), IterationSourceKind::Direct)
         }
         SchemeType::Map(key, value) => {
             budget.charge_scheme_clone(key)?;
             budget.charge_scheme_clone(value)?;
-            SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), (**key).clone()), (Name::intern("value"), (**value).clone())]), tail: SchemeRowTail::Closed }
+            (SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), (**key).clone()), (Name::intern("value"), (**value).clone())]), tail: SchemeRowTail::Closed }, IterationPolicy::IterableInfallible, IterationSourceKind::Direct)
         }
         SchemeType::Result(ok, error) => {
             if matches!(ok.as_ref(), SchemeType::Result(_, _) | SchemeType::Ground(Type::Result(_, _))) { return Err(IrVerifyError::new("iteration source has a nested Result")); }
             let inner = iteration_contract(store, ok, scope, budget)?;
-            if inner.source_kind == IterationSourceKind::DirectOrResult && matches!(inner.failure, IterationFailure::Propagates(_)) { return Err(IrVerifyError::new("iteration source permits a nested Result")); }
-            let item = inner.item;
-            if let IterationFailure::Propagates(latent) = inner.failure {
-                if !body_type_matches(&latent, error, budget)? {
-                    if !body_type_matches(error, &latent, budget)? { return Err(IrVerifyError::new("iteration Result and stream errors have no shared bound")); }
-                    return Ok(IterationRequirement { item, failure: IterationFailure::Propagates(latent), source_kind: IterationSourceKind::DirectOrResult });
+            if inner.source_kind == IterationSourceKind::DirectOrResult && !matches!(inner.policy, IterationPolicy::IterableInfallible | IterationPolicy::PipelineInfallible) { return Err(IrVerifyError::new("iteration source permits a nested Result")); }
+            if matches!(inner.policy, IterationPolicy::PipelineTransport) { return Ok(IterationRequirement { item: inner.item, policy: IterationPolicy::PipelineTransport, source_kind: IterationSourceKind::DirectOrResult }); }
+            budget.charge_scheme_clone(error)?;
+            let mut bound = (**error).clone();
+            if let Some(latent) = inner.policy.error() {
+                if !body_type_matches(latent, error, budget)? {
+                    if body_type_matches(error, latent, budget)? { budget.charge_scheme_clone(latent)?; bound = latent.clone(); }
+                    else { return Ok(IterationRequirement { item: inner.item, policy: IterationPolicy::PipelineTransport, source_kind: IterationSourceKind::DirectOrResult }); }
                 }
             }
-            budget.charge_scheme_clone(error)?;
-            return Ok(IterationRequirement { item, failure: IterationFailure::Propagates((**error).clone()), source_kind: IterationSourceKind::DirectOrResult });
+            let policy = if inner.policy.is_pipeline() { IterationPolicy::PipelinePropagates(bound) } else { IterationPolicy::IterablePropagates(bound) };
+            return Ok(IterationRequirement { item: inner.item, policy, source_kind: IterationSourceKind::DirectOrResult });
         }
         SchemeType::Validated(_, source) => return iteration_contract(store, source, scope, budget),
         SchemeType::Ground(source) => {
             budget.charge_clone(source)?;
             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("iteration source has no iterable contract"))?;
-            let failure = match source.unvalidated() {
-                Type::Result(ok, error) if matches!(ok.unvalidated(), Type::Stream(_)) => {
-                    if !error.matches_expected(&Type::Error) { return Err(IrVerifyError::new("iteration Result and stream errors have no shared bound")); }
-                    IterationFailure::Propagates(SchemeType::Ground(Type::Error))
-                }
-                Type::Result(_, error) => IterationFailure::Propagates(SchemeType::Ground((**error).clone())),
-                Type::Stream(_) => IterationFailure::Propagates(SchemeType::Ground(Type::Error)),
-                _ => IterationFailure::Infallible,
+            let (direct, error) = match source.unvalidated() {
+                Type::Result(ok, error) => (ok.unvalidated(), Some(error.as_ref())),
+                direct => (direct, None),
             };
-            return Ok(IterationRequirement { item: SchemeType::Ground(item), failure, source_kind: if matches!(source.unvalidated(), Type::Result(_, _)) { IterationSourceKind::DirectOrResult } else { IterationSourceKind::Direct } });
+            let pipeline = matches!(direct, Type::List(_) | Type::Set(_) | Type::Stream(_));
+            let bound = if matches!(direct, Type::Stream(_)) {
+                if error.is_some_and(|error| !error.matches_expected(&Type::Error)) { None } else { Some(Type::Error) }
+            } else { error.cloned() };
+            let policy = match (pipeline, bound) {
+                (true, Some(error)) => IterationPolicy::PipelinePropagates(SchemeType::Ground(error)),
+                (true, None) if matches!(direct, Type::Stream(_)) => IterationPolicy::PipelineTransport,
+                (true, None) => IterationPolicy::PipelineInfallible,
+                (false, Some(error)) => IterationPolicy::IterablePropagates(SchemeType::Ground(error)),
+                (false, None) => IterationPolicy::IterableInfallible,
+            };
+            return Ok(IterationRequirement { item: SchemeType::Ground(item), policy, source_kind: if error.is_some() { IterationSourceKind::DirectOrResult } else { IterationSourceKind::Direct } });
         }
         _ => return Err(IrVerifyError::new("iteration source has no iterable contract")),
     };
-    Ok(IterationRequirement { item, failure: IterationFailure::Infallible, source_kind: IterationSourceKind::Direct })
+    Ok(IterationRequirement { item, policy, source_kind })
 }
 
 fn iteration_contract_matches(actual: &crate::sema::schemes::IterationRequirement<SchemeType>, expected: &crate::sema::schemes::IterationRequirement<SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
-    use crate::sema::schemes::{IterationFailure, IterationSourceKind};
-    if !body_type_matches(&actual.item, &expected.item, budget)? { return Ok(false); }
-    if expected.source_kind == IterationSourceKind::Direct && actual.source_kind == IterationSourceKind::DirectOrResult && matches!(actual.failure, IterationFailure::Propagates(_)) { return Ok(false); }
-    match (&actual.failure, &expected.failure) {
-        (IterationFailure::Infallible, _) => Ok(true),
-        (IterationFailure::Propagates(actual), IterationFailure::Propagates(expected)) => body_type_matches(actual, expected, budget),
-        (IterationFailure::Propagates(_), IterationFailure::Infallible) => Ok(false),
+    use crate::sema::schemes::{IterationPolicy, IterationSourceKind};
+    if expected.policy.is_pipeline() && !actual.policy.is_pipeline() || !body_type_matches(&actual.item, &expected.item, budget)? { return Ok(false); }
+    if expected.source_kind == IterationSourceKind::Direct && actual.source_kind == IterationSourceKind::DirectOrResult && !matches!(actual.policy, IterationPolicy::IterableInfallible | IterationPolicy::PipelineInfallible) { return Ok(false); }
+    match (&actual.policy, &expected.policy) {
+        (_, IterationPolicy::PipelineTransport) => Ok(true),
+        (IterationPolicy::IterableInfallible | IterationPolicy::PipelineInfallible, _) => Ok(true),
+        (actual, expected) => match (actual.error(), expected.error()) {
+            (Some(actual), Some(expected)) => body_type_matches(actual, expected, budget),
+            _ => Ok(false),
+        },
     }
 }
 
 fn verify_ground_iterations(store: &FullStore, scope: &SchemeScope, substitution: &CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
-    use crate::sema::schemes::{IterationFailure, IterationRequirement};
+    use crate::sema::schemes::IterationRequirement;
     for (index, parameter) in scope.type_parameters.iter().enumerate() {
         let Some(iteration) = parameter.iteration()? else { continue };
         let item = SchemeType::Ground(instantiate_bound_type(store, iteration.item, substitution, budget, 0)?);
-        let failure = match iteration.failure {
-            IterationFailure::Infallible => IterationFailure::Infallible,
-            IterationFailure::Propagates(error) => IterationFailure::Propagates(SchemeType::Ground(instantiate_bound_type(store, error, substitution, budget, 0)?)),
-        };
+        let policy = iteration.policy.try_map(|error| instantiate_bound_type(store, *error, substitution, budget, 0).map(SchemeType::Ground))?;
         budget.charge_clone(&substitution.types[index])?;
         let actual = iteration_contract(store, &SchemeType::Ground(substitution.types[index].clone()), scope, budget)?;
-        if !iteration_contract_matches(&actual, &IterationRequirement { item, failure, source_kind: iteration.source_kind }, budget)? { return Err(IrVerifyError::new("generic substitution violates its iteration relationship")); }
+        if !iteration_contract_matches(&actual, &IterationRequirement { item, policy, source_kind: iteration.source_kind }, budget)? { return Err(IrVerifyError::new("generic substitution violates its iteration relationship")); }
     }
     Ok(())
 }
 
 fn verify_symbolic_iterations(store: &FullStore, callee: &SchemeScope, caller: &SchemeScope, substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
-    use crate::sema::schemes::{IterationFailure, IterationRequirement};
+    use crate::sema::schemes::IterationRequirement;
     for (index, parameter) in callee.type_parameters.iter().enumerate() {
         let Some(iteration) = parameter.iteration()? else { continue };
         let item = decode_scheme_type(store, callee, iteration.item, budget, 0)?;
         let item = substitute_scheme_type(&item, callee, substitution, budget, 0)?;
-        let failure = match iteration.failure {
-            IterationFailure::Infallible => IterationFailure::Infallible,
-            IterationFailure::Propagates(error) => {
-                let error = decode_scheme_type(store, callee, error, budget, 0)?;
-                IterationFailure::Propagates(substitute_scheme_type(&error, callee, substitution, budget, 0)?)
-            }
-        };
+        let policy = iteration.policy.try_map(|error| {
+            let error = decode_scheme_type(store, callee, *error, budget, 0)?;
+            substitute_scheme_type(&error, callee, substitution, budget, 0)
+        })?;
         let actual = iteration_contract(store, &substitution.types[index], caller, budget)?;
-        if !iteration_contract_matches(&actual, &IterationRequirement { item, failure, source_kind: iteration.source_kind }, budget)? { return Err(IrVerifyError::new("generic call does not retain its iteration relationship")); }
+        if !iteration_contract_matches(&actual, &IterationRequirement { item, policy, source_kind: iteration.source_kind }, budget)? { return Err(IrVerifyError::new("generic call does not retain its iteration relationship")); }
     }
     Ok(())
 }
@@ -3494,12 +3501,13 @@ fn extend_symbolic_iteration_evidence(
         let item = decode_scheme_type(store, callee, iteration.item, budget, 0)?;
         let mut derived = BTreeSet::new();
         verify_symbolic_argument_evidence(&item, &actual.item, callee, substitution, SymbolicEvidenceSource::Iteration, &mut derived, budget, 0)?;
-        match (iteration.failure, actual.failure) {
-            (_, crate::sema::schemes::IterationFailure::Infallible) => {}
-            (crate::sema::schemes::IterationFailure::Propagates(expected), crate::sema::schemes::IterationFailure::Propagates(actual)) => {
-                let expected = decode_scheme_type(store, callee, expected, budget, 0)?;
-                verify_symbolic_argument_evidence(&expected, &actual, callee, substitution, SymbolicEvidenceSource::Iteration, &mut derived, budget, 0)?;
+        match (iteration.policy.error(), actual.policy.error()) {
+            (Some(expected), Some(actual)) => {
+                let expected = decode_scheme_type(store, callee, *expected, budget, 0)?;
+                verify_symbolic_argument_evidence(&expected, actual, callee, substitution, SymbolicEvidenceSource::Iteration, &mut derived, budget, 0)?;
             }
+            (_, None) if !matches!(actual.policy, crate::sema::schemes::IterationPolicy::PipelineTransport) => {},
+            _ if matches!(iteration.policy, crate::sema::schemes::IterationPolicy::PipelineTransport) => {},
             _ => return Err(IrVerifyError::new("generic call does not retain its iteration failure domain")),
         }
         for binder in derived {
@@ -5935,7 +5943,7 @@ mod tests {
             operations: IrRange::default(),
             methods: IrRange::default(),
             wrappers: IrRange::default(),
-            type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, reserved: [0; 1] }],
+            type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, iteration_policy: crate::runtime::eval::indexed::full::schemes::FullIterationPolicy::IterableInfallible as u8 }],
             row_parameters: vec![FullSchemeRowParameter {
                 id: 20,
                 binder: 0,
@@ -6032,8 +6040,8 @@ mod tests {
             methods: IrRange::default(),
             wrappers: IrRange::default(),
             type_parameters: vec![
-                FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, reserved: [0; 1] },
-                FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, reserved: [0; 1] },
+                FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, iteration_policy: crate::runtime::eval::indexed::full::schemes::FullIterationPolicy::IterableInfallible as u8 },
+                FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, iteration_policy: crate::runtime::eval::indexed::full::schemes::FullIterationPolicy::IterableInfallible as u8 },
             ],
             row_parameters: Vec::new(),
             type_binders: BTreeMap::from([(10, 0), (11, 1)]),
