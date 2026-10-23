@@ -6808,6 +6808,10 @@ impl<'a> ProducerProof<'a> {
             S::TextLines | S::BytesChunks { .. } | S::JsonLines => {
                 let actual = match stage { S::TextLines => Type::Str, S::BytesChunks { .. } => Type::Bytes, _ => Type::Any };
                 if !actual.matches_expected(&expected) { return Err(IrVerifyError::new("pipeline adapter item disagrees with its contract")); }
+                if position != 0 { return Err(IrVerifyError::new("pipeline adapter is not the first stage")); }
+                let schema::ExprView::ListPipeline { input, .. } = decoder.expression_view(pipeline)? else { return Err(IrVerifyError::new("pipeline adapter has no physical source")); };
+                self.expression(owner, input.raw() as usize, Arc::new(if matches!(stage, S::BytesChunks { .. }) { Type::Bytes } else { Type::Str }), false);
+                if let S::BytesChunks { size } = stage { self.expression(owner, size.raw() as usize, Arc::new(Type::Int), false); }
                 Ok(())
             }
             S::Tee { .. } => {

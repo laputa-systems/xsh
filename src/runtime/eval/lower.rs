@@ -4985,10 +4985,31 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else { list }
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
-                let mut item_type = Self::scheme_pipeline_item(facts.expression_types().get(&input)?, facts)?;
+                let stages = self.program.arena.stream_stages(stages).to_vec();
+                let source_type = facts.expression_types().get(&input)?;
+                let mut item_type = if let Some(stage) = stages.first().filter(|stage| stage.kind.is_adapter()) {
+                    let source = source_type.closed_ground_type()?;
+                    match (stage.kind, source.unvalidated()) {
+                        (StreamStageKind::TextStreamLines, Type::Str) => SchemeType::Ground(Type::Str),
+                        (StreamStageKind::BytesChunks, Type::Bytes) => SchemeType::Ground(Type::Bytes),
+                        (StreamStageKind::JsonLines | StreamStageKind::JsonStream, Type::Str) => SchemeType::Ground(Type::Any),
+                        _ => return self.block_scheme_lowering_expr(expression),
+                    }
+                } else { Self::scheme_pipeline_item(source_type, facts)? };
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let mut lowered_stages = Vec::new();
-                for stage in self.program.arena.stream_stages(stages).to_vec() {
+                for (position, stage) in stages.into_iter().enumerate() {
+                    if stage.kind.is_adapter() {
+                        if position != 0 || stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
+                        let lowered = match stage.kind {
+                            StreamStageKind::BytesChunks => self.lower_scheme_pipeline_shape_stage(expression, &stage, item_type.clone(), slots, current_function, facts, visited, lowered_types)?.0,
+                            StreamStageKind::TextStreamLines if stage.args.is_empty() => LoweredPipelineStage::TextLines,
+                            StreamStageKind::JsonLines | StreamStageKind::JsonStream if stage.args.is_empty() => LoweredPipelineStage::JsonLines,
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        };
+                        lowered_stages.push(lowered);
+                        continue;
+                    }
                     if matches!(stage.kind, StreamStageKind::Batch | StreamStageKind::Zip | StreamStageKind::Repeat | StreamStageKind::Range | StreamStageKind::Shuffle) {
                         let (lowered, output) = self.lower_scheme_pipeline_shape_stage(expression, &stage, item_type, slots, current_function, facts, visited, lowered_types)?;
                         item_type = output;

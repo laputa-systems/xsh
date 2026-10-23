@@ -57,6 +57,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             StreamStageKind::Zip => LoweredPipelineStage::Zip { other: wrap(self, values[0]?, lowered_types)? },
             StreamStageKind::Repeat => LoweredPipelineStage::Repeat { count: wrap(self, values[0]?, lowered_types)? },
             StreamStageKind::Range => LoweredPipelineStage::Range { start: wrap(self, values[0]?, lowered_types)?, end: values[1]? },
+            StreamStageKind::BytesChunks => LoweredPipelineStage::BytesChunks { size: wrap(self, values[0]?, lowered_types)? },
             StreamStageKind::Shuffle => LoweredPipelineStage::Shuffle { seed: match values[0] { Some(value) => Some(wrap(self, value, lowered_types)?), None => None } },
             _ => return None,
         };

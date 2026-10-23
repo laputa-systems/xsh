@@ -4645,6 +4645,13 @@ building a list. `break`, `continue`, errors, and `take` close the source.
 
 The adapters `text.lines()`, `bytes.chunks(size)`, `json.lines()`, and
 `json.stream()` are valid only as the first stage.
+`text.lines()` takes `Str` and produces `Str` items; `bytes.chunks(size)` takes
+`Bytes` and produces `Bytes` items, with a positive `Int` size. Both JSON
+spellings take `Str` containing newline-separated JSON values and produce `Any`
+items. These adapters materialize the buffer before downstream stages run,
+including `take(0)`. JSON parsing skips whitespace-only lines and rejects a
+malformed line even when a later stage would discard it. The source expression
+finishes, including its defers, before chunk-size evaluation.
 
 ### 13.4 Callbacks and errors
 

@@ -243,6 +243,14 @@ policy in the existing parameter row and rejects unknown tags or mismatched
 error payloads. Pipeline stream transport retains actual source-owner and
 producer proofs derived from the physical pipeline instruction.
 
+Generic buffer adapters reuse the ordinary TextLines, BytesChunks, and JsonLines
+rows. Their first stage establishes the actual Str or Bytes source and item
+type before iterable adaptation. Verification authenticates that source, the
+chunk-size expression, stage position, and result under the same function owner;
+the ordinary materializing engine retains parsing and cleanup order.
+JSON forwarding returns retain the authored `List[Any]` boundary required for
+opaque outputs; concrete results such as item counts remain inferred.
+
 Generic shape stages reuse the existing indexed stage rows. Batch derives a
 list item, Zip derives both item fields, and Range replaces the item with Int.
 Stage configuration follows its checked argument slots and source order.

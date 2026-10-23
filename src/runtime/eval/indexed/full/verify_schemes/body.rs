@@ -1103,7 +1103,14 @@ pub(super) fn verify_body(
                     schema::ExprView::ListPipeline { input, mut stages, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let source = expression_type(types, input.raw() as usize, budget)?;
-                        let (mut item, stream) = pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)?;
+                        let position = super::super::decode::ListView::position(&stages);
+                        let first = stages.next_with_id().transpose()?;
+                        stages.resume(position)?;
+                        let adapter = first.is_some_and(|stage| matches!(stage.view, super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines));
+                        let (mut item, stream) = if adapter {
+                            budget.charge_scheme_clone(&source)?;
+                            (source.clone(), None)
+                        } else { pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)? };
                         let mut terminal = None;
                         let mut stage_ids = Vec::new();
                         while let Some(stage) = stages.next_with_id() {
@@ -1112,6 +1119,16 @@ pub(super) fn verify_body(
                             let stage = stage?;
                             stage_ids.push(stage.id.raw());
                             match stage.view {
+                                super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines => {
+                                    if stage_ids.len() != 1 { return Err(IrVerifyError::new("generic pipeline adapter is not the first stage")); }
+                                    let input_type = if matches!(stage.view, super::super::StageView::BytesChunks { .. }) { Type::Bytes } else { Type::Str };
+                                    if !body_type_matches(&source, &SchemeType::Ground(input_type), budget)? { return Err(IrVerifyError::new("generic pipeline adapter has the wrong source type")); }
+                                    if let super::super::StageView::BytesChunks { size } = stage.view {
+                                        if !body_type_matches(&expression_type(types, size.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic byte chunk size is not Int")); }
+                                        pending.push(Obligation::Expression(size.raw() as usize, scope));
+                                    }
+                                    item = SchemeType::Ground(match stage.view { super::super::StageView::TextLines => Type::Str, super::super::StageView::BytesChunks { .. } => Type::Bytes, _ => Type::Any });
+                                }
                                 super::super::StageView::Map { slot, value }
                                 | super::super::StageView::ParMap { slot, value, .. } => {
                                     let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
@@ -4887,6 +4904,31 @@ mod structured_pipeline_tests {
         let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn generic_pipeline_adapters_reject_forged_sources_configuration_and_owners() {
+        let program = prepare("pure chunks(marker, input: Bytes, size: Int, other: Bool) { let _ = marker; input |> bytes.chunks(size) }\npure foreign(marker, input: Bytes, size: Int, other: Bool) { let _ = marker; input |> bytes.chunks(size) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "chunks").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let input = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { input, .. }) => Some(input.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let source_read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut wrong_source = program.clone();
+        wrong_source.store.extra[program.store.data[source_read].range().start as usize] = 3;
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+        let size = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+        let mut wrong_size = program.clone();
+        wrong_size.store.extra[program.store.data[size].range().start as usize] = 3;
+        assert!(FullVerifier::verify(&wrong_size).is_err());
+        let mut wrong_owner = program.clone();
+        let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == input).unwrap();
+        fact.function = super::super::super::IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
     }
 
     #[test]
