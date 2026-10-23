@@ -21,6 +21,14 @@ Independent source review is clear. This closes the demonstrated ordinary-body
 omissions; combined library/native and remaining capability qualification stay
 open.
 
+Frozen corpus adapter repair `19132f32b`, integrated as `4fb050b06`, allows
+selected historical Proc erasures with either zero or all 202 private effect
+clauses erased. Partial effect groups, foreign sites and changed retained
+reasons reject. Fifteen frozen-witness tests and two existing adapter controls
+pass; shell syntax and diff checks pass. No annotations were removed and no
+new corpus equivalence result is claimed. Product-bound corpus runs wait for
+the combined compiler.
+
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
 Record and conditional values instantiate independently; mutable bindings
