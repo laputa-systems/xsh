@@ -152,6 +152,17 @@ Cold verification requires it for symbolic Map and Set domains and rejects
 missing or malformed parameter metadata. These rows belong to the in-memory
 Full IR; they do not define a serialized program format.
 
+Callable application requirements distinguish invocations from known argument
+relationships. An invocation owns its actual callee, kind, result and effects.
+A known argument relationship retains the real formal layout and the original
+argument types in the same scoped worklist and transaction journal. Nullable
+formals defer assignability while an input remains unresolved; an independent
+field requirement can establish a present record. Remaining relationships
+are generalized without changing the input to an Optional. Cold call proof
+uses the exact owner and binder and preserves the actual callee's schema and
+unsigned runtime guards. Argument relationships cannot supply result, effect,
+field-presence or already-validated-value evidence.
+
 Pipeline key requirements use `SealedOperation::TypePredicate` in the existing
 operation authority. A predicate carries its actual subject type and has no
 result, invocation, effect, or computational use-site. `SortKey` accepts `Int`,

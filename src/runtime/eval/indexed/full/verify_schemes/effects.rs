@@ -414,7 +414,7 @@ impl<'a> ScopedEffectProof<'a> {
             .map_err(|_| IrVerifyError::new("application error flow has no checked call site"))?;
         let ordinal = self.store.scheme_application_calls[site].application;
         let application = bounded(self.store.scheme(id)?.applications, &self.store.scheme_applications, "scheme application range is invalid")?
-            .get(ordinal as usize).ok_or_else(|| IrVerifyError::new("application error flow ordinal is out of scope"))?;
+            .get(ordinal as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("application error flow ordinal is out of scope"))?;
         let effects = decode_contract(self.store, scope, application.effects, budget)?;
         let possible = match effects {
             EffectContract::Unknown => true,

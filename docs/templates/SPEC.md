@@ -3183,6 +3183,13 @@ calls select independently. Result annotations do not select a receiver or
 argument domain. Named arguments retain their labels and evaluate once in
 written order, including when that order differs from parameter order.
 
+Passing an inferred parameter to a known nullable formal retains an
+assignability requirement; it does not make the parameter nullable. A body
+that also reads a field therefore requires a present record. A body that only
+forwards the parameter accepts compatible present values and nullable values,
+including `null`. Argument labels, defaults, schemas, effects, and validation
+of `Any` keep their ordinary contracts.
+
 Generic guarded field access, value fallback, error handlers, and enclosing
 `try` blocks retain their Optional or Result relationships. Each call selects
 the mode from its checked inputs. An Optional containing an `Err` keeps that

@@ -6,6 +6,11 @@ use super::{
     compact_checked_type_is_concrete, compact_error_family_info,
 };
 
+pub(super) struct ExpandedPositionalSourceArguments {
+    pub(super) arguments: Vec<ArenaCallArg>,
+    pub(super) expanded_lists: Vec<ExprId>,
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn validate_generic_rest_splices<T>(
         &mut self,
@@ -75,6 +80,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .iter()
             .all(|element| element.splice_span.is_none())
             .then(|| elements.into_iter().map(|element| element.value).collect())
+    }
+
+    pub(super) fn expand_static_positional_source_arguments(&self, args: &[ArenaCallArg]) -> ExpandedPositionalSourceArguments {
+        if args.iter().any(|argument| matches!(argument.kind, ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. })) { return ExpandedPositionalSourceArguments { arguments: args.to_vec(), expanded_lists: Vec::new() }; }
+        let mut expanded = Vec::new();
+        let mut expanded_lists = Vec::new();
+        for argument in args {
+            if let ArenaCallArgKind::Splice { value, .. } = argument.kind
+                && let Some(items) = self.static_positional_list_items(value)
+            {
+                expanded_lists.push(value);
+                expanded.extend(items.into_iter().map(|value| ArenaCallArg { kind: ArenaCallArgKind::Positional(value) }));
+            } else { expanded.push(argument.clone()); }
+        }
+        ExpandedPositionalSourceArguments { arguments: expanded, expanded_lists }
     }
 
     pub(super) fn expand_static_positional_splices<T: Clone>(

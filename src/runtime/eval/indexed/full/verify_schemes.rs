@@ -402,6 +402,17 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             }
         }
     }
+    for application in &store.scheme_applications {
+        let super::schemes::FullSchemeApplication::KnownArguments { parameters, .. } = application else { continue; };
+        let parameters = mark_range(*parameters, &store.scheme_callable_parameters, &mut callable_parameter_coverage,
+            "known argument parameter range is invalid or overlaps")?;
+        for (index, parameter) in parameters.iter().enumerate() {
+            if store.string(parameter.name)?.is_empty() || parameter.reserved != [0; 3] || parameter.schema.is_some()
+                || parameter.flags & !3 != 0 || parameter.flags & 1 != 0 && (index + 1 != parameters.len() || parameter.flags & 2 != 0)
+            { return Err(IrVerifyError::new("known argument parameter layout is invalid")); }
+            if parameter.flags & 1 != 0 { verify_scheme_list_shape(store, parameter.ty)?; }
+        }
+    }
     if callable_coverage.iter().any(|covered| !covered)
         || callable_parameter_coverage.iter().any(|covered| !covered)
         || scheme_owners.iter().any(Option::is_none)
@@ -548,6 +559,21 @@ fn verify_scheme_tables(
         for application in mark_range(scheme.applications, &store.scheme_applications, &mut application_coverage,
             "scheme application range is invalid or overlaps")?
         {
+            if let super::schemes::FullSchemeApplication::KnownArguments { parameters, arguments } = application {
+                let parameters = bounded(*parameters, &store.scheme_callable_parameters, "known argument parameter range is invalid")?;
+                application_budget.charge(parameters.len() + arguments.len as usize)?;
+                roots.extend(parameters.iter().map(|parameter| parameter.ty));
+                for argument in mark_range(*arguments, &store.scheme_application_arguments, &mut argument_coverage,
+                    "known argument range is invalid or overlaps")?
+                {
+                    if let super::schemes::FullApplicationArgumentKind::Named(name) = argument.kind
+                        && store.string(name)?.is_empty()
+                    { return Err(IrVerifyError::new("known argument name is empty")); }
+                    roots.push(argument.ty);
+                }
+                continue;
+            }
+            let super::schemes::FullSchemeApplication::Invocation(application) = application else { unreachable!() };
             application_budget.charge(2 + application.arguments.len as usize + application.proc_returns.len as usize)?;
             roots.push(application.callee);
             roots.push(application.result);
@@ -778,7 +804,7 @@ fn verify_scheme_tables(
         let scheme = store.scheme(id)?;
         if scheme.callable_kind != crate::sema::types::CallableKind::Proc { return Err(IrVerifyError::new("scheme application return owner is not a proc")); }
         let application = bounded(scheme.applications, &store.scheme_applications, "scheme application range is invalid")?
-            .get(site.application as usize).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
+            .get(site.application as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
         if site.envelope >= application.proc_returns.len { return Err(IrVerifyError::new("scheme return envelope ordinal is out of scope")); }
     }
     for callable in &store.scheme_callable_monotypes {
@@ -1489,7 +1515,7 @@ impl PropagationBoundary {
                 return Err(IrVerifyError::new("application propagation return belongs to another function"));
             }
             let application = bounded(scheme.applications, &store.scheme_applications, "application propagation boundary has an invalid requirement range")?
-                .get(site.application as usize)
+                .get(site.application as usize).and_then(|application| application.invocation())
                 .ok_or_else(|| IrVerifyError::new("application propagation return is out of scope"))?;
             let envelope = bounded(application.proc_returns, &store.scheme_proc_returns, "application propagation boundary has an invalid return envelope range")?
                 .get(site.envelope as usize)
@@ -2104,7 +2130,7 @@ fn verify_body_expression(
                             let Type::List(item) = &parameter.ty else { return Err(IrVerifyError::new("generic typed rest parameter has no list domain")); };
                             item.as_ref()
                         } else { &parameter.ty };
-                        if splice && supplied < fixed || !body_type_matches_ground(&actual, expected) { return Err(IrVerifyError::new("generic typed argument disagrees with its actual parameter")); }
+                        if splice && supplied < fixed || !applications::nullable_assignment_matches_ground(store, decoder.owner, scheme_scope, &actual, expected, budget)? { return Err(IrVerifyError::new("generic typed argument disagrees with its actual parameter")); }
                     }
                 }
                 supplied += 1;
@@ -2151,7 +2177,7 @@ fn verify_body_expression(
                             let Type::List(item) = expected else { return Err(IrVerifyError::new("generic rest parameter has no list domain")) };
                             *item
                         } else { expected };
-                        if *splice && index < fixed || !body_type_matches_ground(actual, &expected) { return Err(IrVerifyError::new("generic body call argument disagrees with its checked parameter")); }
+                        if *splice && index < fixed || !applications::nullable_assignment_matches_ground(store, decoder.owner, scheme_scope, actual, &expected, budget)? { return Err(IrVerifyError::new("generic body call argument disagrees with its checked parameter")); }
                     }
                     let result = if target.checked_return_type != IR_NONE { TypeId::from_raw(target.checked_return_type).ok_or_else(|| IrVerifyError::new("generic body call result is invalid"))? } else { store.semantic.signature_return_type(signature)? };
                     SchemeType::Ground(store.semantic.to_type_with_budget(result, &mut budget.semantic_types)?)

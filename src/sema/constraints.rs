@@ -1280,23 +1280,11 @@ impl TypeConstraints {
         )?;
         let mut applications = Vec::new();
         for application in &callable.requirements().applications {
-            let callee = self.instantiate_scheme_type(&application.callee, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            let arguments = application.arguments.iter().map(|argument| Ok(super::callable_application::CallableApplicationArgument {
-                kind: argument.kind,
-                ty: self.instantiate_scheme_type(&argument.ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?,
-                span: argument.span,
-            })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
-            let result = self.instantiate_scheme_type(&application.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            let effects = application.effects.substitute(|id| effect_arguments.get(id).copied()
-                .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter)))?;
-            let proc_returns = application.proc_returns.iter().map(|envelope| Ok(super::callable_application::ProcReturnEnvelope {
-                result: self.instantiate_scheme_type(&envelope.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?,
-                propagated_errors: envelope.propagated_errors.iter().map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)).collect::<Result<Vec<_>, _>>()?.into(),
-                span: envelope.span,
-            })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
-            applications.push(self.register_callable_application(scope, super::callable_application::CallableApplication {
-                callee, arguments: arguments.into(), result, effects, proc_returns: proc_returns.into(), kind: application.kind, span: application.span,
-            }).map_err(SchemeOperationError::Application)?);
+            let application = application.try_map_types(|ty| {
+                self.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)
+            })?.try_map_effects(|effects| effects.substitute(|id| effect_arguments.get(id).copied()
+                .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+            applications.push(self.register_callable_application(scope, application).map_err(SchemeOperationError::Application)?);
         }
         let mut operations = Vec::new();
         for operation in &callable.requirements().operations {
@@ -1847,6 +1835,14 @@ impl TypeConstraints {
                 if !optional.contains_inference() && actual.matches_expected(&optional) { return Ok(()); }
                 constraints.constrain(&optional, &actual, contribution)
             });
+        }
+        if actual == Type::Null && self.known_nullable_argument_source(instance, expected).map_err(conflict)? {
+            let owned = instance.type_arguments.values().filter_map(|ty| match ty { Type::Inference(id) => Some(*id), _ => None }).collect::<FxHashSet<_>>();
+            let resolved = self.resolve(expected).map_err(conflict)?;
+            let variables = self.variable_ids(&resolved).map_err(conflict)?;
+            if !variables.is_empty() && variables.iter().all(|id| owned.contains(id)
+                && matches!(self.variables.get(id), Some(Variable::Representative(variable)) if variable.rank == 0))
+            { return self.constrain_context(&resolved, &actual, contribution); }
         }
         if !actual.contains_any() || actual.contains_inference() || actual.contains_recovery() {
             if !expected.contains_inference() && !actual.contains_inference() && actual.matches_expected(expected) { return Ok(()); }

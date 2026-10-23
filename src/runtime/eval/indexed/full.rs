@@ -1802,7 +1802,7 @@ impl FullProgram {
         let applications = self.store.scheme(id)?.applications.bounds(self.store.scheme_applications.len())
             .ok_or_else(|| IrVerifyError::new("application return range is invalid"))?;
         let application = self.store.scheme_applications[applications].get(site.application as usize)
-            .ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
+            .and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
         Ok(Some(match self.invocation_type_constructor(application.result, invocation)? {
             PreparedTypeConstructor::Result => PreparedProcReturn::Preserve,
             PreparedTypeConstructor::Optional | PreparedTypeConstructor::Other => PreparedProcReturn::Wrap,
@@ -22644,6 +22644,65 @@ run true
     }
 
     #[test]
+    fn nullable_target_argument_proofs_require_their_exact_scoped_bound() {
+        run_with_large_stack(|| {
+            let program = fixture("nullable-target-scoped-bound.xsh", r#"
+type Item = {value: Int}
+pure accepts(value: Item?) -> Int { let _ = value; 0 }
+pure accepts_text(value: Str?) -> Int { let _ = value; 0 }
+pure forward(value, other) { let _ = accepts(value); let _ = accepts_text(other); 0 }
+assert forward({value: 7}, "kept") == 0
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "forward");
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("forward retains its argument requirements") };
+            let scheme = program.store.schemes[scheme.index()];
+            let params = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            let value = program.store.scheme_params[params.start].ty;
+            let other = program.store.scheme_params[params.start + 1].ty;
+            let (parameter, argument) = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| {
+                let schemes::FullSchemeApplication::KnownArguments { parameters, arguments } = program.store.scheme_applications[index] else { return None };
+                let argument = arguments.bounds(program.store.scheme_application_arguments.len()).unwrap().start;
+                let actual = program.store.scheme_application_arguments[argument].ty;
+                (program.store.scheme_types[actual.index()] == program.store.scheme_types[value.index()])
+                    .then(|| (parameters.bounds(program.store.scheme_callable_parameters.len()).unwrap().start, argument))
+            }).unwrap();
+            let other_parameter = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| {
+                let schemes::FullSchemeApplication::KnownArguments { parameters, arguments } = program.store.scheme_applications[index] else { return None };
+                let argument = arguments.bounds(program.store.scheme_application_arguments.len()).unwrap().start;
+                let actual = program.store.scheme_application_arguments[argument].ty;
+                (program.store.scheme_types[actual.index()] == program.store.scheme_types[other.index()])
+                    .then(|| parameters.bounds(program.store.scheme_callable_parameters.len()).unwrap().start)
+            }).unwrap();
+            let mut wrong_domain = program.clone();
+            let value_domain = wrong_domain.store.scheme_callable_parameters[parameter].ty;
+            wrong_domain.store.scheme_callable_parameters[parameter].ty = wrong_domain.store.scheme_callable_parameters[other_parameter].ty;
+            wrong_domain.store.scheme_callable_parameters[other_parameter].ty = value_domain;
+            let error = FullVerifier::verify(&wrong_domain).unwrap_err();
+            assert!(error.message.contains("generic body call argument"), "{error:?}");
+            let mut wrong_binder = program.clone();
+            let argument_type = wrong_binder.store.scheme_application_arguments[argument].ty;
+            wrong_binder.store.scheme_types[argument_type.index()] = program.store.scheme_types[other.index()];
+            assert!(FullVerifier::verify(&wrong_binder).is_err());
+        });
+    }
+
+    #[test]
+    fn nullable_target_unsigned_arguments_keep_the_actual_callee_validation() {
+        run_with_large_stack(|| {
+            let program = fixture("nullable-target-unsigned-validation.xsh", "pure accepts(value: UInt?) -> Int { let _ = value; 0 }\npure forward(value) { accepts(value) }\nlet dynamic: Int = 3\nassert forward(dynamic) == 0\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "accepts");
+            let parameter = program.store.functions[owner].params.bounds(program.store.params.len()).unwrap().start;
+            let cold = program.store.param_cold.binary_search_by_key(&(parameter as u32), |cold| cold.param).unwrap();
+            let mut missing_guard = program.clone();
+            missing_guard.store.param_cold[cold].validation = IR_NONE;
+            let error = FullVerifier::verify(&missing_guard).unwrap_err();
+            assert!(error.message.contains("unsigned parameter is missing its runtime validation"), "{error:?}");
+        });
+    }
+
+    #[test]
     fn generic_nullary_tag_producers_authenticate_nominal_layouts() {
         run_with_large_stack(|| {
             let program = fixture("generic-nullary-tag-proofs.xsh", r#"
@@ -26604,7 +26663,7 @@ assert apply(40) == 42
             let scheme = program.store.schemes[id.index()];
             let applications = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap();
             assert_eq!(applications.len(), 1);
-            let application = program.store.scheme_applications[applications.start];
+            let application = program.store.scheme_applications[applications.start].invocation().unwrap();
             let result = program.store.scheme_types[application.result.index()];
             assert_eq!(result.tag, schema::FullSchemeTypeTag::Parameter);
             let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
@@ -27812,7 +27871,7 @@ assert genuine_tail_runs == 0
             let range = branches.store.schemes[id.index()].applications.bounds(branches.store.scheme_applications.len()).unwrap();
             assert_eq!(range.len(), 2);
             assert_eq!(site.application, 0);
-            let other = branches.store.scheme_applications[range.start + 1];
+            let other = branches.store.scheme_applications[range.start + 1].invocation().unwrap();
             assert_eq!(other.proc_returns.len, 1);
             let mut nonminimum = branches.clone();
             nonminimum.store.scheme_application_returns[site_index].application = 1;

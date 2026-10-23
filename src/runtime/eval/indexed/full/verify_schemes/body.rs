@@ -128,7 +128,7 @@ fn application_return_origin(
                 let function = &store.functions[IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("application return owner is invalid"))?.index()];
                 let FullCallableContract::Scheme(id) = function.contract else { unreachable!() };
                 let application = bounded(store.scheme(id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
-                    .get(ordinal as usize).ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
+                    .get(ordinal as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
                 let actual = types.get(&instruction).ok_or_else(|| IrVerifyError::new("application return has no actual result type"))?;
                 let result = decode_scheme_type(store, scheme_scope, application.result, budget, 0)?;
                 if !body_types_equal(actual, &result) { return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope")); }
@@ -1523,7 +1523,7 @@ pub(super) fn verify_body(
                             }
                             let FullCallableContract::Scheme(id) = function.contract else { unreachable!() };
                             let application = bounded(store.scheme(id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
-                                .get(site.application as usize).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
+                                .get(site.application as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
                             let envelope = bounded(application.proc_returns, &store.scheme_proc_returns, "scheme return envelope range is invalid")?
                                 .get(site.envelope as usize).ok_or_else(|| IrVerifyError::new("scheme return envelope ordinal is out of scope"))?;
                             let source = decode_scheme_type(store, scheme_scope, application.result, budget, 0)?;
@@ -2341,7 +2341,7 @@ pure other(payload) { payload }
         let super::super::super::schemes::FullWrapper::ProcCompletion { detail: relay_detail, .. } = relay_wrappers[relay_group as usize] else { panic!("relay field owns its proc completion group") };
         let relay_completion = program.store.wrapper_completions[relay_detail as usize];
         let relay_contributions = relay_completion.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
-        let application = bounded(program.store.scheme(scheme_id).unwrap().applications, &program.store.scheme_applications, "relay_explicit application range is invalid").unwrap().get(site.application as usize).unwrap();
+        let application = bounded(program.store.scheme(scheme_id).unwrap().applications, &program.store.scheme_applications, "relay_explicit application range is invalid").unwrap().get(site.application as usize).unwrap().invocation().unwrap();
         let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
         let relay_scope = scopes[scheme_id.index()].as_ref().unwrap();
         let mut budget = SchemeInstantiationBudget::new(&program.store);

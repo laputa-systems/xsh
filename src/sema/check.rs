@@ -1789,10 +1789,7 @@ pub struct Checker {
         FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     argument_projection_contexts:
         FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
-    call_splice_item_contexts: Option<(
-        ExprId,
-        Vec<(Type, Option<crate::sema::constants::SchemaExpectation>)>,
-    )>,
+    call_splice_item_contexts: Option<args::CallSpliceItemContexts>,
     record_constructors: RecordConstructors,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     checked_schema_origins: BTreeMap<Span, super::constants::SchemaExpectation>,

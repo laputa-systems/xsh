@@ -167,7 +167,7 @@ impl Checker {
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Option<Type> {
         use crate::sema::arguments::{ArgumentValueSource, StaticArgumentKind};
-        use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument, CallableKindRequirement};
+        use crate::sema::callable_application::{CallableApplicationArgument, CallableKindRequirement};
         use crate::sema::constraints::CallableApplicationScope;
         use crate::sema::effects::{EffectContract, EffectSet};
         if !matches!(self.type_constraints.resolve(callee), Ok(Type::Inference(_))) { return None; }
@@ -215,7 +215,7 @@ impl Checker {
             if self.boundary.in_pure { EffectContract::finite(EffectSet::default()) }
             else { EffectContract::variable(self.type_constraints.fresh_effect_at_level(span, level)) }
         });
-        let application = CallableApplication {
+        let application = crate::sema::callable_application::CallableInvocation {
             callee: callee.clone(), arguments: arguments.into(), result: result.clone(), effects,
             proc_returns: previous.map(|application| application.proc_returns).unwrap_or_else(|| Arc::from([])), kind: if self.boundary.in_pure { CallableKindRequirement::Pure } else { CallableKindRequirement::Effectful }, span,
         };
@@ -565,6 +565,7 @@ proc call_rest(raw: Any) [error] -> Int {
         let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "apply").unwrap();
         let scheme = declaration.scheme.as_ref().unwrap();
         let [application] = scheme.callable().requirements().applications.as_slice() else { panic!("one checked application source owns one requirement") };
+        let application = application.invocation().unwrap();
         assert!(matches!(scheme.params()[0].ty, crate::sema::schemes::SchemeType::Parameter(_)));
         assert_eq!(application.callee, scheme.params()[0].ty);
         assert_eq!(application.arguments[0].ty, scheme.params()[1].ty);

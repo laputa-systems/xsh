@@ -573,6 +573,14 @@ impl BoundEquivalence<'_> {
                     && self.ty(&left.result, &right.result)
             })
             && left.applications.iter().zip(&right.applications).all(|(left, right)| {
+                use crate::sema::callable_application::CallableApplication;
+                if let (CallableApplication::KnownArguments(left), CallableApplication::KnownArguments(right)) = (left, right) {
+                    return left.parameters.len() == right.parameters.len()
+                        && left.arguments.len() == right.arguments.len()
+                        && left.parameters.iter().zip(right.parameters.iter()).all(|(left, right)| left.layout == right.layout && self.ty(&left.ty, &right.ty))
+                        && left.arguments.iter().zip(right.arguments.iter()).all(|(left, right)| left.kind == right.kind && self.ty(&left.ty, &right.ty));
+                }
+                let (CallableApplication::Invocation(left), CallableApplication::Invocation(right)) = (left, right) else { return false; };
                 left.kind == right.kind && left.arguments.len() == right.arguments.len()
                     && left.proc_returns.len() == right.proc_returns.len()
                     && self.ty(&left.callee, &right.callee) && self.ty(&left.result, &right.result)

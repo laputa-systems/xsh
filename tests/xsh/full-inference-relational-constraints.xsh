@@ -91,3 +91,74 @@ let invalid = fallback(7)
     stderr: ["[check.operator-type]", "Add is not defined for Int? and Int"],
   )?
 }
+
+test test_full_inference_nullable_target_preserves_source_presence { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Item = {value: Int}
+pure accepts(value: Item?) -> Int { let _ = value; 0 }
+pure read(value) -> Int { let _ = accepts(value); value.value }
+pure forward(value) { accepts(value) }
+pure forward_named(value) { accepts(value: value) }
+pure forward_splice(value) { accepts(@[value]) }
+let present: Item? = {value: 11}
+let missing: Item? = null
+assert read({value: 7}) == 7
+assert forward({value: 7}) == 0
+assert forward(present) == 0
+assert forward(missing) == 0
+assert forward(null) == 0
+assert forward_named({value: 7}) == 0
+assert forward_named(null) == 0
+assert forward_splice({value: 7}) == 0
+assert forward_splice(null) == 0
+print "source presence preserved"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "source presence preserved\n"
+}
+
+test test_full_inference_nullable_target_keeps_nullable_field_rejection { |ctx|
+  test.expect(
+    ctx,
+    r"""type Item = {value: Int}
+pure accepts(value: Item?) -> Int { let _ = value; 0 }
+pure read(value: Item?) -> Int { let _ = accepts(value); value.value }
+let missing: Item? = null
+let invalid = read(missing)
+""",
+    status: 2,
+    stderr: ["[check.field-access]"],
+  )?
+}
+
+test test_full_inference_nullable_target_keeps_any_validation_boundary { |ctx|
+  test.expect(
+    ctx,
+    r"""type Item = {value: Int}
+pure accepts(value: Item?) -> Int { let _ = value; 0 }
+let unchecked: Any = {value: 7}
+let invalid = accepts(unchecked)
+""",
+    status: 2,
+    stderr: ["[check.dynamic-boundary]"],
+  )?
+}
+
+test test_full_inference_nullable_target_keeps_unsigned_validation { |ctx|
+  for source in [
+    r"""pure accepts(value: UInt?) -> Int { let _ = value; 0 }
+pure forward(value: Int) { accepts(value) }
+let dynamic: Int = -1
+let rejected = forward(dynamic)
+""",
+    r"""pure accepts(value: UInt?) -> Int { let _ = value; 0 }
+pure forward(value) { accepts(value) }
+let dynamic: Int = -1
+let rejected = forward(dynamic)
+""",
+  ] {
+    test.expect(ctx, source, status: 3, stderr: ["type-error", "UInt"])?
+  }
+}

@@ -525,14 +525,12 @@ impl CallableScheme {
             }
         }
         for application in &requirements.applications {
-            for ty in std::iter::once(&application.callee)
-                .chain(application.arguments.iter().map(|argument| &argument.ty))
-                .chain(std::iter::once(&application.result))
-                .chain(application.proc_returns.iter().flat_map(|envelope| std::iter::once(&envelope.result).chain(envelope.propagated_errors.iter())))
-            {
+            for ty in application.types() {
                 ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
             }
-            validate_effect_contract(&application.effects, &effect_ids, &mut used_effects)?;
+            if let Some(application) = application.invocation() {
+                validate_effect_contract(&application.effects, &effect_ids, &mut used_effects)?;
+            }
         }
         for wrapper in &requirements.wrappers {
             for ty in wrapper.types() { ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?; }
@@ -739,15 +737,16 @@ impl CallableRequirements {
             }
         }
         for application in &self.applications {
-            bytes = bytes.saturating_add(application.effects.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
-            bytes = bytes.saturating_add(std::mem::size_of_val(application.arguments.as_ref()));
-            bytes = bytes.saturating_add(std::mem::size_of_val(application.proc_returns.as_ref()));
-            bytes = bytes.saturating_add(application.proc_returns.iter().map(|envelope| std::mem::size_of_val(envelope.propagated_errors.as_ref())).sum::<usize>());
-            for ty in std::iter::once(&application.callee)
-                .chain(application.arguments.iter().map(|argument| &argument.ty))
-                .chain(std::iter::once(&application.result))
-                .chain(application.proc_returns.iter().flat_map(|envelope| std::iter::once(&envelope.result).chain(envelope.propagated_errors.iter())))
-            {
+            bytes = bytes.saturating_add(std::mem::size_of_val(application.arguments()));
+            match application {
+                CallableApplication::Invocation(value) => {
+                    bytes = bytes.saturating_add(value.effects.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
+                    bytes = bytes.saturating_add(std::mem::size_of_val(value.proc_returns.as_ref()));
+                    bytes = bytes.saturating_add(value.proc_returns.iter().map(|envelope| std::mem::size_of_val(envelope.propagated_errors.as_ref())).sum::<usize>());
+                }
+                CallableApplication::KnownArguments(value) => bytes = bytes.saturating_add(std::mem::size_of_val(value.parameters.as_ref())),
+            }
+            for ty in application.types() {
                 bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>()));
             }
         }
@@ -772,15 +771,7 @@ impl CallableRequirements {
             match &mut iteration.policy { IterationPolicy::IterablePropagates(error) | IterationPolicy::PipelinePropagates(error) => error.map_ground_types(map), _ => {} }
         }
         for application in &mut mapped.applications {
-            application.callee.map_ground_types(map);
-            application.result.map_ground_types(map);
-            for envelope in Arc::make_mut(&mut application.proc_returns) {
-                envelope.result.map_ground_types(map);
-                for error in Arc::make_mut(&mut envelope.propagated_errors) { error.map_ground_types(map); }
-            }
-            for argument in Arc::make_mut(&mut application.arguments) {
-                argument.ty.map_ground_types(map);
-            }
+            application.for_each_type_mut(|ty| ty.map_ground_types(map));
         }
         mapped
     }
@@ -1160,7 +1151,7 @@ impl SchemeBodyFacts {
     pub(crate) fn with_proc_return_sites(mut self, sites: BTreeMap<Span, SchemeProcReturnSite>) -> Result<Self, SchemeBuildError> {
         for site in sites.values() {
             let application = self.scheme.callable().requirements().applications.get(site.application as usize)
-                .ok_or(SchemeBuildError::UnresolvedCallableApplication)?;
+                .and_then(CallableApplication::invocation).ok_or(SchemeBuildError::UnresolvedCallableApplication)?;
             let envelope = application.proc_returns.get(site.envelope as usize)
                 .ok_or(SchemeBuildError::UnresolvedCallableApplication)?;
             if self.scheme.kind() != crate::sema::types::CallableKind::Proc || envelope.result != *self.scheme.return_type() {
@@ -1832,13 +1823,13 @@ mod tests {
                 effect_parameters: vec![effect],
                 iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
                 effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
-                applications: vec![CallableApplication {
+                applications: vec![CallableApplication::Invocation(crate::sema::callable_application::CallableInvocation {
                     callee: SchemeType::Parameter(f),
                     arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: SchemeType::Parameter(value), span }].into(),
                     proc_returns: Arc::from([]),
                     result: SchemeType::Parameter(discarded), effects: EffectContract::variable(effect),
                     kind: CallableKindRequirement::Effectful, span,
-                }],
+                })],
             };
             let make = |requirements| CallableScheme::new(vec![f, value, discarded], Vec::new(),
                 vec![SchemeParameter { name: Name::intern("action"), ty: SchemeType::Parameter(f), schema_expectation: None, defaulted: false, rest: false },
@@ -1851,10 +1842,10 @@ mod tests {
             missing.applications.clear();
             assert_eq!(make(missing), Err(SchemeBuildError::UnusedTypeParameter));
             let mut foreign = requirements.clone();
-            foreign.applications[0].result = SchemeType::Parameter(SchemeTypeParameterId(9));
+            foreign.applications[0].invocation_mut().unwrap().result = SchemeType::Parameter(SchemeTypeParameterId(9));
             assert_eq!(make(foreign), Err(SchemeBuildError::UnboundTypeParameter));
             let mut foreign = requirements.clone();
-            foreign.applications[0].effects = EffectContract::variable(SchemeEffectParameterId(9));
+            foreign.applications[0].invocation_mut().unwrap().effects = EffectContract::variable(SchemeEffectParameterId(9));
             assert_eq!(make(foreign), Err(SchemeBuildError::UnboundEffectParameter));
             let mut duplicate = requirements.clone();
             duplicate.effect_parameters.push(effect);
@@ -1878,13 +1869,13 @@ mod tests {
             let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
             let requirements = CallableRequirements {
                 map_key_parameters: Vec::new(),
-                applications: vec![CallableApplication {
+                applications: vec![CallableApplication::Invocation(crate::sema::callable_application::CallableInvocation {
                     callee: SchemeType::Parameter(f),
                     arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Named(Name::intern("payload")),
                         ty: SchemeType::Record { fields: BTreeMap::from([(field, SchemeType::Ground(Type::Int))]), tail: SchemeRowTail::Parameter(row) }, span }].into(),
                     proc_returns: Arc::from([]),
                     result: SchemeType::Ground(Type::Unit), effects: EffectContract::finite(EffectSet::default()), kind: CallableKindRequirement::Pure, span,
-                }],
+                })],
                 ..CallableRequirements::default()
             };
             let make = |lacks| CallableScheme::new(vec![f], vec![SchemeRowParameter { id: row, lacks }],
@@ -1893,7 +1884,7 @@ mod tests {
             assert_eq!(make(BTreeSet::new()), Err(SchemeBuildError::RowLacksMismatch));
             let callable = make(BTreeSet::from([field])).unwrap();
             assert!(callable.retained_bytes() > std::mem::size_of_val(&callable));
-            assert_eq!(callable.requirements().applications[0].arguments[0].kind, StaticArgumentKind::Named(Name::intern("payload")));
+            assert_eq!(callable.requirements().applications[0].arguments()[0].kind, StaticArgumentKind::Named(Name::intern("payload")));
         });
     }
     #[test]
