@@ -237,6 +237,7 @@ impl Checker {
                         crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
                         crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
                         crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
+                        crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion => DiagnosticCode::CheckTryError,
                     }
                 } else { DiagnosticCode::CheckCallableMismatch };
                 self.error(span, &format!("callable application requirement failed: {error}"), code);
@@ -271,6 +272,7 @@ impl Checker {
                     crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
                     crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
                     crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
+                    crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion => DiagnosticCode::CheckTryError,
                 },
                 crate::sema::constraints::WrapperConstraintError::Effects(_) => DiagnosticCode::CheckEffectViolation,
                 _ => DiagnosticCode::CheckCallableMismatch,

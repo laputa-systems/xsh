@@ -163,6 +163,141 @@ fn expression_type(types: &BTreeMap<usize, SchemeType>, instruction: usize, budg
     Ok(ty.clone())
 }
 
+fn push_completion_contribution(
+    contributions: &mut Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
+    role: fn(SchemeType) -> crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>,
+    ty: &SchemeType,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    budget.charge(1)?;
+    budget.charge_scheme_clone(ty)?;
+    contributions.push(role(ty.clone()));
+    Ok(())
+}
+
+pub(super) fn completion_result_error(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    BodyTypeRef::Scheme(ty).result_parts().map(|(_, error)| error.materialize(budget)).transpose()
+}
+
+pub(super) fn completion_result_success(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    BodyTypeRef::Scheme(ty).result_parts().map(|(success, _)| success.materialize(budget)).transpose()
+}
+
+fn authored_result_constructor(
+    decoder: &FullDecoder<'_>,
+    types: &BTreeMap<usize, SchemeType>,
+    scope: &LexicalScope,
+    scopes: &LexicalScopes,
+    expression_scopes: &BTreeMap<usize, LexicalScope>,
+    visited: &BTreeSet<usize>,
+    producer: usize,
+    source: &SchemeType,
+    form: crate::runtime::eval::SchemeCompletionSourceForm,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<usize, IrVerifyError> {
+    let is_authored = |instruction| -> Result<bool, IrVerifyError> {
+        Ok(match (form, decoder.expression_view(instruction)?) {
+            (crate::runtime::eval::SchemeCompletionSourceForm::AuthoredOk, schema::ExprView::Ok(_))
+            | (crate::runtime::eval::SchemeCompletionSourceForm::AuthoredErr, schema::ExprView::Err { .. }) => true,
+            _ => false,
+        })
+    };
+    let constructor = match decoder.expression_view(producer)? {
+        _ if is_authored(producer)? => producer,
+        schema::ExprView::Param(slot) => {
+            let binding = scope.binding(scopes, slot, budget)?
+                .ok_or_else(|| IrVerifyError::new("authored Result completion producer reads an unbound slot"))?;
+            if binding.mutable { return Err(IrVerifyError::new("authored Result completion producer reads mutable storage")); }
+            let (initializer, initializer_scope) = binding.initializer
+                .ok_or_else(|| IrVerifyError::new("authored Result completion producer has no immutable initializer"))?;
+            let proved_scope = expression_scopes.get(&initializer)
+                .ok_or_else(|| IrVerifyError::new("authored Result completion initializer has no lexical proof"))?;
+            if !visited.contains(&initializer)
+                || proved_scope.frame != initializer_scope.frame
+                || proved_scope.loop_depth != initializer_scope.loop_depth
+                || proved_scope.error_boundary != initializer_scope.error_boundary
+            {
+                return Err(IrVerifyError::new("authored Result completion initializer is outside its checked lexical scope"));
+            }
+            let initialized = expression_type(types, initializer, budget)?;
+            if !body_types_equal(source, &binding.ty) || !body_types_equal(source, &initialized) {
+                return Err(IrVerifyError::new("authored Result completion initializer disagrees with its checked binding"));
+            }
+            if !is_authored(initializer)? {
+                return Err(IrVerifyError::new("authored Result completion initializer has the wrong constructor"));
+            }
+            initializer
+        }
+        _ => return Err(IrVerifyError::new("authored Result completion source has the wrong constructor")),
+    };
+    let constructor_type = if constructor == producer { source.clone() } else { expression_type(types, constructor, budget)? };
+    if !body_types_equal(source, &constructor_type) {
+        return Err(IrVerifyError::new("authored Result completion constructor disagrees with its source type"));
+    }
+    if BodyTypeRef::Scheme(source).result_parts().is_none() {
+        return Err(IrVerifyError::new("authored Result completion producer has no Result type"));
+    }
+    Ok(constructor)
+}
+
+fn completion_source_contribution(
+    decoder: &FullDecoder<'_>,
+    types: &BTreeMap<usize, SchemeType>,
+    scope: &LexicalScope,
+    scopes: &LexicalScopes,
+    expression_scopes: &BTreeMap<usize, LexicalScope>,
+    visited: &BTreeSet<usize>,
+    returned_value: usize,
+    value: super::super::schemes::FullSchemeBodyCompletionSource,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Option<SchemeType>, IrVerifyError> {
+    budget.charge(1)?;
+    let producer = value.producer as usize;
+    let source = expression_type(types, producer, budget)?;
+    match value.form {
+        crate::runtime::eval::SchemeCompletionSourceForm::LiftedValue => {
+            if BodyTypeRef::Scheme(&source).result_parts().is_some() {
+                return Err(IrVerifyError::new("lifted Proc completion source is already a Result"));
+            }
+            let schema::ExprView::Ok(inner) = decoder.expression_view(returned_value)? else {
+                return Err(IrVerifyError::new("lifted Proc completion does not return an Ok value"));
+            };
+            if inner.raw() as usize != producer {
+                return Err(IrVerifyError::new("lifted Proc completion does not wrap its recorded source"));
+            }
+            let actual = expression_type(types, returned_value, budget)?;
+            let (ok, _) = BodyTypeRef::Scheme(&actual).result_parts()
+                .ok_or_else(|| IrVerifyError::new("lifted Proc completion has no Result envelope"))?;
+            let ok = ok.materialize(budget)?;
+            if !body_types_equal(&source, &ok) {
+                return Err(IrVerifyError::new("lifted Proc completion changes its source type"));
+            }
+            Ok(None)
+        }
+        crate::runtime::eval::SchemeCompletionSourceForm::ReturnedResult => {
+            if returned_value != producer
+                || matches!(decoder.expression_view(producer)?, schema::ExprView::Ok(_) | schema::ExprView::Err { .. })
+                || BodyTypeRef::Scheme(&source).result_parts().is_none()
+            {
+                return Err(IrVerifyError::new("returned Proc completion source is not the recorded Result producer"));
+            }
+            Ok(Some(source))
+        }
+        crate::runtime::eval::SchemeCompletionSourceForm::AuthoredOk => {
+            if returned_value != producer {
+                return Err(IrVerifyError::new("authored Ok completion source has an invalid producer"));
+            }
+            authored_result_constructor(decoder, types, scope, scopes, expression_scopes, visited, producer, &source, value.form, budget)?;
+            Ok(Some(source))
+        }
+        crate::runtime::eval::SchemeCompletionSourceForm::AuthoredErr => {
+            if returned_value != producer { return Err(IrVerifyError::new("authored Err completion return does not identify its producer")); }
+            authored_result_constructor(decoder, types, scope, scopes, expression_scopes, visited, producer, &source, value.form, budget)?;
+            Ok(Some(source))
+        }
+    }
+}
+
 fn branch_scope(scope: &LexicalScope, scopes: &mut LexicalScopes, budget: &mut SchemeInstantiationBudget) -> Result<LexicalScope, IrVerifyError> {
     budget.charge(1)?;
     let frame = scopes.frames.len();
@@ -330,28 +465,41 @@ fn project(ty: &SchemeType, projection: super::super::CheckedValueProjection, bu
     }
 }
 
-fn iteration_item(store: &FullStore, scheme_scope: &SchemeScope, source: &SchemeType, instruction: usize, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
+fn iteration_item(store: &FullStore, scheme_scope: &SchemeScope, source: &SchemeType, instruction: usize, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>, Option<SchemeType>), IrVerifyError> {
     budget.charge(1)?;
     match source {
         SchemeType::Parameter(_) => {
             let iteration = iteration_contract(store, source, scheme_scope, budget)?;
-            if let crate::sema::schemes::IterationFailure::Propagates(error) = &iteration.failure {
-                body_propagated_error_matches_owner(store, error, boundary, budget)?;
-            }
-            Ok((iteration.item, None))
+            let propagated = match &iteration.failure {
+                crate::sema::schemes::IterationFailure::Propagates(error) => {
+                    body_propagated_error_matches_owner(store, Some(scheme_scope), error, boundary, budget)?;
+                    budget.charge_scheme_clone(error)?;
+                    Some(error.clone())
+                }
+                crate::sema::schemes::IterationFailure::Infallible => None,
+            };
+            Ok((iteration.item, None, propagated))
         }
         SchemeType::Result(ok, error) => {
-            body_propagated_error_matches_owner(store, error, boundary, budget)?;
-            direct_iteration_item(ok, super::producers::StreamProducer::ResultSuccess(instruction), budget)
+            body_propagated_error_matches_owner(store, Some(scheme_scope), error, boundary, budget)?;
+            budget.charge_scheme_clone(error)?;
+            let (item, stream) = direct_iteration_item(ok, super::producers::StreamProducer::ResultSuccess(instruction), budget)?;
+            Ok((item, stream, Some((**error).clone())))
         }
         SchemeType::Ground(Type::Result(ok, error)) => {
             budget.charge_clone(error)?;
-            body_propagated_error_matches_owner(store, &SchemeType::Ground((**error).clone()), boundary, budget)?;
+            let propagated = SchemeType::Ground((**error).clone());
+            body_propagated_error_matches_owner(store, Some(scheme_scope), &propagated, boundary, budget)?;
+            budget.charge_clone(error)?;
             budget.charge_clone(ok)?;
-            direct_iteration_item(&SchemeType::Ground((**ok).clone()), super::producers::StreamProducer::ResultSuccess(instruction), budget)
+            let (item, stream) = direct_iteration_item(&SchemeType::Ground((**ok).clone()), super::producers::StreamProducer::ResultSuccess(instruction), budget)?;
+            Ok((item, stream, Some(propagated)))
         }
         SchemeType::Validated(_, source) => iteration_item(store, scheme_scope, source, instruction, boundary, budget),
-        _ => direct_iteration_item(source, super::producers::StreamProducer::Value(instruction), budget),
+        _ => {
+            let (item, stream) = direct_iteration_item(source, super::producers::StreamProducer::Value(instruction), budget)?;
+            Ok((item, stream, None))
+        }
     }
 }
 
@@ -393,6 +541,8 @@ fn comprehension_scope(
     scope: &LexicalScope, scopes: &mut LexicalScopes, slot_count: usize,
     writers: &mut BTreeMap<usize, SchemeType>,
     pending: &mut Vec<Obligation>, stream_iterations: &mut Vec<(super::producers::StreamProducer, PropagationBoundary)>,
+    completion_group: Option<u32>,
+    completion_contributions: &mut Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(LexicalScope, Option<Validation>), IrVerifyError> {
     let count = qualifiers.len();
@@ -407,7 +557,12 @@ fn comprehension_scope(
                 let instruction = iter.raw() as usize;
                 let source = expression_type(types, instruction, budget)?;
                 if count == 1 { mapped_validation = BodyTypeRef::Scheme(&source).validation().filter(|validation| validation.survives_mapping()); }
-                let (item, stream_source) = iteration_item(store, scheme_scope, &source, instruction, propagation_boundary(&current, scopes), budget)?;
+                let (item, stream_source, propagated_error) = iteration_item(store, scheme_scope, &source, instruction, propagation_boundary(&current, scopes), budget)?;
+                if completion_group.is_some() && current.error_boundary.is_none()
+                    && let Some(error) = propagated_error
+                {
+                    push_completion_contribution(completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                }
                 if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push((source, propagation_boundary(&current, scopes).clone())); }
                 pending.push(Obligation::Expression(instruction, current));
                 let bindings = target_bindings(target, &item, budget)?;
@@ -524,6 +679,7 @@ pub(super) struct BodyProof {
     pub(super) streams: Vec<(super::producers::StreamProducer, PropagationBoundary)>,
     pub(super) captures: Vec<producers::CaptureErrorRequest>,
     pub(super) applications: BTreeSet<usize>,
+    pub(super) completion_contributions: Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
 }
 
 fn with_error_types(decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<BTreeMap<usize, SchemeType>, IrVerifyError> {
@@ -572,15 +728,16 @@ pub(super) fn verify_body(
     operation_sites: &BTreeMap<usize, u32>,
     method_sites: &BTreeMap<usize, u32>,
     wrapper_sites: &BTreeMap<usize, u32>,
+    completion_sources: &mut BTreeMap<usize, super::super::schemes::FullSchemeBodyCompletionSource>,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
-    slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, statements: Vec<usize>,
+    slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, completion_group: Option<u32>, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<BodyProof, IrVerifyError> {
     let mut with_errors = None;
     let slot_count = decoder.slot_count as usize;
     for binding in slots.values() { budget.charge_scheme_clone(&binding.ty)?; }
     let mut writers = slots.iter().map(|(&slot, binding)| (slot, binding.ty.clone())).collect::<BTreeMap<_, _>>();
-    let function_boundary = PropagationBoundary::for_scheme_function(store, decoder.owner, expected_return, scheme_scope, budget)?;
+    let function_boundary = PropagationBoundary::for_scheme_function(store, decoder.owner, expected_return, scheme_scope, completion_group, budget)?;
     let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, binding)| (slot, LocalBinding { ty: binding.ty, mutable: binding.mutable, initializer: None })).collect() }], error_boundaries: Vec::new(), function_boundary };
     let scope = LexicalScope { frame: 0, loop_depth: 0, error_boundary: None };
     let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic body has no function owner"))?;
@@ -609,6 +766,7 @@ pub(super) fn verify_body(
     let mut captures = Vec::new();
     let mut applications = BTreeSet::new();
     let mut application_returns = BTreeSet::new();
+    let mut completion_contributions = Vec::new();
     let mut expression_scopes = BTreeMap::new();
     let mut return_origins = BTreeMap::new();
     while let Some(obligation) = pending.pop() {
@@ -732,7 +890,7 @@ pub(super) fn verify_body(
                     schema::ExprView::ListComp { value, qualifiers, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
-                        let (inner, mapped_validation) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
+                        let (inner, mapped_validation) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, completion_group, &mut completion_contributions, budget)?;
                         if let Some(validation) = BodyTypeRef::Scheme(&claimed).validation()
                             && Some(validation) != mapped_validation
                         { return Err(IrVerifyError::new("generic comprehension cannot establish its claimed validation")); }
@@ -747,7 +905,7 @@ pub(super) fn verify_body(
                         let domain = expected_key.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic map comprehension key domain is unresolved"))?;
                         if !domain.is_map_key() { return Err(IrVerifyError::new("generic map comprehension key domain is invalid")); }
                         let item = item.materialize(budget)?;
-                        let (inner, _) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
+                        let (inner, _) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, completion_group, &mut completion_contributions, budget)?;
                         if !body_type_matches(&expression_type(types, key.raw() as usize, budget)?, &expected_key, budget)? { return Err(IrVerifyError::new("generic comprehension key disagrees with its map domain")); }
                         if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &item, budget)? { return Err(IrVerifyError::new("generic comprehension value disagrees with its item domain")); }
                         pending.push(Obligation::Expression(value.raw() as usize, inner));
@@ -785,7 +943,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), completion_group, &mut completion_contributions, budget, constant_budget)?;
                         if let PropagationBoundary::CaptureRelationship { instruction: capture, request, .. } = propagation_boundary(&scope, &scopes)
                             && let Some(transfer) = wrappers::actual_transfer(store, scheme_scope, wrapper_sites.get(&instruction).copied(), decoder.expression_view(instruction)?, types, budget)?
                         {
@@ -898,10 +1056,30 @@ pub(super) fn verify_body(
                             expressions.push(argument.raw() as usize);
                         }
                     }
+                    schema::StmtView::Assert { value, message, .. } => {
+                        condition(types, value.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
+                        expressions.push(value.raw() as usize);
+                        if let Some(message) = message {
+                            if !body_type_matches(&expression_type(types, message.raw() as usize, budget)?, &SchemeType::Ground(Type::Str), budget)? {
+                                return Err(IrVerifyError::new("generic assertion message is not Str"));
+                            }
+                            expressions.push(message.raw() as usize);
+                        }
+                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                            let error = SchemeType::Ground(Type::ErrorFamily(Type::assertion_error_family()));
+                            push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                        }
+                    }
                     schema::StmtView::Cd { target, body, .. } => {
                         let actual = expression_type(types, target.raw() as usize, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic cd target has no checked path contract"))?;
                         if !matches!(actual.unvalidated(), Type::Path | Type::Str) { return Err(IrVerifyError::new("generic cd target is not a path")); }
                         expressions.push(target.raw() as usize);
+                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                            let result = SchemeType::Ground(Type::core_command_result(crate::syntax::node::CoreCommand::Cd));
+                            if let Some(error) = completion_result_error(&result, budget)? {
+                                push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                            }
+                        }
                         let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
                         budget.charge(statements.len())?;
                         nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
@@ -919,15 +1097,30 @@ pub(super) fn verify_body(
                         budget.charge(statements.len())?;
                         nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
                     }
-                    schema::StmtView::Run { value, .. } => {
+                    schema::StmtView::Run { value, propagate_result } => {
                         let process = match decoder.expression_view(value.raw() as usize)? {
                             schema::ExprView::Try { value, .. } => decoder.expression_view(value.raw() as usize)?,
                             process => process,
                         };
-                        if !matches!(process, schema::ExprView::RunCapture(_) | schema::ExprView::RunPipeline { .. }) { return Err(IrVerifyError::new("generic run statement has no process producer")); }
+                        let process_failure_is_recorded = match process {
+                            schema::ExprView::RunCapture(run) => run.assert_success || run.propagate,
+                            schema::ExprView::RunPipeline { propagate, .. } => propagate,
+                            _ => return Err(IrVerifyError::new("generic run statement has no process producer")),
+                        };
+                        if propagate_result && !process_failure_is_recorded && completion_group.is_some() && scope.error_boundary.is_none() {
+                            let actual = expression_type(types, value.raw() as usize, budget)?;
+                            let error = completion_result_error(&actual, budget)?.unwrap_or_else(|| SchemeType::Ground(Type::ProcessError));
+                            push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                        }
                         expressions.push(value.raw() as usize);
                     }
                     schema::StmtView::Expr { value, .. } => {
+                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                            let actual = expression_type(types, value.raw() as usize, budget)?;
+                            if let Some(error) = completion_result_error(&actual, budget)? {
+                                push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                            }
+                        }
                         if constructors.contains_key(&(value.raw() as usize)) { super::constructors::discard(decoder, value.raw() as usize, constructors, &mut visited, budget, |instruction, budget| {
                             let ty = expression_type(types, instruction, budget)?;
                             expressions.push(instruction);
@@ -1037,6 +1230,12 @@ pub(super) fn verify_body(
                         if !store.function_metadata.get(owner.index()).is_some_and(|metadata| matches!(metadata.callable_kind, crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)) {
                             return Err(IrVerifyError::new("generic defer has no cleanup-capable owner"));
                         }
+                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                            let actual = expression_type(types, value.raw() as usize, budget)?;
+                            if let Some(error) = completion_result_error(&actual, budget)? {
+                                push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                            }
+                        }
                         expressions.push(value.raw() as usize);
                     }
                     schema::StmtView::Assert { value, message, .. } => {
@@ -1062,6 +1261,22 @@ pub(super) fn verify_body(
                         }
                         let returned_site = store.scheme_application_returns.binary_search_by_key(&(instruction as u32), |site| site.instruction).ok()
                             .map(|index| store.scheme_application_returns[index]);
+                        let mut original_result_source = None;
+                        if completion_group.is_some() {
+                            if returned_site.is_some() {
+                                if completion_sources.remove(&instruction).is_some() {
+                                    return Err(IrVerifyError::new("application return conflicts with Proc completion source evidence"));
+                                }
+                            } else {
+                                let source = completion_sources.remove(&instruction)
+                                    .ok_or_else(|| IrVerifyError::new("generic Proc return has no authenticated completion source"))?;
+                                let original_result = !matches!(source.form, crate::runtime::eval::SchemeCompletionSourceForm::LiftedValue);
+                                if let Some(source_type) = completion_source_contribution(decoder, types, &scope, &scopes, &expression_scopes, &visited, returned.raw() as usize, source, budget)? {
+                                    push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::ReturnedResult, &source_type, budget)?;
+                                    if original_result { original_result_source = Some(source_type); }
+                                }
+                            }
+                        }
                         if let Some(site) = returned_site {
                             budget.charge(1)?;
                             if site.function.raw() != decoder.owner {
@@ -1077,14 +1292,32 @@ pub(super) fn verify_body(
                             if !body_types_equal(&source, &actual) {
                                 return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope"));
                             }
+                            if completion_group.is_some() {
+                                push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::ApplicationSource, &source, budget)?;
+                            }
                             if !body_types_equal(&output, expected_return) {
                                 return Err(IrVerifyError::new("application return producer has no matching proc envelope"));
                             }
                             if tails.remove(&instruction).is_some_and(|tail| !body_types_equal(&tail, &actual)) { return Err(IrVerifyError::new("application return tail disagrees with its actual producer")); }
                             nested.push(Obligation::ApplicationReturn { instruction, value: returned.raw() as usize, site });
                         } else {
-                            if !actual.matches_body_return(expected_return) { return Err(IrVerifyError::new("generic body return does not match its scheme return")); }
-                            if tails.remove(&instruction).is_some_and(|tail| !tail.matches_body_return(expected_return)) { return Err(IrVerifyError::new("generic tail disagrees with its scheme return")); }
+                            let joined_result_source = if let (Some(group), Some(source)) = (completion_group, original_result_source.as_ref()) {
+                                if !body_types_equal(source, &actual) {
+                                    return Err(IrVerifyError::new("authenticated Proc completion source disagrees with its returned operand"));
+                                }
+                                super::wrappers::completion_accepts_returned_result(store, scheme_scope, group, source, expected_return, budget)?
+                            } else { false };
+                            if !actual.matches_body_return(expected_return) && !joined_result_source {
+                                return Err(IrVerifyError::new("generic body return does not match its scheme return"));
+                            }
+                            if let Some(tail) = tails.remove(&instruction) {
+                                let tail_matches = if joined_result_source {
+                                    body_types_equal(&tail, &actual)
+                                } else {
+                                    tail.matches_body_return(expected_return)
+                                };
+                                if !tail_matches { return Err(IrVerifyError::new("generic tail disagrees with its scheme return")); }
+                            }
                         }
                         expressions.push(returned.raw() as usize);
                     }
@@ -1118,7 +1351,12 @@ pub(super) fn verify_body(
                     }
                     schema::StmtView::ForRecord { target, iter, body, .. } => {
                         let source = expression_type(types, iter.raw() as usize, budget)?;
-                        let (item, stream_source) = iteration_item(store, scheme_scope, &source, iter.raw() as usize, propagation_boundary(&scope, &scopes), budget)?;
+                        let (item, stream_source, propagated_error) = iteration_item(store, scheme_scope, &source, iter.raw() as usize, propagation_boundary(&scope, &scopes), budget)?;
+                        if completion_group.is_some() && scope.error_boundary.is_none()
+                            && let Some(error) = propagated_error
+                        {
+                            push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
+                        }
                         if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push((source, propagation_boundary(&scope, &scopes).clone())); }
                         let bindings = target_bindings(target, &item, budget)?;
                         let mut inner = branch_scope(&scope, &mut scopes, budget)?;
@@ -1180,7 +1418,10 @@ pub(super) fn verify_body(
     if store.scheme_application_returns[first_return..end_return].iter().any(|site| !application_returns.contains(&(site.instruction as usize))) {
         return Err(IrVerifyError::new("scheme application return has no actual body instruction"));
     }
-    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications })
+    if !completion_sources.is_empty() {
+        return Err(IrVerifyError::new("generic Proc completion source is not consumed by its owner return"));
+    }
+    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications, completion_contributions })
 }
 
 #[cfg(test)]
@@ -1192,7 +1433,7 @@ mod tests {
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
 
-    fn prepare(definition: &str) -> FullProgram {
+    fn build_with(definition: &str, before_build: impl FnOnce(&crate::sema::check::CompactDeclOutput)) -> FullProgram {
         let source = format!("{definition}\n");
         let mut sources = SourceMap::default();
         let source_id = sources.add_file("generic-body-proof.xsh", source.clone());
@@ -1200,7 +1441,14 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
         let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
-        let program = FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
+        before_build(&checked);
+        FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}"))
+    }
+
+    fn build(definition: &str) -> FullProgram { build_with(definition, |_| {}) }
+
+    fn prepare(definition: &str) -> FullProgram {
+        let program = build(definition);
         FullVerifier::verify(&program).unwrap();
         program
     }
@@ -1279,6 +1527,307 @@ mod tests {
             let error = FullVerifier::verify(&changed).unwrap_err();
             assert!(error.message.contains("effect"), "{forbidden:?}: {}", error.message);
         }
+    }
+
+    #[test]
+    fn inferred_proc_completion_counts_plain_run_failure_once() {
+        prepare("proc keep(value) [process, error] { run sh -c \"exit 1\"; value }");
+    }
+
+    #[test]
+    fn inferred_proc_completion_counts_guarded_field_run_failure_once() {
+        let program = build_with("proc keep(value) [process, error] { run sh -c \"exit 1\"; value?.name }", |checked| {
+            let groups = checked.scheme_bodies.values().fold(0, |count, body| count + body.scheme().callable().requirements().wrappers.iter()
+                .filter(|requirement| matches!(&requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::ProcCompletion { .. }))
+                .count());
+            assert_eq!(groups, 1);
+        });
+        let (_, scheme) = generic_owner(&program);
+        let wrappers = bounded(program.store.scheme(scheme).unwrap().wrappers, &program.store.scheme_wrappers, "wrappers").unwrap();
+        assert_eq!(wrappers.iter().filter(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::ProcCompletion { .. })).count(), 1);
+        FullVerifier::verify(&program).unwrap();
+    }
+
+    fn remove_scheme_body_fact(program: &mut FullProgram, instruction: usize) {
+        for scheme in &mut program.store.schemes {
+            let start = scheme.body_facts.start as usize;
+            let end = start + scheme.body_facts.len as usize;
+            if start <= instruction && instruction < end {
+                scheme.body_facts.len -= 1;
+            } else if start > instruction {
+                scheme.body_facts.start -= 1;
+            }
+        }
+        program.store.scheme_body_facts.remove(instruction);
+    }
+
+    fn append_scheme_body_fact(program: &mut FullProgram, scheme_id: FullSchemeId, fact: super::super::super::schemes::FullSchemeBodyFact) {
+        let range = program.store.schemes[scheme_id.index()].body_facts;
+        let start = range.start as usize;
+        let facts = &program.store.scheme_body_facts[start..start + range.len as usize];
+        let key = (fact.instruction, fact.kind() as u8);
+        let insertion = start + facts.partition_point(|existing| (existing.instruction, existing.kind() as u8) <= key);
+        program.store.scheme_body_facts.insert(insertion, fact);
+        for (index, scheme) in program.store.schemes.iter_mut().enumerate() {
+            if index == scheme_id.index() {
+                scheme.body_facts.len += 1;
+            } else if scheme.body_facts.start as usize >= insertion {
+                scheme.body_facts.start += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn proc_completion_source_facts_authenticate_original_return_values() {
+        let program = prepare("proc projected(value, marker: Str) [error] { let _ = marker; value?.name }");
+        assert_eq!(std::mem::size_of::<super::super::super::schemes::FullSchemeBodyFact>(), 16);
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let facts = scheme.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let (source_index, source_fact, producer) = facts.clone().find_map(|index| {
+            let fact = program.store.scheme_body_facts[index];
+            fact.value.completion_source().map(|source| (index, fact, source.producer as usize))
+        }).unwrap();
+        assert_eq!(source_fact.function.index(), owner);
+        assert!(matches!(source_fact.value, super::super::super::schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_)));
+        FullVerifier::verify(&program).unwrap();
+
+        let other_producer = facts.clone().find_map(|index| {
+            let fact = program.store.scheme_body_facts[index];
+            matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))
+                .then_some(fact.instruction as usize)
+                .filter(|instruction| *instruction != producer)
+        }).unwrap();
+        let mut retargeted = program.clone();
+        retargeted.store.scheme_body_facts[source_index].value = super::super::super::schemes::FullSchemeBodyFactValue::CompletionLiftedValue(other_producer as u32);
+        assert!(FullVerifier::verify(&retargeted).unwrap_err().message.contains("wrap its recorded source"));
+
+        let wrong_type = facts.clone().find_map(|index| {
+            let fact = program.store.scheme_body_facts[index];
+            match fact.value {
+                super::super::super::schemes::FullSchemeBodyFactValue::Expression(ty) if fact.instruction as usize != producer => Some(ty),
+                _ => None,
+            }
+        }).unwrap();
+        let producer_fact = facts.clone().find(|&index| {
+            let fact = program.store.scheme_body_facts[index];
+            fact.instruction as usize == producer && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))
+        }).unwrap();
+        let super::super::super::schemes::FullSchemeBodyFactValue::Expression(original_type) = program.store.scheme_body_facts[producer_fact].value else { unreachable!() };
+        assert_ne!(wrong_type, original_type);
+        let mut retagged = program.clone();
+        retagged.store.scheme_body_facts[producer_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(wrong_type);
+        assert!(FullVerifier::verify(&retagged).is_err());
+
+        let mut wrong_form = program.clone();
+        wrong_form.store.scheme_body_facts[source_index].value = super::super::super::schemes::FullSchemeBodyFactValue::CompletionReturnedResult(producer as u32);
+        assert!(FullVerifier::verify(&wrong_form).is_err());
+
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.scheme_body_facts[source_index].function = super::super::super::IrFunctionId::from_raw(u32::MAX - 1).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).unwrap_err().message.contains("body fact has invalid ownership"));
+
+        let mut missing = program.clone();
+        remove_scheme_body_fact(&mut missing, source_index);
+        assert!(FullVerifier::verify(&missing).unwrap_err().message.contains("no authenticated completion source"));
+
+        let mut duplicate = program.clone();
+        append_scheme_body_fact(&mut duplicate, scheme_id, source_fact);
+        assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("completion source has invalid or duplicated ownership"));
+    }
+
+    #[test]
+    fn proc_completion_sources_cannot_claim_an_application_return() {
+        let program = prepare("type TextRow = {name: Str}\nproc projected(value) [error] { value?.name }\nproc relay(value) { projected(value) }\nproc relay_explicit(first, second, value, flag: Bool) [error] { let _ = value?.name; if flag { return first(value) }; second(value) }\nproc authored(row, selected: Bool) [error] { let _ = row?.name; if selected { return Ok(\"done\") }; return Err(\"failed\") }\nproc construct(value) { Ok({name: value}) }\nproc selected_forward(value) { projected(construct(value)) }\nproc mixed(value) [error] { let _ = value?.name; projected(value) }\nproc mixed_sources(left, right) [error] { let _ = left?.name; projected(right) }\nproc mixed_reverse(left, right) [error] { let _ = right?.name; projected(left) }\nproc mixed_explicit_result(left, right) [error] { let _ = left?.name; return right }");
+        assert_eq!(std::mem::size_of::<super::super::super::schemes::FullWrapperContribution>(), 8);
+        let owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "relay_explicit").map(|(owner, _)| owner).unwrap();
+        let sites = program.store.scheme_application_returns.iter().filter(|site| site.function.index() == owner).copied().collect::<Vec<_>>();
+        assert_eq!(sites.len(), 2);
+        let site = sites[0];
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let schema::StmtView::Return { value } = decoder.statement_view(site.instruction as usize).unwrap() else { panic!("application site owns a return") };
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { unreachable!() };
+        let fact = super::super::super::schemes::FullSchemeBodyFact {
+            instruction: site.instruction,
+            function: super::super::super::IrFunctionId::new(owner).unwrap(),
+            value: super::super::super::schemes::FullSchemeBodyFactValue::CompletionReturnedResult(value.raw()),
+        };
+        let mut conflict = program.clone();
+        append_scheme_body_fact(&mut conflict, scheme_id, fact);
+        assert!(FullVerifier::verify(&conflict).unwrap_err().message.contains("Proc completion source"));
+
+        let mixed_owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "mixed").map(|(owner, _)| owner).unwrap();
+        let FullCallableContract::Scheme(mixed_scheme_id) = program.store.functions[mixed_owner].contract else { unreachable!() };
+        let mixed_scheme = program.store.scheme(mixed_scheme_id).unwrap();
+        let mixed_wrappers = bounded(mixed_scheme.wrappers, &program.store.scheme_wrappers, "mixed wrapper range is invalid").unwrap();
+        let completion_ordinals = mixed_wrappers.iter().enumerate().filter_map(|(ordinal, wrapper)| matches!(wrapper, super::super::super::schemes::FullWrapper::ProcCompletion { .. }).then_some(ordinal as u32)).collect::<Vec<_>>();
+        assert_eq!(completion_ordinals.len(), 2);
+        let local_group = program.store.scheme_body_facts.iter().filter(|fact| fact.function.index() == mixed_owner).find_map(|fact| {
+            let super::super::super::schemes::FullSchemeBodyFactValue::Wrapper(ordinal) = fact.value else { return None; };
+            match mixed_wrappers.get(ordinal as usize)? {
+                super::super::super::schemes::FullWrapper::Field { detail, .. } => match program.store.wrapper_fields.get(*detail as usize)?.boundary {
+                    super::super::super::schemes::FullWrapperBoundary::ProcCompletion { group, .. } => Some(group),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }).unwrap();
+        let projected_owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "projected").map(|(owner, _)| owner).unwrap();
+        let FullCallableContract::Scheme(projected_scheme_id) = program.store.functions[projected_owner].contract else { unreachable!() };
+        let projected_wrappers = bounded(program.store.scheme(projected_scheme_id).unwrap().wrappers, &program.store.scheme_wrappers, "projected wrapper range is invalid").unwrap();
+        let projected_group = projected_wrappers.iter().position(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::ProcCompletion { .. })).unwrap();
+        let mixed_range = program.store.function_instruction_range(mixed_owner).unwrap();
+        let instantiation = program.store.call_instantiations.iter().find(|instantiation| mixed_range.contains(&(instantiation.instruction as usize))).unwrap();
+        let forwarded = bounded(instantiation.wrapper_bindings, &program.store.call_wrapper_bindings, "mixed call wrapper binding range is invalid").unwrap();
+        let super::super::super::schemes::FullWrapperBinding::Forwarded(imported_group) = forwarded[projected_group] else { panic!("projected completion group is forwarded") };
+        assert_ne!(local_group, imported_group);
+        assert!(completion_ordinals.contains(&local_group));
+        assert!(completion_ordinals.contains(&imported_group));
+
+        let selected_owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "selected_forward").map(|(owner, _)| owner).unwrap();
+        let projected_owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "projected").map(|(owner, _)| owner).unwrap();
+        let FullCallableContract::Scheme(selected_scheme_id) = program.store.functions[selected_owner].contract else { unreachable!() };
+        let FullCallableContract::Scheme(projected_scheme_id) = program.store.functions[projected_owner].contract else { unreachable!() };
+        let projected_wrappers = bounded(program.store.scheme(projected_scheme_id).unwrap().wrappers, &program.store.scheme_wrappers, "projected wrapper range is invalid").unwrap();
+        let projected_group = projected_wrappers.iter().position(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::ProcCompletion { .. })).unwrap();
+        let projected_field = projected_wrappers.iter().position(|wrapper| match wrapper {
+            super::super::super::schemes::FullWrapper::Field { detail, .. } => matches!(program.store.wrapper_fields.get(*detail as usize).map(|field| field.boundary), Some(super::super::super::schemes::FullWrapperBoundary::ProcCompletion { group, .. }) if group as usize == projected_group),
+            _ => false,
+        }).unwrap();
+        let selected_range = program.store.function_instruction_range(selected_owner).unwrap();
+        let selected_call = program.store.call_instantiations.iter().find(|call| {
+            selected_range.contains(&(call.instruction as usize))
+                && call.wrapper_bindings.len != 0
+                && program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == projected_owner)
+        }).unwrap();
+        let selected_bindings = bounded(selected_call.wrapper_bindings, &program.store.call_wrapper_bindings, "selected_forward call wrapper range is invalid").unwrap();
+        let super::super::super::schemes::FullWrapperBinding::Forwarded(selected_group) = selected_bindings[projected_group] else { panic!("selected retained completion group is forwarded") };
+        let super::super::super::schemes::FullWrapperBinding::Forwarded(selected_field_ordinal) = selected_bindings[projected_field] else { panic!("selected field relationship is forwarded") };
+        let selected_wrappers = bounded(program.store.scheme(selected_scheme_id).unwrap().wrappers, &program.store.scheme_wrappers, "selected_forward wrapper range is invalid").unwrap();
+        let Some(super::super::super::schemes::FullWrapper::Field { detail, .. }) = selected_wrappers.get(selected_field_ordinal as usize) else { panic!("forwarded field ordinal resolves to the selected field wrapper") };
+        let super::super::super::schemes::FullWrapperBoundary::ProcCompletion { group: selected_field_group, .. } = program.store.wrapper_fields[*detail as usize].boundary else { panic!("selected field belongs to a proc completion group") };
+        assert_eq!(selected_field_group, selected_group);
+        assert_ne!(selected_group as usize, projected_group);
+
+        let mut missing_selected_group = program.clone();
+        let group_binding = selected_call.wrapper_bindings.start as usize + projected_group;
+        missing_selected_group.store.call_wrapper_bindings[group_binding] = super::super::super::schemes::FullWrapperBinding::Selected(crate::sema::wrapper_operation::WrapperSelection::ProcCompletion);
+        assert!(FullVerifier::verify(&missing_selected_group).unwrap_err().message.contains("forwarded wrapper"));
+
+        let mut wrong_group = program.clone();
+        let binding = instantiation.wrapper_bindings.start as usize + projected_group;
+        wrong_group.store.call_wrapper_bindings[binding] = super::super::super::schemes::FullWrapperBinding::Forwarded(local_group);
+        assert!(FullVerifier::verify(&wrong_group).unwrap_err().message.contains("forwarded wrapper"));
+
+        let authored_owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "authored").map(|(owner, _)| owner).unwrap();
+        let FullCallableContract::Scheme(_) = program.store.functions[authored_owner].contract else { unreachable!() };
+        let authored_decoder = super::super::decoder_for_function(&program.store, authored_owner).unwrap();
+        let authored_producer = program.store.scheme_body_facts.iter().find_map(|fact| {
+            if fact.function.index() != authored_owner { return None; }
+            match fact.value {
+                super::super::super::schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(producer) => Some(producer as usize),
+                _ => None,
+            }
+        }).unwrap();
+        let schema::ExprView::Param(authored_slot) = authored_decoder.expression_view(authored_producer).unwrap() else { panic!("authored Err source is retained through its ANF binding") };
+        let authored_range = program.store.function_instruction_range(authored_owner).unwrap();
+        let (authored_declaration, authored_initializer) = authored_range.clone().find_map(|instruction| match authored_decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if slot == authored_slot && matches!(authored_decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Err { .. })) => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let authored_local_fact = program.store.scheme_body_facts.iter().position(|fact| {
+            fact.function.index() == authored_owner && fact.instruction as usize == authored_declaration && fact.kind() == FullSchemeBodyFactKind::LocalImmutable
+        }).unwrap();
+        let authored_initializer_fact = program.store.scheme_body_facts.iter().position(|fact| {
+            fact.function.index() == authored_owner && fact.instruction as usize == authored_initializer && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))
+        }).unwrap();
+
+        let mut foreign_slot = program.clone();
+        let payload = foreign_slot.store.data[authored_producer].range().bounds(foreign_slot.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        foreign_slot.store.extra[payload.start] = u32::MAX;
+        assert!(FullVerifier::verify(&foreign_slot).is_err());
+
+        let mut mutable_binding = program.clone();
+        let super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(immutable_type) = mutable_binding.store.scheme_body_facts[authored_local_fact].value else { unreachable!() };
+        mutable_binding.store.scheme_body_facts[authored_local_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::LocalMutable(immutable_type);
+        assert!(FullVerifier::verify(&mutable_binding).unwrap_err().message.contains("mutable storage"));
+
+        let mut non_err_initializer = program.clone();
+        non_err_initializer.store.tags[authored_initializer] = super::super::super::FullTag::ExprOk;
+        assert!(FullVerifier::verify(&non_err_initializer).is_err());
+
+        let producer_type = program.store.scheme_body_facts.iter().find_map(|fact| {
+            (fact.function.index() == authored_owner && fact.instruction as usize == authored_producer).then(|| match fact.value {
+                super::super::super::schemes::FullSchemeBodyFactValue::Expression(ty) => Some(ty),
+                _ => None,
+            }).flatten()
+        }).unwrap();
+        let other_type = program.store.scheme_body_facts.iter().find_map(|fact| {
+            if fact.function.index() != authored_owner || fact.instruction as usize == authored_initializer { return None; }
+            let super::super::super::schemes::FullSchemeBodyFactValue::Expression(ty) = fact.value else { return None; };
+            matches!(authored_decoder.expression_view(fact.instruction as usize), Ok(schema::ExprView::Param(slot)) if slot == 1).then_some(ty)
+        }).unwrap();
+        assert_ne!(other_type, producer_type);
+        let mut wrong_initializer_type = program.clone();
+        wrong_initializer_type.store.scheme_body_facts[authored_initializer_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(other_type);
+        assert!(FullVerifier::verify(&wrong_initializer_type).is_err());
+
+        let local_group_wrapper = mixed_wrappers[local_group as usize];
+        let super::super::super::schemes::FullWrapper::ProcCompletion { detail: local_detail, .. } = local_group_wrapper else { panic!("local completion ordinal owns a completion group") };
+        let local_completion = program.store.wrapper_completions[local_detail as usize];
+        let local_contributions = local_completion.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
+        let application_contribution = local_contributions.clone().find_map(|index| match program.store.wrapper_contributions[index] {
+            super::super::super::schemes::FullWrapperContribution::ApplicationSource(ty) => Some((index, ty)),
+            _ => None,
+        }).unwrap();
+        let field_source_type = local_contributions.clone().find_map(|index| match program.store.wrapper_contributions[index] {
+            super::super::super::schemes::FullWrapperContribution::FieldSource(ty) => Some(ty),
+            _ => None,
+        }).unwrap();
+        assert_ne!(application_contribution.1, field_source_type);
+
+        let mut changed_contribution = program.clone();
+        changed_contribution.store.wrapper_contributions[application_contribution.0] = super::super::super::schemes::FullWrapperContribution::ApplicationSource(field_source_type);
+        assert!(FullVerifier::verify(&changed_contribution).unwrap_err().message.contains("completion contributions differ"));
+
+        let mut missing_application_contribution = program.clone();
+        missing_application_contribution.store.wrapper_contributions[application_contribution.0] = super::super::super::schemes::FullWrapperContribution::PropagatedError(application_contribution.1);
+        assert!(FullVerifier::verify(&missing_application_contribution).is_err());
+
+        let mut extra_contribution = program.clone();
+        let insert_at = local_completion.contributions.start as usize + local_completion.contributions.len as usize;
+        let duplicate = extra_contribution.store.wrapper_contributions[application_contribution.0];
+        extra_contribution.store.wrapper_contributions.insert(insert_at, duplicate);
+        for completion in &mut extra_contribution.store.wrapper_completions {
+            let start = completion.contributions.start as usize;
+            let end = start + completion.contributions.len as usize;
+            if start < insert_at && end == insert_at {
+                completion.contributions.len += 1;
+            } else if start >= insert_at {
+                completion.contributions.start += 1;
+            }
+        }
+        assert!(FullVerifier::verify(&extra_contribution).unwrap_err().message.contains("completion contributions differ"));
+
+        let mixed_decoder = super::super::decoder_for_function(&program.store, mixed_owner).unwrap();
+        let mixed_site = program.store.scheme_application_returns.iter().find(|site| site.function.index() == mixed_owner).copied().unwrap();
+        let schema::StmtView::Return { value: mixed_value } = mixed_decoder.statement_view(mixed_site.instruction as usize).unwrap() else { unreachable!() };
+        let mixed_source_type_fact = program.store.scheme_body_facts.iter().position(|fact| {
+            fact.function.index() == mixed_owner && fact.instruction as usize == mixed_value.raw() as usize && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))
+        }).unwrap();
+        let mut wrong_application_result = program.clone();
+        wrong_application_result.store.scheme_body_facts[mixed_source_type_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(field_source_type);
+        assert!(FullVerifier::verify(&wrong_application_result).is_err());
+
+        let local_field_fact = program.store.scheme_body_facts.iter().position(|fact| {
+            fact.function.index() == mixed_owner
+                && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Wrapper(_))
+                && matches!(mixed_decoder.expression_view(fact.instruction as usize), Ok(schema::ExprView::Field { .. }))
+        }).unwrap();
+        let mut missing_local_site = program.clone();
+        remove_scheme_body_fact(&mut missing_local_site, local_field_fact);
+        assert_eq!(FullVerifier::verify(&missing_local_site).unwrap_err().message, "generic field projection has no required field contract");
     }
 
     fn generic_owner(program: &FullProgram) -> (usize, FullSchemeId) {

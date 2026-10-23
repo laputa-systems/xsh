@@ -3,13 +3,43 @@ use crate::symbol::Name;
 use crate::source::Span;
 use super::effects::EffectContract;
 use std::sync::Arc;
+use std::num::NonZeroU64;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_WRAPPER_GROUP: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct WrapperGroupId(NonZeroU64);
+
+impl WrapperGroupId {
+    pub(crate) fn fresh() -> Self {
+        let id = NEXT_WRAPPER_GROUP.try_update(Ordering::Relaxed, Ordering::Relaxed, |current| current.checked_add(1))
+            .expect("wrapper group identities do not wrap");
+        Self(NonZeroU64::new(id).expect("wrapper group identities are nonzero"))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum WrapperGroupRef { Source(WrapperGroupId), Ordinal(u32) }
+
+pub(crate) fn map_wrapper_groups<T, V, E>(
+    requirement: &mut WrapperRequirement<T, V>,
+    mut map: impl FnMut(WrapperGroupRef) -> Result<WrapperGroupRef, E>,
+) -> Result<(), E> {
+    match &mut requirement.kind {
+        WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group, .. }, .. } => *group = map(*group)?,
+        WrapperRequirementKind::ProcCompletion { group, .. } => *group = map(*group)?,
+        _ => {}
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum WrapperBoundary<T> {
     Captured,
     Return(T),
     ErrorReturn(T),
-    ProcCompletion(T),
+    ProcCompletion { returned: T, group: WrapperGroupRef },
     Producer,
     TopLevel,
 }
@@ -18,16 +48,28 @@ pub(crate) enum WrapperBoundary<T> {
 pub(crate) enum WrapperErrorContribution<T> { Explicit(T), Source(T) }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum WrapperCompletionContribution<T> {
+    PropagatedError(T),
+    ReturnedResult(T),
+    FieldSource(T),
+    ApplicationSource(T),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum WrapperRequirementKind<T, V> {
     Field { source: T, name: Name, result: T, boundary: WrapperBoundary<T>, effects: EffectContract<V> },
     Fallback { source: T, fallback: T, result: T },
     Handler { source: T, error: T, handler: T, result: T },
     Capture { contributions: Arc<[WrapperErrorContribution<T>]>, result: T, expected: bool },
+    ProcCompletion { group: WrapperGroupRef, returned: T, contributions: WrapperCompletionContributions<T> },
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum WrapperCompletionContributions<T> { Pending, Ready(Arc<[WrapperCompletionContribution<T>]>) }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(crate) enum WrapperOperationKind { Field, Fallback, Handler, Capture }
+pub(crate) enum WrapperOperationKind { Field, Fallback, Handler, Capture, ProcCompletion }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WrapperRequirement<T, V> {
@@ -42,6 +84,7 @@ impl<T, V> WrapperRequirement<T, V> {
             WrapperRequirementKind::Fallback { .. } => WrapperOperationKind::Fallback,
             WrapperRequirementKind::Handler { .. } => WrapperOperationKind::Handler,
             WrapperRequirementKind::Capture { .. } => WrapperOperationKind::Capture,
+            WrapperRequirementKind::ProcCompletion { .. } => WrapperOperationKind::ProcCompletion,
         }
     }
 
@@ -53,12 +96,25 @@ impl<T, V> WrapperRequirement<T, V> {
         match &self.kind {
             WrapperRequirementKind::Field { source, result, boundary, .. } => {
                 let mut types = vec![source, result];
-                if let WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty) | WrapperBoundary::ProcCompletion(ty) = boundary { types.push(ty); }
+                if let WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty) = boundary { types.push(ty); }
+                if let WrapperBoundary::ProcCompletion { returned, .. } = boundary { types.push(returned); }
                 types
             }
             WrapperRequirementKind::Fallback { source, fallback, result } => vec![source, fallback, result],
             WrapperRequirementKind::Handler { source, error, handler, result } => vec![source, error, handler, result],
             WrapperRequirementKind::Capture { contributions, result, .. } => contributions.iter().map(|term| match term { WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => ty }).chain(std::iter::once(result)).collect(),
+            WrapperRequirementKind::ProcCompletion { returned, contributions, .. } => {
+                let mut types = vec![returned];
+                if let WrapperCompletionContributions::Ready(terms) = contributions {
+                    types.extend(terms.iter().map(|term| match term {
+                        WrapperCompletionContribution::PropagatedError(ty)
+                        | WrapperCompletionContribution::ReturnedResult(ty)
+                        | WrapperCompletionContribution::FieldSource(ty)
+                        | WrapperCompletionContribution::ApplicationSource(ty) => ty,
+                    }));
+                }
+                types
+            }
         }
     }
 
@@ -72,7 +128,7 @@ impl<T, V> WrapperRequirement<T, V> {
                     WrapperBoundary::Captured => WrapperBoundary::Captured,
                     WrapperBoundary::Return(value) => WrapperBoundary::Return(ty(context, value)?),
                     WrapperBoundary::ErrorReturn(value) => WrapperBoundary::ErrorReturn(ty(context, value)?),
-                    WrapperBoundary::ProcCompletion(value) => WrapperBoundary::ProcCompletion(ty(context, value)?),
+                    WrapperBoundary::ProcCompletion { returned, group } => WrapperBoundary::ProcCompletion { returned: ty(context, returned)?, group: *group },
                     WrapperBoundary::Producer => WrapperBoundary::Producer,
                     WrapperBoundary::TopLevel => WrapperBoundary::TopLevel,
                 };
@@ -87,6 +143,21 @@ impl<T, V> WrapperRequirement<T, V> {
                 })).collect::<Result<Vec<_>, E>>()?;
                 WrapperRequirementKind::Capture { contributions: contributions.into(), result: ty(context, result)?, expected: *expected }
             }
+            WrapperRequirementKind::ProcCompletion { group, returned, contributions } => {
+                let contributions = match contributions {
+                    WrapperCompletionContributions::Pending => WrapperCompletionContributions::Pending,
+                    WrapperCompletionContributions::Ready(contributions) => {
+                        let contributions = contributions.iter().map(|term| Ok(match term {
+                            WrapperCompletionContribution::PropagatedError(value) => WrapperCompletionContribution::PropagatedError(ty(context, value)?),
+                            WrapperCompletionContribution::ReturnedResult(value) => WrapperCompletionContribution::ReturnedResult(ty(context, value)?),
+                            WrapperCompletionContribution::FieldSource(value) => WrapperCompletionContribution::FieldSource(ty(context, value)?),
+                            WrapperCompletionContribution::ApplicationSource(value) => WrapperCompletionContribution::ApplicationSource(ty(context, value)?),
+                        })).collect::<Result<Vec<_>, E>>()?;
+                        WrapperCompletionContributions::Ready(contributions.into())
+                    }
+                };
+                WrapperRequirementKind::ProcCompletion { group: *group, returned: ty(context, returned)?, contributions }
+            }
         };
         Ok(WrapperRequirement { kind, span: self.span })
     }
@@ -94,7 +165,7 @@ impl<T, V> WrapperRequirement<T, V> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(crate) enum WrapperSelection { Optional, Result, Capture }
+pub(crate) enum WrapperSelection { Optional, Result, Capture, ProcCompletion }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
@@ -199,7 +270,7 @@ pub(crate) fn closed_wrapper_selection<V: Ord>(requirement: &WrapperRequirement<
                 Some(_) => return Err(WrapperProjectionError::IncompatibleEffects),
                 None => return Ok(None),
             }
-            if matches!(boundary, WrapperBoundary::ProcCompletion(returned) if !matches!(returned, Type::Result(_, error) if **error == Type::Error)) { return Err(WrapperProjectionError::IncompatibleBoundary); }
+            if matches!(boundary, WrapperBoundary::ProcCompletion { returned, .. } if !matches!(returned, Type::Result(..))) { return Err(WrapperProjectionError::IncompatibleBoundary); }
             if let WrapperProjection::Result { error, .. } = &projected {
                 match boundary {
                     WrapperBoundary::Return(Type::Result(_, expected)) | WrapperBoundary::ErrorReturn(Type::Result(_, expected)) => fits(error, expected)?,
@@ -233,6 +304,14 @@ pub(crate) fn closed_wrapper_selection<V: Ord>(requirement: &WrapperRequirement<
             }
             return Ok(Some(WrapperSelection::Capture));
         }
+        WrapperRequirementKind::ProcCompletion { returned, contributions, .. } => {
+            let WrapperCompletionContributions::Ready(contributions) = contributions else { return Ok(None) };
+            let Some(errors) = completion_error_contributions(contributions)? else { return Ok(None); };
+            let Type::Result(_, expected) = returned else { return Err(WrapperProjectionError::IncompatibleBoundary); };
+            let actual = Type::captured_error_type(errors);
+            if actual != expected.as_ref().clone() { return Err(WrapperProjectionError::IncompatibleValue { expected: expected.as_ref().clone(), actual }); }
+            return Ok(Some(WrapperSelection::ProcCompletion));
+        }
     };
     Ok(Some(match mode { WrapperMode::Optional => WrapperSelection::Optional, WrapperMode::Result => WrapperSelection::Result }))
 }
@@ -250,6 +329,42 @@ pub(crate) fn capture_error_contributions(contributions: &[WrapperErrorContribut
                 if let WrapperProjection::Result { error, .. } = source_projection(source)? {
                     if error.contains_inference() { return Ok(None); }
                     errors.push(error.clone());
+                }
+            }
+        }
+    }
+    Ok(Some(errors))
+}
+
+pub(crate) fn completion_error_contributions(contributions: &[WrapperCompletionContribution<Type>]) -> Result<Option<Vec<Type>>, WrapperProjectionError> {
+    let mut errors = Vec::new();
+    for contribution in contributions {
+        match contribution {
+            WrapperCompletionContribution::PropagatedError(error) => {
+                if error.contains_inference() { return Ok(None); }
+                errors.push(error.clone());
+            }
+            WrapperCompletionContribution::ReturnedResult(source) => {
+                if matches!(source, Type::Inference(_)) { return Ok(None); }
+                let WrapperProjection::Result { error, .. } = source_projection(source)? else { return Err(WrapperProjectionError::UnsupportedSource(source.clone())); };
+                if error.contains_inference() { return Ok(None); }
+                errors.push(error.clone());
+            }
+            WrapperCompletionContribution::FieldSource(source) => {
+                if matches!(source, Type::Inference(_)) { return Ok(None); }
+                match source_projection(source)? {
+                    WrapperProjection::Optional(_) => {}
+                    WrapperProjection::Result { error, .. } => {
+                        if error.contains_inference() { return Ok(None); }
+                        errors.push(error.clone());
+                    }
+                }
+            }
+            WrapperCompletionContribution::ApplicationSource(source) => {
+                if source.contains_inference() { return Ok(None); }
+                if let Type::Result(_, error) = source.unvalidated() {
+                    if error.contains_inference() { return Ok(None); }
+                    errors.push((**error).clone());
                 }
             }
         }
@@ -305,5 +420,12 @@ mod tests {
             let projected = guarded_field_projection(&source, Name::intern("message"), field).unwrap();
             assert_eq!(projected, WrapperProjection::Result { value: Type::Str, error: Type::Str });
         });
+    }
+
+    #[test]
+    fn application_completion_source_contributes_only_its_original_result_error() {
+        let result = Type::Result(Box::new(Type::Int), Box::new(Type::Str));
+        assert_eq!(completion_error_contributions(&[WrapperCompletionContribution::ApplicationSource(result)]), Ok(Some(vec![Type::Str])));
+        assert_eq!(completion_error_contributions(&[WrapperCompletionContribution::ApplicationSource(Type::Int)]), Ok(Some(Vec::new())));
     }
 }

@@ -629,6 +629,12 @@ type substitution to select wrapping or preservation. The executor does not
 inspect the returned payload to select an envelope, and formal values keep their
 ordinary data wrapping.
 
+An inferred Proc completion group retains each returned callable application's
+raw result type. A `Result` source contributes its error type to the owner join.
+The cold body verifier ties that source to the application's result row at the
+owning return. The deferred application envelope receives the owner join and
+supplies the Proc return directly, so lowering does not wrap it again.
+
 Proc completion normalizes a non-Error outer failure only when the checked
 return contract requires `Error`. Ground functions derive this from their
 checked return and signature. Scheme functions retain a defaulted-Proc flag

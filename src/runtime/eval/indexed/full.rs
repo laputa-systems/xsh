@@ -769,6 +769,7 @@ struct FullStore {
     call_wrapper_bindings: Vec<schemes::FullWrapperBinding>,
     wrapper_contributions: Vec<schemes::FullWrapperContribution>,
     wrapper_captures: Vec<schemes::FullWrapperCapture>,
+    wrapper_completions: Vec<schemes::FullWrapperCompletion>,
     wrapper_handlers: Vec<schemes::FullWrapperHandler>,
     wrapper_fields: Vec<schemes::FullWrapperField>,
     scheme_wrappers: Vec<schemes::FullWrapper>,
@@ -881,6 +882,7 @@ impl Default for FullStore {
             call_wrapper_bindings: Vec::new(),
             wrapper_contributions: Vec::new(),
             wrapper_captures: Vec::new(),
+            wrapper_completions: Vec::new(),
             wrapper_handlers: Vec::new(),
             wrapper_fields: Vec::new(),
             scheme_wrappers: Vec::new(),
@@ -1136,6 +1138,7 @@ impl FullStore {
             + self.call_wrapper_bindings.capacity() * size_of::<schemes::FullWrapperBinding>()
             + self.wrapper_contributions.capacity() * size_of::<schemes::FullWrapperContribution>()
             + self.wrapper_captures.capacity() * size_of::<schemes::FullWrapperCapture>()
+            + self.wrapper_completions.capacity() * size_of::<schemes::FullWrapperCompletion>()
             + self.wrapper_handlers.capacity() * size_of::<schemes::FullWrapperHandler>()
             + self.wrapper_fields.capacity() * size_of::<schemes::FullWrapperField>()
             + self.scheme_wrappers.capacity() * size_of::<schemes::FullWrapper>()
@@ -1266,6 +1269,7 @@ impl FullStore {
         self.call_wrapper_bindings.shrink_to_fit();
         self.wrapper_contributions.shrink_to_fit();
         self.wrapper_captures.shrink_to_fit();
+        self.wrapper_completions.shrink_to_fit();
         self.wrapper_handlers.shrink_to_fit();
         self.wrapper_fields.shrink_to_fit();
         self.scheme_wrappers.shrink_to_fit();
@@ -1627,6 +1631,7 @@ impl FullProgram {
         let source = match &wrapper {
             schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
             schemes::FullWrapper::Capture { .. } => return Err(IrVerifyError::new("capture relationship has no source mode")),
+            schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no source mode")),
         };
         Ok(Some(match self.invocation_type_constructor(source, invocation)? {
             PreparedTypeConstructor::Optional => crate::sema::wrapper_operation::WrapperMode::Optional,
@@ -3448,6 +3453,7 @@ struct FullCheckpoint {
     call_wrapper_bindings: usize,
     wrapper_contributions: usize,
     wrapper_captures: usize,
+    wrapper_completions: usize,
     wrapper_handlers: usize,
     wrapper_fields: usize,
     scheme_wrappers: usize,
@@ -3516,6 +3522,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     active_scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
     active_scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
     active_scheme_local_declarations: BTreeMap<BuildStmtId, crate::runtime::eval::SchemeLocalDeclaration>,
+    active_expression_instructions: BTreeMap<usize, u32>,
 }
 
 impl FullBuilder {
@@ -4338,6 +4345,7 @@ impl FullBuilder {
         self.active_scheme_body_types = body.scheme_body_types.clone();
         self.active_scheme_tail_types = body.scheme_tail_types.clone();
         self.active_scheme_local_declarations = body.scheme_local_declarations.clone();
+        self.active_expression_instructions.clear();
         let mut words = self.take_payload();
         let encoded = body.body.encode(self, &mut words);
         self.active_scratch = None;
@@ -4345,6 +4353,7 @@ impl FullBuilder {
         self.active_scheme_body_types.clear();
         self.active_scheme_tail_types.clear();
         self.active_scheme_local_declarations.clear();
+        self.active_expression_instructions.clear();
         if let Err(error) = encoded {
             self.recycle_payload(words);
             return Err(error);
@@ -5264,6 +5273,7 @@ impl FullBuilder {
             call_wrapper_bindings: self.store.call_wrapper_bindings.len(),
             wrapper_contributions: self.store.wrapper_contributions.len(),
             wrapper_captures: self.store.wrapper_captures.len(),
+            wrapper_completions: self.store.wrapper_completions.len(),
             wrapper_handlers: self.store.wrapper_handlers.len(),
             wrapper_fields: self.store.wrapper_fields.len(),
             scheme_wrappers: self.store.scheme_wrappers.len(),
@@ -5376,6 +5386,7 @@ impl FullBuilder {
         self.store.call_wrapper_bindings.truncate(checkpoint.call_wrapper_bindings);
         self.store.wrapper_contributions.truncate(checkpoint.wrapper_contributions);
         self.store.wrapper_captures.truncate(checkpoint.wrapper_captures);
+        self.store.wrapper_completions.truncate(checkpoint.wrapper_completions);
         self.store.wrapper_handlers.truncate(checkpoint.wrapper_handlers);
         self.store.wrapper_fields.truncate(checkpoint.wrapper_fields);
         self.store.scheme_wrappers.truncate(checkpoint.scheme_wrappers);
@@ -20873,6 +20884,9 @@ macro_rules! impl_build_id_codec {
                 let application_return = if $resource_transfer {
                     scratch.scheme_application_returns.get(&self.index()).copied()
                 } else { None };
+                let completion_source = if $resource_transfer {
+                    scratch.scheme_completion_sources.get(&self.index()).copied()
+                } else { None };
                 let call_instantiation = if $checked_expr_type {
                     scratch.call_instantiations.get(self.index()).cloned().flatten()
                 } else {
@@ -20912,6 +20926,7 @@ macro_rules! impl_build_id_codec {
                 let needs_instruction = checked_expr_type.is_some()
                     || transfers_resource
                     || application_return.is_some()
+                    || completion_source.is_some()
                     || method.is_some()
                     || scheme_callable_call.is_some()
                     || checked_call_target.is_some()
@@ -20932,6 +20947,11 @@ macro_rules! impl_build_id_codec {
                 )?;
                 if let Some(instruction) = instruction {
                     builder.attach_value_materialization(instruction)?;
+                    if $checked_expr_type && builder.active_scheme.is_some() {
+                        let instruction = u32::try_from(instruction)
+                            .map_err(|_| IrBuildError::format("completion_source_producer", None, 0, instruction))?;
+                        builder.active_expression_instructions.insert(self.index(), instruction);
+                    }
                 }
                 if let Some(plan) = registered_call {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("registered_call_instruction", None, 0, self.index()))?;
@@ -21066,6 +21086,31 @@ macro_rules! impl_build_id_codec {
                     builder.store.scheme_application_returns.push(schemes::FullSchemeApplicationReturn {
                         instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("scheme_return_instruction", None, 0, instruction))?,
                         function, application: site.application, envelope: site.envelope,
+                    });
+                }
+                if let Some(source) = completion_source {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("completion_source_instruction", None, 0, self.index()))?;
+                    let producer = builder.active_expression_instructions.get(&source.producer.index()).copied()
+                        .ok_or_else(|| IrBuildError::format("completion_source_producer", None, 0, source.producer.index()))?;
+                    if builder.active_scheme.is_none()
+                        || builder.store.tags[instruction] != FullTag::StmtReturn
+                        || !builder.active_scheme_body_types.contains_key(&source.producer)
+                        || application_return.is_some()
+                    {
+                        return Err(IrBuildError::format("completion_source_owner", None, 0, instruction));
+                    }
+                    let value = match source.form {
+                        crate::runtime::eval::SchemeCompletionSourceForm::LiftedValue => schemes::FullSchemeBodyFactValue::CompletionLiftedValue(producer),
+                        crate::runtime::eval::SchemeCompletionSourceForm::ReturnedResult => schemes::FullSchemeBodyFactValue::CompletionReturnedResult(producer),
+                        crate::runtime::eval::SchemeCompletionSourceForm::AuthoredOk => schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(producer),
+                        crate::runtime::eval::SchemeCompletionSourceForm::AuthoredErr => schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(producer),
+                    };
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw)
+                        .ok_or_else(|| IrBuildError::format("completion_source_owner", None, 0, instruction))?;
+                    builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact {
+                        instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("completion_source_instruction", None, 0, instruction))?,
+                        function,
+                        value,
                     });
                 }
                 match (call_instantiation, checked_call_result) {
@@ -27087,7 +27132,9 @@ assert genuine_tail_runs == 0
             match &mut fact.value {
                 schemes::FullSchemeBodyFactValue::Expression(ty) | schemes::FullSchemeBodyFactValue::Tail(ty)
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
-                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_) => {},
+                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_)
+                | schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_) | schemes::FullSchemeBodyFactValue::CompletionReturnedResult(_)
+                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) => {},
             }
         }
         for node in &mut program.store.scheme_types {
@@ -43496,12 +43543,17 @@ assert order == "DD"
 type TextRow = {name: Str}
 proc grounded(value: Result[TextRow, Str]) { value?.name }
 proc projected(value) { value?.name }
+proc defaulted(value: TextRow) { value.name }
 let success: Result[TextRow, Str] = Ok({name: "demo"})
 let failure: Result[TextRow, Str] = Err("kept")
-assert grounded(success) == Ok("demo")
-assert projected(success) == Ok("demo")
-assert match grounded(failure) { Err(error) => error.message == "kept", else => false }
-assert match projected(failure) { Err(error) => error.message == "kept", else => false }
+let expected_success: Result[Str, Str] = Ok("demo")
+let plain: TextRow = {name: "plain"}
+let expected_plain: Result[Str] = Ok("plain")
+assert grounded(success) == expected_success
+assert projected(success) == expected_success
+assert defaulted(plain) == expected_plain
+assert match grounded(failure) { Err(error) => error == "kept", else => false }
+assert match projected(failure) { Err(error) => error == "kept", else => false }
 "#));
             FullVerifier::verify(&program).unwrap();
             for force_frames in [false, true] {
@@ -43509,6 +43561,146 @@ assert match projected(failure) { Err(error) => error.message == "kept", else =>
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn proc_completion_sources_preserve_plain_result_data_and_authored_results() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("proc-completion-sources.xsh", r#"
+type TextRow = {name: Str}
+proc projected(value) { value?.name }
+proc retained(row, value) { let _ = row?.name; value }
+proc returned_source(row, value: Result[Str, Str]) { let _ = row?.name; value }
+proc returned(row, selected: Bool) { let _ = row?.name; if selected { Ok("done") } else { Err("failed") } }
+proc authored(row, selected: Bool) { let _ = row?.name; if selected { return Ok("done") }; return Err("failed") }
+let success: Result[TextRow, Str] = Ok({name: "demo"})
+let failure: Result[TextRow, Str] = Err("kept")
+let nested: Result[Result[TextRow, Str], Str] = Ok(Err("opaque"))
+let source_return: Result[Str, Str] = Err("source")
+let projected_success: Result[Str, Str] = Ok("demo")
+let projected_failure: Result[Str, Str] = Err("kept")
+assert projected(success) == projected_success
+assert projected(failure) == projected_failure
+assert retained(success, Err("opaque")) == nested
+assert returned_source(success, source_return) == source_return
+assert match returned(success, true) { Ok(value) => value == "done"; Err(_) => false }
+assert match returned(success, false) { Err(error) => error.message == "failed"; Ok(_) => false }
+assert match authored(success, true) { Ok(value) => value == "done"; Err(_) => false }
+assert match authored(success, false) { Err(error) => error.message == "failed"; Ok(_) => false }
+"#));
+            FullVerifier::verify(&program).unwrap();
+            assert!(program.store.scheme_body_facts.iter().any(|fact| matches!(fact.value, schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_))));
+            assert!(program.store.scheme_body_facts.iter().any(|fact| matches!(fact.value, schemes::FullSchemeBodyFactValue::CompletionReturnedResult(_))));
+            assert!(program.store.scheme_body_facts.iter().any(|fact| matches!(fact.value, schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_))));
+            assert!(program.store.scheme_body_facts.iter().any(|fact| matches!(fact.value, schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_))));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn proc_completion_joins_original_result_errors_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("proc-completion-result-joins.xsh", r#"
+type TextRow = {name: Str}
+type IntRow = {name: Int}
+proc projected(value) { value?.name }
+proc construct(value) { Ok({name: value}) }
+proc selected_forward(value) { projected(construct(value)) }
+proc mixed(value) [error] { let _ = value?.name; projected(value) }
+proc mixed_sources(left, right) [error] { let _ = left?.name; projected(right) }
+proc mixed_reverse(left, right) [error] { let _ = right?.name; projected(left) }
+proc mixed_explicit(left, right) [error] { let _ = left?.name; return projected(right) }
+proc mixed_explicit_result(left, right) [error] { let _ = left?.name; return right }
+proc mixed_tail_result(left, right: Result[IntRow, Int]) [error] { let _ = left?.name; right }
+proc mixed_explicit_result_source(left, right: Result[IntRow, Int]) [error] { let _ = left?.name; return right }
+proc wider(value) [error, fs] { projected(value) }
+proc captured(value) [] { try { projected(value)? } }
+let text_success: Result[TextRow, Str] = Ok({name: "text"})
+let text_failure: Result[TextRow, Str] = Err("text failure")
+let other_text_failure: Result[TextRow, Str] = Err("other text failure")
+let int_success: Result[IntRow, Int] = Ok({name: 9})
+let int_failure: Result[IntRow, Int] = Err(7)
+let same_source: Result[Str, Str] = mixed(text_failure)
+let same_source_expected: Result[Str, Str] = Err("text failure")
+let same_error_join: Result[Str, Str] = mixed_sources(text_success, other_text_failure)
+let same_error_expected: Result[Str, Str] = Err("other text failure")
+let left_failure = mixed_sources(text_failure, int_success)
+let different_errors = mixed_sources(text_success, int_failure)
+let reversed_errors = mixed_reverse(int_failure, text_success)
+let explicit_call_errors = mixed_explicit(text_success, int_failure)
+let explicit_result_data: Result[Result[IntRow, Int], Str] = mixed_explicit_result(text_success, int_failure)
+let tail_result_errors = mixed_tail_result(text_success, int_failure)
+let explicit_result_errors = mixed_explicit_result_source(text_success, int_failure)
+let different_success: Result[Int, Error] = mixed_sources(text_success, int_success)
+let expected_success: Result[Int, Error] = Ok(9)
+let wider_success: Result[Str, Str] = wider(text_success)
+let wider_failure: Result[Str, Str] = wider(text_failure)
+let expected_wider_success: Result[Str, Str] = Ok("text")
+let expected_wider_failure: Result[Str, Str] = Err("text failure")
+let captured_success = captured(text_success)
+let captured_failure = captured(text_failure)
+let selected_int: Result[Int, Error] = selected_forward(11)
+let expected_int: Result[Int, Error] = Ok(11)
+let selected_text: Result[Str, Error] = selected_forward("selected")
+let expected_text: Result[Str, Error] = Ok("selected")
+assert same_source == same_source_expected
+assert same_error_join == same_error_expected
+assert match left_failure { Err(error) => error.message == "text failure"; Ok(_) => false }
+assert match different_errors { Err(error) => error.message == "7"; Ok(_) => false }
+assert match reversed_errors { Err(error) => error.message == "7"; Ok(_) => false }
+assert match explicit_call_errors { Err(error) => error.message == "7"; Ok(_) => false }
+assert match explicit_result_data { Ok(Err(error)) => error == 7; _ => false }
+assert match tail_result_errors { Err(error) => error.message == "7"; Ok(_) => false }
+assert match explicit_result_errors { Err(error) => error.message == "7"; Ok(_) => false }
+assert different_success == expected_success
+assert wider_success == expected_wider_success
+assert wider_failure == expected_wider_failure
+assert match captured_success { Ok(value) => value == "text"; Err(_) => false }
+assert match captured_failure { Err(_) => true; Ok(_) => false }
+assert selected_int == expected_int
+assert selected_text == expected_text
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let projected_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "projected").unwrap();
+            let FullCallableContract::Scheme(projected_scheme_id) = program.store.functions[projected_owner].contract else { panic!("projected has a generic scheme") };
+            let projected_scheme = program.store.scheme(projected_scheme_id).unwrap();
+            let mut wrappers = projected_scheme.wrappers.bounds(program.store.scheme_wrappers.len()).unwrap();
+            let field_effects = wrappers.find_map(|wrapper| match program.store.scheme_wrappers[wrapper] {
+                schemes::FullWrapper::Field { detail, .. } => Some(program.store.wrapper_fields[detail as usize].effects),
+                _ => None,
+            }).unwrap();
+            let predicates = projected_scheme.effect_predicates.bounds(program.store.scheme_effect_predicates.len()).unwrap();
+            let mut forged_effect = program.as_ref().clone();
+            let mut replaced = false;
+            for predicate in predicates {
+                let schemes::FullEffectPredicate::Covered(subject, permission) = program.store.scheme_effect_predicates[predicate] else { continue; };
+                if subject != field_effects { continue; }
+                let direct = permission.direct.bounds(program.store.scheme_effects.len()).unwrap();
+                let terms = permission.terms.bounds(program.store.scheme_effect_terms.len()).unwrap();
+                if direct.len() == 1 && terms.is_empty() && program.store.scheme_effects[direct.start] == Effect::Error {
+                    forged_effect.store.scheme_effects[direct.start] = Effect::Fs;
+                    replaced = true;
+                    break;
+                }
+            }
+            assert!(replaced, "projected retains its finite guarded-field error ceiling");
+            assert!(FullVerifier::verify(&forged_effect).is_err(), "a forged filesystem ceiling cannot authorize a guarded Result projection");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
             }
         });
     }

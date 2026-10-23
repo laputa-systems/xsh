@@ -4008,13 +4008,25 @@ impl Checker {
                 self.boundary.error_boundary_errors.last_mut().expect("wrapper capture owns error sources").push((crate::sema::wrapper_operation::WrapperErrorContribution::Source(base_ty.clone()), span));
                 WrapperBoundary::Captured
             } else {
-                match &self.boundary.current_return {
+                match self.boundary.current_return.clone() {
                     Some(super::ReturnContext::Function(ty)) => {
-                        let returned = if *ty == Type::Unknown { self.fresh_wrapper_type(span) } else { ty.clone() };
-                        if self.boundary.effect_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
-                            .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
-                        { WrapperBoundary::ProcCompletion(returned) }
-                        else if self.propagation_effect_is_permitted() { WrapperBoundary::ErrorReturn(returned) } else { WrapperBoundary::Return(returned) }
+                        let inferred_proc_owner = self.boundary.effect_owner.filter(|owner| {
+                            self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner))
+                                .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
+                        });
+                        if let Some(owner) = inferred_proc_owner {
+                            let (group, returned) = match self.type_constraints.ensure_proc_completion_group(owner, owner.body, self.wrapper_solver_level()) {
+                                Ok(group) => group,
+                                Err(error) => {
+                                    self.error(span, &format!("proc completion wrapper failed: {error}"), DiagnosticCode::CheckLocalInference);
+                                    return Type::Unknown;
+                                }
+                            };
+                            WrapperBoundary::ProcCompletion { returned, group: crate::sema::wrapper_operation::WrapperGroupRef::Source(group) }
+                        } else {
+                            let returned = if ty == Type::Unknown { self.fresh_wrapper_type(span) } else { ty };
+                            if self.propagation_effect_is_permitted() { WrapperBoundary::ErrorReturn(returned) } else { WrapperBoundary::Return(returned) }
+                        }
                     },
                     Some(super::ReturnContext::Producer) => WrapperBoundary::Producer,
                     None => WrapperBoundary::TopLevel,

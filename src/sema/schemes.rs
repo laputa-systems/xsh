@@ -506,6 +506,7 @@ impl CallableScheme {
             for ty in wrapper.types() { ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?; }
             if let super::wrapper_operation::WrapperRequirementKind::Field { effects, .. } = &wrapper.kind { validate_effect_contract(effects, &effect_ids, &mut used_effects)?; }
         }
+        validate_wrapper_group_contracts(&requirements.wrappers)?;
         for operation in &requirements.operations {
             for ty in operation.types() {
                 ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
@@ -636,6 +637,34 @@ fn validate_effect_contract(
     Ok(())
 }
 
+fn validate_wrapper_group_contracts(
+    wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
+) -> Result<(), SchemeBuildError> {
+    use super::wrapper_operation::{WrapperBoundary, WrapperCompletionContributions, WrapperGroupRef, WrapperRequirementKind};
+    let mut found_field = false;
+    for (index, wrapper) in wrappers.iter().enumerate() {
+        match &wrapper.kind {
+            WrapperRequirementKind::ProcCompletion { group: WrapperGroupRef::Ordinal(group), returned, contributions } => {
+                if found_field || *group as usize != index || !matches!(returned, SchemeType::Result(..)) || matches!(contributions, WrapperCompletionContributions::Pending) {
+                    return Err(SchemeBuildError::UnresolvedWrapper);
+                }
+            }
+            WrapperRequirementKind::ProcCompletion { .. } => return Err(SchemeBuildError::UnresolvedWrapper),
+            WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { returned, group: WrapperGroupRef::Ordinal(group) }, .. } => {
+                found_field = true;
+                let Some(owner_return) = wrappers.get(*group as usize).and_then(|owner| match &owner.kind {
+                    WrapperRequirementKind::ProcCompletion { group: WrapperGroupRef::Ordinal(owner), returned, contributions: WrapperCompletionContributions::Ready(_) } if owner == group => Some(returned),
+                    _ => None,
+                }) else { return Err(SchemeBuildError::UnresolvedWrapper); };
+                if owner_return != returned { return Err(SchemeBuildError::UnresolvedWrapper); }
+            }
+            WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { .. }, .. } => return Err(SchemeBuildError::UnresolvedWrapper),
+            _ => found_field = true,
+        }
+    }
+    Ok(())
+}
+
 impl CallableRequirements {
     fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
@@ -667,6 +696,7 @@ impl CallableRequirements {
             match &wrapper.kind {
                 super::wrapper_operation::WrapperRequirementKind::Field { effects, .. } => bytes = bytes.saturating_add(effects.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())),
                 super::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } => bytes = bytes.saturating_add(contributions.len() * size_of::<super::wrapper_operation::WrapperErrorContribution<SchemeType>>()),
+                super::wrapper_operation::WrapperRequirementKind::ProcCompletion { contributions: super::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } => bytes = bytes.saturating_add(contributions.len() * size_of::<super::wrapper_operation::WrapperCompletionContribution<SchemeType>>()),
                 _ => {}
             }
         }
@@ -1140,6 +1170,40 @@ impl SchemeBodyFacts {
         Ok(self)
     }
     pub(crate) fn wrapper_site(&self, expression: ExprId) -> Option<u32> { self.wrapper_sites.get(&expression).copied() }
+    pub(crate) fn has_proc_completion_source(&self) -> bool {
+        self.wrapper_sites.values().any(|ordinal| self.scheme.callable().requirements().wrappers.get(*ordinal as usize).is_some_and(|requirement| {
+            matches!(&requirement.kind, super::wrapper_operation::WrapperRequirementKind::Field { boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion { .. }, .. })
+        }))
+    }
+
+    pub(crate) fn proc_completion_accepts_returned_result(&self, source: &SchemeType) -> bool {
+        if self.scheme.kind() != crate::sema::types::CallableKind::Proc || self.scheme.explicit_return() {
+            return false;
+        }
+        let wrappers = &self.scheme.callable().requirements().wrappers;
+        self.wrapper_sites.values().any(|ordinal| {
+            let Some(requirement) = wrappers.get(*ordinal as usize) else { return false; };
+            let super::wrapper_operation::WrapperRequirementKind::Field {
+                boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
+                    returned: field_return,
+                    group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
+                },
+                ..
+            } = &requirement.kind else { return false; };
+            let Some(group_requirement) = wrappers.get(*group as usize) else { return false; };
+            let super::wrapper_operation::WrapperRequirementKind::ProcCompletion {
+                group: super::wrapper_operation::WrapperGroupRef::Ordinal(actual_group),
+                returned,
+                contributions: super::wrapper_operation::WrapperCompletionContributions::Ready(contributions),
+            } = &group_requirement.kind else { return false; };
+            *actual_group == *group
+                && returned == self.scheme.return_type()
+                && field_return == returned
+                && contributions.iter().any(|contribution| {
+                    matches!(contribution, super::wrapper_operation::WrapperCompletionContribution::ReturnedResult(actual) if actual == source)
+                })
+        })
+    }
 
 
     pub(crate) fn with_method_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {

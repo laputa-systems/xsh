@@ -1,7 +1,7 @@
 use super::{Binding, CallableApplicationScope, ConstraintChange, ConstraintConflict, ConstraintResolutionError, EffectConstraintError, EffectVariableId, RowTail, SchemeOperationError, TypeConstraints, Variable, MAX_TYPE_DEPTH};
 use crate::sema::effects::{EffectContract, EffectPredicate, EffectSet};
 use crate::sema::types::Type;
-use crate::sema::wrapper_operation::{WrapperBinding, WrapperBoundary, WrapperProjection, WrapperRequirement, WrapperRequirementKind, WrapperSelection, FallbackKind, fallback_projection, guarded_field_projection};
+use crate::sema::wrapper_operation::{map_wrapper_groups, WrapperBinding, WrapperBoundary, WrapperCompletionContribution, WrapperCompletionContributions, WrapperGroupId, WrapperGroupRef, WrapperProjection, WrapperRequirement, WrapperRequirementKind, WrapperSelection, FallbackKind, fallback_projection, guarded_field_projection};
 #[cfg(test)]
 use crate::sema::wrapper_operation::WrapperErrorContribution;
 use crate::source::Span;
@@ -59,6 +59,7 @@ pub(super) struct WrapperOperations {
 #[derive(Clone, Debug)]
 pub(super) enum WrapperChange {
     Fresh(WrapperOperationId), Source((CallableApplicationScope, Span)),
+    Requirement(WrapperOperationId, WrapperRequirement<Type, EffectVariableId>),
     Selection(WrapperOperationId, Option<WrapperSelection>), Watcher(WrapperDependency, WrapperOperationId),
     Queued(WrapperOperationId), Dequeued(WrapperOperationId),
 }
@@ -77,6 +78,7 @@ impl WrapperOperations {
             match &entry.requirement.kind {
                 WrapperRequirementKind::Field { effects, .. } => bytes += effects.retained_bytes().saturating_sub(size_of::<EffectContract<EffectVariableId>>()),
                 WrapperRequirementKind::Capture { contributions, .. } => bytes += contributions.len() * size_of::<WrapperErrorContribution<Type>>(),
+                WrapperRequirementKind::ProcCompletion { contributions: WrapperCompletionContributions::Ready(contributions), .. } => bytes += contributions.len() * size_of::<WrapperCompletionContribution<Type>>(),
                 _ => {}
             }
         }
@@ -87,6 +89,7 @@ impl WrapperOperations {
         match change {
             WrapperChange::Fresh(id) => { self.entries.remove(&id).expect("wrapper belongs to its journal"); }
             WrapperChange::Source(site) => { self.sources.remove(&site).expect("wrapper source belongs to its journal"); }
+            WrapperChange::Requirement(id, previous) => self.entries.get_mut(&id).unwrap().requirement = previous,
             WrapperChange::Selection(id, old) => self.entries.get_mut(&id).unwrap().selection = old,
             WrapperChange::Watcher(dependency, id) => {
                 let watchers = self.watchers.get_mut(&dependency).unwrap();
@@ -211,13 +214,141 @@ impl TypeConstraints {
         Some(match &entry.requirement.kind {
             WrapperRequirementKind::Field { result, .. } | WrapperRequirementKind::Fallback { result, .. }
             | WrapperRequirementKind::Handler { result, .. } | WrapperRequirementKind::Capture { result, .. } => result,
+            WrapperRequirementKind::ProcCompletion { returned, .. } => returned,
         })
+    }
+
+    fn local_proc_completion_wrapper_id(&self, owner: CallableApplicationScope) -> Result<Option<WrapperOperationId>, ConstraintResolutionError> {
+        let mut source_group = None;
+        for ((source_owner, _), id) in &self.wrappers.sources {
+            if *source_owner != owner { continue; }
+            let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if let WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } = &entry.requirement.kind {
+                if source_group.replace(*group).is_some_and(|previous| previous != *group) {
+                    return Err(ConstraintResolutionError::ForeignVariable);
+                }
+            }
+        }
+        source_group.map(|group| self.group_wrapper_id(group, owner)).transpose()
+    }
+
+    pub(crate) fn ensure_proc_completion_group(
+        &mut self,
+        owner: crate::sema::check::EffectDeclarationId,
+        span: Span,
+        level: u32,
+    ) -> Result<(WrapperGroupId, Type), WrapperConstraintError> {
+        let scope = CallableApplicationScope::Declaration(owner);
+        if let Some(id) = self.local_proc_completion_wrapper_id(scope)? {
+            return match &self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.requirement.kind {
+                WrapperRequirementKind::ProcCompletion { group: WrapperGroupRef::Source(group), returned, .. } => Ok((*group, returned.clone())),
+                _ => Err(WrapperConstraintError::Invalid { message: "proc completion source changed its wrapper kind".into(), operation: crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion }),
+            };
+        }
+        let group = WrapperGroupId::fresh();
+        let returned = Type::Result(
+            Box::new(self.fresh_at_level(span, level)),
+            Box::new(self.fresh_at_level(span, level)),
+        );
+        self.register_wrapper(scope, WrapperRequirement {
+            kind: WrapperRequirementKind::ProcCompletion {
+                group: WrapperGroupRef::Source(group),
+                returned: returned.clone(),
+                contributions: WrapperCompletionContributions::Pending,
+            },
+            span,
+        })?;
+        Ok((group, returned))
+    }
+
+    pub(crate) fn proc_completion_return(&self, owner: crate::sema::check::EffectDeclarationId) -> Result<Option<Type>, ConstraintResolutionError> {
+        let Some(id) = self.local_proc_completion_wrapper_id(CallableApplicationScope::Declaration(owner))? else { return Ok(None) };
+        match &self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.requirement.kind {
+            WrapperRequirementKind::ProcCompletion { returned, .. } => Ok(Some(returned.clone())),
+            _ => Err(ConstraintResolutionError::ForeignVariable),
+        }
+    }
+
+    pub(crate) fn finish_proc_completion_group(
+        &mut self,
+        owner: crate::sema::check::EffectDeclarationId,
+        propagated: &[(Type, Span)],
+        candidates: &[Type],
+        application_sources: &[crate::sema::constraints::CallableApplicationReference],
+    ) -> Result<bool, WrapperConstraintError> {
+        let owner_scope = CallableApplicationScope::Declaration(owner);
+        let Some(group_entry) = self.local_proc_completion_wrapper_id(owner_scope)? else { return Ok(false) };
+        let group = match &self.wrappers.entries.get(&group_entry).ok_or(ConstraintResolutionError::ForeignVariable)?.requirement.kind {
+            WrapperRequirementKind::ProcCompletion { group: WrapperGroupRef::Source(group), .. } => *group,
+            _ => return Err(WrapperConstraintError::Invalid { message: "proc completion source changed its wrapper kind".into(), operation: crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion }),
+        };
+        let mut contributions = propagated.iter().map(|(error, _)| WrapperCompletionContribution::PropagatedError(error.clone())).collect::<Vec<_>>();
+        let mut field_returns = Vec::new();
+        for candidate in candidates {
+            let candidate = self.resolve(candidate)?;
+            if matches!(candidate, Type::Result(..)) { contributions.push(WrapperCompletionContribution::ReturnedResult(candidate)); }
+        }
+        for reference in application_sources {
+            if reference.scope != owner_scope {
+                return Err(WrapperConstraintError::Invalid { message: "proc completion application source belongs to another declaration".into(), operation: crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion });
+            }
+            contributions.push(WrapperCompletionContribution::ApplicationSource(self.referenced_callable_application_result(*reference)?));
+        }
+        for ((source_owner, _), id) in &self.wrappers.sources {
+            if *source_owner != owner_scope { continue; }
+            let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if let WrapperRequirementKind::Field { source, boundary: WrapperBoundary::ProcCompletion { returned, group: WrapperGroupRef::Source(field_group) }, .. } = &entry.requirement.kind
+                && *field_group == group
+            {
+                contributions.push(WrapperCompletionContribution::FieldSource(source.clone()));
+                field_returns.push((returned.clone(), entry.requirement.span));
+            }
+        }
+        let previous = self.wrappers.entries[&group_entry].requirement.clone();
+        let WrapperRequirementKind::ProcCompletion { group: group_ref, returned, .. } = &previous.kind else { unreachable!() };
+        let group_ref = *group_ref;
+        let group_returned = (*returned).clone();
+        let next = WrapperRequirement {
+            kind: WrapperRequirementKind::ProcCompletion {
+                group: group_ref,
+                returned: (*returned).clone(),
+                contributions: WrapperCompletionContributions::Ready(contributions.into()),
+            },
+            span: previous.span,
+        };
+        let dependencies = self.wrapper_dependencies(&next)?;
+        self.apply_journaled(|this, changes| {
+            for (field_returned, span) in field_returns {
+                this.constrain_wrapper_type(&group_returned, &field_returned, span, changes)?;
+            }
+            this.wrappers.entries.get_mut(&group_entry).unwrap().requirement = next;
+            changes.push(ConstraintChange::Wrapper(WrapperChange::Requirement(group_entry, previous)));
+            for dependency in dependencies { this.wrappers.watch(dependency, group_entry, changes); }
+            this.wrappers.enqueue(group_entry, changes);
+            Ok::<_, WrapperConstraintError>(())
+        })?;
+        self.solve_wrapper_operations()?;
+        Ok(true)
     }
 
     pub(crate) fn register_wrapper(&mut self, owner: CallableApplicationScope, requirement: WrapperRequirement<Type, EffectVariableId>) -> Result<WrapperOperationId, WrapperConstraintError> {
         let dependencies = self.wrapper_dependencies(&requirement)?;
+        let field_effects = match &requirement.kind {
+            WrapperRequirementKind::Field { effects, .. } => Some(effects.clone()),
+            _ => None,
+        };
         let id = WrapperOperationId(NonZeroU64::new(NEXT_WRAPPER.fetch_add(1, Ordering::Relaxed)).expect("wrapper identities are nonzero"));
         self.apply_journaled(|this, changes| {
+            if let Some(effects) = &field_effects {
+                this.constrain_effect_inner(
+                    EffectPredicate::Covered(
+                        effects.clone(),
+                        EffectContract::finite(EffectSet::singleton(crate::syntax::node::Effect::Error)),
+                    ),
+                    changes,
+                )
+                .map_err(WrapperConstraintError::Effects)?;
+            }
             assert!(this.wrappers.entries.insert(id, ScopedWrapper { owner, requirement, selection: None }).is_none());
             changes.push(ConstraintChange::Wrapper(WrapperChange::Fresh(id)));
             for dependency in dependencies { this.wrappers.watch(dependency, id, changes); }
@@ -288,13 +419,17 @@ impl TypeConstraints {
         let boundaries = self.wrappers.sources.iter().filter_map(|((source_owner, _), id)| {
             if *source_owner != CallableApplicationScope::Declaration(owner) { return None; }
             match &self.wrappers.entries[id].requirement.kind {
-                WrapperRequirementKind::Field { boundary: WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty) | WrapperBoundary::ProcCompletion(ty), .. } => Some(ty.clone()),
+                WrapperRequirementKind::Field { boundary: WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty), .. } => Some(ty.clone()),
                 _ => None,
             }
         }).collect::<Vec<_>>();
+        let completion = self.local_proc_completion_wrapper_id(CallableApplicationScope::Declaration(owner))?
+            .and_then(|id| self.wrappers.entries.get(&id))
+            .and_then(|entry| match &entry.requirement.kind { WrapperRequirementKind::ProcCompletion { returned, .. } => Some(returned.clone()), _ => None });
         self.commit_constraint_transaction(|this| {
             this.apply_journaled(|this, changes| {
                 for boundary in boundaries { this.constrain_wrapper_type(&boundary, returned, span, changes)?; }
+                if let Some(completion) = &completion { this.constrain_wrapper_type(completion, returned, span, changes)?; }
                 Ok::<_, WrapperConstraintError>(())
             })?;
             this.solve_wrapper_operations()
@@ -329,10 +464,9 @@ impl TypeConstraints {
                         if matches!(projection.value(), Type::Inference(_)) { continue; }
                         let projected = guarded_field_projection(source, *name, crate::sema::wrapper_operation::wrapper_field_type).map_err(|error| invalid(format!("guarded field projection is invalid: {error:?}")))?;
                         this.constrain_wrapper_projection(result, &projected.guarded_result(), requirement.span, changes)?;
-                        if let WrapperBoundary::ProcCompletion(returned) = boundary {
-                            let returned = this.resolve_with_changes(returned, 0, changes)?;
-                            if matches!(returned, Type::Inference(_)) { continue; }
-                            if !matches!(returned, Type::Result(_, error) if *error == Type::Error) { return Err(invalid("guarded field has no inferred proc completion envelope".into())); }
+                        if let WrapperBoundary::ProcCompletion { returned, .. } = boundary {
+                            let resolved = this.resolve_with_changes(returned, 0, changes)?;
+                            if !matches!(resolved, Type::Result(..)) { return Err(invalid("guarded field has no inferred proc completion envelope".into())); }
                         }
                         if let WrapperProjection::Result { error, .. } = &projected {
                             match boundary {
@@ -384,6 +518,18 @@ impl TypeConstraints {
                         }
                         WrapperSelection::Capture
                     }
+                    WrapperRequirementKind::ProcCompletion { contributions: WrapperCompletionContributions::Pending, .. } => continue,
+                    WrapperRequirementKind::ProcCompletion { returned, contributions: WrapperCompletionContributions::Ready(contributions), .. } => {
+                        let Some(errors) = crate::sema::wrapper_operation::completion_error_contributions(contributions).map_err(|error| invalid(format!("proc completion source is invalid: {error:?}")))? else { continue; };
+                        let Type::Result(_, expected) = returned else { return Err(invalid("proc completion has no Result return".into())); };
+                        let actual = Type::captured_error_type(errors);
+                        if expected.contains_inference() || actual.contains_inference() {
+                            this.constrain_wrapper_type(expected, &actual, requirement.span, changes)?;
+                        } else if actual != expected.as_ref().clone() {
+                            return Err(invalid("proc completion error contributions disagree with its returned envelope".into()));
+                        }
+                        WrapperSelection::ProcCompletion
+                    }
                 };
                 if let Some(canonical) = crate::sema::wrapper_operation::closed_wrapper_selection(&resolved).map_err(|error| invalid(format!("wrapper relationship is invalid: {error:?}")))? {
                     if canonical != selected { return Err(invalid("wrapper selection disagrees with its canonical relationship".into())); }
@@ -397,16 +543,38 @@ impl TypeConstraints {
 
     pub(super) fn generalize_wrapper(&self, id: WrapperOperationId, level: u32, generalization: &mut super::Generalization) -> Result<WrapperRequirement<crate::sema::schemes::SchemeType, crate::sema::schemes::SchemeEffectParameterId>, SchemeOperationError> {
         let requirement = &self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.requirement;
-        requirement.try_map(generalization, |context, ty| self.generalize_type(ty, level, context, 0), |context, contract| self.generalize_effect_contract(contract, level, context))
+        let owner = self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.owner;
+        let mut generalized = requirement.try_map(generalization, |context, ty| self.generalize_type(ty, level, context, 0), |context, contract| self.generalize_effect_contract(contract, level, context))?;
+        map_wrapper_groups(&mut generalized, |group| match group {
+            WrapperGroupRef::Source(group) => {
+                let id = self.group_wrapper_id(group, owner)?;
+                generalization.wrappers.get(&id).copied().map(WrapperGroupRef::Ordinal)
+                    .ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))
+            }
+            WrapperGroupRef::Ordinal(_) => Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)),
+        })?;
+        if matches!(&generalized.kind, WrapperRequirementKind::ProcCompletion { contributions: WrapperCompletionContributions::Pending, .. }) {
+            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper));
+        }
+        Ok(generalized)
     }
 
     pub(super) fn generalize_wrappers(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<WrapperRequirement<crate::sema::schemes::SchemeType, crate::sema::schemes::SchemeEffectParameterId>>, SchemeOperationError> {
-        let mut requirements = Vec::new();
-        for (&id, entry) in &self.wrappers.entries {
-            if entry.selection.is_some() || !matches!(entry.owner, CallableApplicationScope::Declaration(owner) if owners.contains(&owner)) { continue; }
-            generalization.wrappers.insert(id, u32::try_from(requirements.len()).map_err(|_| ConstraintResolutionError::TypeDepth)?);
-            requirements.push(self.generalize_wrapper(id, level, generalization)?);
+        let mut ids = self.wrappers.entries.iter().filter_map(|(&id, entry)| {
+            (!entry.selection.is_some() && matches!(entry.owner, CallableApplicationScope::Declaration(owner) if owners.contains(&owner))).then_some(id)
+        }).collect::<BTreeSet<_>>();
+        let referenced_groups = ids.iter().filter_map(|id| match &self.wrappers.entries[id].requirement.kind {
+            WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } => Some((self.wrappers.entries[id].owner, *group)),
+            _ => None,
+        }).collect::<BTreeSet<_>>();
+        for (owner, group) in referenced_groups { ids.insert(self.group_wrapper_id(group, owner)?); }
+        let mut ids = ids.into_iter().collect::<Vec<_>>();
+        ids.sort_by_key(|id| (!matches!(&self.wrappers.entries[id].requirement.kind, WrapperRequirementKind::ProcCompletion { .. }), *id));
+        for (ordinal, id) in ids.iter().enumerate() {
+            generalization.wrappers.insert(*id, u32::try_from(ordinal).map_err(|_| ConstraintResolutionError::TypeDepth)?);
         }
+        let mut requirements = Vec::with_capacity(ids.len());
+        for id in ids { requirements.push(self.generalize_wrapper(id, level, generalization)?); }
         Ok(requirements)
     }
 
@@ -429,13 +597,26 @@ impl TypeConstraints {
         Ok(scope.wrappers.get(&id).copied())
     }
 
+    fn group_wrapper_id(&self, group: WrapperGroupId, owner: CallableApplicationScope) -> Result<WrapperOperationId, ConstraintResolutionError> {
+        self.wrappers.entries.iter().find_map(|(&id, entry)| {
+            (entry.owner == owner && matches!(&entry.requirement.kind, WrapperRequirementKind::ProcCompletion { group: WrapperGroupRef::Source(actual), .. } if *actual == group)).then_some(id)
+        }).ok_or(ConstraintResolutionError::ForeignVariable)
+    }
+
     pub(super) fn wrapper_bindings(&self, instance: &super::InstantiatedScheme, generalization: &super::Generalization) -> Result<Vec<WrapperBinding>, SchemeOperationError> {
         instance.wrappers.iter().map(|id| {
             let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-            Ok(match entry.selection {
-                Some(selection) => WrapperBinding::Selected(selection),
-                None => WrapperBinding::Forwarded(*generalization.wrappers.get(id).ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))?),
-            })
+            let forwarded = generalization.wrappers.get(id).copied();
+            if matches!(entry.requirement.kind, WrapperRequirementKind::ProcCompletion { .. })
+                && let Some(ordinal) = forwarded
+            {
+                return Ok(WrapperBinding::Forwarded(ordinal));
+            }
+            match entry.selection {
+                Some(selection) => Ok(WrapperBinding::Selected(selection)),
+                None => forwarded.map(WrapperBinding::Forwarded)
+                    .ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)),
+            }
         }).collect()
     }
 

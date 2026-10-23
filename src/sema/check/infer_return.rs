@@ -430,7 +430,7 @@ impl Checker {
             let body = program.arena.span(program.arena.block(def.body).span);
             let ty = if declaration.kind() == Some(CallableKind::Proc) {
                 if proc_may_return_value(program, def) {
-                    Type::Result(Box::new(self.type_constraints.fresh_at_level(body, 1)), Box::new(Type::Error))
+                    Type::Result(Box::new(self.type_constraints.fresh_at_level(body, 1)), Box::new(self.type_constraints.fresh_at_level(body, 1)))
                 } else { self.type_from_arena(program, def.return_ty) }
             } else { self.type_constraints.fresh_at_level(body, 1) };
             self.update_pending_return_type(program, def, ty.clone());
@@ -466,7 +466,12 @@ impl Checker {
             let body = program.arena.span(program.arena.block(def.body).span);
             let original = self.function_return_types[&body].clone();
             if declaration.kind() == Some(CallableKind::Proc) {
-                let actual = self.normalize_inferred_proc_returns(self.effect_declaration_id(program, def.body), candidates, &errors);
+                let owner = self.effect_declaration_id(program, def.body);
+                if !self.finish_proc_completion_group(owner, &candidates, &errors, body) {
+                    self.function_return_types.insert(body, Type::Invalid);
+                    continue;
+                }
+                let actual = self.normalize_inferred_proc_returns(owner, candidates, &errors);
                 self.expect_type(&original, &actual, body);
                 for (left, right, span) in self.return_conflicts.take().unwrap_or_default() {
                     self.error(span, &format!("incompatible recursive proc completions `{left}` and `{right}`"), DiagnosticCode::CheckTypeMismatch);
@@ -616,6 +621,8 @@ impl Checker {
             self.reject_recursive_component(program, &[decl.definition().expect("an inferred procedure retains its declaration")]);
             return;
         }
+        let owner = self.effect_declaration_id(program, def.body);
+        if !self.finish_proc_completion_group(owner, &candidates, &propagated, body_span) { return; }
         if !candidates.iter().any(proc_candidate_produces_value) && conflicts.is_empty()
         {
             let mut ty = self.type_from_arena(program, def.return_ty);
@@ -720,6 +727,24 @@ impl Checker {
         self.proc_return_sites.remove(&owner);
         let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).map(|pending| pending.solver_level());
         let errors = propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>();
+        let completion_error = match self.type_constraints.proc_completion_return(owner) {
+            Ok(Some(returned)) => match self.type_constraints.resolve(&returned) {
+                Ok(Type::Result(_, error)) => Some(*error),
+                Ok(_) => {
+                    self.error(owner.body, "proc completion wrapper has no Result return", DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+                Err(error) => {
+                    self.error(owner.body, &format!("proc completion wrapper type resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            },
+            Ok(None) => None,
+            Err(error) => {
+                self.error(owner.body, &format!("proc completion wrapper lookup failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return Type::Invalid;
+            }
+        };
         let mut inferred = None;
         for candidate in candidates {
             let applications = candidate.origin.return_applications();
@@ -741,8 +766,9 @@ impl Checker {
                         self.error(candidate.span, "proc return application belongs to another declaration", DiagnosticCode::CheckLocalInference);
                         return Type::Invalid;
                     }
+                    let application_errors = completion_error.as_ref().map(std::slice::from_ref).unwrap_or(&errors);
                     match self.type_constraints.referenced_callable_application(reference)
-                        .and_then(|id| self.type_constraints.defer_proc_application_return(id, &errors, candidate.span, level))
+                        .and_then(|id| self.type_constraints.defer_proc_application_return(id, application_errors, candidate.span, level))
                     {
                         Ok(ty) => {
                             if retain_applications {
@@ -756,7 +782,11 @@ impl Checker {
                             return Type::Invalid;
                         }
                     }
-                } else { inferred_proc_return_envelope(candidate_ty.clone(), &errors) };
+                } else if let Some(error) = &completion_error {
+                    Self::proc_completion_envelope(candidate_ty.clone(), error)
+                } else {
+                    inferred_proc_return_envelope(candidate_ty.clone(), &errors)
+                };
                 inferred = Some(match inferred {
                     None => ty,
                     Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span),
@@ -764,6 +794,40 @@ impl Checker {
             }
         }
         inferred.unwrap_or(Type::Invalid)
+    }
+
+    fn finish_proc_completion_group(
+        &mut self,
+        owner: super::EffectDeclarationId,
+        candidates: &[InferredReturn],
+        propagated: &[(Type, Span)],
+        span: Span,
+    ) -> bool {
+        let mut values = Vec::new();
+        let mut applications = Vec::new();
+        for candidate in candidates {
+            let sources = candidate.origin.return_applications();
+            if sources.contains(&None) {
+                values.push(candidate.ty.clone());
+            } else {
+                applications.extend(sources.into_iter().flatten());
+            }
+        }
+        match self.type_constraints.finish_proc_completion_group(owner, propagated, &values, &applications) {
+            Ok(_) => true,
+            Err(error) => {
+                self.error(span, &format!("proc completion wrapper failed: {error}"), DiagnosticCode::CheckLocalInference);
+                false
+            }
+        }
+    }
+
+    fn proc_completion_envelope(value: Type, error: &Type) -> Type {
+        let value = match value {
+            Type::Result(ok, _) => *ok,
+            value => value,
+        };
+        Type::Result(Box::new(value), Box::new(error.clone()))
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {

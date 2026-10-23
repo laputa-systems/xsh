@@ -801,6 +801,7 @@ struct BuildScratch {
     scheme_callable_calls: BTreeMap<usize, crate::sema::types::SchemeCallableId>,
     scheme_application_calls: Vec<Option<u32>>,
     scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
+    scheme_completion_sources: BTreeMap<usize, SchemeCompletionSource>,
     scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
     scheme_operations: BTreeMap<usize, u32>,
     scheme_methods: BTreeMap<usize, u32>,
@@ -818,6 +819,20 @@ struct BuildScratch {
     ints: Vec<BuildIntRow>,
     bools: Vec<BuildBoolRow>,
     top_statements: Vec<BuildTopStmtRow>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SchemeCompletionSourceForm {
+    LiftedValue,
+    ReturnedResult,
+    AuthoredOk,
+    AuthoredErr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SchemeCompletionSource {
+    producer: BuildExprId,
+    form: SchemeCompletionSourceForm,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

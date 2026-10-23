@@ -1042,10 +1042,48 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn generic_guarded_field_effects_fit_wider_and_error_capturing_callers() {
+        let source = concat!(
+            "type TextRow = {name: Str}\n",
+            "proc projected(value) { value?.name }\n",
+            "proc wider(value) [error, fs] { projected(value) }\n",
+            "proc captured(value) [] { try { projected(value)? } }\n",
+            "let text: Result[TextRow, Str] = Ok({name: \"demo\"})\n",
+            "let wider_name: Result[Str, Str] = wider(text)\n",
+            "let captured_name = captured(text)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{errors:?}");
+
+        for ceiling in ["[]", "[fs]"] {
+            let rejected = format!(
+                "type TextRow = {{name: Str}}\nproc projected(value) {{ value?.name }}\nproc rejected(value: Result[TextRow, Str]) {ceiling} {{ projected(value) }}\n",
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &rejected);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &rejected, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{ceiling}: {:?}", checked.diagnostics);
+        }
+
+        let host_effect = "proc blocked() [] { try { run sh -c \"exit 0\"; 1 } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), host_effect);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, host_effect, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
     fn wrapper_fields_preserve_inferred_proc_completion_for_result_sources() {
-        let calls = "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet projected: Result[Str] = project(source)";
+        let calls = "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet projected: Result[Str, Str] = project(source)";
         accepts("type TextRow = {name: Str}\nproc project(value: Result[TextRow, Str]) { value?.name }", calls);
         accepts("type TextRow = {name: Str}\nproc project(value) { value?.name }", calls);
+        accepts(
+            "type TextRow = {name: Str}\nproc defaulted(value: TextRow) { value.name }",
+            "let projected: Result[Str] = defaulted({name: \"demo\"})",
+        );
     }
 
     #[test]

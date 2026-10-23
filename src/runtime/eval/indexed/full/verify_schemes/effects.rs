@@ -275,7 +275,8 @@ pub(super) fn verify_predicates(
             "scheme effect predicate range is invalid")?
         {
             budget.charge(1)?;
-            if decode_predicate(store, caller_scope, *requirement, budget)? == predicate {
+            let owned = decode_predicate(store, caller_scope, *requirement, budget)?;
+            if crate::sema::effects::effect_predicate_implies(&owned, &predicate) {
                 retained = true;
                 break;
             }
@@ -465,7 +466,7 @@ impl<'a> ScopedEffectProof<'a> {
                 for contract in retained.contracts() {
                     if let EffectContract::Known(expression) = contract { budget.charge(expression.variables().count())?; }
                 }
-                if retained == &predicate { return Ok(()); }
+                if crate::sema::effects::effect_predicate_implies(retained, &predicate) { return Ok(()); }
             }
         }
         Err(IrVerifyError::new("executable operation effect requirement remains unresolved"))

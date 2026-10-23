@@ -4,7 +4,7 @@ use super::{
     IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
     checked_argument_type, checked_expression_type_id, decoder_for_driver_step,
     decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
-    merge_list_item_types, expected_list_item,
+    merge_list_item_types, expected_list_item, PropagationBoundary,
 };
 use crate::sema::types::{CallableKind, ConditionRole, ModuleExportType, TypedCallable};
 use std::{cell::{OnceCell, RefCell}, rc::Rc, sync::Arc};
@@ -630,6 +630,12 @@ pub(super) struct GroundArgumentRequest {
     pub(super) expected: Type,
 }
 
+pub(super) struct CompletionContributionsRequest {
+    pub(super) owner: u32,
+    pub(super) group: u32,
+    pub(super) actual: Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<crate::sema::schemes::SchemeType>>,
+}
+
 #[derive(Default)]
 pub(super) struct SchemeProducerRequests {
     pub(super) streams: Vec<StreamIteration>,
@@ -637,10 +643,11 @@ pub(super) struct SchemeProducerRequests {
     pub(super) captures: Vec<CaptureErrorRequest>,
     pub(super) applications: BTreeSet<(u32, usize)>,
     pub(super) methods: BTreeSet<(u32, usize)>,
+    pub(super) completions: Vec<CompletionContributionsRequest>,
 }
 
 impl SchemeProducerRequests {
-    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.methods.is_empty() }
+    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.methods.is_empty() && self.completions.is_empty() }
 }
 
 pub(super) fn process_option_contract(name: &str, actual: Option<&Type>, budget: &mut SchemeInstantiationBudget) -> Result<Arc<Type>, IrVerifyError> {
@@ -1109,6 +1116,21 @@ impl GroundProducerIndex {
         if !selected_demand {
             selected_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
                 || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
+        }
+        if !selected_demand {
+            for function in &store.functions {
+                effect_demand_work += 1;
+                let FullCallableContract::Scheme(scheme_id) = function.contract else { continue };
+                let scheme = store.scheme(scheme_id)?;
+                for wrapper in bounded(scheme.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")? {
+                    effect_demand_work += 1;
+                    if matches!(wrapper, super::super::schemes::FullWrapper::ProcCompletion { .. }) {
+                        selected_demand = true;
+                        break;
+                    }
+                }
+                if selected_demand { break; }
+            }
         }
         if !selected_demand {
             for function in &store.functions {
@@ -1902,7 +1924,15 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         return Ok(Vec::new());
     }
     let mut scheme_methods = requests.methods;
+    let completion_requests = requests.completions;
     let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    let mut completion_contributions = BTreeMap::new();
+    for request in completion_requests {
+        proof.budget.charge(request.actual.len().saturating_add(1))?;
+        if completion_contributions.insert((request.owner, request.group), request.actual).is_some() {
+            return Err(IrVerifyError::new("generic proc completion census is duplicated"));
+        }
+    }
     proof.budget.charge(requests.captures.len())?;
     for request in &requests.captures {
         if !proof.scheme_captures.insert((request.owner, request.instruction)) {
@@ -2083,8 +2113,28 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         proof.budget.charge(1)?;
         let decoder = proof.owner(iteration.owner)?;
         if proof.stream_may_propagate_error(&decoder, iteration.source)? {
-            super::body_propagated_error_matches_owner(store, &crate::sema::schemes::SchemeType::Ground(Type::Error), &iteration.boundary, &mut proof.budget)?;
+            let scope = if matches!(&iteration.boundary, PropagationBoundary::InferredProcError { completion_group: Some(_), .. }) {
+                let function = store.functions.get(function_index(iteration.owner)?).ok_or_else(|| IrVerifyError::new("stream completion owner is out of bounds"))?;
+                let FullCallableContract::Scheme(scheme) = function.contract else { return Err(IrVerifyError::new("stream completion owner has no scheme")); };
+                Some(proof.index.scheme_scopes(store)?.get(scheme)?)
+            } else {
+                None
+            };
+            if let PropagationBoundary::InferredProcError { owner, completion_group: Some(group), .. } = &iteration.boundary {
+                if owner.raw() != iteration.owner { return Err(IrVerifyError::new("stream completion contribution has another owner")); }
+                let actual = completion_contributions.get_mut(&(iteration.owner, *group)).ok_or_else(|| IrVerifyError::new("stream completion contribution has no body census"))?;
+                proof.budget.charge(2)?;
+                actual.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(crate::sema::schemes::SchemeType::Ground(Type::Error)));
+            }
+            super::body_propagated_error_matches_owner(store, scope, &crate::sema::schemes::SchemeType::Ground(Type::Error), &iteration.boundary, &mut proof.budget)?;
         }
+    }
+    for ((owner, group), actual) in completion_contributions {
+        proof.budget.charge(1)?;
+        let function = store.functions.get(function_index(owner)?).ok_or_else(|| IrVerifyError::new("proc completion census owner is invalid"))?;
+        let FullCallableContract::Scheme(scheme) = function.contract else { return Err(IrVerifyError::new("proc completion census has no scheme owner")); };
+        let scope = proof.index.scheme_scopes(store)?.get(scheme)?;
+        super::wrappers::verify_completion_contributions(store, scope, group, &actual, &mut proof.budget)?;
     }
     proof.finish()?;
     let mut seeded_method_roots = Vec::new();
@@ -5106,6 +5156,7 @@ impl<'a> ProducerProof<'a> {
                 let boundary = super::PropagationBoundary::for_function(self.store, decoder.owner, &crate::sema::schemes::SchemeType::Ground((*expected).clone()), &mut self.budget)?;
                 super::body_propagated_error_matches_owner(
                     self.store,
+                    None,
                     &crate::sema::schemes::SchemeType::Ground((*error).clone()),
                     &boundary,
                     &mut self.budget,

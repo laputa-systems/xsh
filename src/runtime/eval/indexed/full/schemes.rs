@@ -78,6 +78,7 @@ pub(super) enum FullSchemeBodyFactKind {
     Operation,
     Method,
     Wrapper,
+    CompletionSource,
     Expression,
     Tail,
     LocalImmutable,
@@ -395,6 +396,7 @@ pub(super) enum FullWrapper {
     Fallback { source: SchemeTypeId, result: SchemeTypeId, backup: SchemeTypeId },
     Handler { source: SchemeTypeId, result: SchemeTypeId, detail: u32 },
     Capture { result: SchemeTypeId, detail: u32 },
+    ProcCompletion { returned: SchemeTypeId, group: u32, detail: u32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -403,7 +405,7 @@ pub(super) enum FullWrapperBoundary {
     Captured,
     Return(SchemeTypeId),
     ErrorReturn(SchemeTypeId),
-    ProcCompletion(SchemeTypeId),
+    ProcCompletion { returned: SchemeTypeId, group: u32 },
     Producer,
     TopLevel,
 }
@@ -432,8 +434,21 @@ pub(super) struct FullWrapperCapture {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullWrapperCompletion {
+    pub(super) contributions: IrRange,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
-pub(super) enum FullWrapperContribution { Explicit(SchemeTypeId), Source(SchemeTypeId) }
+pub(super) enum FullWrapperContribution {
+    Explicit(SchemeTypeId),
+    Source(SchemeTypeId),
+    PropagatedError(SchemeTypeId),
+    ReturnedResult(SchemeTypeId),
+    FieldSource(SchemeTypeId),
+    ApplicationSource(SchemeTypeId),
+}
 
 pub(super) use crate::sema::wrapper_operation::WrapperBinding as FullWrapperBinding;
 
@@ -504,6 +519,10 @@ pub(super) enum FullSchemeBodyFactValue {
     Operation(u32),
     Method(u32),
     Wrapper(u32),
+    CompletionLiftedValue(u32),
+    CompletionReturnedResult(u32),
+    CompletionAuthoredOk(u32),
+    CompletionAuthoredErr(u32),
     Expression(SchemeTypeId),
     Tail(SchemeTypeId),
     LocalImmutable(SchemeTypeId),
@@ -513,12 +532,22 @@ pub(super) enum FullSchemeBodyFactValue {
     RecordProducer,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct FullSchemeBodyCompletionSource {
+    pub(super) producer: u32,
+    pub(super) form: crate::runtime::eval::SchemeCompletionSourceForm,
+}
+
 impl FullSchemeBodyFact {
     pub(super) fn kind(self) -> FullSchemeBodyFactKind {
         match self.value {
             FullSchemeBodyFactValue::Operation(_) => FullSchemeBodyFactKind::Operation,
             FullSchemeBodyFactValue::Method(_) => FullSchemeBodyFactKind::Method,
             FullSchemeBodyFactValue::Wrapper(_) => FullSchemeBodyFactKind::Wrapper,
+            FullSchemeBodyFactValue::CompletionLiftedValue(_)
+            | FullSchemeBodyFactValue::CompletionReturnedResult(_)
+            | FullSchemeBodyFactValue::CompletionAuthoredOk(_)
+            | FullSchemeBodyFactValue::CompletionAuthoredErr(_) => FullSchemeBodyFactKind::CompletionSource,
             FullSchemeBodyFactValue::Expression(_) => FullSchemeBodyFactKind::Expression,
             FullSchemeBodyFactValue::Tail(_) => FullSchemeBodyFactKind::Tail,
             FullSchemeBodyFactValue::LocalImmutable(_) => FullSchemeBodyFactKind::LocalImmutable,
@@ -533,8 +562,25 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
             | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
-            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_) => None,
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer
+            | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_)
+            | FullSchemeBodyFactValue::CompletionLiftedValue(_) | FullSchemeBodyFactValue::CompletionReturnedResult(_)
+            | FullSchemeBodyFactValue::CompletionAuthoredOk(_) | FullSchemeBodyFactValue::CompletionAuthoredErr(_) => None,
         }
+    }
+
+}
+
+impl FullSchemeBodyFactValue {
+    pub(super) fn completion_source(self) -> Option<FullSchemeBodyCompletionSource> {
+        let (producer, form) = match self {
+            Self::CompletionLiftedValue(producer) => (producer, crate::runtime::eval::SchemeCompletionSourceForm::LiftedValue),
+            Self::CompletionReturnedResult(producer) => (producer, crate::runtime::eval::SchemeCompletionSourceForm::ReturnedResult),
+            Self::CompletionAuthoredOk(producer) => (producer, crate::runtime::eval::SchemeCompletionSourceForm::AuthoredOk),
+            Self::CompletionAuthoredErr(producer) => (producer, crate::runtime::eval::SchemeCompletionSourceForm::AuthoredErr),
+            _ => return None,
+        };
+        Some(FullSchemeBodyCompletionSource { producer, form })
     }
 }
 
@@ -814,8 +860,9 @@ impl FullBuilder {
         }
         let methods = super::table_range(methods_start, self.store.scheme_methods.len())?;
         let wrappers_start = self.store.scheme_wrappers.len();
-        for requirement in &scheme.callable().requirements().wrappers {
-            let encoded = self.intern_wrapper(requirement, &type_parameters, &row_parameters, &effect_parameters)?;
+        for (ordinal, requirement) in scheme.callable().requirements().wrappers.iter().enumerate() {
+            let ordinal = u32::try_from(ordinal).map_err(|_| IrBuildError::format("wrapper_group_overflow", None, 0, ordinal))?;
+            let encoded = self.intern_wrapper(requirement, ordinal, &type_parameters, &row_parameters, &effect_parameters)?;
             self.store.scheme_wrappers.push(encoded);
         }
         let wrappers = super::table_range(wrappers_start, self.store.scheme_wrappers.len())?;
@@ -979,7 +1026,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
@@ -1067,9 +1114,10 @@ impl FullBuilder {
     fn intern_wrapper(
         &mut self,
         requirement: &crate::sema::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>,
+        ordinal: u32,
         types: &BTreeMap<SchemeTypeParameterId, u32>, rows: &BTreeMap<SchemeRowParameterId, u32>, effects: &BTreeMap<SchemeEffectParameterId, u32>,
     ) -> Result<FullWrapper, IrBuildError> {
-        use crate::sema::wrapper_operation::{WrapperRequirementKind as K, WrapperBoundary as B, WrapperErrorContribution as C};
+        use crate::sema::wrapper_operation::{WrapperRequirementKind as K, WrapperBoundary as B, WrapperErrorContribution as C, WrapperCompletionContribution as PC, WrapperCompletionContributions as CC, WrapperGroupRef};
         let index = |value| u32::try_from(value).map_err(|_| IrBuildError::format("wrapper_detail_overflow", None, 0, value));
         Ok(match &requirement.kind {
             K::Field { source, result, name, boundary, effects: contract } => {
@@ -1080,7 +1128,8 @@ impl FullBuilder {
                     B::Captured => FullWrapperBoundary::Captured,
                     B::Return(ty) => FullWrapperBoundary::Return(self.intern_scheme_type(ty, types, rows, effects)?),
                     B::ErrorReturn(ty) => FullWrapperBoundary::ErrorReturn(self.intern_scheme_type(ty, types, rows, effects)?),
-                    B::ProcCompletion(ty) => FullWrapperBoundary::ProcCompletion(self.intern_scheme_type(ty, types, rows, effects)?),
+                    B::ProcCompletion { returned, group: WrapperGroupRef::Ordinal(group) } => FullWrapperBoundary::ProcCompletion { returned: self.intern_scheme_type(returned, types, rows, effects)?, group: *group },
+                    B::ProcCompletion { .. } => return Err(IrBuildError::format("wrapper_group_scope", None, 0, ordinal as usize)),
                     B::Producer => FullWrapperBoundary::Producer,
                     B::TopLevel => FullWrapperBoundary::TopLevel,
                 };
@@ -1117,6 +1166,26 @@ impl FullBuilder {
                 self.store.wrapper_captures.push(FullWrapperCapture { contributions, expected: *expected, reserved: [0; 3] });
                 FullWrapper::Capture { result, detail }
             }
+            K::ProcCompletion { group: WrapperGroupRef::Ordinal(group), returned, contributions: CC::Ready(contributions) } => {
+                if *group != ordinal { return Err(IrBuildError::format("wrapper_group_scope", None, 0, ordinal as usize)); }
+                let returned = self.intern_scheme_type(returned, types, rows, effects)?;
+                let mut encoded = Vec::with_capacity(contributions.len());
+                for term in contributions.iter() {
+                    encoded.push(match term {
+                        PC::PropagatedError(ty) => FullWrapperContribution::PropagatedError(self.intern_scheme_type(ty, types, rows, effects)?),
+                        PC::ReturnedResult(ty) => FullWrapperContribution::ReturnedResult(self.intern_scheme_type(ty, types, rows, effects)?),
+                        PC::FieldSource(ty) => FullWrapperContribution::FieldSource(self.intern_scheme_type(ty, types, rows, effects)?),
+                        PC::ApplicationSource(ty) => FullWrapperContribution::ApplicationSource(self.intern_scheme_type(ty, types, rows, effects)?),
+                    });
+                }
+                let start = self.store.wrapper_contributions.len();
+                self.store.wrapper_contributions.extend(encoded);
+                let contributions = super::table_range(start, self.store.wrapper_contributions.len())?;
+                let detail = index(self.store.wrapper_completions.len())?;
+                self.store.wrapper_completions.push(FullWrapperCompletion { contributions });
+                FullWrapper::ProcCompletion { returned, group: *group, detail }
+            }
+            K::ProcCompletion { .. } => return Err(IrBuildError::format("wrapper_group_scope", None, 0, ordinal as usize)),
         })
     }
 

@@ -1316,8 +1316,20 @@ impl TypeConstraints {
             }, None)?);
         }
         let mut wrappers = Vec::new();
+        let mut wrapper_groups = vec![None; callable.requirements().wrappers.len()];
+        for (ordinal, requirement) in callable.requirements().wrappers.iter().enumerate() {
+            if let super::wrapper_operation::WrapperRequirementKind::ProcCompletion { group: super::wrapper_operation::WrapperGroupRef::Ordinal(group), .. } = &requirement.kind {
+                if *group as usize != ordinal { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)); }
+                wrapper_groups[ordinal] = Some(super::wrapper_operation::WrapperGroupId::fresh());
+            }
+        }
         for requirement in &callable.requirements().wrappers {
-            let requirement = requirement.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+            let mut requirement = requirement.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+            super::wrapper_operation::map_wrapper_groups(&mut requirement, |group| match group {
+                super::wrapper_operation::WrapperGroupRef::Ordinal(ordinal) => wrapper_groups.get(ordinal as usize).and_then(|group| *group)
+                    .map(super::wrapper_operation::WrapperGroupRef::Source).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)),
+                super::wrapper_operation::WrapperGroupRef::Source(_) => Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)),
+            })?;
             wrappers.push(self.register_wrapper(scope, requirement).map_err(SchemeOperationError::Wrapper)?);
         }
         for predicate in &callable.requirements().effect_predicates {

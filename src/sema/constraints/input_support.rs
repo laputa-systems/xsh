@@ -59,12 +59,29 @@ impl TypeConstraints {
             }
             for (&id, entry) in &self.wrappers.entries {
                 if wrappers.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
-                use crate::sema::wrapper_operation::{WrapperRequirementKind, WrapperErrorContribution};
+                use crate::sema::wrapper_operation::{WrapperRequirementKind, WrapperErrorContribution, WrapperCompletionContribution, WrapperCompletionContributions};
                 let (inputs, outputs) = match &entry.requirement.kind {
                     WrapperRequirementKind::Field { source, result, .. } => (vec![source.clone()], vec![result.clone()]),
                     WrapperRequirementKind::Fallback { source, fallback, result } => (vec![source.clone()], vec![result.clone(), fallback.clone()]),
                     WrapperRequirementKind::Handler { source, result, error, handler } => (vec![source.clone()], vec![result.clone(), error.clone(), handler.clone()]),
                     WrapperRequirementKind::Capture { contributions, result, .. } => (contributions.iter().map(|term| match term { WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => ty.clone() }).collect(), vec![result.clone()]),
+                    WrapperRequirementKind::ProcCompletion { returned: Type::Result(_, output), contributions: WrapperCompletionContributions::Ready(contributions), .. } => {
+                        let inputs = contributions.iter().filter_map(|term| match term {
+                            WrapperCompletionContribution::PropagatedError(error) => Some(error.clone()),
+                            WrapperCompletionContribution::ReturnedResult(source) | WrapperCompletionContribution::FieldSource(source) => match source {
+                                Type::Result(_, error) => Some((**error).clone()),
+                                Type::Inference(_) => Some(source.clone()),
+                                _ => None,
+                            },
+                            WrapperCompletionContribution::ApplicationSource(source) => match source {
+                                Type::Result(_, error) => Some((**error).clone()),
+                                Type::Inference(_) => Some(source.clone()),
+                                _ => None,
+                            },
+                        }).collect();
+                        (inputs, vec![(**output).clone()])
+                    }
+                    WrapperRequirementKind::ProcCompletion { .. } => (Vec::new(), Vec::new()),
                 };
                 if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
                 wrappers.insert(id);

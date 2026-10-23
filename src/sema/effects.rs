@@ -157,6 +157,26 @@ impl<V: Ord> EffectPredicate<V> {
     }
 }
 
+pub(crate) fn effect_predicate_implies<V: Ord + Eq + Clone>(owned: &EffectPredicate<V>, required: &EffectPredicate<V>) -> bool {
+    if owned == required { return true; }
+    let (EffectPredicate::Covered(owned_left, owned_right), EffectPredicate::Covered(required_left, required_right)) = (owned, required) else {
+        return false;
+    };
+    let (Some(owned_permissions), Some(required_permissions)) = (owned_right.closed(), required_right.closed()) else {
+        return false;
+    };
+    let available = if owned_left == required_left {
+        owned_permissions
+    } else if required_left == &owned_left.clone().capture_error() {
+        owned_permissions.without(EffectSet::singleton(Effect::Error))
+    } else {
+        return false;
+    };
+    available.iter().all(|effect| {
+        required_permissions.iter().any(|permission| effect_covers(&permission, &effect))
+    })
+}
+
 impl<V> EffectPredicate<V> {
     pub(crate) fn try_map_contracts<W, E>(
         &self,
@@ -405,6 +425,43 @@ mod tests {
         assert_eq!(EffectPredicate::Covered(variable.clone().masked(fs), Contract::finite(io)).satisfaction(), Some(true));
         assert_eq!(EffectPredicate::Included(variable.masked(fs), Contract::finite(io)).satisfaction(), None);
         assert_eq!(EffectPredicate::Covered(Contract::Unknown, Contract::finite(EffectSet::default())).satisfaction(), Some(false));
+    }
+
+    #[test]
+    fn effect_coverage_implication_requires_the_same_subject_and_finite_permissions() {
+        let subject = Contract::variable(7);
+        let error = Contract::finite(EffectSet::singleton(Effect::Error));
+        let error_and_fs = Contract::finite(EffectSet::new([Effect::Error, Effect::Fs]));
+        let fs = Contract::finite(EffectSet::singleton(Effect::Fs));
+        let owned = EffectPredicate::Covered(subject.clone(), error.clone());
+        assert!(effect_predicate_implies(&owned, &owned));
+        assert!(effect_predicate_implies(&owned, &EffectPredicate::Covered(subject.clone(), error_and_fs)));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(subject.clone(), fs)));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(Contract::variable(8), error.clone())));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(subject.clone(), Contract::variable(9))));
+
+        let capture = subject.clone().capture_error();
+        let empty = Contract::finite(EffectSet::default());
+        assert!(effect_predicate_implies(&owned, &EffectPredicate::Covered(capture.clone(), empty.clone())));
+        let error_and_process = EffectPredicate::Covered(
+            subject.clone(),
+            Contract::finite(EffectSet::new([Effect::Error, Effect::Process])),
+        );
+        assert!(!effect_predicate_implies(&error_and_process, &EffectPredicate::Covered(capture.clone(), empty.clone())));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(subject.clone(), empty)));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(Contract::variable(8).capture_error(), Contract::finite(EffectSet::default()))));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(subject.clone().masked(EffectSet::singleton(Effect::Fs)), Contract::finite(EffectSet::default()))));
+
+        let io = EffectPredicate::Covered(subject.clone(), Contract::finite(EffectSet::singleton(Effect::Io)));
+        let io_permissions = EffectPredicate::Covered(
+            subject.clone(),
+            Contract::finite(EffectSet::new([Effect::Fs, Effect::Net, Effect::Process, Effect::Env])),
+        );
+        assert!(!effect_predicate_implies(&io, &io_permissions));
+        assert!(effect_predicate_implies(&io_permissions, &io));
+        assert!(!effect_predicate_implies(&io, &EffectPredicate::Covered(subject.clone(), Contract::finite(EffectSet::singleton(Effect::Error)))));
+        assert!(!effect_predicate_implies(&owned, &EffectPredicate::Covered(subject, Contract::finite(EffectSet::singleton(Effect::Io)))));
+
     }
 
     #[test]

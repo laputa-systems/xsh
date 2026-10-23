@@ -1629,7 +1629,11 @@ impl Checker {
         let Some(owner) = self.boundary.effect_owner else { return false; };
         let Some(declaration) = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)) else { return false; };
         let (Some(scope), Some(callable)) = (declaration.generalized_scope(), declaration.generalized()) else { return false; };
-        self.type_constraints.resolve_generalized_effect(contract, scope).is_ok_and(|contract| callable.requirements().effect_predicates.contains(&predicate(contract)))
+        self.type_constraints.resolve_generalized_effect(contract, scope).is_ok_and(|contract| {
+            let required = predicate(contract);
+            callable.requirements().effect_predicates.iter()
+                .any(|owned| crate::sema::effects::effect_predicate_implies(owned, &required))
+        })
     }
 
     fn validate_callable_effects(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {

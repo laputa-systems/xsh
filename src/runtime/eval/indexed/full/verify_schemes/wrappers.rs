@@ -1,7 +1,7 @@
 use super::*;
 use super::applications::ApplicationSubstitution;
 use super::super::schemes::{FullWrapper, FullWrapperBoundary, FullWrapperContribution, FullWrapperBinding};
-use crate::sema::wrapper_operation::{WrapperRequirement, WrapperRequirementKind as K, WrapperBoundary as B, WrapperErrorContribution as C, WrapperSelection};
+use crate::sema::wrapper_operation::{WrapperRequirement, WrapperRequirementKind as K, WrapperBoundary as B, WrapperCompletionContribution as PC, WrapperErrorContribution as C, WrapperSelection};
 
 pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrapper, substitution: &ApplicationSubstitution<'_>, budget: &mut SchemeInstantiationBudget) -> Result<WrapperRequirement<SchemeType, SchemeEffectParameterId>, IrVerifyError> {
     budget.charge(1)?;
@@ -12,7 +12,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                 FullWrapperBoundary::Captured => B::Captured,
                 FullWrapperBoundary::Return(ty) => B::Return(substitution.ty(store, scope, ty, budget)?),
                 FullWrapperBoundary::ErrorReturn(ty) => B::ErrorReturn(substitution.ty(store, scope, ty, budget)?),
-                FullWrapperBoundary::ProcCompletion(ty) => B::ProcCompletion(substitution.ty(store, scope, ty, budget)?),
+                FullWrapperBoundary::ProcCompletion { returned, group } => B::ProcCompletion { returned: substitution.ty(store, scope, returned, budget)?, group: crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(group) },
                 FullWrapperBoundary::Producer => B::Producer,
                 FullWrapperBoundary::TopLevel => B::TopLevel,
             };
@@ -32,9 +32,25 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                 contributions.push(match contribution {
                     FullWrapperContribution::Explicit(ty) => C::Explicit(substitution.ty(store, scope, *ty, budget)?),
                     FullWrapperContribution::Source(ty) => C::Source(substitution.ty(store, scope, *ty, budget)?),
+                    FullWrapperContribution::PropagatedError(_) | FullWrapperContribution::ReturnedResult(_) | FullWrapperContribution::FieldSource(_) | FullWrapperContribution::ApplicationSource(_) => return Err(IrVerifyError::new("proc completion contribution appears in a capture")),
                 });
             }
             K::Capture { result: substitution.ty(store, scope, result, budget)?, contributions: contributions.into(), expected: capture.expected }
+        }
+        FullWrapper::ProcCompletion { returned, group, detail } => {
+            let completion = store.wrapper_completions.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper completion detail is out of bounds"))?;
+            let mut contributions = Vec::new();
+            for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
+                budget.charge(1)?;
+                contributions.push(match contribution {
+                    FullWrapperContribution::PropagatedError(ty) => PC::PropagatedError(substitution.ty(store, scope, *ty, budget)?),
+                    FullWrapperContribution::ReturnedResult(ty) => PC::ReturnedResult(substitution.ty(store, scope, *ty, budget)?),
+                    FullWrapperContribution::FieldSource(ty) => PC::FieldSource(substitution.ty(store, scope, *ty, budget)?),
+                    FullWrapperContribution::ApplicationSource(ty) => PC::ApplicationSource(substitution.ty(store, scope, *ty, budget)?),
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                });
+            }
+            K::ProcCompletion { group: crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(group), returned: substitution.ty(store, scope, returned, budget)?, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions.into()) }
         }
     };
     Ok(WrapperRequirement { kind, span: crate::source::Span::at(store.source_id, 0) })
@@ -57,9 +73,202 @@ pub(super) fn verify_ground(store: &FullStore, scope: &SchemeScope, substitution
     Ok(())
 }
 
+fn completion_requirement(store: &FullStore, scope: &SchemeScope, ordinal: u32, budget: &mut SchemeInstantiationBudget) -> Result<WrapperRequirement<SchemeType, SchemeEffectParameterId>, IrVerifyError> {
+    let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("proc completion group ordinal is out of scope"))?;
+    let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
+    if !matches!(requirement.kind, K::ProcCompletion { group: crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(actual), .. } if actual == ordinal) {
+        return Err(IrVerifyError::new("proc completion group ordinal is invalid"));
+    }
+    Ok(requirement)
+}
+
+pub(super) fn completion_accepts_propagation(store: &FullStore, scope: &SchemeScope, ordinal: u32, error: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let requirement = completion_requirement(store, scope, ordinal, budget)?;
+    let K::ProcCompletion { returned, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = requirement.kind else {
+        return Err(IrVerifyError::new("proc propagation has an unresolved completion group"));
+    };
+    let SchemeType::Result(_, expected) = returned else { return Err(IrVerifyError::new("proc completion group has no Result return")); };
+    if !contributions.iter().any(|contribution| matches!(contribution, PC::PropagatedError(actual) if body_types_equal(actual, error))) {
+        return Err(IrVerifyError::new("proc propagation source is absent from its completion group"));
+    }
+    if !body_type_matches(error, &expected, budget)? { return Err(IrVerifyError::new("proc propagation source disagrees with its completion error")); }
+    Ok(())
+}
+
+pub(super) fn completion_accepts_returned_result(
+    store: &FullStore, scope: &SchemeScope, ordinal: u32, source: &SchemeType,
+    expected_return: &SchemeType, budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    let requirement = completion_requirement(store, scope, ordinal, budget)?;
+    let K::ProcCompletion {
+        returned,
+        contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions),
+        ..
+    } = requirement.kind else { return Err(IrVerifyError::new("proc completion group is unresolved")); };
+    if returned != *expected_return { return Ok(false); }
+    let Some(actual_ok) = super::body::completion_result_success(source, budget)? else { return Ok(false); };
+    let Some(expected_ok) = super::body::completion_result_success(expected_return, budget)? else { return Ok(false); };
+    if !actual_ok.matches_body_return(&expected_ok) { return Ok(false); }
+    for contribution in contributions.iter() {
+        budget.charge(1)?;
+        if matches!(contribution, PC::ReturnedResult(actual) if actual == source) { return Ok(true); }
+    }
+    Ok(false)
+}
+
+pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, scope: &SchemeScope, wrapper_sites: &BTreeMap<usize, u32>, expected_return: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Option<u32>, IrVerifyError> {
+    let wrappers = bounded(scheme.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?;
+    let mut groups = BTreeSet::new();
+    let mut saw_site = false;
+    let mut referenced_groups = BTreeSet::new();
+    for (ordinal, encoded) in wrappers.iter().copied().enumerate() {
+        budget.charge(1)?;
+        match encoded {
+            FullWrapper::ProcCompletion { group: actual, .. } => {
+                if saw_site || actual as usize != ordinal || !groups.insert(actual) {
+                    return Err(IrVerifyError::new("proc completion group ordering is invalid"));
+                }
+                let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
+                let K::ProcCompletion { returned: actual_return, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(_), .. } = &requirement.kind else { return Err(IrVerifyError::new("proc completion group is unresolved")); };
+                if !matches!(actual_return, SchemeType::Result(..)) { return Err(IrVerifyError::new("proc completion group has no Result return")); }
+            }
+            FullWrapper::Field { detail, .. } => {
+                saw_site = true;
+                let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
+                if let FullWrapperBoundary::ProcCompletion { returned, group: actual_group } = field.boundary {
+                    let requirement = completion_requirement(store, scope, actual_group, budget)?;
+                    let K::ProcCompletion { returned: group_return, .. } = requirement.kind else { unreachable!() };
+                    let returned = ApplicationSubstitution::Identity.ty(store, scope, returned, budget)?;
+                    if !body_types_equal(&returned, &group_return) { return Err(IrVerifyError::new("proc completion field changes its owner return")); }
+                    referenced_groups.insert(actual_group);
+                }
+            }
+            _ => saw_site = true,
+        }
+    }
+    for group in groups.iter().copied() {
+        if !referenced_groups.contains(&group) { return Err(IrVerifyError::new("proc completion group has no field source")); }
+    }
+    let mut owner_group = None;
+    for &ordinal in wrapper_sites.values() {
+        budget.charge(1)?;
+        let encoded = *wrappers.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body wrapper ordinal is out of bounds"))?;
+        let FullWrapper::Field { detail, .. } = encoded else { continue; };
+        let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
+        if let FullWrapperBoundary::ProcCompletion { group, .. } = field.boundary
+            && owner_group.replace(group).is_some_and(|previous| previous != group)
+        { return Err(IrVerifyError::new("generic body has multiple owner completion groups")); }
+    }
+    if let Some(group) = owner_group {
+        if scheme.explicit_return || scheme.callable_kind != crate::sema::types::CallableKind::Proc || !saw_site {
+            return Err(IrVerifyError::new("proc completion group has an invalid owner"));
+        }
+        let requirement = completion_requirement(store, scope, group, budget)?;
+        let K::ProcCompletion { returned, .. } = requirement.kind else { unreachable!() };
+        if !body_types_equal(&returned, expected_return) { return Err(IrVerifyError::new("proc completion group disagrees with its owner return")); }
+    }
+    Ok(owner_group)
+}
+
+pub(super) fn verify_completion_contributions(store: &FullStore, scope: &SchemeScope, ordinal: u32, actual: &[PC<SchemeType>], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let requirement = completion_requirement(store, scope, ordinal, budget)?;
+    let K::ProcCompletion { returned, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(expected), .. } = requirement.kind else {
+        return Err(IrVerifyError::new("proc completion group is unresolved"));
+    };
+    if actual.len() != expected.len() { return Err(completion_contribution_mismatch(actual, &expected)); }
+    let mut covered = vec![false; expected.len()];
+    let mut candidates = BTreeMap::<String, Vec<usize>>::new();
+    for (index, contribution) in expected.iter().enumerate() {
+        budget.charge(1)?;
+        let key = format!("{contribution:?}");
+        budget.charge(key.len())?;
+        candidates.entry(key).or_default().push(index);
+    }
+    for contribution in actual {
+        budget.charge(1)?;
+        let key = format!("{contribution:?}");
+        budget.charge(key.len())?;
+        let Some(indices) = candidates.get(&key) else { return Err(completion_contribution_mismatch(actual, &expected)); };
+        let mut found = None;
+        for &index in indices {
+            budget.charge(1)?;
+            if !covered[index] && contribution == &expected[index] { found = Some(index); break; }
+        }
+        let Some(index) = found else { return Err(completion_contribution_mismatch(actual, &expected)); };
+        covered[index] = true;
+    }
+    if covered.iter().any(|covered| !covered) { return Err(completion_contribution_mismatch(actual, &expected)); }
+    let SchemeType::Result(_, returned_error) = returned else { return Err(IrVerifyError::new("proc completion group has no Result return")); };
+    if let Some(actual_error) = completion_error_join(&expected, budget)?
+        && !body_types_equal(&actual_error, &returned_error)
+    { return Err(IrVerifyError::new("proc completion error join disagrees with its actual body")); }
+    Ok(())
+}
+
+fn completion_contribution_mismatch(actual: &[PC<SchemeType>], expected: &[PC<SchemeType>]) -> IrVerifyError {
+    let sample = |contributions: &[PC<SchemeType>]| {
+        let rendered = contributions.iter().take(16).map(|contribution| format!("{contribution:?}")).collect::<Vec<_>>().join(", ");
+        format!("{} [{}{}]", contributions.len(), rendered, if contributions.len() > 16 { ", …" } else { "" })
+    };
+    IrVerifyError::new(format!("proc completion contributions differ: actual {}, expected {}", sample(actual), sample(expected)))
+}
+
+fn completion_error_join(contributions: &[PC<SchemeType>], budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    use crate::sema::wrapper_operation::WrapperProjection as P;
+    let mut errors = Vec::new();
+    for contribution in contributions {
+        budget.charge(1)?;
+        match contribution {
+            PC::PropagatedError(error) => errors.push(clone_projection_type(error, budget)?),
+            PC::ReturnedResult(source) => {
+                let Some(P::Result { error, .. }) = source_parts(source, budget)? else { return Err(IrVerifyError::new("proc completion return source is not a Result")); };
+                errors.push(error);
+            }
+            PC::FieldSource(source) => match source_parts(source, budget)? {
+                Some(P::Optional(_)) => {}
+                Some(P::Result { error, .. }) => errors.push(error),
+                None => return Ok(None),
+            },
+            PC::ApplicationSource(source) => match source_parts(source, budget)? {
+                Some(P::Result { error, .. }) => errors.push(error),
+                Some(P::Optional(_)) => {}
+                None => return Ok(None),
+            },
+        }
+    }
+    if errors.is_empty() { return Ok(Some(SchemeType::Ground(Type::Error))); }
+    budget.charge(errors.len())?;
+    if errors.iter().all(|error| body_types_equal(error, &errors[0])) { return Ok(Some(clone_projection_type(&errors[0], budget)?)); }
+    let mut ground = Vec::with_capacity(errors.len());
+    for error in &errors {
+        budget.charge_scheme_clone(error)?;
+        let Some(error) = error.closed_ground_type() else { return Ok(None); };
+        ground.push(error);
+    }
+    Ok(Some(SchemeType::Ground(Type::captured_error_type(ground))))
+}
+
 pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &SchemeScope, substitution: ApplicationSubstitution<'_>, caller: Option<(&FullScheme, &SchemeScope)>, bindings: &[FullWrapperBinding], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     let requirements = bounded(callee.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?;
     if requirements.len() != bindings.len() { return Err(IrVerifyError::new("generic call wrapper binding is incomplete")); }
+    let mut group_forwarding = BTreeMap::new();
+    let mut forwarded_groups = BTreeSet::new();
+    if let Some((caller, _)) = caller {
+        let caller_wrappers = bounded(caller.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?;
+        for (callee_ordinal, (encoded, binding)) in requirements.iter().zip(bindings).enumerate() {
+            let FullWrapper::ProcCompletion { group, .. } = encoded else { continue; };
+            if *group as usize != callee_ordinal { return Err(IrVerifyError::new("callee proc completion group ordinal is invalid")); }
+            match *binding {
+                FullWrapperBinding::Forwarded(ordinal) => {
+                    if !matches!(caller_wrappers.get(ordinal as usize), Some(FullWrapper::ProcCompletion { group: actual, .. }) if *actual == ordinal)
+                        || !forwarded_groups.insert(ordinal)
+                    { return Err(IrVerifyError::new("forwarded proc completion group has an invalid caller owner")); }
+                    group_forwarding.insert(*group, ordinal);
+                }
+                FullWrapperBinding::Selected(_) => {}
+            }
+        }
+    }
     for (encoded, binding) in requirements.iter().zip(bindings) {
         let requirement = decode(store, scope, *encoded, &substitution, budget)?;
         match *binding {
@@ -70,6 +279,13 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
                 let Some((caller, caller_scope)) = caller else { return Err(IrVerifyError::new("forwarded wrapper has no caller owner")); };
                 let required = bounded(caller.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded wrapper ordinal is out of scope"))?;
                 let required = decode(store, caller_scope, *required, &ApplicationSubstitution::Identity, budget)?;
+                let mut requirement = requirement;
+                crate::sema::wrapper_operation::map_wrapper_groups(&mut requirement, |group| match group {
+                    crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(callee_group) => group_forwarding.get(&callee_group).copied()
+                        .map(crate::sema::wrapper_operation::WrapperGroupRef::Ordinal)
+                        .ok_or_else(|| IrVerifyError::new("forwarded wrapper refers to an unforwarded proc completion group")),
+                    crate::sema::wrapper_operation::WrapperGroupRef::Source(_) => Err(IrVerifyError::new("forwarded wrapper contains a source group identity")),
+                })?;
                 if requirement.shape() != required.shape() || !requirement.types().into_iter().zip(required.types()).all(|(actual, expected)| body_types_equal(actual, expected))
                     || match (&requirement.kind, &required.kind) { (K::Field { effects: actual, .. }, K::Field { effects: expected, .. }) => actual != expected, _ => false }
                 { return Err(IrVerifyError::new("forwarded wrapper differs from its caller relationship")); }
@@ -84,7 +300,8 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
         FullWrapper::Field { source, result, detail } => {
             let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
             let mut types = vec![source, result];
-            if let FullWrapperBoundary::Return(ty) | FullWrapperBoundary::ErrorReturn(ty) | FullWrapperBoundary::ProcCompletion(ty) = field.boundary { types.push(ty); }
+            if let FullWrapperBoundary::Return(ty) | FullWrapperBoundary::ErrorReturn(ty) = field.boundary { types.push(ty); }
+            if let FullWrapperBoundary::ProcCompletion { returned, .. } = field.boundary { types.push(returned); }
             types
         }
         FullWrapper::Fallback { source, result, backup } => vec![source, result, backup],
@@ -95,19 +312,35 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
         FullWrapper::Capture { result, detail } => {
             let capture = store.wrapper_captures.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper capture detail is out of bounds"))?;
             let mut types = vec![result];
-            types.extend(bounded(capture.contributions, &store.wrapper_contributions, "wrapper contribution range is invalid")?.iter().map(|contribution| match contribution { FullWrapperContribution::Explicit(ty) | FullWrapperContribution::Source(ty) => *ty }));
+            for contribution in bounded(capture.contributions, &store.wrapper_contributions, "wrapper contribution range is invalid")? {
+                types.push(match contribution {
+                    FullWrapperContribution::Explicit(ty) | FullWrapperContribution::Source(ty) => *ty,
+                    FullWrapperContribution::PropagatedError(_) | FullWrapperContribution::ReturnedResult(_) | FullWrapperContribution::FieldSource(_) | FullWrapperContribution::ApplicationSource(_) => return Err(IrVerifyError::new("proc completion contribution appears in a capture")),
+                });
+            }
+            types
+        }
+        FullWrapper::ProcCompletion { returned, detail, .. } => {
+            let completion = store.wrapper_completions.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper completion detail is out of bounds"))?;
+            let mut types = vec![returned];
+            for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
+                types.push(match contribution {
+                    FullWrapperContribution::PropagatedError(ty) | FullWrapperContribution::ReturnedResult(ty) | FullWrapperContribution::FieldSource(ty) | FullWrapperContribution::ApplicationSource(ty) => *ty,
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                });
+            }
             types
         }
     })
 }
 
 pub(super) struct Coverage {
-    requirements: Vec<bool>, fields: Vec<bool>, handlers: Vec<bool>, captures: Vec<bool>, contributions: Vec<bool>,
+    requirements: Vec<bool>, fields: Vec<bool>, handlers: Vec<bool>, captures: Vec<bool>, completions: Vec<bool>, contributions: Vec<bool>,
 }
 
 impl Coverage {
     pub(super) fn new(store: &FullStore) -> Self {
-        Self { requirements: vec![false; store.scheme_wrappers.len()], fields: vec![false; store.wrapper_fields.len()], handlers: vec![false; store.wrapper_handlers.len()], captures: vec![false; store.wrapper_captures.len()], contributions: vec![false; store.wrapper_contributions.len()] }
+        Self { requirements: vec![false; store.scheme_wrappers.len()], fields: vec![false; store.wrapper_fields.len()], handlers: vec![false; store.wrapper_handlers.len()], captures: vec![false; store.wrapper_captures.len()], completions: vec![false; store.wrapper_completions.len()], contributions: vec![false; store.wrapper_contributions.len()] }
     }
 
     fn detail(coverage: &mut [bool], index: u32) -> Result<(), IrVerifyError> {
@@ -117,7 +350,7 @@ impl Coverage {
     }
 
     pub(super) fn owner(&mut self, store: &FullStore, scheme: &FullScheme, scope: &SchemeScope, owner: usize, effects: &mut effects::EffectCoverage) -> Result<(), IrVerifyError> {
-        for requirement in mark_range(scheme.wrappers, &store.scheme_wrappers, &mut self.requirements, "scheme wrapper range is invalid or overlaps")? {
+        for (ordinal, requirement) in mark_range(scheme.wrappers, &store.scheme_wrappers, &mut self.requirements, "scheme wrapper range is invalid or overlaps")?.iter().enumerate() {
             match *requirement {
                 FullWrapper::Field { detail, .. } => {
                     Self::detail(&mut self.fields, detail)?;
@@ -132,6 +365,12 @@ impl Coverage {
                     if capture.reserved != [0; 3] { return Err(IrVerifyError::new("wrapper capture metadata is invalid")); }
                     mark_range(capture.contributions, &store.wrapper_contributions, &mut self.contributions, "wrapper contributions are invalid or overlap")?;
                 }
+                FullWrapper::ProcCompletion { group, detail, .. } => {
+                    if group as usize != ordinal { return Err(IrVerifyError::new("wrapper completion owner ordinal is invalid")); }
+                    Self::detail(&mut self.completions, detail)?;
+                    let completion = store.wrapper_completions[detail as usize];
+                    mark_range(completion.contributions, &store.wrapper_contributions, &mut self.contributions, "wrapper completion contributions are invalid or overlap")?;
+                }
                 FullWrapper::Fallback { .. } => {},
             }
         }
@@ -139,7 +378,7 @@ impl Coverage {
     }
 
     pub(super) fn finish(self) -> Result<(), IrVerifyError> {
-        if [&self.requirements, &self.fields, &self.handlers, &self.captures, &self.contributions].into_iter().any(|rows| rows.iter().any(|covered| !covered)) {
+        if [&self.requirements, &self.fields, &self.handlers, &self.captures, &self.completions, &self.contributions].into_iter().any(|rows| rows.iter().any(|covered| !covered)) {
             return Err(IrVerifyError::new("wrapper tables contain unowned rows"));
         }
         Ok(())
@@ -176,6 +415,12 @@ fn source_parts(source: &SchemeType, budget: &mut SchemeInstantiationBudget) -> 
         }
         _ => return Ok(None),
     }))
+}
+
+fn result_error_id(store: &FullStore, id: SchemeTypeId) -> Result<SchemeTypeId, IrVerifyError> {
+    let node = store.scheme_types.get(id.index()).ok_or_else(|| IrVerifyError::new("wrapper result type is out of bounds"))?;
+    if node.tag != super::super::schema::FullSchemeTypeTag::Result { return Err(IrVerifyError::new("wrapper completion return is not a Result")); }
+    SchemeTypeId::from_raw(node.second)
 }
 
 fn optional_type(ty: &SchemeType) -> bool {
@@ -238,6 +483,38 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
                 }
             }
             vec![(result, SchemeType::Ground(Type::captured_error_type(errors)))]
+        }
+        (FullWrapper::ProcCompletion { returned, detail, .. }, K::ProcCompletion { .. }) => {
+            let completion = store.wrapper_completions.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper completion detail is out of bounds"))?;
+            let returned_error = result_error_id(store, returned)?;
+            let mut outputs = Vec::new();
+            for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
+                budget.charge(1)?;
+                match contribution {
+                    FullWrapperContribution::PropagatedError(error) => outputs.push((returned_error, substitution.ty(store, scope, *error, budget)?)),
+                    FullWrapperContribution::ReturnedResult(source_id) => {
+                        let source = substitution.ty(store, scope, *source_id, budget)?;
+                        let Some(P::Result { error, .. }) = source_parts(&source, budget)? else { return Err(IrVerifyError::new("wrapper completion return source is not a Result")); };
+                        outputs.push((returned_error, error));
+                    }
+                    FullWrapperContribution::FieldSource(source_id) => {
+                        let source = substitution.ty(store, scope, *source_id, budget)?;
+                        match source_parts(&source, budget)? {
+                            Some(P::Optional(_)) => {}
+                            Some(P::Result { error, .. }) => outputs.push((returned_error, error)),
+                            None => {}
+                        }
+                    }
+                    FullWrapperContribution::ApplicationSource(source_id) => {
+                        let source = substitution.ty(store, scope, *source_id, budget)?;
+                        if let Some(P::Result { error, .. }) = source_parts(&source, budget)? {
+                            outputs.push((returned_error, error));
+                        }
+                    }
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                }
+            }
+            outputs
         }
         _ => return Err(IrVerifyError::new("wrapper projection has another operation relationship")),
     })
@@ -314,14 +591,31 @@ pub(super) fn evidence_roots(store: &FullStore, encoded: FullWrapper) -> Result<
         }
         FullWrapper::Capture { result, detail } => {
             let capture = store.wrapper_captures.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper capture detail is out of bounds"))?;
-            let inputs = bounded(capture.contributions, &store.wrapper_contributions, "wrapper contribution range is invalid")?.iter().map(|contribution| match contribution { FullWrapperContribution::Explicit(ty) | FullWrapperContribution::Source(ty) => *ty }).collect();
+            let mut inputs = Vec::new();
+            for contribution in bounded(capture.contributions, &store.wrapper_contributions, "wrapper contribution range is invalid")? {
+                inputs.push(match contribution {
+                    FullWrapperContribution::Explicit(ty) | FullWrapperContribution::Source(ty) => *ty,
+                    FullWrapperContribution::PropagatedError(_) | FullWrapperContribution::ReturnedResult(_) | FullWrapperContribution::FieldSource(_) | FullWrapperContribution::ApplicationSource(_) => return Err(IrVerifyError::new("proc completion contribution appears in a capture")),
+                });
+            }
             (inputs, vec![result])
+        }
+        FullWrapper::ProcCompletion { returned, detail, .. } => {
+            let completion = store.wrapper_completions.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper completion detail is out of bounds"))?;
+            let mut inputs = Vec::new();
+            for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
+                inputs.push(match contribution {
+                    FullWrapperContribution::PropagatedError(ty) | FullWrapperContribution::ReturnedResult(ty) | FullWrapperContribution::FieldSource(ty) | FullWrapperContribution::ApplicationSource(ty) => *ty,
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                });
+            }
+            (inputs, vec![result_error_id(store, returned)?])
         }
     })
 }
 
 
-pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: u32, source: &SchemeType, name: Name, result: &SchemeType, captured: bool, actual_boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: u32, source: &SchemeType, name: Name, result: &SchemeType, captured: bool, actual_boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<Option<PC<SchemeType>>, IrVerifyError> {
     let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body wrapper ordinal is out of bounds"))?;
     let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
     let K::Field { source: expected_source, name: expected_name, result: expected_result, boundary, effects } = requirement.kind else { return Err(IrVerifyError::new("field instruction has another wrapper relationship")); };
@@ -332,19 +626,28 @@ pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeSco
     let FullCallableContract::Scheme(id) = declaration.contract else { return Err(IrVerifyError::new("wrapper field has no scheme owner")); };
     let returned = decode_scheme_type(store, scope, store.scheme(id)?.return_type, budget, 0)?;
     let proof = ScopedEffectProof::new(store, effect_scopes);
-    match boundary {
+    let completion_source = match boundary {
         B::Captured if captured => {
             if !matches!(actual_boundary, PropagationBoundary::CaptureRelationship { .. }) { return Err(IrVerifyError::new("captured wrapper field has no authenticated capture relationship")); }
+            None
         },
-        B::Return(expected) if !captured && body_types_equal(&expected, &returned) => {},
-        B::ErrorReturn(expected) if !captured && body_types_equal(&expected, &returned) && metadata.callable_kind == crate::sema::types::CallableKind::Proc && proof.permits_direct(owner.index(), &crate::syntax::node::Effect::Error)? => {},
-        B::ProcCompletion(expected) if !captured && body_types_equal(&expected, &returned) && !store.scheme(id)?.explicit_return && metadata.callable_kind == crate::sema::types::CallableKind::Proc
-            && matches!(&returned, SchemeType::Result(_, error) if error.closed_ground_type() == Some(Type::Error)) => {},
-        B::Producer if !captured && metadata.callable_kind == crate::sema::types::CallableKind::Stream => {},
+        B::Return(expected) if !captured && body_types_equal(&expected, &returned) => None,
+        B::ErrorReturn(expected) if !captured && body_types_equal(&expected, &returned) && metadata.callable_kind == crate::sema::types::CallableKind::Proc && proof.permits_direct(owner.index(), &crate::syntax::node::Effect::Error)? => None,
+        B::ProcCompletion { returned: expected, group } if !captured && body_types_equal(&expected, &returned) && !store.scheme(id)?.explicit_return && metadata.callable_kind == crate::sema::types::CallableKind::Proc => {
+            let crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(group) = group else { return Err(IrVerifyError::new("proc completion field has a source group identity")); };
+            let completion = completion_requirement(store, scope, group, budget)?;
+            let K::ProcCompletion { contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = completion.kind else { return Err(IrVerifyError::new("proc completion field has an unresolved owner group")); };
+            if !contributions.iter().any(|contribution| matches!(contribution, PC::FieldSource(actual) if body_types_equal(actual, source))) {
+                return Err(IrVerifyError::new("proc completion field source is absent from its owner group"));
+            }
+            budget.charge_scheme_clone(source)?;
+            Some(PC::FieldSource(source.clone()))
+        },
+        B::Producer if !captured && metadata.callable_kind == crate::sema::types::CallableKind::Stream => None,
         _ => return Err(IrVerifyError::new("wrapper field boundary disagrees with its actual owner")),
-    }
+    };
     proof.require(owner.index(), &effects, captured || metadata.callable_kind == crate::sema::types::CallableKind::Pure, budget)?;
-    Ok(())
+    Ok(completion_source)
 }
 
 

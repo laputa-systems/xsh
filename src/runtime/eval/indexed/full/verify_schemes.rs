@@ -1197,6 +1197,7 @@ fn verify_scheme_body_facts(
         let mut operation_sites = BTreeMap::new();
         let mut method_sites = BTreeMap::new();
         let mut wrapper_sites = BTreeMap::new();
+        let mut completion_sources = BTreeMap::new();
         let mut tails = BTreeMap::new();
         let mut declarations = BTreeMap::new();
         let mut previous_fact = None;
@@ -1228,8 +1229,21 @@ fn verify_scheme_body_facts(
                     super::schemes::FullWrapper::Handler { .. } => FullTag::ExprMatch,
                     super::schemes::FullWrapper::Capture { .. } if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) => store.tags[instruction],
                     super::schemes::FullWrapper::Capture { .. } => return Err(IrVerifyError::new("capture wrapper has no capture instruction")),
+                    super::schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no executable instruction")),
                 };
                 if store.tags[instruction] != tag { return Err(IrVerifyError::new("body wrapper disagrees with its instruction")); }
+                continue;
+            }
+            if let Some(source) = fact.value.completion_source() {
+                let producer = source.producer as usize;
+                if store.tags[instruction] != FullTag::StmtReturn
+                    || producer == instruction
+                    || !instruction_range.contains(&producer)
+                    || store.tags[producer].kind() != schema::InstructionKind::Expr
+                    || completion_sources.insert(instruction, source).is_some()
+                {
+                    return Err(IrVerifyError::new("generic completion source has invalid or duplicated ownership"));
+                }
                 continue;
             }
             let Some(type_id) = fact.ty() else {
@@ -1253,6 +1267,9 @@ fn verify_scheme_body_facts(
         let mut decoder = decoder_for_function(store, function_index)?;
         decoder.function_signature_index = Some(Arc::clone(function_signatures));
         decoder.producer_demand = producer_index.demand();
+        if completion_sources.values().any(|source| !types.contains_key(&(source.producer as usize))) {
+            return Err(IrVerifyError::new("generic completion source has no authenticated producer type"));
+        }
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
             slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false });
@@ -1275,9 +1292,10 @@ fn verify_scheme_body_facts(
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
         let statements = store.payload(block.instructions)?;
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
+        let completion_group = wrappers::verify_completion_groups(store, scheme, scope, &wrapper_sites, &expected_return, &mut budget)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, completion_contributions } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1308,6 +1326,11 @@ fn verify_scheme_body_facts(
         requests.streams.extend(stream_sources.into_iter().map(|(source, boundary)| producers::StreamIteration { owner: decoder.owner, source, boundary }));
         requests.captures.extend(captures);
         requests.applications.extend(applications.into_iter().map(|instruction| (decoder.owner, instruction)));
+        match completion_group {
+            Some(group) => requests.completions.push(producers::CompletionContributionsRequest { owner: decoder.owner, group, actual: completion_contributions }),
+            None if completion_contributions.is_empty() => {}
+            None => return Err(IrVerifyError::new("generic body has completion contributions without an owner group")),
+        }
         requests.methods.extend(method_sites.keys()
             .filter(|instruction| !store.registered_calls.contains_key(&(**instruction as u32)))
             .map(|&instruction| (decoder.owner, instruction)));
@@ -1341,6 +1364,7 @@ enum PropagationBoundary {
         owner: IrFunctionId,
         scheme: FullSchemeId,
         return_type: SchemeTypeId,
+        completion_group: Option<u32>,
     },
     CaptureRelationship { instruction: usize, request: usize },
     StreamProducer(IrFunctionId),
@@ -1358,7 +1382,7 @@ impl PropagationBoundary {
         Ok(Self::ResultError(Arc::new(error)))
     }
 
-    fn for_scheme_function(store: &FullStore, owner: u32, ty: &SchemeType, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+    fn for_scheme_function(store: &FullStore, owner: u32, ty: &SchemeType, scope: &SchemeScope, completion_group: Option<u32>, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
         let function_id = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("propagation boundary has no function owner"))?;
         let function = store.functions.get(function_id.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner is out of bounds"))?;
         let metadata = store.function_metadata.get(function_id.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner has no metadata"))?;
@@ -1375,11 +1399,25 @@ impl PropagationBoundary {
             {
                 return Err(IrVerifyError::new("defaulted Proc return disagrees with its checked scheme"));
             }
+            if let Some(ordinal) = completion_group {
+                let wrapper = *bounded(scheme.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize)
+                    .ok_or_else(|| IrVerifyError::new("proc completion group ordinal is out of scope"))?;
+                if !matches!(wrapper, super::schemes::FullWrapper::ProcCompletion { group, .. } if group == ordinal) {
+                    return Err(IrVerifyError::new("proc completion group ordinal is invalid"));
+                }
+                return Ok(Self::InferredProcError {
+                    owner: function_id,
+                    scheme: scheme_id,
+                    return_type: scheme.return_type,
+                    completion_group: Some(ordinal),
+                });
+            }
             if super::scheme_return_has_generic_error_result(store, scheme.return_type)? {
                 return Ok(Self::InferredProcError {
                     owner: function_id,
                     scheme: scheme_id,
                     return_type: scheme.return_type,
+                    completion_group: None,
                 });
             }
         }
@@ -1443,10 +1481,10 @@ impl PropagationBoundary {
     }
 }
 
-fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+fn body_propagated_error_matches_owner(store: &FullStore, scope: Option<&SchemeScope>, error: &SchemeType, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     let compatible = match boundary {
         PropagationBoundary::ResultError(expected_error) => body_type_matches(error, expected_error, budget)?,
-        PropagationBoundary::InferredProcError { owner, scheme: expected_scheme, return_type } => {
+        PropagationBoundary::InferredProcError { owner, scheme: expected_scheme, return_type, completion_group } => {
             let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("inferred Proc error boundary owner is out of bounds"))?;
             let metadata = store.function_metadata.get(owner.index()).ok_or_else(|| IrVerifyError::new("inferred Proc error boundary owner has no metadata"))?;
             let FullCallableContract::Scheme(scheme_id) = function.contract else {
@@ -1459,9 +1497,13 @@ fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, bo
                 || !metadata.defaulted_proc_return()
                 || scheme.callable_kind != crate::sema::types::CallableKind::Proc
                 || scheme.explicit_return
-                || !super::scheme_return_has_generic_error_result(store, scheme.return_type)?
+                || completion_group.is_none() && !super::scheme_return_has_generic_error_result(store, scheme.return_type)?
             {
                 return Err(IrVerifyError::new("inferred Proc error boundary disagrees with its checked scheme"));
+            }
+            if let Some(group) = completion_group {
+                let scope = scope.ok_or_else(|| IrVerifyError::new("inferred Proc completion has no verified scheme scope"))?;
+                wrappers::completion_accepts_propagation(store, scope, *group, error, budget)?;
             }
             true
         }
@@ -1505,6 +1547,33 @@ fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, bo
     };
     if !compatible { return Err(IrVerifyError::new("generic propagated error disagrees with its owner boundary")); }
     Ok(())
+}
+
+fn completion_boundary_matches(boundary: &PropagationBoundary, group: Option<u32>) -> bool {
+    matches!(boundary, PropagationBoundary::InferredProcError { completion_group: Some(actual), .. } if Some(*actual) == group)
+}
+
+fn process_accept_count(decoder: &FullDecoder<'_>, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<usize, IrVerifyError> {
+    let mut count = 0;
+    match decoder.expression_view(instruction)? {
+        schema::ExprView::RunCapture(run) => {
+            for option in run.operands.options {
+                budget.charge(1)?;
+                if matches!(option?, super::decode::RunOptionView::Accept(_)) { count += 1; }
+            }
+        }
+        schema::ExprView::RunPipeline { mut segments, .. } => {
+            for segment in &mut segments {
+                budget.charge(1)?;
+                for option in segment?.operands.options {
+                    budget.charge(1)?;
+                    if matches!(option?, super::decode::RunOptionView::Accept(_)) { count += 1; }
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(count)
 }
 
 fn scheme_has_known_direct_error_effect(store: &FullStore, scheme: &FullScheme) -> Result<bool, IrVerifyError> {
@@ -1578,6 +1647,8 @@ fn verify_body_expression(
     visited: &mut BTreeSet<usize>,
     registered_coverage: &mut BTreeSet<u32>,
     boundary: &PropagationBoundary,
+    completion_group: Option<u32>,
+    completion_contributions: &mut Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
     budget: &mut SchemeInstantiationBudget,
     constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<SchemeType, IrVerifyError> {
@@ -1853,7 +1924,9 @@ fn verify_body_expression(
         }
         schema::ExprView::Field { base, name, .. } if wrapper_sites.contains_key(&instruction) => {
             let base = child(base, budget)?;
-            wrappers::verify_field_site(store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites[&instruction], &base, Name::intern(name), ty, slots.captures_error(), boundary, budget)?;
+            if let Some(contribution) = wrappers::verify_field_site(store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites[&instruction], &base, Name::intern(name), ty, slots.captures_error(), boundary, budget)? {
+                completion_contributions.push(contribution);
+            }
             budget.charge_scheme_clone(ty)?;
             ty.clone()
         }
@@ -2011,7 +2084,15 @@ fn verify_body_expression(
                         && matches!(boundary, PropagationBoundary::ResultError(_))
                 } else { true }
             } else { true };
-            if owner_required { body_propagated_error_matches_owner(store, &error, boundary, budget)?; }
+            if owner_required {
+                body_propagated_error_matches_owner(store, Some(scheme_scope), &error, boundary, budget)?;
+                if let PropagationBoundary::InferredProcError { completion_group: Some(group), .. } = boundary
+                    && Some(*group) == completion_group
+                {
+                    budget.charge_scheme_clone(&error)?;
+                    completion_contributions.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(error.clone()));
+                }
+            }
             ok
         }
         schema::ExprView::Method { receiver, name, args, .. } => {
@@ -2034,7 +2115,20 @@ fn verify_body_expression(
         }
         schema::ExprView::RunCapture(run) => {
             commands::operands(run.operands, scheme_scope, &mut child, budget)?;
-            SchemeType::Ground(Type::run_capture_output(run.kind, run.assert_success).ok_or_else(|| IrVerifyError::new("generic process capture has no output contract"))?)
+            let output = SchemeType::Ground(Type::run_capture_output(run.kind, run.assert_success).ok_or_else(|| IrVerifyError::new("generic process capture has no output contract"))?);
+            if completion_boundary_matches(boundary, completion_group) {
+                if run.propagate {
+                    let error = body::completion_result_error(&output, budget)?.unwrap_or_else(|| SchemeType::Ground(Type::ProcessError));
+                    budget.charge_scheme_clone(&error)?;
+                    completion_contributions.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(error));
+                }
+                if run.assert_success || process_accept_count(decoder, instruction, budget)? != 0 {
+                    let error = SchemeType::Ground(Type::ProcessError);
+                    budget.charge_scheme_clone(&error)?;
+                    completion_contributions.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(error));
+                }
+            }
+            output
         }
         schema::ExprView::RunPipeline { segments, propagate, .. } => {
             let mut head = None;
@@ -2045,7 +2139,20 @@ fn verify_body_expression(
                 commands::operands(segment.operands, scheme_scope, &mut child, budget)?;
             }
             let head = head.ok_or_else(|| IrVerifyError::new("generic process pipeline has no head"))?;
-            SchemeType::Ground(Type::run_pipeline_output(head, propagate).ok_or_else(|| IrVerifyError::new("generic process pipeline has no output contract"))?)
+            let output = SchemeType::Ground(Type::run_pipeline_output(head, propagate).ok_or_else(|| IrVerifyError::new("generic process pipeline has no output contract"))?);
+            if completion_boundary_matches(boundary, completion_group) {
+                if propagate {
+                    let error = SchemeType::Ground(Type::ProcessError);
+                    budget.charge_scheme_clone(&error)?;
+                    completion_contributions.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(error));
+                }
+                for _ in 0..process_accept_count(decoder, instruction, budget)? {
+                    let error = SchemeType::Ground(Type::ProcessError);
+                    budget.charge_scheme_clone(&error)?;
+                    completion_contributions.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(error));
+                }
+            }
+            output
         }
         schema::ExprView::FsTempDir { .. } => {
             SchemeType::Ground(commands::native_call(decoder, crate::modules::RuntimeOp::FsTempDir, &[], budget)?)
@@ -5106,6 +5213,7 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(store.scheme_method_arguments.len())
         .saturating_add(store.scheme_wrappers.len())
         .saturating_add(store.wrapper_contributions.len())
+        .saturating_add(store.wrapper_completions.len())
         .saturating_add(store.call_operation_bindings.len())
         .saturating_add(store.call_method_bindings.len())
         .saturating_add(store.scheme_application_calls.len())

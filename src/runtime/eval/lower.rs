@@ -482,7 +482,8 @@ use super::{
     LoweredRunOperands, LoweredRunPipelineSegment, LoweredRunRedirection,
     LoweredRunTailOperand, LoweredStrPredicate, LoweredTopLevelBinding, LoweredTopLevelSlot,
     LoweredTopLevelSlots, LoweredType, LoweredTypeCheck, LoweredValueCheck, LoweredValue, ProgramBuild, ReduceByOp,
-    ScanBytes, ScanCheck, ScanCondition, SchemeBodyFacts, SchemeType, StmtFlow, lowered_method_name,
+    ScanBytes, ScanCheck, ScanCondition, SchemeBodyFacts, SchemeCompletionSource,
+    SchemeCompletionSourceForm, SchemeType, StmtFlow, lowered_method_name,
 };
 
 pub(super) fn lowered_arena_type(
@@ -498,6 +499,27 @@ fn lowered_scheme_parameter_kind(ty: &SchemeType) -> Option<LoweredParamKind> {
         SchemeType::Parameter(_) => Some(LoweredParamKind::Erased),
         SchemeType::Ground(Type::Any) => Some(LoweredParamKind::Typed(LoweredType::Any)),
         ty => lowered_scheme_physical_type(ty).map(LoweredParamKind::Typed),
+    }
+}
+
+fn scheme_completion_source_is_result(ty: &SchemeType) -> bool {
+    match ty {
+        SchemeType::Result(_, _) => true,
+        SchemeType::Ground(ty) => matches!(ty.unvalidated(), Type::Result(_, _)),
+        SchemeType::Validated(_, inner) => scheme_completion_source_is_result(inner),
+        _ => false,
+    }
+}
+
+fn scheme_completion_result_parts(ty: &SchemeType) -> Option<(SchemeType, SchemeType)> {
+    match ty {
+        SchemeType::Result(ok, error) => Some(((**ok).clone(), (**error).clone())),
+        SchemeType::Ground(ty) => match ty.unvalidated() {
+            Type::Result(ok, error) => Some((SchemeType::Ground((**ok).clone()), SchemeType::Ground((**error).clone()))),
+            _ => None,
+        },
+        SchemeType::Validated(_, inner) => scheme_completion_result_parts(inner),
+        _ => None,
     }
 }
 
@@ -3146,6 +3168,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let mut tail_types = BTreeMap::new();
         let mut value = self.lower_scheme_tail_value(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+        let source = value;
+        let source_expression = match self.program.arena.stmt(tail).kind {
+            ArenaStmtKind::Expr(expression) | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) => Some(expression),
+            _ => None,
+        };
         let (return_span, transfer_site) = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Return(_)) {
             (self.program.arena.stmt(tail).span, ResourceTransferSite::Return(tail))
         } else { (self.program.arena.span(block_data.span), ResourceTransferSite::BlockValue(block)) };
@@ -3155,13 +3182,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             lowered_types.get(&value).cloned()
         } else { None };
         if visited.len() != facts.expression_types().len() + facts.constructor_producers().len()
-            || return_site.is_none() && !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type()))
+            || return_site.is_none() && !self.scheme_proc_completion_return_matches(value, source, source_expression, facts, &lowered_types)
         { return self.block_scheme_lowering(block); }
         let returned = push_build_row!(self, stmt, BuildStmtRow::Return { value });
         if let Some(site) = return_site { self.scratch.borrow_mut().scheme_application_returns.insert(returned.index(), site); }
         if self.bodies.resource_transfer(transfer_site)? {
             self.scratch.borrow_mut().mark_resource_transfer(returned);
         }
+        if return_site.is_none() { self.record_scheme_completion_source(returned, source, source_expression, facts, &lowered_types)?; }
         if let Some(ty) = tail_type { tail_types.insert(returned, ty); }
         body.push(returned);
         Some((body, lowered_types, tail_types))
@@ -3221,10 +3249,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             _ => {
                 let value = self.lower_scheme_tail_value(tail, slots, current_function, facts, visited, lowered_types, &mut body)?;
+                let source_expression = match self.program.arena.stmt(tail).kind {
+                    ArenaStmtKind::Expr(expression) | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) => Some(expression),
+                    _ => None,
+                };
                 let (span, transfer_site) = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Return(_)) {
                     (self.program.arena.stmt(tail).span, ResourceTransferSite::Return(tail))
                 } else { (self.program.arena.span(block_data.span), ResourceTransferSite::BlockValue(block)) };
-                let (returned, value) = self.lower_scheme_completion_return(value, span, transfer.unwrap_or(transfer_site), facts, lowered_types)?;
+                let (returned, value) = self.lower_scheme_completion_return(value, span, transfer.unwrap_or(transfer_site), source_expression, facts, lowered_types)?;
                 if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::TailBareIdent(_)) {
                     tail_types.insert(returned, lowered_types.get(&value)?.clone());
                 }
@@ -3289,7 +3321,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             _ => {
                 let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, &mut body)?;
-                self.lower_scheme_completion_return(value, node.span, transfer, facts, lowered_types)?.0
+                self.lower_scheme_completion_return(value, node.span, transfer, Some(expression), facts, lowered_types)?.0
             }
         };
         body.push(returned);
@@ -3298,15 +3330,66 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn lower_scheme_completion_return(
         &mut self, mut value: BuildExprId, span: Span, transfer: ResourceTransferSite,
-        facts: &SchemeBodyFacts, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+        source_expression: Option<ExprId>, facts: &SchemeBodyFacts,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
     ) -> Option<(BuildStmtId, BuildExprId)> {
         let site = facts.proc_return_site(span);
+        let source = value;
         if site.is_none() { value = self.lift_scheme_return_value(value, facts, lowered_types)?; }
-        if site.is_none() && !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type())) { return None; }
+        if site.is_none() && !self.scheme_proc_completion_return_matches(value, source, source_expression, facts, lowered_types) { return None; }
         let returned = push_build_row!(self, stmt, BuildStmtRow::Return { value });
         if let Some(site) = site { self.scratch.borrow_mut().scheme_application_returns.insert(returned.index(), site); }
         if self.bodies.resource_transfer(transfer)? { self.scratch.borrow_mut().mark_resource_transfer(returned); }
+        if site.is_none() { self.record_scheme_completion_source(returned, source, source_expression, facts, lowered_types)?; }
         Some((returned, value))
+    }
+
+    fn record_scheme_completion_source(
+        &mut self, returned: BuildStmtId, producer: BuildExprId, source_expression: Option<ExprId>,
+        facts: &SchemeBodyFacts, lowered_types: &BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<()> {
+        if !facts.has_proc_completion_source() { return Some(()); }
+        let source_type = lowered_types.get(&producer)?;
+        let form = self.scheme_completion_source_form(source_type, source_expression)?;
+        if self.scratch.borrow_mut().scheme_completion_sources.insert(returned.index(), SchemeCompletionSource { producer, form }).is_some() {
+            return None;
+        }
+        Some(())
+    }
+
+    fn scheme_proc_completion_return_matches(
+        &self, returned: BuildExprId, producer: BuildExprId, source_expression: Option<ExprId>,
+        facts: &SchemeBodyFacts, lowered_types: &BTreeMap<BuildExprId, SchemeType>,
+    ) -> bool {
+        let Some(returned_type) = lowered_types.get(&returned) else { return false; };
+        let expected = facts.scheme().return_type();
+        if returned_type.matches_body_return(expected) { return true; }
+        if returned != producer { return false; }
+        let Some(source_type) = lowered_types.get(&producer) else { return false; };
+        if !matches!(self.scheme_completion_source_form(source_type, source_expression), Some(
+            SchemeCompletionSourceForm::ReturnedResult | SchemeCompletionSourceForm::AuthoredOk | SchemeCompletionSourceForm::AuthoredErr
+        )) || !facts.proc_completion_accepts_returned_result(source_type) {
+            return false;
+        }
+        let Some((actual_ok, _)) = scheme_completion_result_parts(source_type) else { return false; };
+        let Some((expected_ok, _)) = scheme_completion_result_parts(expected) else { return false; };
+        actual_ok.matches_body_return(&expected_ok)
+    }
+
+    fn scheme_completion_source_form(
+        &self, source_type: &SchemeType, source_expression: Option<ExprId>,
+    ) -> Option<SchemeCompletionSourceForm> {
+        let constructor = source_expression.and_then(|expression| {
+            self.bodies.checked_control_flow.result_constructors.get(&self.program.arena.expr(expression).span).copied()
+        });
+        let result_source = scheme_completion_source_is_result(source_type);
+        match constructor {
+            Some(crate::sema::check::CheckedResultConstructor::Ok) if result_source => Some(SchemeCompletionSourceForm::AuthoredOk),
+            Some(crate::sema::check::CheckedResultConstructor::Err) if result_source => Some(SchemeCompletionSourceForm::AuthoredErr),
+            Some(_) => return None,
+            None if result_source => Some(SchemeCompletionSourceForm::ReturnedResult),
+            None => Some(SchemeCompletionSourceForm::LiftedValue),
+        }
     }
 
     fn lift_scheme_return_value(
@@ -3498,6 +3581,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 body.extend(self.lower_scheme_return_completion_expression(expression, slots, current_function, facts, visited, lowered_types, &mut BTreeMap::new(), ResourceTransferSite::Return(statement))?);
                 return Some(());
             }
+            let mut completion_source = None;
             let row = match node.kind {
                 ArenaStmtKind::Command(command) => {
                     let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
@@ -3593,14 +3677,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildStmtRow::Return { value }
                 }
                 ArenaStmtKind::Return(Some(value)) => {
-                    let value = match value {
-                        ArenaExprOrRun::Expr(expression) => self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
+                    let (source, source_expression) = match value {
+                        ArenaExprOrRun::Expr(expression) => (self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?, Some(expression)),
                         ArenaExprOrRun::Run(run) => {
                             let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
-                            self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
+                            (self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?, None)
                         }
                     };
-                    BuildStmtRow::Return { value: if facts.proc_return_site(node.span).is_some() { value } else { self.lift_scheme_return_value(value, facts, lowered_types)? } }
+                    let value = if facts.proc_return_site(node.span).is_some() { source } else {
+                        completion_source = Some((source, source_expression));
+                        self.lift_scheme_return_value(source, facts, lowered_types)?
+                    };
+                    BuildStmtRow::Return { value }
                 },
                 ArenaStmtKind::If { branches, else_block } => {
                     let mut lowered = Vec::new();
@@ -3698,9 +3786,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => return None,
             };
             let lowered = push_build_row!(self, stmt, row);
-            if matches!(node.kind, ArenaStmtKind::Return(_))
-                && let Some(site) = facts.proc_return_site(node.span)
-            { self.scratch.borrow_mut().scheme_application_returns.insert(lowered.index(), site); }
             let site = match node.kind {
                 ArenaStmtKind::Assign { .. } => Some(ResourceTransferSite::Assignment(statement)),
                 ArenaStmtKind::Return(_) => Some(ResourceTransferSite::Return(statement)),
@@ -3712,6 +3797,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 && let Some(site) = site
                 && self.require_resource_transfer_fact(statement, site)?
             { self.scratch.borrow_mut().mark_resource_transfer(lowered); }
+            if matches!(node.kind, ArenaStmtKind::Return(_))
+                && let Some(site) = facts.proc_return_site(node.span)
+            { self.scratch.borrow_mut().scheme_application_returns.insert(lowered.index(), site); }
+            if let Some((producer, source_expression)) = completion_source {
+                self.record_scheme_completion_source(lowered, producer, source_expression, facts, lowered_types)?;
+            }
             body.push(lowered);
             return Some(());
         }

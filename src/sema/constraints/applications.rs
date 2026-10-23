@@ -706,6 +706,13 @@ impl TypeConstraints {
             .ok_or_else(|| ConstraintResolutionError::ForeignVariable.into())
     }
 
+    pub(crate) fn referenced_callable_application_result(&self, reference: CallableApplicationReference) -> Result<crate::sema::types::Type, ConstraintResolutionError> {
+        let id = self.applications.scopes.get(&reference.scope).and_then(|scope| scope.get(reference.ordinal as usize)).copied()
+            .ok_or(ConstraintResolutionError::ForeignVariable)?;
+        let application = self.applications.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        self.resolve(&application.application.result)
+    }
+
     pub(crate) fn source_callable_application_reference(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Result<Option<CallableApplicationReference>, CallableApplicationError> {
         let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
         self.applications.source_sites.get(&(owner, span)).copied().map(|id| self.callable_application_reference(id)).transpose()

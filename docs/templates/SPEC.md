@@ -3332,6 +3332,10 @@ component publishes no member scheme.
   variants of one family join to the family, and incompatible types join to
   `Error`. A plain value return uses its actual propagated error types when
   present; a body without propagated errors retains the default `Error`.
+- When a guarded field creates a Proc completion group, original `Result`
+  returns and returned callable applications contribute their checked error
+  types to the same join. A formal value `T` remains data when an invocation
+  instantiates `T` with a `Result`.
 - Recursive `proc` value returns are solved within the same monomorphic
   component before generalization. `proc main` still needs an explicit value
   return type (`check.required-return`). Empty collections, error-only bodies, and
