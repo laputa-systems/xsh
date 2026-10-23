@@ -901,7 +901,6 @@ fn return_type_is_concrete(ty: &Type) -> bool {
         | Type::ErasedRecord
         | Type::Unknown
         | Type::Invalid
-        | Type::Null
         | Type::Function(_)
         | Type::DynamicModule => false,
         Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
@@ -1035,4 +1034,32 @@ fn binding_names(program: &ArenaProgram, target: BindingTargetId) -> Vec<Name> {
         });
     }
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_data_returns_publish_closed_function_contracts() {
+        let source = "pure pure_null() { null }\npure pure_row() { {raw: null} }\npure pure_list() { [null] }\nproc proc_null() { null }\nproc proc_row() { {raw: null} }\npure joined(flag: Bool) { if flag { {raw: null} } else { {raw: \"present\"} } }";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{errors:?}");
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let row = |field| Type::Record(BTreeMap::from([(Name::intern("raw"), field)]).into());
+        for (name, expected) in [
+            ("pure_null", Type::Null),
+            ("pure_row", row(Type::Null)),
+            ("pure_list", Type::List(Box::new(Type::Null))),
+            ("proc_null", Type::Result(Box::new(Type::Null), Box::new(Type::Error))),
+            ("proc_row", Type::Result(Box::new(row(Type::Null)), Box::new(Type::Error))),
+            ("joined", row(Type::Optional(Box::new(Type::Str)))),
+        ] {
+            let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == name).unwrap();
+            assert_eq!(checked.function_return_types.get(&declaration.body), Some(&expected), "{name}");
+        }
+    }
 }

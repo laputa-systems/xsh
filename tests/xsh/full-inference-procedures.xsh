@@ -5,6 +5,44 @@ proc full_inference_procedure_modules(ctx: TestContext) [fs, error] -> Result[Pa
   modules
 }
 
+test test_full_inference_null_data_returns_keep_exact_shapes { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure only_null() { null }
+pure null_data() { {raw: null, items: [null], outcome: Ok(null)} }
+proc null_task() { null }
+proc data_task() { null_data() }
+pure optional(flag: Bool) { if flag { null } else { "present" } }
+let exact: Null = only_null()
+let absent: Str? = only_null()
+let data = null_data()
+let task_value: Null = null_task()?
+let task_data = data_task()?
+assert exact == null
+assert absent == null
+assert task_value == null
+assert data.raw == null
+assert data.items == [null]
+assert data.outcome == Ok(null)
+assert task_data == data
+assert optional(true) == null
+assert optional(false) == "present"
+print "null data preserved"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "null data preserved\n"
+  test.expect(
+    ctx,
+    r"""type External = {raw: Str?}
+pure only_null() { null }
+let decoded: External = only_null()
+""",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+}
+
 test test_full_inference_private_and_imported_generic_procs_preserve_result_values { |ctx|
   let modules = full_inference_procedure_modules(ctx)?
   let output = test.run_xsh(
