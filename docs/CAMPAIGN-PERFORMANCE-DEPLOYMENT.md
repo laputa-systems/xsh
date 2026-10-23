@@ -12,6 +12,31 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
+Current combined source `e80adaf31` passes 130 of 131 focused Rust controls.
+The original optional-record, empty-list, index and slice composition now passes.
+The same source completes the full Rust library run: 2,172 pass, four fail,
+and three remain ignored. Its log is
+`.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-e80-full-library.log`.
+These results do not qualify the compiler.
+
+The four failures are the UInt-map error-contract control, two cross-output
+scheme pointer assertions, and a generic Proc call with an unresolved
+constructor error type. Published outputs intentionally rebase schemes into
+fresh owners, so the pointer controls need complete semantic comparisons while
+cached-source identity checks remain. The UInt repair must preserve callee
+capture boundaries through direct and materialized calls. A caller's outer
+`try` must not permit a callee to publish a Schema error under `Str`.
+
+Contextual-list repair `6c021dfcb`, integrated as `4832662a5`, and producer
+repair `e80adaf31` have clear independent source reviews. Producer proof reuses
+the shared owned Expression-fact query. Uniform native method effects remain
+independently checked. Receiver-dependent methods retain their selected effect
+proof. Immutable imported captures retain their actual binding and export
+identity. Combined products, native replay, corpus parity and final gates remain
+open. Tooling comparison also needs the published callable-relationship context;
+its focused controls pass, but an internal nested-factory review finding remains
+under repair.
+
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
 Terminal deferred actions retain Unit completion; assertion messages run only
