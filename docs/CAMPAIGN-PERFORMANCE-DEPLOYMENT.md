@@ -39,11 +39,23 @@ and genuine unsigned/schema meaning changes. No new removal credit is awarded.
 Products and logs remain in `.work/wt/full-inference-body-wave-qualification/`
 and `.work/wt/full-inference-body-library-qualification/`.
 
-Later provisional source `953d1e0ff` integrates focused-verified callback
-ownership, canonical record constructors and bare pipeline-input relationships.
-Their native fixtures and combined qualification remain pending. Open work
-includes constructor finalization, semantic contract comparison, nullable-target
-argument relationships, remaining pipeline families and practical Laputa imports.
+Provisional combined source `c0e6e773fde352d12abd261643d260ddee1cbf31`, tree
+`835823f555ce9a2732870d1097813e66af45bcfb`, additionally integrates the reviewed
+constructor-finalization, structural-interface comparison, nested Result source,
+known pipeline-item, fold/reduce and keyed/parallel callback repairs. Independent
+integration review finds no merge defect. Matching product preparation and the
+full Rust library boundary run in separate immutable checkouts under
+`.work/wt/full-inference-six-{wave,library}-qualification/`. Their results remain
+pending. The subsequent native boundary retains the full family and legacy/API
+selectors and adds the callback, fold, keyed, parallel and pattern fixtures plus
+the changed negative-index case; no formatter or autofixer is run.
+
+Open expert work covers nullable-target arguments, scoped parametric constructor
+schemas, actual sort/count key predicates, collection-expression bodies, local
+structural comparison and the real Laputa `pm.make` temporary-binding failure.
+The canonical application, scheme and execution authorities remain mandatory.
+Pyramid caller retirement proceeds independently; supported selectors and
+historical evidence remain until actual consumers justify their removal.
 
 Earlier return-repair source `ae7128949` integrates the strict process-word,
 boxed Null-return and pure conditional Result-tail repairs. Focused checks
