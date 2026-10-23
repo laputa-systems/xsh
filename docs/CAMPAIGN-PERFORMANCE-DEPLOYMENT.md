@@ -17,8 +17,18 @@ Current combined source `2da01f69b` completes the full Rust library run:
 `.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-full-library.log`.
 The sole failure is the known UInt-map error-contract control. The earlier
 `e80adaf31` run has four failures. All three other failures now pass on the
-combined source. These results do not qualify the compiler. Matching verification
-products are building for native capability and API replay.
+combined source. These results do not qualify the compiler.
+
+Matching verification products build without warnings. Normal and forced-frame
+native capability runs each pass all 143 selectors with no skips. Each run
+retains the earlier 140-selector boundary and adds three Proc-capture cases.
+All six API catalog selectors pass. Logs are under
+`.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-native-{normal,forced,api}`.
+The `xsh` product is 42,098,456 bytes with SHA-256
+`c6a6ffa4eeb8c81c95cc45237037bd6a29b280239684a908e6068c4e6a39aeed`.
+The `xsht` product is 50,484,864 bytes with SHA-256
+`a5b5c22a919a62a519470b37e1a38092a82e2949af6e88ba6530460d76923f48`.
+These are capability and API results, not full canonical or performance acceptance.
 
 The earlier failures are the UInt-map error-contract control, two cross-output
 scheme pointer assertions, and a lost callback argument relationship in a
