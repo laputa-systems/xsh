@@ -395,7 +395,7 @@ fn check_contracts(
             return Err(format!("{}::{name}: ambiguous declaration key", path.display()));
         }
     }
-    for declaration in checked.checked_declarations.functions.values().filter(|declaration| !declaration.internal) {
+    for (&definition, declaration) in checked.checked_declarations.functions.iter().filter(|(_, declaration)| !declaration.internal) {
         let source = sources.get(declaration.body.source_id).expect("checked declaration source exists");
         let path = bounded_file(Path::new(source.name()), original_root)?;
         let name = arena.symbol_owner().with_current(|| declaration.name.as_str().to_string());
@@ -405,7 +405,8 @@ fn check_contracts(
             }
             continue;
         }
-        let contract = declaration.callable_contract().ok_or_else(|| format!("{}::{name}: unsupported declaration contract", path.display()))?;
+        let contract = checked.callable_declaration_contract(definition)
+            .ok_or_else(|| format!("{}::{name}: unsupported declaration contract", path.display()))?;
         if contracts.insert((path.clone(), name.clone()), DeclarationContract::Callable { contract, exported: declaration.is_exported() }).is_some() {
             return Err(format!("{}::{name}: ambiguous declaration key", path.display()));
         }
@@ -503,6 +504,70 @@ export pure accepts(value: Instant) -> Bool { true }\n";
             let error = qualify(&original, &candidate, &["main.xsh", "model.xsh"]).unwrap_err();
             assert!(error.contains(diagnostic), "{changed_fact}: {error}");
         }
+    }
+
+    #[test]
+    fn paired_qualification_accepts_an_unchanged_returned_generic_callable() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let model = "##! Generic callable factory.\n\
+## Provides a generic identity callable.\n\
+export pure identity(value) { value }\n\
+## Returns the identity callable.\n\
+export pure get_identity() { let forwarded = identity; forwarded }\n";
+        let main = "use model\nlet identity = model.get_identity()\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\n";
+        for directory in [&original, &candidate] {
+            fs::write(directory.join("model.xsh"), model).unwrap();
+            fs::write(directory.join("main.xsh"), main).unwrap();
+        }
+        let qualify = |old: &Path, new: &Path| {
+            let entries = [new.join("main.xsh").to_str().unwrap().to_owned()];
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &entries, &StageTimings::start())
+        };
+
+        assert_eq!(qualify(&original, &original), Ok((2, 0)));
+        assert_eq!(qualify(&original, &candidate), Ok((2, 0)));
+    }
+
+    #[test]
+    fn paired_qualification_rejects_a_changed_returned_callable_target() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let original_model = "##! Generic callable factory.\n\
+## Provides a generic identity callable.\n\
+export pure identity(value) { value }\n\
+## Returns the identity callable.\n\
+export pure get_identity() { let forwarded = identity; forwarded }\n";
+        let candidate_model = original_model.replace(
+            "export pure identity(value) { value }",
+            "export pure identity(value: Int) -> Int { value }",
+        );
+        let main = "use model\nlet identity = model.get_identity()\n";
+        for (directory, model) in [(&original, original_model), (&candidate, candidate_model.as_str())] {
+            fs::write(directory.join("model.xsh"), model).unwrap();
+            fs::write(directory.join("main.xsh"), main).unwrap();
+        }
+        let qualify = |old: &Path, new: &Path| {
+            let entries = [new.join("main.xsh").to_str().unwrap().to_owned()];
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &entries, &StageTimings::start())
+        };
+
+        assert_eq!(qualify(&candidate, &candidate), Ok((2, 0)));
+        let error = qualify(&original, &candidate).unwrap_err();
+        assert!(error.contains("model.xsh::get_identity"), "{error}");
+        assert!(error.contains("contract mismatch"), "{error}");
+        assert!(error.contains("pure(value: T0) -> T0"), "{error}");
+        assert!(error.contains("pure(value: Int) -> Int"), "{error}");
     }
 
     #[test]

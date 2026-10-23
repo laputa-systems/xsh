@@ -1,4 +1,5 @@
 use super::{CheckedCallableContract, SchemaIdentity};
+use crate::sema::scheme_callable::SchemeCallableTable;
 use crate::syntax::arena::TypeDefId;
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::schemes::{
@@ -144,12 +145,23 @@ impl fmt::Display for CheckedCallableContract {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.symbol_owner.with_current(|| {
             let names = BinderNames::from_scheme(&self.scheme);
-            f.write_str(&render_scheme(&self.scheme, &names, &self.schema_identities))
+            let mut context = CallableRenderContext {
+                table: self.scheme_callables.as_deref(),
+                labels: Default::default(),
+                active: Default::default(),
+            };
+            f.write_str(&render_scheme(&self.scheme, &names, &self.schema_identities, &mut context))
         })
     }
 }
 
-fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
+struct CallableRenderContext<'a> {
+    table: Option<&'a SchemeCallableTable>,
+    labels: BTreeMap<crate::sema::scheme_callable::SchemeCallableId, usize>,
+    active: std::collections::BTreeSet<crate::sema::scheme_callable::SchemeCallableId>,
+}
+
+fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut parts = Vec::new();
     let quantifiers = names.quantifiers(scheme);
     if !quantifiers.is_empty() {
@@ -161,19 +173,19 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         scheme
             .params()
             .iter()
-            .map(|parameter| render_parameter(parameter, names, identities))
+            .map(|parameter| render_parameter(parameter, names, identities, context))
             .collect::<Vec<_>>()
             .join(", "),
-        render_scheme_type(scheme.return_type(), names, identities)
+        render_scheme_type(scheme.return_type(), names, identities, context)
     ));
     if let Some(schema) = scheme.return_schema() {
-        parts.push(format!("return-schema={}", render_schema(schema, identities)));
+        parts.push(format!("return-schema={}", render_schema(schema, identities, context)));
     }
     for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
-        let item = render_scheme_type(&iteration.item, names, identities);
+        let item = render_scheme_type(&iteration.item, names, identities, context);
         let failure = match &iteration.failure {
             crate::sema::schemes::IterationFailure::Infallible => "infallible".to_owned(),
-            crate::sema::schemes::IterationFailure::Propagates(error) => format!("error={}", render_scheme_type(error, names, identities)),
+            crate::sema::schemes::IterationFailure::Propagates(error) => format!("error={}", render_scheme_type(error, names, identities, context)),
         };
         let source_kind = match iteration.source_kind {
             crate::sema::schemes::IterationSourceKind::Direct => "direct-iterable",
@@ -183,8 +195,8 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     }
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     for operation in &scheme.callable().requirements().operations {
-        let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities)).collect::<Vec<_>>().join(", ");
-        let result = render_scheme_type(operation.result(), names, identities);
+        let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
+        let result = render_scheme_type(operation.result(), names, identities, context);
         parts.push(match operation {
             crate::sema::sealed_operation::SealedOperation::Binary(operation) => format!("arithmetic({:?}, {inputs}) -> {result}", operation.operator),
             crate::sema::sealed_operation::SealedOperation::Index { syntax, constant_key, .. } => {
@@ -200,7 +212,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         });
     }
     for wrapper in &scheme.callable().requirements().wrappers {
-        let types = wrapper.types().into_iter().map(|ty| render_scheme_type(ty, names, identities)).collect::<Vec<_>>().join(", ");
+        let types = wrapper.types().into_iter().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
         let effects = match &wrapper.kind {
             crate::sema::wrapper_operation::WrapperRequirementKind::Field { effects, .. } => format!(", effects={}", render_bound_effects(effects, names)),
             _ => String::new(),
@@ -210,28 +222,28 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     parts.join(" ")
 }
 
-fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
+fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut rendered = String::new();
     if parameter.rest {
         rendered.push_str("...");
     }
     rendered.push_str(&parameter.name.to_string());
     rendered.push_str(": ");
-    rendered.push_str(&render_scheme_type(&parameter.ty, names, identities));
+    rendered.push_str(&render_scheme_type(&parameter.ty, names, identities, context));
     if parameter.defaulted {
         rendered.push_str(" = default");
     }
     if let Some(schema) = &parameter.schema_expectation {
         rendered.push_str(" schema=");
-        rendered.push_str(&render_schema(schema, identities));
+        rendered.push_str(&render_schema(schema, identities, context));
     }
     rendered
 }
 
-fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
+fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     match ty {
-        SchemeType::Ground(ty) => render_type(ty),
-        SchemeType::SchemeCallable(_) => "callable".to_string(),
+        SchemeType::Ground(ty) => render_type(ty, context),
+        SchemeType::SchemeCallable(id) => render_scheme_callable(*id, context),
         SchemeType::Parameter(id) => names.type_name(*id),
         SchemeType::Callable {
             kind,
@@ -244,40 +256,40 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
                 monotype
                     .params()
                     .iter()
-                    .map(|parameter| render_parameter(parameter, names, identities))
+                    .map(|parameter| render_parameter(parameter, names, identities, context))
                     .collect::<Vec<_>>()
                     .join(", "),
-                render_scheme_type(monotype.return_type(), names, identities)
+                render_scheme_type(monotype.return_type(), names, identities, context)
             );
             if let Some(schema) = monotype.return_schema() {
                 rendered.push_str(" return-schema=");
-                rendered.push_str(&render_schema(schema, identities));
+                rendered.push_str(&render_schema(schema, identities, context));
             }
             rendered.push_str(" effects=");
             rendered.push_str(&render_bound_effects(effects, names));
             rendered
         }
-        SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names, identities)),
+        SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names, identities, context)),
         SchemeType::Map(key, value) if matches!(key.as_ref(), SchemeType::Ground(Type::Str)) => {
-            format!("Map[{}]", render_scheme_type(value, names, identities))
+            format!("Map[{}]", render_scheme_type(value, names, identities, context))
         }
         SchemeType::Map(key, value) => format!(
             "Map[{}, {}]",
-            render_scheme_type(key, names, identities),
-            render_scheme_type(value, names, identities)
+            render_scheme_type(key, names, identities, context),
+            render_scheme_type(value, names, identities, context)
         ),
-        SchemeType::Stream(item) => format!("Stream[{}]", render_scheme_type(item, names, identities)),
-        SchemeType::Set(item) => format!("Set[{}]", render_scheme_type(item, names, identities)),
+        SchemeType::Stream(item) => format!("Stream[{}]", render_scheme_type(item, names, identities, context)),
+        SchemeType::Set(item) => format!("Set[{}]", render_scheme_type(item, names, identities, context)),
         SchemeType::Result(ok, error) => format!(
             "Result[{}, {}]",
-            render_scheme_type(ok, names, identities),
-            render_scheme_type(error, names, identities)
+            render_scheme_type(ok, names, identities, context),
+            render_scheme_type(error, names, identities, context)
         ),
-        SchemeType::Optional(item) => format!("{}?", render_scheme_type(item, names, identities)),
+        SchemeType::Optional(item) => format!("{}?", render_scheme_type(item, names, identities, context)),
         SchemeType::Record { fields, tail } => {
             let mut entries = fields
                 .iter()
-                .map(|(name, ty)| format!("{name}: {}", render_scheme_type(ty, names, identities)))
+                .map(|(name, ty)| format!("{name}: {}", render_scheme_type(ty, names, identities, context)))
                 .collect::<Vec<_>>();
             if let crate::sema::schemes::SchemeRowTail::Parameter(id) = tail {
                 entries.push(format!("..{}", names.row_name(*id)));
@@ -288,17 +300,43 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
             "Union[{}]",
             members
                 .iter()
-                .map(|member| render_scheme_type(member, names, identities))
+                .map(|member| render_scheme_type(member, names, identities, context))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         SchemeType::Validated(validation, base) => {
-            render_validation(*validation, render_scheme_type(base, names, identities))
+            render_validation(*validation, render_scheme_type(base, names, identities, context))
         }
     }
 }
 
-fn render_callable_type(kind: &str, signature: &CallableType) -> String {
+fn render_scheme_callable(id: crate::sema::scheme_callable::SchemeCallableId, context: &mut CallableRenderContext<'_>) -> String {
+    use crate::sema::constraints::MAX_TYPE_DEPTH;
+    if let Some(label) = context.labels.get(&id) { return format!("callable#{label}"); }
+    if context.active.len() >= MAX_TYPE_DEPTH { return "callable{<recursive>}".to_owned(); }
+    let Some(table) = context.table else {
+        return "callable".to_owned();
+    };
+    let Ok(relationship) = table.relationship(id) else {
+        return "callable{<unavailable>}".to_owned();
+    };
+    let label = context.labels.len();
+    context.labels.insert(id, label);
+    context.active.insert(id);
+    let rendered = relationship.targets().iter().map(|target| {
+        let contract = target.contract();
+        contract.symbol_owner.with_current(|| {
+            let identity = target.target();
+            let name = identity.namespace.map_or_else(|| identity.name.to_string(), |namespace| format!("{namespace}::{}", identity.name));
+            let names = BinderNames::from_scheme(contract.scheme());
+            format!("{name}: {}", render_scheme(contract.scheme(), &names, &contract.schema_identities, context))
+        })
+    }).collect::<Vec<_>>().join("; ");
+    context.active.remove(&id);
+    format!("callable#{label}{{{rendered}}}")
+}
+
+fn render_callable_type(kind: &str, signature: &CallableType, context: &mut CallableRenderContext<'_>) -> String {
     let mut rendered = format!(
         "{}({}) -> {}",
         kind,
@@ -311,12 +349,12 @@ fn render_callable_type(kind: &str, signature: &CallableType) -> String {
                 format!(
                     "{rest}{}: {}{default}",
                     parameter.name,
-                    render_type(&parameter.ty)
+                    render_type(&parameter.ty, context)
                 )
             })
             .collect::<Vec<_>>()
             .join(", "),
-        render_type(&signature.return_ty)
+        render_type(&signature.return_ty, context)
     );
     rendered.push_str(" effects=");
     match signature.effects.concrete() {
@@ -326,26 +364,27 @@ fn render_callable_type(kind: &str, signature: &CallableType) -> String {
     rendered
 }
 
-fn render_type(ty: &Type) -> String {
+fn render_type(ty: &Type, context: &mut CallableRenderContext<'_>) -> String {
     match ty {
-        Type::List(item) => format!("List[{}]", render_type(item)),
+        Type::SchemeCallable(id) => render_scheme_callable(*id, context),
+        Type::List(item) => format!("List[{}]", render_type(item, context)),
         Type::Map(key, value) if matches!(key.as_ref(), Type::Str) => {
-            format!("Map[{}]", render_type(value))
+            format!("Map[{}]", render_type(value, context))
         }
         Type::Map(key, value) => {
-            format!("Map[{}, {}]", render_type(key), render_type(value))
+            format!("Map[{}, {}]", render_type(key, context), render_type(value, context))
         }
-        Type::Stream(item) => format!("Stream[{}]", render_type(item)),
-        Type::Set(item) => format!("Set[{}]", render_type(item)),
+        Type::Stream(item) => format!("Stream[{}]", render_type(item, context)),
+        Type::Set(item) => format!("Set[{}]", render_type(item, context)),
         Type::Result(ok, error) => {
-            format!("Result[{}, {}]", render_type(ok), render_type(error))
+            format!("Result[{}, {}]", render_type(ok, context), render_type(error, context))
         }
-        Type::Optional(item) => format!("{}?", render_type(item)),
+        Type::Optional(item) => format!("{}?", render_type(item, context)),
         Type::Record(fields) => format!(
             "{{{}}}",
             fields
                 .iter()
-                .map(|(name, ty)| format!("{name}: {}", render_type(ty)))
+                .map(|(name, ty)| format!("{name}: {}", render_type(ty, context)))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -356,21 +395,22 @@ fn render_type(ty: &Type) -> String {
                 module
                     .exports
                     .iter()
-                    .map(|(name, export)| render_module_export(*name, export))
+                    .map(|(name, export)| render_module_export(*name, export, context))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
         }
         Type::Union(members) => format!(
             "Union[{}]",
-            members.iter().map(render_type).collect::<Vec<_>>().join(", ")
+            members.iter().map(|member| render_type(member, context)).collect::<Vec<_>>().join(", ")
         ),
         Type::Callable(callable) => render_callable_type(
             callable_kind(callable.kind),
             &callable.sig,
+            context,
         ),
         Type::Validated(validated) => {
-            render_validation(validated.validation(), render_type(validated.base()))
+            render_validation(validated.validation(), render_type(validated.base(), context))
         }
         Type::Tag(name) | Type::ErrorFamily(name) | Type::ErrorFacet(name) => name.to_string(),
         Type::ErrorVariant { family, variant } => format!("{family}.{variant}"),
@@ -379,17 +419,17 @@ fn render_type(ty: &Type) -> String {
     }
 }
 
-fn render_module_export(name: crate::symbol::Name, export: &ModuleExportType) -> String {
+fn render_module_export(name: crate::symbol::Name, export: &ModuleExportType, context: &mut CallableRenderContext<'_>) -> String {
     match export {
         ModuleExportType::Value { ty, optional } => format!(
             "{name}{}: {}",
             if *optional { "?" } else { "" },
-            render_type(ty)
+            render_type(ty, context)
         ),
         ModuleExportType::Callable { kind, sig, optional } => format!(
             "{name}{}: {}",
             if *optional { "?" } else { "" },
-            render_callable_type(callable_kind(*kind), sig)
+            render_callable_type(callable_kind(*kind), sig, context)
         ),
         ModuleExportType::GenericCallable { kind, optional } => format!(
             "{name}{}: generic {}",
@@ -408,7 +448,7 @@ fn render_validation(validation: Validation, base: String) -> String {
     }
 }
 
-fn render_schema(expectation: &SchemaExpectation, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
+fn render_schema(expectation: &SchemaExpectation, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut entries = expectation
         .instances
         .iter()
@@ -419,14 +459,14 @@ fn render_schema(expectation: &SchemaExpectation, identities: &BTreeMap<TypeDefI
                 instance
                     .arguments
                     .iter()
-                    .map(render_type)
+                    .map(|ty| render_type(ty, context))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
         })
         .collect::<Vec<_>>();
     entries.extend(expectation.children.iter().map(|(component, child)| {
-        format!("{}: {}", render_schema_component(*component), render_schema(child, identities))
+        format!("{}: {}", render_schema_component(*component), render_schema(child, identities, context))
     }));
     format!("{{{}}}", entries.join(", "))
 }

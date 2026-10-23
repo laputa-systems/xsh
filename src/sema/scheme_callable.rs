@@ -106,12 +106,15 @@ impl SchemeCallableRelationship {
     pub(crate) fn canonical(&self) -> &CheckedCallableContract { &self.canonical }
     pub(crate) fn targets(&self) -> &[SchemeCallableTarget] { &self.targets }
 
-    pub(crate) fn new(mut targets: Vec<(CheckedFunctionTarget, CheckedCallableContract)>) -> Result<Self, SchemeCallableError> {
+    pub(crate) fn new(
+        mut targets: Vec<(CheckedFunctionTarget, CheckedCallableContract)>,
+        callables: &SchemeCallableTable,
+    ) -> Result<Self, SchemeCallableError> {
         targets.sort_by_key(|(target, _)| (target.namespace, target.name, target.definition.index()));
         if targets.windows(2).any(|pair| pair[0].0 == pair[1].0) { return Err(SchemeCallableError::DuplicateTarget); }
         let canonical = targets.first().ok_or(SchemeCallableError::EmptyTargets)?.1.clone();
         let targets = targets.into_iter().map(|(target, contract)| {
-            let correspondence = canonical.binder_correspondence(&contract).ok_or(SchemeCallableError::IncompatibleContract)?;
+            let correspondence = canonical.binder_correspondence(&contract, callables).ok_or(SchemeCallableError::IncompatibleContract)?;
             Ok(SchemeCallableTarget { target, contract, correspondence })
         }).collect::<Result<Vec<_>, _>>()?;
         Ok(Self { canonical, targets })
@@ -121,8 +124,8 @@ impl SchemeCallableRelationship {
         self.targets.iter().map(|target| (target.target.namespace, target.target.name, target.target.definition.index())).collect()
     }
 
-    pub(crate) fn agrees_with(&self, other: &Self) -> bool {
-        self.canonical.equivalent_to(&other.canonical)
+    pub(crate) fn agrees_with(&self, other: &Self, callables: &SchemeCallableTable) -> bool {
+        self.canonical.equivalent_to_in_table(&other.canonical, callables)
             && self.targets.len() == other.targets.len()
             && self.targets.iter().zip(&other.targets).all(|(left, right)| left.target == right.target && left.correspondence == right.correspondence)
     }
@@ -182,9 +185,9 @@ impl SchemeCallableTable {
 
     #[cfg(test)]
     pub(crate) fn insert(&mut self, targets: Vec<(CheckedFunctionTarget, CheckedCallableContract)>) -> Result<SchemeCallableId, SchemeCallableError> {
-        let relationship = Arc::new(SchemeCallableRelationship::new(targets)?);
+        let relationship = Arc::new(SchemeCallableRelationship::new(targets, self)?);
         let (id, actual) = self.intern_prepared(Arc::clone(&relationship))?;
-        if !actual.agrees_with(&relationship) { return Err(SchemeCallableError::IncompatibleContract); }
+        if !actual.agrees_with(&relationship, self) { return Err(SchemeCallableError::IncompatibleContract); }
         Ok(id)
     }
 
@@ -265,9 +268,16 @@ impl SchemeCallableRebaser {
                 let scheme = self.scheme_at_depth(target.contract.scheme(), source, depth + 1)?;
                 targets.push((target.target, target.contract.with_rebased_scheme(scheme)));
             }
-            let prepared = Arc::new(SchemeCallableRelationship::new(targets)?);
-            let (id, actual) = self.destination.lock().expect("checked scheme callable table is poisoned").intern_prepared(Arc::clone(&prepared))?;
-            if !actual.agrees_with(&prepared) { return Err(SchemeCallableError::IncompatibleContract); }
+            let prepared = {
+                let destination = self.destination.lock().expect("checked scheme callable table is poisoned");
+                Arc::new(SchemeCallableRelationship::new(targets, &destination)?)
+            };
+            let id = {
+                let mut destination = self.destination.lock().expect("checked scheme callable table is poisoned");
+                let (id, actual) = destination.intern_prepared(Arc::clone(&prepared))?;
+                if !actual.agrees_with(&prepared, &destination) { return Err(SchemeCallableError::IncompatibleContract); }
+                id
+            };
             Ok(id)
         })();
         self.active.remove(&id);
@@ -281,6 +291,7 @@ impl SchemeCallableRebaser {
 mod tests {
     use super::*;
     use crate::sema::check::{CheckOptions, Checker};
+    use crate::sema::types::Type;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
 
@@ -326,5 +337,48 @@ mod tests {
         }
         assert_eq!(table.insert(Vec::new()), Err(SchemeCallableError::EmptyTargets));
         assert_eq!(table.insert(vec![targets[0].clone(), targets[0].clone()]), Err(SchemeCallableError::DuplicateTarget));
+    }
+
+    #[test]
+    fn rebase_preserves_nested_factory_relationships_and_rejects_foreign_mismatch() {
+        fn checked_factory(target: &str) -> (crate::sema::check::CheckOutput, crate::source::Span) {
+            let source = format!(
+                "pure identity(value) {{ value }}\npure alternative(value) {{ value }}\npure factory(marker) {{ let _ = marker; let forwarded = {target}; forwarded }}\nlet saved = factory\n"
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let start = source.rfind("factory").unwrap();
+            let span = crate::source::Span::new(SourceId::new(0), start, start + "factory".len());
+            (checked, span)
+        }
+
+        let (checked, span) = checked_factory("identity");
+        let source_contract = checked.callable_value_contract_at(span).unwrap();
+        let Type::SchemeCallable(source_outer) = &checked.expr_types[&span] else { panic!("the factory value retains its relationship"); };
+        let outer = checked.scheme_callables.get(*source_outer).unwrap();
+        let crate::sema::schemes::SchemeType::SchemeCallable(source_inner) = outer.canonical().scheme().return_type() else {
+            panic!("the factory returns a nested generic callable relationship");
+        };
+
+        let mut rebaser = SchemeCallableRebaser::new(Arc::new(std::sync::Mutex::new(SchemeCallableTable::default())));
+        let destination_outer = rebaser.relationship(*source_outer, &checked.scheme_callables, 0).unwrap();
+        let destination = rebaser.snapshot();
+        let destination_relationship = destination.get(destination_outer).unwrap();
+        let crate::sema::schemes::SchemeType::SchemeCallable(destination_inner) = destination_relationship.canonical().scheme().return_type() else {
+            panic!("the rebased factory retains its nested relationship");
+        };
+        assert_ne!(*source_inner, *destination_inner);
+        assert!(checked.scheme_callables.get(*source_inner).is_ok());
+        assert!(destination.get(*destination_inner).is_ok());
+        assert_eq!(checked.scheme_callables.get(*destination_inner).unwrap_err(), SchemeCallableError::ForeignOwner);
+        assert_eq!(destination.get(*source_inner).unwrap_err(), SchemeCallableError::ForeignOwner);
+        assert!(source_contract.equivalent_to(&source_contract));
+
+        let (foreign, foreign_span) = checked_factory("alternative");
+        let foreign_contract = foreign.callable_value_contract_at(foreign_span).unwrap();
+        assert!(!source_contract.equivalent_to(&foreign_contract));
     }
 }

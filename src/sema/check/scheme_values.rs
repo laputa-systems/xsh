@@ -19,16 +19,18 @@ impl Checker {
             (Type::SchemeCallable(left), Type::SchemeCallable(right)) => {
                 let left = self.scheme_callable_relationship(*left).ok()?;
                 let right = self.scheme_callable_relationship(*right).ok()?;
+                let callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
                 let mut targets = std::collections::BTreeMap::new();
                 for target in left.targets().iter().chain(right.targets()) {
                     let identity = target.target();
                     let key = (identity.namespace, identity.name, identity.definition.index());
                     if let Some((_, contract)) = targets.get(&key)
-                        && !target.contract().equivalent_to(contract)
+                        && !target.contract().equivalent_to_in_table(contract, &callables)
                     { return None; }
                     targets.insert(key, (identity, target.contract().clone()));
                 }
-                let prepared = SchemeCallableRelationship::new(targets.into_values().collect()).ok()?;
+                let prepared = SchemeCallableRelationship::new(targets.into_values().collect(), &callables).ok()?;
+                drop(callables);
                 Some(Type::SchemeCallable(self.intern_scheme_callable_relationship(prepared).ok()?))
             }
             (Type::List(left), Type::List(right)) => Some(Type::List(Box::new(self.merge_scheme_callable_parts(left, right)?))),
@@ -50,9 +52,11 @@ impl Checker {
     fn scheme_callable_parts_compatible(&self, left: &Type, right: &Type) -> bool {
         if left == right { return true; }
         match (left, right) {
-            (Type::SchemeCallable(left), Type::SchemeCallable(right)) => self.scheme_callable_relationship(*left).ok()
-                .zip(self.scheme_callable_relationship(*right).ok())
-                .is_some_and(|(left, right)| left.canonical().equivalent_to(right.canonical())),
+            (Type::SchemeCallable(left), Type::SchemeCallable(right)) => {
+                let callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
+                callables.relationship(*left).ok().zip(callables.relationship(*right).ok())
+                    .is_some_and(|(left, right)| left.canonical().equivalent_to_in_table(right.canonical(), &callables))
+            }
             (Type::List(left), Type::List(right)) | (Type::Optional(left), Type::Optional(right)) => self.scheme_callable_parts_compatible(left, right),
             (Type::Result(left, left_error), Type::Result(right, right_error)) => left_error == right_error && self.scheme_callable_parts_compatible(left, right),
             (Type::Record(left), Type::Record(right)) => left.keys().eq(right.keys()) && left.iter().all(|(name, left)| self.scheme_callable_parts_compatible(left, &right[name])),
@@ -70,8 +74,9 @@ impl Checker {
 
     fn intern_scheme_callable_relationship(&mut self, prepared: SchemeCallableRelationship) -> Result<SchemeCallableId, SchemeCallableError> {
         let prepared = Arc::new(prepared);
-        let (id, actual) = self.scheme_callables.lock().expect("checked scheme callable table is poisoned").intern_prepared(Arc::clone(&prepared))?;
-        if !actual.agrees_with(&prepared) { return Err(SchemeCallableError::IncompatibleContract); }
+        let mut callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
+        let (id, actual) = callables.intern_prepared(Arc::clone(&prepared))?;
+        if !actual.agrees_with(&prepared, &callables) { return Err(SchemeCallableError::IncompatibleContract); }
         Ok(id)
     }
 
@@ -80,7 +85,11 @@ impl Checker {
         if !named.signature.scheme().callable().is_quantified() { return None; }
         let target = named.signature.definition_target()?;
         let contract = self.scheme_value_contract(program, &named.signature);
-        let prepared = match SchemeCallableRelationship::new(vec![(target, contract)]) {
+        let prepared = {
+            let callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
+            SchemeCallableRelationship::new(vec![(target, contract)], &callables)
+        };
+        let prepared = match prepared {
             Ok(relationship) => relationship,
             Err(error) => {
                 self.error(span, &format!("callable value has no complete scheme: {error:?}"), DiagnosticCode::CheckLocalInference);
@@ -180,6 +189,36 @@ mod tests {
     }
 
     #[test]
+    fn callable_lists_merge_nested_relationships_but_reject_changed_targets() {
+        fn check(second_target: &str) -> (String, crate::sema::check::CheckOutput, Vec<crate::source::Span>) {
+            let source = format!(
+                "pure identity(value) {{ value }}\npure alternative(value) {{ value }}\npure first(marker) {{ let _ = marker; let forwarded = identity; forwarded }}\npure second(marker) {{ let _ = marker; let forwarded = {second_target}; forwarded }}\nlet operations = [first, second]\n"
+            );
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let lists = parsed.arena.arena.source_rows().expr_ids(crate::source::SourceId::new(0)).filter(|&expression| {
+                matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+            }).map(|expression| parsed.arena.arena.expr(expression).span).collect();
+            (source, checked, lists)
+        }
+
+        let (_, checked, lists) = check("identity");
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let [list] = lists.as_slice() else { panic!("the source contains one callable family"); };
+        let Type::List(item) = &checked.expr_types[list] else { panic!("the joined value remains a list"); };
+        let Type::SchemeCallable(relationship) = item.as_ref() else { panic!("the list retains callable target relationships"); };
+        let relationship = checked.scheme_callables.get(*relationship).unwrap();
+        let mut names = relationship.targets().iter().map(|target| target.target().name.to_string()).collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, ["first", "second"]);
+
+        let (source, rejected, _) = check("alternative");
+        assert!(rejected.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)),
+            "{source}\n{:?}", rejected.diagnostics);
+    }
+
+    #[test]
     fn checker_probes_share_append_identity_without_mutating_published_snapshots() {
         let source = "pure first(value) { value }\npure second(value) { value }\n";
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
@@ -191,15 +230,27 @@ mod tests {
             function.callable_contract().unwrap(),
         )).collect::<Vec<_>>();
         let mut checker = Checker::new(super::super::CheckOptions::for_execution());
-        let first = checker.intern_scheme_callable_relationship(SchemeCallableRelationship::new(vec![targets[0].clone()]).unwrap()).unwrap();
+        let first_relationship = {
+            let callables = checker.scheme_callables.lock().unwrap();
+            SchemeCallableRelationship::new(vec![targets[0].clone()], &callables).unwrap()
+        };
+        let first = checker.intern_scheme_callable_relationship(first_relationship).unwrap();
         let published = checker.scheme_callables.lock().unwrap().snapshot();
         let mut probe = checker.clone();
         assert!(Arc::ptr_eq(&checker.scheme_callables, &probe.scheme_callables));
-        let second = probe.intern_scheme_callable_relationship(SchemeCallableRelationship::new(vec![targets[1].clone()]).unwrap()).unwrap();
+        let second_relationship = {
+            let callables = probe.scheme_callables.lock().unwrap();
+            SchemeCallableRelationship::new(vec![targets[1].clone()], &callables).unwrap()
+        };
+        let second = probe.intern_scheme_callable_relationship(second_relationship).unwrap();
         assert!(checker.scheme_callable_relationship(second).is_ok());
         assert!(published.get(first).is_ok());
         assert_eq!(published.get(second).unwrap_err(), SchemeCallableError::UnknownRelationship);
-        assert_eq!(checker.intern_scheme_callable_relationship(SchemeCallableRelationship::new(vec![targets[1].clone()]).unwrap()).unwrap(), second);
+        let repeated_relationship = {
+            let callables = checker.scheme_callables.lock().unwrap();
+            SchemeCallableRelationship::new(vec![targets[1].clone()], &callables).unwrap()
+        };
+        assert_eq!(checker.intern_scheme_callable_relationship(repeated_relationship).unwrap(), second);
         let complete = probe.scheme_callables.lock().unwrap().snapshot();
         let mut rebaser = crate::sema::scheme_callable::SchemeCallableRebaser::new(Arc::new(std::sync::Mutex::new(Default::default())));
         rebaser.import_table(&complete).unwrap();

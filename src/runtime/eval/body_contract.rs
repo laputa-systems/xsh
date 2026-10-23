@@ -83,9 +83,9 @@ pub fn checked_body_contracts(checked: CheckOutput, program: &ArenaProgram, sour
     }
     let pending = PendingBodyContracts::capture(&checked, program, sources).map_err(CheckedBodyContractError::Semantic)?;
     let mut interfaces = BTreeMap::new();
-    for declaration in checked.checked_declarations.functions.values().filter(|declaration| !declaration.internal) {
+    for (&definition, declaration) in checked.checked_declarations.functions.iter().filter(|(_, declaration)| !declaration.internal) {
         if let Some((index, _)) = pending.canonical_site(BodyContractSite::Return { declaration: declaration.body }).map_err(CheckedBodyContractError::Semantic)? {
-            interfaces.insert(index, declaration.callable_contract());
+            interfaces.insert(index, checked.callable_declaration_contract(definition));
         }
     }
     let declarations = Checker::compact_declarations(program, checked);

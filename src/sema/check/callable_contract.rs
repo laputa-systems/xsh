@@ -5,6 +5,8 @@ use crate::sema::schemes::{CallableMonotype, SchemeRowParameterId,
 use crate::symbol::SymbolOwner;
 use crate::syntax::arena::{ArenaProgram, TypeDefId};
 use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 mod render;
@@ -16,6 +18,7 @@ pub struct CheckedCallableContract {
     scheme: Arc<TypeScheme>,
     symbol_owner: SymbolOwner,
     schema_identities: Arc<BTreeMap<TypeDefId, SchemaIdentity>>,
+    scheme_callables: Option<Arc<super::super::scheme_callable::SchemeCallableTable>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,6 +80,7 @@ impl Checker {
             scheme: Arc::clone(signature.scheme()),
             symbol_owner: program.symbol_owner().clone(),
             schema_identities: self.callable_schema_identities(program, signature.scheme()),
+            scheme_callables: None,
         }
     }
 
@@ -128,7 +132,7 @@ pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::se
 pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
-    BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas }.schema(left, right)
+    BoundEquivalence::new(left_schemas, right_schemas, None, None).schema(left, right)
 }
 
 pub(super) fn same_bound_effects(
@@ -136,7 +140,7 @@ pub(super) fn same_bound_effects(
     right: &crate::sema::effects::CheckedEffects, right_owner: &TypeScheme,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>,
 ) -> bool {
-    let mut equivalence = BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas };
+    let mut equivalence = BoundEquivalence::new(left_schemas, right_schemas, None, None);
     equivalence.scheme(left_owner, right_owner) && equivalence.effects(left.contract(), right.contract())
 }
 
@@ -144,7 +148,7 @@ pub(super) fn same_bound_operand(
     left: &SchemeType, left_owner: &TypeScheme, right: &SchemeType, right_owner: &TypeScheme,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>,
 ) -> bool {
-    let mut equivalence = BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas };
+    let mut equivalence = BoundEquivalence::new(left_schemas, right_schemas, None, None);
     if !equivalence.scheme(left_owner, right_owner) { return false; }
     let bound_types = equivalence.types.len();
     let bound_rows = equivalence.rows.len();
@@ -153,7 +157,12 @@ pub(super) fn same_bound_operand(
 
 impl CheckedCallableContract {
     pub(crate) fn with_rebased_scheme(&self, scheme: Arc<TypeScheme>) -> Self {
-        Self { scheme, symbol_owner: self.symbol_owner.clone(), schema_identities: Arc::clone(&self.schema_identities) }
+        Self { scheme, symbol_owner: self.symbol_owner.clone(), schema_identities: Arc::clone(&self.schema_identities), scheme_callables: None }
+    }
+
+    pub(crate) fn with_scheme_callables(mut self, scheme_callables: Arc<super::super::scheme_callable::SchemeCallableTable>) -> Self {
+        self.scheme_callables = Some(scheme_callables);
+        self
     }
 
     pub(crate) fn retained_heap_bytes(&self, schemes: &mut BTreeSet<usize>, schemas: &mut BTreeSet<usize>) -> usize {
@@ -168,11 +177,13 @@ impl CheckedCallableContract {
 
     pub(crate) fn scheme(&self) -> &Arc<TypeScheme> { &self.scheme }
 
-    pub(crate) fn binder_correspondence(&self, other: &Self) -> Option<SchemeBinderCorrespondence> {
-        let mut equivalence = BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
-            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
-        };
+    pub(crate) fn binder_correspondence(
+        &self,
+        other: &Self,
+        callables: &super::super::scheme_callable::SchemeCallableTable,
+    ) -> Option<SchemeBinderCorrespondence> {
+        let mut equivalence = BoundEquivalence::new(&self.schema_identities, &other.schema_identities,
+            Some(callables), Some(callables));
         if !equivalence.scheme(&self.scheme, &other.scheme)
             || !equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
             || equivalence.types.len() != self.scheme.type_parameters().len()
@@ -194,10 +205,25 @@ impl CheckedCallableContract {
     /// Free and nominal identities, labels, schemas, layout, and effects remain
     /// part of the contract; annotation and inference provenance do not.
     pub fn equivalent_to(&self, other: &Self) -> bool {
-        let mut equivalence = BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
-            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
-        };
+        self.equivalent_to_with(other, self.scheme_callables.as_deref(), other.scheme_callables.as_deref())
+    }
+
+    pub(crate) fn equivalent_to_in_table(
+        &self,
+        other: &Self,
+        callables: &super::super::scheme_callable::SchemeCallableTable,
+    ) -> bool {
+        self.equivalent_to_with(other, Some(callables), Some(callables))
+    }
+
+    fn equivalent_to_with(
+        &self,
+        other: &Self,
+        left_callables: Option<&super::super::scheme_callable::SchemeCallableTable>,
+        right_callables: Option<&super::super::scheme_callable::SchemeCallableTable>,
+    ) -> bool {
+        let mut equivalence = BoundEquivalence::new(&self.schema_identities, &other.schema_identities,
+            left_callables, right_callables);
         equivalence.scheme(&self.scheme, &other.scheme)
             && equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
     }
@@ -207,6 +233,11 @@ impl CheckedCallableContract {
     /// Returns an error when the original is generic or the comparison cannot
     /// establish a resolved instance. An error does not establish a mismatch.
     pub fn is_instance_of(&self, generalized: &Self) -> Result<bool, ContractComparisonError> {
+        if !self.is_generic() && !generalized.is_generic()
+            && (scheme_has_callable_relationship(&self.scheme) || scheme_has_callable_relationship(&generalized.scheme))
+        {
+            return Ok(self.equivalent_to(generalized));
+        }
         self.instance_evidence(generalized).map(|evidence| evidence.is_some())
     }
 
@@ -222,10 +253,8 @@ impl CheckedCallableContract {
         {
             return Ok(None);
         }
-        let schemas = BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
-            left_schemas: &self.schema_identities, right_schemas: &generalized.schema_identities,
-        };
+        let schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
+            self.scheme_callables.as_deref(), generalized.scheme_callables.as_deref());
         if !schemas.schema(self.scheme.return_schema(), generalized.scheme.return_schema())
             || !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)| {
                 old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest
@@ -269,10 +298,8 @@ impl CheckedCallableContract {
     /// An unknown contract remains unknown in the result.
     pub fn join_effects(&self, other: &Self) -> Option<Self> {
         if !self.same_shape(other) { return None; }
-        let mut equivalence = BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
-            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
-        };
+        let mut equivalence = BoundEquivalence::new(&self.schema_identities, &other.schema_identities,
+            self.scheme_callables.as_deref(), other.scheme_callables.as_deref());
         if !equivalence.scheme(&self.scheme, &other.scheme) { return None; }
         let right = other.scheme.effects().contract().substitute(|id| {
             equivalence.effects.iter().find_map(|(left, right)| (right == id).then_some(*left))
@@ -284,6 +311,7 @@ impl CheckedCallableContract {
                 self.scheme.inferred_effects() || other.scheme.inferred_effects()).ok()?),
             symbol_owner: self.symbol_owner.clone(),
             schema_identities: Arc::clone(&self.schema_identities),
+            scheme_callables: self.scheme_callables.as_ref().map(Arc::clone),
         })
     }
 
@@ -317,10 +345,8 @@ impl CheckedCallableContract {
     }
 
     fn same_shape(&self, other: &Self) -> bool {
-        BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
-            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
-        }.scheme(&self.scheme, &other.scheme)
+        BoundEquivalence::new(&self.schema_identities, &other.schema_identities,
+            self.scheme_callables.as_deref(), other.scheme_callables.as_deref()).scheme(&self.scheme, &other.scheme)
     }
 }
 
@@ -330,6 +356,7 @@ impl CheckedFunctionDeclaration {
             scheme: Arc::clone(self.scheme.as_ref()?),
             symbol_owner: self.symbol_owner.clone(),
             schema_identities: Arc::clone(&self.schema_identities),
+            scheme_callables: None,
         })
     }
 }
@@ -342,6 +369,15 @@ impl CheckOutput {
         self.checked_declarations.functions.get(&target.definition)
             .filter(|declaration| declaration.name == target.name && declaration.namespace == target.namespace)?
             .callable_contract()
+            .map(|contract| contract.with_scheme_callables(Arc::clone(&self.scheme_callables)))
+    }
+
+    /// Returns a checked declaration contract with the relationship context
+    /// published by the same check.
+    pub fn callable_declaration_contract(&self, definition: crate::syntax::arena::FunctionDefId) -> Option<CheckedCallableContract> {
+        self.checked_declarations.functions.get(&definition)?
+            .callable_contract()
+            .map(|contract| contract.with_scheme_callables(Arc::clone(&self.scheme_callables)))
     }
 
     /// Returns the declaration contract of a checked function value reference.
@@ -361,12 +397,51 @@ fn schema_has_obligations(schema: &SchemaExpectation) -> bool {
     false
 }
 
+fn scheme_has_callable_relationship(scheme: &TypeScheme) -> bool {
+    scheme.params().iter().map(|parameter| &parameter.ty).chain(std::iter::once(scheme.return_type()))
+        .filter_map(SchemeType::closed_ground_type)
+        .any(|ty| ty.contains_scheme_callable())
+}
+
 struct BoundEquivalence<'a> {
     types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
     rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
     effects: BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId>,
     left_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
     right_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
+    left_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>,
+    right_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>,
+    active_callables: BTreeSet<(crate::sema::scheme_callable::SchemeCallableId, crate::sema::scheme_callable::SchemeCallableId)>,
+    completed_callables: Option<Rc<RefCell<SchemeCallableComparisonMemo>>>,
+}
+
+#[derive(Default)]
+struct SchemeCallableComparisonMemo {
+    completed: BTreeMap<(
+        crate::sema::scheme_callable::SchemeCallableId,
+        crate::sema::scheme_callable::SchemeCallableId,
+        usize,
+    ), bool>,
+    #[cfg(test)]
+    expansions: usize,
+}
+
+impl<'a> BoundEquivalence<'a> {
+    fn new(left_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
+        left_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>,
+        right_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>) -> Self
+    {
+        Self::with_memo(left_schemas, right_schemas, left_callables, right_callables, None)
+    }
+
+    fn with_memo(left_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
+        left_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>,
+        right_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>,
+        completed_callables: Option<Rc<RefCell<SchemeCallableComparisonMemo>>>) -> Self
+    {
+        Self { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas,
+            left_callables, right_callables, active_callables: BTreeSet::new(), completed_callables }
+    }
 }
 
 fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key) -> bool {
@@ -485,12 +560,106 @@ impl BoundEquivalence<'_> {
             .map(crate::sema::effects::EffectContract::variable).ok_or(())).is_ok_and(|left| &left == right)
     }
 
+    fn contract(&mut self, left: &CheckedCallableContract, right: &CheckedCallableContract) -> bool {
+        let mut equivalence = BoundEquivalence::with_memo(&left.schema_identities, &right.schema_identities,
+            self.left_callables, self.right_callables, self.completed_callables.as_ref().map(Rc::clone));
+        equivalence.active_callables = self.active_callables.clone();
+        equivalence.scheme(&left.scheme, &right.scheme)
+            && equivalence.effects(left.scheme.effects().contract(), right.scheme.effects().contract())
+    }
+
+    fn scheme_callable(&mut self, left: crate::sema::scheme_callable::SchemeCallableId,
+        right: crate::sema::scheme_callable::SchemeCallableId) -> bool
+    {
+        use crate::sema::constraints::MAX_TYPE_DEPTH;
+        let pair = (left, right);
+        if self.active_callables.contains(&pair) || self.active_callables.len() >= MAX_TYPE_DEPTH { return false; }
+        let key = (left, right, self.active_callables.len());
+        if let Some(memo) = &self.completed_callables {
+            if let Some(&completed) = memo.borrow().completed.get(&key) { return completed; }
+        }
+        let (Some(left_table), Some(right_table)) = (self.left_callables, self.right_callables) else { return false; };
+        let (Ok(left), Ok(right)) = (left_table.relationship(left), right_table.relationship(right)) else { return false; };
+        if left.targets().len() != right.targets().len() { return false; }
+        let mut left_targets = left.targets().iter().collect::<Vec<_>>();
+        let mut right_targets = right.targets().iter().collect::<Vec<_>>();
+        left_targets.sort_by_key(|target| { let identity = target.target(); (identity.namespace, identity.name) });
+        right_targets.sort_by_key(|target| { let identity = target.target(); (identity.namespace, identity.name) });
+        if left_targets.windows(2).any(|pair| {
+            let first = pair[0].target(); let second = pair[1].target();
+            (first.namespace, first.name) == (second.namespace, second.name)
+        }) || right_targets.windows(2).any(|pair| {
+            let first = pair[0].target(); let second = pair[1].target();
+            (first.namespace, first.name) == (second.namespace, second.name)
+        }) {
+            return false;
+        }
+        let memo = Rc::clone(self.completed_callables.get_or_insert_with(|| {
+            Rc::new(RefCell::new(SchemeCallableComparisonMemo::default()))
+        }));
+        let mut nested = BoundEquivalence::with_memo(&left.canonical().schema_identities, &right.canonical().schema_identities,
+            self.left_callables, self.right_callables, Some(Rc::clone(&memo)));
+        nested.active_callables = self.active_callables.clone();
+        nested.active_callables.insert(pair);
+        #[cfg(test)]
+        { memo.borrow_mut().expansions += 1; }
+        let equivalent = nested.contract(left.canonical(), right.canonical())
+            && left_targets.iter().zip(&right_targets).all(|(left, right)| {
+                let left_target = left.target(); let right_target = right.target();
+                left_target.namespace == right_target.namespace && left_target.name == right_target.name
+                    && nested.contract(left.contract(), right.contract())
+            });
+        memo.borrow_mut().completed.insert(key, equivalent);
+        equivalent
+    }
+
+    fn ground_type(&mut self, left: &crate::sema::types::Type, right: &crate::sema::types::Type) -> bool {
+        use crate::sema::types::{ModuleExportType, Type};
+        if !left.contains_scheme_callable() && !right.contains_scheme_callable() { return left == right; }
+        match (left, right) {
+            (Type::SchemeCallable(left), Type::SchemeCallable(right)) => self.scheme_callable(*left, *right),
+            (Type::List(left), Type::List(right)) | (Type::Stream(left), Type::Stream(right))
+            | (Type::Set(left), Type::Set(right)) | (Type::Optional(left), Type::Optional(right)) => self.ground_type(left, right),
+            (Type::Map(left_key, left_value), Type::Map(right_key, right_value))
+            | (Type::Result(left_key, left_value), Type::Result(right_key, right_value)) => {
+                self.ground_type(left_key, right_key) && self.ground_type(left_value, right_value)
+            }
+            (Type::Record(left), Type::Record(right)) => left.len() == right.len() && left.iter()
+                .all(|(name, left)| right.get(name).is_some_and(|right| self.ground_type(left, right))),
+            (Type::Union(left), Type::Union(right)) => left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| self.ground_type(left, right)),
+            (Type::Callable(left), Type::Callable(right)) => left.kind == right.kind
+                && left.sig.effects == right.sig.effects
+                && left.sig.params.len() == right.sig.params.len()
+                && left.sig.params.iter().zip(&right.sig.params).all(|(left, right)| {
+                    left.name == right.name && left.defaulted == right.defaulted && left.rest == right.rest
+                        && self.ground_type(&left.ty, &right.ty)
+                }) && self.ground_type(&left.sig.return_ty, &right.sig.return_ty),
+            (Type::Module(left), Type::Module(right)) => left.exact == right.exact && left.exports.len() == right.exports.len()
+                && left.exports.iter().all(|(name, left)| right.exports.get(name).is_some_and(|right| match (left, right) {
+                    (ModuleExportType::Value { ty: left, optional: left_optional }, ModuleExportType::Value { ty: right, optional: right_optional }) => left_optional == right_optional && self.ground_type(left, right),
+                    (ModuleExportType::Callable { kind: left_kind, sig: left, optional: left_optional }, ModuleExportType::Callable { kind: right_kind, sig: right, optional: right_optional }) => {
+                        left_kind == right_kind && left_optional == right_optional && left.effects == right.effects
+                            && left.params.len() == right.params.len() && left.params.iter().zip(&right.params).all(|(left, right)| {
+                                left.name == right.name && left.defaulted == right.defaulted && left.rest == right.rest
+                                    && self.ground_type(&left.ty, &right.ty)
+                            }) && self.ground_type(&left.return_ty, &right.return_ty)
+                    }
+                    (ModuleExportType::GenericCallable { kind: left, optional: left_optional }, ModuleExportType::GenericCallable { kind: right, optional: right_optional }) => left == right && left_optional == right_optional,
+                    _ => false,
+                })),
+            (Type::Validated(left), Type::Validated(right)) => left.validation() == right.validation() && self.ground_type(left.base(), right.base()),
+            _ => false,
+        }
+    }
+
     fn ty(&mut self, left: &SchemeType, right: &SchemeType) -> bool {
         if let (Some(left), Some(right)) = (left.closed_ground_type(), right.closed_ground_type()) {
-            return left == right;
+            return self.ground_type(&left, &right);
         }
         match (left, right) {
-            (SchemeType::Ground(left), SchemeType::Ground(right)) => left == right,
+            (SchemeType::Ground(left), SchemeType::Ground(right)) => self.ground_type(left, right),
+            (SchemeType::SchemeCallable(left), SchemeType::SchemeCallable(right)) => self.scheme_callable(*left, *right),
             (SchemeType::Parameter(left), SchemeType::Parameter(right)) => bind(&mut self.types, *left, *right),
             (SchemeType::Callable { kind: left_kind, monotype: left, effects: left_effects },
              SchemeType::Callable { kind: right_kind, monotype: right, effects: right_effects }) => {
@@ -543,6 +712,7 @@ mod tests {
                     result.map_or(SchemeType::Parameter(binder), SchemeType::Ground), None, false, None, false).unwrap()),
                 symbol_owner: owner.clone(),
                 schema_identities: Default::default(),
+                scheme_callables: None,
             }
         })
     }
@@ -644,6 +814,214 @@ mod tests {
     }
 
     #[test]
+    fn checked_callable_contract_accessors_preserve_returned_relationship_context() {
+        let source = "pure identity(value) { value }\npure factory() { let forwarded = identity; forwarded }\nlet saved = factory\nlet result = factory()\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let reference = source.find("= factory\n").unwrap() + 2;
+        let reference = crate::source::Span::new(SourceId::new(0), reference, reference + "factory".len());
+        let invocation = source.find("= factory()").unwrap() + 2;
+        let invocation = crate::source::Span::new(SourceId::new(0), invocation, invocation + "factory()".len());
+        let value_contract = checked.callable_value_contract_at(reference).unwrap();
+        let call_contract = checked.callable_contract_at(invocation).unwrap();
+        assert!(value_contract.equivalent_to(&call_contract));
+        assert!(value_contract.to_string().contains("identity: forall T0. pure(value: T0) -> T0 effects=unknown"));
+        assert!(checked.callable_value_contract_at(invocation).is_none());
+    }
+
+    #[test]
+    fn generic_factory_retains_a_nested_callable_relationship() {
+        let source = "pure identity(value) { value }\npure factory(marker) { let _ = marker; let forwarded = identity; forwarded }\nlet saved = factory\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let start = source.rfind("factory").unwrap();
+        let reference = crate::source::Span::new(SourceId::new(0), start, start + "factory".len());
+        let contract = checked.callable_value_contract_at(reference).expect("the factory value keeps its selected callable contract");
+        assert!(contract.is_generic());
+        assert!(contract.to_string().contains("identity: forall T0. pure(value: T0) -> T0 effects=unknown"));
+    }
+
+    #[test]
+    fn nested_factory_equivalence_reuses_completed_relationship_pairs() {
+        const FACTORIES: usize = 14;
+        let mut source = String::from("pure identity(value) { value }\n");
+        for index in 0..FACTORIES {
+            let target = if index == 0 { "identity".to_owned() } else { format!("factory{}", index - 1) };
+            source.push_str(&format!(
+                "pure factory{index}(marker) {{ let _ = marker; let forwarded = {target}; forwarded }}\n"
+            ));
+        }
+        source.push_str(
+            "pure first(marker) { let _ = marker; let forwarded = factory13; forwarded }\npure second(marker) { let _ = marker; let forwarded = factory13; forwarded }\nlet operations = [first, second]\n"
+        );
+
+        fn checked_factory(source: &str) -> (CheckedCallableContract, Type) {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let (&definition, _) = checked.checked_declarations.functions.iter()
+                .find(|(_, declaration)| declaration.name.as_str() == "factory13").unwrap();
+            let contract = checked.callable_declaration_contract(definition).unwrap();
+            let list = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression| {
+                matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+            }).unwrap();
+            (contract, checked.expr_types[&parsed.arena.arena.expr(list).span].clone())
+        }
+
+        let (left, left_family) = checked_factory(&source);
+        let (right, right_family) = checked_factory(&source);
+        let mut equivalence = BoundEquivalence::new(&left.schema_identities, &right.schema_identities,
+            left.scheme_callables.as_deref(), right.scheme_callables.as_deref());
+        assert!(equivalence.scheme(&left.scheme, &right.scheme));
+        assert!(equivalence.effects(left.scheme.effects().contract(), right.scheme.effects().contract()));
+        let expansions = equivalence.completed_callables.as_ref().unwrap().borrow().expansions;
+        assert!(expansions > 0, "the checked factory chain has relationship pairs to compare");
+        assert!(expansions <= FACTORIES,
+            "expanded {} completed relationship pairs for {FACTORIES} nested factories",
+            expansions);
+
+        let mut family_equivalence = BoundEquivalence::new(&left.schema_identities, &right.schema_identities,
+            left.scheme_callables.as_deref(), right.scheme_callables.as_deref());
+        assert!(family_equivalence.ground_type(&left_family, &right_family));
+        let family_expansions = family_equivalence.completed_callables.as_ref().unwrap().borrow().expansions;
+        assert!(family_expansions > 0, "the two-target family has nested relationship pairs to compare");
+        assert!(family_expansions <= FACTORIES + 2,
+            "expanded {} completed relationship pairs for a two-target family over {FACTORIES} nested factories",
+            family_expansions);
+    }
+
+    #[test]
+    fn nested_callable_rendering_labels_shared_relationships_once() {
+        const FACTORIES: usize = 8;
+        let mut source = String::from("pure identity(value) { value }\n");
+        for index in 0..FACTORIES {
+            let target = if index == 0 { "identity".to_owned() } else { format!("factory{}", index - 1) };
+            source.push_str(&format!(
+                "pure factory{index}(marker) {{ let _ = marker; let forwarded = {target}; forwarded }}\n"
+            ));
+        }
+        source.push_str(
+            "pure first(marker) { let _ = marker; let forwarded = factory7; forwarded }\npure second(marker) { let _ = marker; let forwarded = factory7; forwarded }\npure expose() { [first, second] }\n"
+        );
+
+        fn render(source: &str) -> String {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let (&definition, _) = checked.checked_declarations.functions.iter()
+                .find(|(_, declaration)| declaration.name.as_str() == "expose").unwrap();
+            checked.callable_declaration_contract(definition).unwrap().to_string()
+        }
+
+        let rendered = render(&source);
+        assert_eq!(rendered, render(&source));
+        for name in std::iter::once("identity".to_owned())
+            .chain((0..FACTORIES).map(|index| format!("factory{index}")))
+            .chain(["first".to_owned(), "second".to_owned()])
+        {
+            assert_eq!(rendered.matches(&format!("{name}: ")).count(), 1, "{name}: {rendered}");
+        }
+        let definitions = (0..32)
+            .map(|label| rendered.matches(&format!("callable#{label}{{")).count())
+            .sum::<usize>();
+        assert!(definitions >= FACTORIES, "{rendered}");
+        assert!(definitions < rendered.matches("callable#").count(), "the shared family renders a reference: {rendered}");
+        for label in 0..definitions {
+            assert_eq!(rendered.matches(&format!("callable#{label}{{")).count(), 1, "{rendered}");
+        }
+    }
+
+    #[test]
+    fn inferred_declaration_contract_can_return_a_generic_callable_relationship() {
+        let source = "pure identity(value) { value }\npure get_identity() { let action = identity; action }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let (&declaration_id, declaration) = checked.checked_declarations.functions.iter()
+            .find(|(_, declaration)| declaration.name.as_str() == "get_identity").unwrap();
+        let contract = declaration.callable_contract().unwrap();
+        let contextual = checked.callable_declaration_contract(declaration_id).unwrap();
+        let SchemeType::SchemeCallable(relationship) = contract.scheme().return_type() else {
+            panic!("the inferred declaration retains its generic callable relationship: {:?}", contract.scheme().return_type());
+        };
+        let relationship = checked.scheme_callables.get(*relationship).unwrap();
+        assert_eq!(relationship.targets().len(), 1);
+        assert_eq!(relationship.targets()[0].contract().to_string(), "forall T0. pure(value: T0) -> T0 effects=unknown");
+        assert!(!contract.equivalent_to(&contextual));
+        assert!(contextual.equivalent_to(&contextual));
+        assert!(contextual.to_string().contains("identity: forall T0. pure(value: T0) -> T0 effects=unknown"));
+    }
+
+    fn returned_scheme_callable(owner: &SymbolOwner, namespace: &str, target_contract: CheckedCallableContract) -> CheckedCallableContract {
+        let (table, relationship) = owner.with_current(|| {
+            let target = super::super::CheckedFunctionTarget {
+                definition: crate::syntax::arena::FunctionDefId::from_index(0),
+                namespace: Some(Name::intern(namespace)),
+                name: Name::intern("identity"),
+            };
+            let mut table = crate::sema::scheme_callable::SchemeCallableTable::default();
+            let id = table.insert(vec![(target, target_contract)]).unwrap();
+            (table, id)
+        });
+        owner.with_current(|| CheckedCallableContract {
+            scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(), Vec::new(),
+                SchemeType::SchemeCallable(relationship), None, false, None, false).unwrap()),
+            symbol_owner: owner.clone(),
+            schema_identities: Default::default(),
+            scheme_callables: Some(Arc::new(table)),
+        })
+    }
+
+    #[test]
+    fn checked_callable_contract_compares_scoped_callable_relationships() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let left = returned_scheme_callable(&owner, "model", identity(&owner, 7, None));
+            let renamed = returned_scheme_callable(&owner, "model", identity(&owner, 91, None));
+            assert!(matches!((left.scheme.return_type(), renamed.scheme.return_type()),
+                (SchemeType::SchemeCallable(left), SchemeType::SchemeCallable(right)) if left != right));
+            assert!(left.equivalent_to(&renamed));
+            assert_eq!(left.to_string(), renamed.to_string());
+
+            let integer = CheckedCallableContract {
+                scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(),
+                    vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Ground(Type::Int),
+                        schema_expectation: None, defaulted: false, rest: false }],
+                    SchemeType::Ground(Type::Int), None, false, None, false).unwrap()),
+                symbol_owner: owner.clone(), schema_identities: Default::default(), scheme_callables: None,
+            };
+            let changed_domain = returned_scheme_callable(&owner, "model", integer);
+            assert!(!left.equivalent_to(&changed_domain));
+            assert_eq!(left.is_instance_of(&changed_domain), Ok(false));
+
+            let binder = SchemeTypeParameterId(91);
+            let effectful = CheckedCallableContract {
+                scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Proc, vec![binder], Vec::new(),
+                    vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Parameter(binder),
+                        schema_expectation: None, defaulted: false, rest: false }],
+                    SchemeType::Parameter(binder), None, false, Some(vec![crate::syntax::node::Effect::Fs]), false).unwrap()),
+                symbol_owner: owner.clone(), schema_identities: Default::default(), scheme_callables: None,
+            };
+            let changed_effect = returned_scheme_callable(&owner, "model", effectful);
+            assert!(!left.equivalent_to(&changed_effect));
+            assert_eq!(left.is_instance_of(&changed_effect), Ok(false));
+            assert!(!left.equivalent_to(&returned_scheme_callable(&owner, "other", identity(&owner, 91, None))));
+        });
+    }
+
+    #[test]
     fn checked_callable_contract_distinguishes_independently_parsed_schema_names() {
         let first = root_schema_contract("type First[T] = {label: Str}\npure describe(value: First[Int]) -> Str { value.label }\n");
         let second = root_schema_contract("type Second[T] = {label: Str}\npure describe(value: Second[Int]) -> Str { value.label }\n");
@@ -676,6 +1054,7 @@ mod tests {
                 checked.scheme.effects().concrete().unwrap(), checked.scheme.inferred_effects()).unwrap()),
             symbol_owner: checked.symbol_owner.clone(),
             schema_identities: Arc::clone(&checked.schema_identities),
+            scheme_callables: None,
         };
         assert_eq!(checked.source_annotation().as_deref(), Some("pure(value: List[Int]) -> Int"));
         assert!(checked.equivalent_to(&absent));
@@ -739,11 +1118,12 @@ mod tests {
         let display = constrained(7, Some(ValueConversion::Display));
         let renamed = constrained(91, Some(ValueConversion::Display));
         assert!(display.equivalent_to(&renamed));
-        let correspondence = display.binder_correspondence(&renamed).unwrap();
+        let callables = crate::sema::scheme_callable::SchemeCallableTable::default();
+        let correspondence = display.binder_correspondence(&renamed, &callables).unwrap();
         assert_eq!(correspondence.types().get(&SchemeTypeParameterId(7)), Some(&SchemeTypeParameterId(91)));
         for changed in [constrained(91, Some(ValueConversion::Argv)), constrained(91, None)] {
             assert!(!display.equivalent_to(&changed));
-            assert!(display.binder_correspondence(&changed).is_none());
+            assert!(display.binder_correspondence(&changed, &callables).is_none());
         }
     }
 
@@ -808,6 +1188,7 @@ mod tests {
                         SchemeType::Ground(Type::Int), None, false, None, false).unwrap()),
                     symbol_owner: owner.clone(),
                     schema_identities: Default::default(),
+                    scheme_callables: None,
                 }
             };
             let first = build(3, false);
@@ -825,7 +1206,7 @@ mod tests {
         CheckedCallableContract {
             scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Proc, types, rows,
                 params, result, None, false, effects, false).unwrap()),
-            symbol_owner: owner.clone(), schema_identities: Default::default(),
+            symbol_owner: owner.clone(), schema_identities: Default::default(), scheme_callables: None,
         }
     }
 
@@ -1055,6 +1436,7 @@ mod effect_join_tests {
                     SchemeType::Ground(return_type), None, false, effects, false).unwrap()),
                 symbol_owner: owner.clone(),
                 schema_identities: Default::default(),
+                scheme_callables: None,
             };
             let fs = build(Some(vec![Effect::Fs, Effect::Error]), Type::Str);
             let process = build(Some(vec![Effect::Process, Effect::Error]), Type::Str);
