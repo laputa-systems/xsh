@@ -58,6 +58,16 @@ expected output. Its extracted program passes with the same `96a932e04`
 verification binary in the pinned offline container, printing exactly `5` and
 `2`. A complete newer native boundary has not yet run.
 
+Assertion proof repair `8632f9d4a`, integrated as `ef9a942ad`, passes two
+focused controls with independent review clear. Successful assertions now
+contribute their actual expression condition to the existing charged guard
+census. The unchanged API helper executes on both routes. Mandatory
+typed-callable proof rejects a foreign binding and an assertion moved after
+its read. Writes still invalidate checker narrowing. Primitive checked reads
+can remain valid through runtime validation and are not rejection controls for
+this invariant. Matching verification products and the API selectors still
+require replay.
+
 The provisional Proc completion and effect repair executes ten focused
 selectors: six pass and four fail. Remaining failures concern authored Err
 source authentication, inferred effect ownership, and an application-return
