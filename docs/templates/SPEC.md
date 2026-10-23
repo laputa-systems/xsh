@@ -3306,6 +3306,9 @@ source through the ordinary Optional injection for the same checked payload
 type. An existing `Result` or Optional keeps its envelope. The callable's
 other body requirements still apply.
 
+Equality or inequality against `null` does not itself choose an inferred
+parameter's type, whichever operand contains `null`.
+
 At a direct call to an inferred quantified pure declaration, fixed required arguments
 may be positional or named. A final rest parameter has type `List[T]`; omitting
 its annotation introduces an inferred item type `T`. Each supplied rest item
