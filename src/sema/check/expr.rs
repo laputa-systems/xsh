@@ -3454,7 +3454,11 @@ impl Checker {
                     && right_ty != Type::Any
                     && !left_ty.matches_expected(&right_ty)
                 {
-                    self.expect_type(&left_ty, &right_ty, right_span);
+                    if left_ty == Type::Null && matches!(&right_ty, Type::Inference(_)) {
+                        self.expect_type(&right_ty, &left_ty, left_span);
+                    } else {
+                        self.expect_type(&left_ty, &right_ty, right_span);
+                    }
                 }
                 Type::Bool
             }
@@ -4659,6 +4663,67 @@ mod optional_fallback_inference_tests {
             .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
         for force_frames in [false, true] {
             let result = prepared.eval_test("arguments", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty() && result.output.traceback.is_none(), "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        }
+    }
+}
+
+#[cfg(test)]
+mod null_comparison_inference_tests {
+    use crate::diagnostic::Severity;
+    use crate::sema::check::Checker;
+
+    #[test]
+    fn null_comparisons_preserve_generic_identity_on_either_side() {
+        let mut failures = Vec::new();
+        for comparison in ["value == null", "null == value", "value != null", "null != value"] {
+            let generic = format!("pure observe(value) {{ let _ = {comparison}; value }}\nlet number: Int = observe(7)\nlet text: Str = observe(\"kept\")\nlet opaque: Result[Int, Str] = Err(\"retained\")\nlet retained: Result[Int, Str] = observe(opaque)\n");
+            let optional = format!("pure observe(value: Int?) -> Int? {{ let _ = {comparison}; value }}\nlet present: Int? = observe(7)\nlet missing: Int? = observe(null)\n");
+            let dynamic = format!("let value: Any = 7\nlet observed: Bool = {comparison}\n");
+            let dynamic_result = format!("pure observe(value) {{ let _ = {comparison}; value }}\nlet dynamic: Any = 7\nlet number: Int = observe(dynamic)\n");
+            let mut cases = vec![("generic", generic, true), ("optional", optional, true), ("Any comparison", dynamic, true), ("Any result authority", dynamic_result, false)];
+            for domain in ["Int", "Str", "Result[Int, Str]"] {
+                cases.push((domain, format!("pure observe(value: {domain}) -> {domain} {{ let _ = {comparison}; value }}\n"), false));
+            }
+            for (label, source, accepted) in cases {
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{comparison} / {label}: {:?}", parsed.diagnostics);
+                let checked = Checker::check_arena(&parsed.arena, &source);
+                let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+                if errors.is_empty() != accepted {
+                    failures.push(format!("{comparison} / {label}: {errors:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn null_comparison_observers_keep_values_and_results_on_both_routes() {
+        let mut source = String::new();
+        for (name, comparison) in [("eq_right", "value == null"), ("eq_left", "null == value"), ("ne_right", "value != null"), ("ne_left", "null != value")] {
+            source.push_str(&format!("pure {name}(value) {{ {comparison} }}\npure observe_{name}(value) {{ let _ = {comparison}; value }}\n"));
+        }
+        source.push_str("test observers {\nlet opaque: Result[Int, Str] = Err(\"retained\")\nlet present: Int? = 7\nlet missing: Int? = null\n");
+        for name in ["eq_right", "eq_left", "ne_right", "ne_left"] {
+            let equal = name.starts_with("eq_");
+            source.push_str(&format!("assert {name}(7) == {}\nassert {name}(\"kept\") == {}\nassert {name}(opaque) == {}\nassert {name}(present) == {}\nassert {name}(missing) == {equal}\nassert observe_{name}(7) == 7\nassert observe_{name}(\"kept\") == \"kept\"\nassert observe_{name}(opaque) == opaque\nlet kept_{name}: Int? = observe_{name}(present)\nlet absent_{name}: Int? = observe_{name}(missing)\nassert kept_{name} == 7\nassert absent_{name} == null\n", !equal, !equal, !equal, !equal));
+        }
+        source.push_str("}\n");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "null-comparison-observers.xsh",
+            crate::loader::entry_source_from_text("null-comparison-observers.xsh", source),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("observers", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
             assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
             assert!(result.output.diagnostics.is_empty() && result.output.traceback.is_none(), "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
         }
