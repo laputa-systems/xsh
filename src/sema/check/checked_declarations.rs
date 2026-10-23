@@ -309,7 +309,7 @@ impl Checker {
             }).collect::<Option<Vec<_>>>()?;
             Some(CompactFunctionSig {
                 parameter_schemas: sig.scheme().params().iter()
-                    .map(|param| param.schema_expectation.clone()).collect(),
+                    .map(|param| match &param.schema_expectation { Some(schema) => schema.closed_ground().map(Some), None => Some(None) }).collect::<Option<_>>()?,
                 params,
                 return_ty: sig.scheme().return_type().closed_ground_type()?,
                 return_type_expr: def.return_ty,

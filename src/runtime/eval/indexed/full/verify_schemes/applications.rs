@@ -11,6 +11,10 @@ pub(super) enum ApplicationSubstitution<'a> {
 }
 
 impl ApplicationSubstitution<'_> {
+    pub(super) fn schema(&self, store: &FullStore, scope: &SchemeScope, schema: super::super::schemes::FullSchemeSchemaExpectationId, budget: &mut SchemeInstantiationBudget) -> Result<crate::sema::constants::SchemaExpectation<SchemeType>, IrVerifyError> {
+        decode_schema_with(store, schema, budget, 0, &mut |argument, budget| self.ty(store, scope, argument, budget))
+    }
+
     pub(super) fn ty(&self, store: &FullStore, scope: &SchemeScope, ty: SchemeTypeId, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
         match self {
             Self::Ground(substitution) => Ok(SchemeType::Ground(instantiate_scheme_type(store, scope, ty, substitution, budget, 0)?)),

@@ -27,6 +27,33 @@ focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
+Current provisional integration is `d3830c8e4`. Reviewed follow-ons now include
+canonical enum and Result comparison, nullable targets, generic Collect, five
+pipeline shape stages, imported callable-value borrowing, scoped constructor
+proofs, shared lexical-binding memoization and generated With lifecycle proofs.
+The constructor change preserves scoped schema arguments and validates phantom
+relationships against canonical declaration context; its 36 focused controls
+pass. Binding memoization keeps the existing work bound and passes six controls;
+older matching products reproduce the original budget failure. The With repair
+passes two new controls and eleven affected existing controls. These are focused
+claims; the next immutable combined library/product boundary remains pending.
+
+The previous `50f4552aa` product boundary passes six API selectors. Each native
+route runs 161 cases: 159 pass and two fixture defects fail. The corrected
+constructor calls and key-domain cleanup expectations each pass against those
+unchanged products on both routes. Both historical views pass all eleven roots
+and twenty-one runtime selectors, then interface qualification fails with 23
+header and 213 body reports. These repeat entry contexts and award no new
+removal credit. Failed runs remain failed; later changes need matching products.
+
+Remaining expert work is grouped by shared relationships: native FsRoot and JSON
+calls, Each/Tee and the other uncovered stage families, imported declarations and
+generic exports, constructor call-result provenance, and scoped schema interface
+comparison. FsRoot runtime checks can now consume the accepted binding repair.
+The coordinator runs one combined qualification job while the other Cargo slot
+serves focused checks. Preparation and independent review overlap these jobs;
+physical two-Cargo/one-native limits and exclusive timing gates remain unchanged.
+
 Frozen combined source `733745c5c`, tree
 `da1b374f851a2e5332e29229b03bb0522e306917`, passes the full Rust library boundary:
 2,298 pass, zero fail and three remain ignored. Its matching warning-free

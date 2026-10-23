@@ -9,6 +9,29 @@ use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
 #[test]
+fn typed_driver_conditions_preserve_lexical_boolean_producers_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        for source in [
+            "let ready: Bool = true\nassert ready\n",
+            "tempdir site { let ready: Bool = true; assert ready }\n",
+            "tempdir site { with root = fs.open_root(site)? { let ready: Bool = true; assert ready } }\n",
+            "error Failure { Bad }\npure failed() -> Result[Str] { Err(Failure.Bad(\"bad\")) }\nmatch failed() { Err(error) => assert error.message != \"\"; Ok(_) => assert false }\n",
+        ] {
+            let (program, sources, source_id) = record_form_program(source);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
+                        .unwrap_or_else(|error| panic!("{source}\nframes={force_frames}: {error:?}"));
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn nullable_target_relations_execute_after_frontend_disposal() {
     let source = r#"
 type Item = {value: Int}

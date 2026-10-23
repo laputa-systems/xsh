@@ -1074,6 +1074,7 @@ pub(super) struct PendingFunctionSig {
     solver_level: u32,
     return_authority: TypeAuthority,
     body_checked: bool,
+    constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     callable: PendingCallable,
 }
 
@@ -1154,6 +1155,13 @@ impl PendingFunctionSig {
         }
     }
 
+    pub(super) fn generalized_constructor_instances(&self) -> Option<&BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>> {
+        match &self.callable {
+            PendingCallable::Generalized(callable) => Some(&callable.constructor_instances),
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+        }
+    }
+
     pub(super) fn generalized_tail_types(
         &self,
     ) -> Option<&BTreeMap<StmtId, super::schemes::SchemeType>> {
@@ -1183,6 +1191,7 @@ impl PendingFunctionSig {
         generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
         constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
+        constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
         read_bindings: std::collections::BTreeSet<BindingId>,
@@ -1191,11 +1200,13 @@ impl PendingFunctionSig {
             matches!(self.callable, PendingCallable::Provisional(_)),
             "a provisional callable shape generalizes once"
         );
+        self.constructor_instances.clear();
         self.callable = PendingCallable::Generalized(GeneralizedCallable {
             callable,
             generalization_scope,
             body_types,
             constructor_producers,
+            constructor_instances,
             tail_types,
             registered_calls,
             read_bindings,
@@ -1209,6 +1220,7 @@ struct GeneralizedCallable {
     generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
     constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
+    constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<BindingId>,
@@ -1315,7 +1327,7 @@ impl FunctionSig {
             .map(|parameter| super::schemes::SchemeParameter {
                 name: parameter.name,
                 ty: super::schemes::SchemeType::Ground(parameter.ty),
-                schema_expectation: parameter.schema_expectation,
+                schema_expectation: parameter.schema_expectation.map(|schema| schema.map(&mut |ty| super::schemes::SchemeType::Ground(ty.clone()))),
                 defaulted: parameter.defaulted,
                 rest: parameter.rest,
             })
@@ -1325,7 +1337,7 @@ impl FunctionSig {
             Vec::new(),
             params,
             super::schemes::SchemeType::Ground(return_ty),
-            return_schema,
+            return_schema.map(|schema| schema.map(&mut |ty| super::schemes::SchemeType::Ground(ty.clone()))),
             explicit_return,
             super::schemes::CallableRequirements::default(),
         )

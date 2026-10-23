@@ -615,6 +615,15 @@ impl ModuleExportType {
             _ => self.field_type(),
         }
     }
+
+    pub(crate) fn static_callable_value_type(&self) -> Option<Type> {
+        let Self::Callable { kind, sig, optional: false } = self else { return None; };
+        let mut sig = sig.clone();
+        sig.effects = CallableEffects::from_contract(sig.effects.contract().clone().for_invocation(*kind));
+        if !sig.effects.concrete().is_ok_and(|effects| effects.is_some()) { return None; }
+        let ty = Type::Callable(Arc::new(TypedCallable { kind: *kind, sig }));
+        (!ty.contains_inference() && !ty.contains_recovery()).then_some(ty)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

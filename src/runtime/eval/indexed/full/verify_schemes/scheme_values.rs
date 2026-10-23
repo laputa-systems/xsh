@@ -120,10 +120,10 @@ fn compare_contracts(store: &FullStore, canonical: (&FullScheme, &SchemeScope), 
         budget.charge(1 + left_scope.row_lacks.get(index).ok_or_else(invalid)?.len())?;
         if left_scope.row_lacks.get(index) != right_scope.row_lacks.get(actual as usize) { return Err(invalid()); }
     }
-    let schema = |schema: Option<super::super::schemes::FullSchemeSchemaExpectationId>, budget: &mut SchemeInstantiationBudget| schema.map(|id| decode_scheme_schema(store, id, budget, 0)).transpose();
-    if schema(left.return_schema, budget)? != schema(right.return_schema, budget)? { return Err(invalid()); }
+    let schema = |schema: Option<super::super::schemes::FullSchemeSchemaExpectationId>, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget| schema.map(|id| decode_scheme_schema(store, scope, id, budget, 0)).transpose();
+    if schema(left.return_schema, left_scope, budget)? != schema(right.return_schema, right_scope, budget)? { return Err(invalid()); }
     for (left, right) in left_params.iter().zip(right_params) {
-        if schema(left.schema, budget)? != schema(right.schema, budget)? { return Err(invalid()); }
+        if schema(left.schema, left_scope, budget)? != schema(right.schema, right_scope, budget)? { return Err(invalid()); }
     }
     if effects::decode_contract(store, left_scope, left.effects, budget)? != effects::decode_contract(store, right_scope, right.effects, budget)? { return Err(invalid()); }
     let left_predicates = bounded(left.effect_predicates, &store.scheme_effect_predicates, "scheme callable predicate range is invalid")?;

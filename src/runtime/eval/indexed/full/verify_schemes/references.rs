@@ -1,5 +1,5 @@
 use super::{
-    applications, body_types_equal, bounded, decode_scheme_schema, CallableMonotype,
+    applications, body_types_equal, bounded, CallableMonotype,
     FullFunction, FullScheme, FullStore, IrVerifyError, Name, SchemeInstantiationBudget,
     SchemeParameter, SchemeScope, SchemeType,
 };
@@ -24,13 +24,13 @@ pub(super) fn verify(
         Ok(SchemeParameter {
             name: Name::intern(store.string(physical.name)?),
             ty: substitution.ty(store, scope, parameter.ty, budget)?,
-            schema_expectation: parameter.schema.map(|schema| decode_scheme_schema(store, schema, budget, 0)).transpose()?,
+            schema_expectation: parameter.schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?,
             defaulted: physical.flags & 2 != 0,
             rest: physical.flags & 1 != 0,
         })
     }).collect::<Result<Vec<_>, IrVerifyError>>()?;
     let result = substitution.ty(store, scope, scheme.return_type, budget)?;
-    let schema = scheme.return_schema.map(|schema| decode_scheme_schema(store, schema, budget, 0)).transpose()?;
+    let schema = scheme.return_schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?;
     let effects = substitution.contract(store, scope, scheme.effects, budget)?.for_invocation(scheme.callable_kind);
     let actual = SchemeType::Callable {
         kind: scheme.callable_kind,

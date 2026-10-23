@@ -1620,9 +1620,23 @@ struct LoweredTypeCheck {
     name: Arc<str>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
+struct LoweredRecordConstructorTemplate {
+    schema: Arc<crate::sema::constants::RecordConstructorTemplate>,
+    defaults: BTreeMap<Name, LoweredValue>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct LoweredRecordConstructor {
+    schema: crate::sema::constants::SchemaExpectation<crate::sema::schemes::SchemeType>,
+    template: Arc<LoweredRecordConstructorTemplate>,
+    defaults: Arc<[Name]>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum LoweredValueCheck {
     Ground(LoweredTypeCheck),
+    RecordConstructor(Arc<LoweredRecordConstructor>),
     Materialization(Arc<crate::sema::value_materialization::ValueMaterialization<
         crate::sema::schemes::SchemeType,
         crate::sema::schemes::CallInstantiation,

@@ -128,6 +128,30 @@ arguments and independent module-value reads retain ordinary capture rules.
 Constructor instance completion closes schema arguments; surrounding callable
 generalization and final fact resolution own the supplied expressions. A closed
 constructor field does not close the open row from which its value was projected.
+Generic schema applications retain canonical declaration identity and scoped
+scheme arguments alongside their actual field contracts. The callable's existing
+generalization mapping owns these arguments; phantom arguments without input
+evidence remain unresolved errors. Indexed schema metadata uses the same binder
+and owner checks as other scheme types. Runtime prepared schemas and validation
+targets require closed, reifiable types.
+Parametric construction uses the checked-value record-constructor case. Its
+fresh scheme-schema root belongs to that exact instruction, including for local
+and discarded results. A validated template handle selects one normalized
+canonical declaration template per used definition. Existing scheme substitution
+links the actual type arguments to that template's field and nominal contracts;
+omitted fields retain their canonical literal defaults. The declaration's
+canonical nested schema context also retains phantom alias arguments erased by
+field-type expansion. Field provenance follows authenticated immutable
+initializers and projections, declared parameter schemas, and generic call
+return schemas under their actual substitution. A scoped field context without
+independent producer provenance blocks lowering. The existing indexed binder-use
+census identifies phantom positions before context arguments are visited; only
+those positions require exact context equality. Actual field proofs continue to
+own ordinary structural compatibility. Cold verification checks
+those relationships and the fresh record's actual field producers before
+accepting its declared constructor contract. Ground storage and
+nominal construction retain their ordinary schema checks. The constructor case
+passes through only in verified indexed execution and rejects owned decoding.
 
 Argument expansion shares one source-entry traversal for ordinary `Type` facts
 and generalized `SchemeType` facts. Each spread requires a checked finite closed
@@ -203,6 +227,15 @@ the pipeline domain and any enclosing iteration restriction. Full stores the
 policy in the existing parameter row and rejects unknown tags or mismatched
 error payloads. Pipeline stream transport retains actual source-owner and
 producer proofs derived from the physical pipeline instruction.
+
+Generic shape stages reuse the existing indexed stage rows. Batch derives a
+list item, Zip derives both item fields, and Range replaces the item with Int.
+Stage configuration follows its checked argument slots and source order.
+Range configuration bindings remain visible only to that stage's bounds.
+Byte-bounded batches use the existing `Argv` conversion requirement. A disabled
+argv limit requires proof of the actual immutable false value before omitting
+that requirement. Zip stream transport authenticates its actual side producer
+against the same physical pipeline and source owner.
 
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
@@ -824,6 +857,17 @@ The compact export codec records the canonical kind and rejects retired tags,
 reserved bits, foreign owners, and missing signatures. Runtime module contracts
 use retained executable signatures or checked load-time signatures. A callable
 kind alone does not establish a Stream signature.
+
+A generic body may borrow a root-owned immutable static import namespace to
+read an exact nonoptional ground callable-valued export, such as
+`export let format = render`. The namespace keeps its
+original root import lifetime and cannot escape as a value. Cold body
+verification checks the physical field read and capture binding. Producer
+verification follows the import's actual export storage and executable target.
+The selected target cannot capture mutable or resource state. Resource-valued
+module exports remain rejected. Unselected callable exports retain their
+existing root resources and shared state. Calls preserve the real callable
+environment, defaults, kind, and canonical invocation effects.
 
 The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
 Its opaque `CallableValue` carries the canonical `CallableKind`; named values

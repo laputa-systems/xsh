@@ -179,7 +179,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         render_scheme_type(scheme.return_type(), names, identities, context)
     ));
     if let Some(schema) = scheme.return_schema() {
-        parts.push(format!("return-schema={}", render_schema(schema, identities, context)));
+        parts.push(format!("return-schema={}", render_schema(schema, names, identities, context)));
     }
     for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
         let item = render_scheme_type(&iteration.item, names, identities, context);
@@ -238,7 +238,7 @@ fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities
     }
     if let Some(schema) = &parameter.schema_expectation {
         rendered.push_str(" schema=");
-        rendered.push_str(&render_schema(schema, identities, context));
+        rendered.push_str(&render_schema(schema, names, identities, context));
     }
     rendered
 }
@@ -266,7 +266,7 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
             );
             if let Some(schema) = monotype.return_schema() {
                 rendered.push_str(" return-schema=");
-                rendered.push_str(&render_schema(schema, identities, context));
+                rendered.push_str(&render_schema(schema, names, identities, context));
             }
             rendered.push_str(" effects=");
             rendered.push_str(&render_bound_effects(effects, names));
@@ -451,7 +451,7 @@ fn render_validation(validation: Validation, base: String) -> String {
     }
 }
 
-fn render_schema(expectation: &SchemaExpectation, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+fn render_schema(expectation: &SchemaExpectation<SchemeType>, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut entries = expectation
         .instances
         .iter()
@@ -462,14 +462,14 @@ fn render_schema(expectation: &SchemaExpectation, identities: &BTreeMap<TypeDefI
                 instance
                     .arguments
                     .iter()
-                    .map(|ty| render_type(ty, context))
+                    .map(|ty| render_scheme_type(ty, names, identities, context))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
         })
         .collect::<Vec<_>>();
     entries.extend(expectation.children.iter().map(|(component, child)| {
-        format!("{}: {}", render_schema_component(*component), render_schema(child, identities, context))
+        format!("{}: {}", render_schema_component(*component), render_schema(child, names, identities, context))
     }));
     format!("{{{}}}", entries.join(", "))
 }

@@ -415,12 +415,14 @@ pub(super) fn indexed_type_check(
 pub(in crate::runtime::eval) enum IndexedValueCheck {
     Ground(LoweredTypeCheck),
     Materialization(u32),
+    RecordConstructor,
 }
 
 pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Result<IndexedValueCheck, RuntimeError> {
     match check {
         ValueCheckView::Ground(check) => indexed_type_check(check, span).map(IndexedValueCheck::Ground),
         ValueCheckView::Materialization(id) => Ok(IndexedValueCheck::Materialization(id)),
+        ValueCheckView::RecordConstructor(_) => Ok(IndexedValueCheck::RecordConstructor),
     }
 }
 
@@ -434,6 +436,7 @@ pub(super) fn finish_checked_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match check {
+        IndexedValueCheck::RecordConstructor => Ok(value),
         IndexedValueCheck::Ground(check) => {
             let value = materialize_indexed_scheme_value(execution, invocation, instruction, value, span)?;
             super::checked_storage_value(evaluator, &value, check, span)?;

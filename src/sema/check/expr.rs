@@ -142,7 +142,7 @@ impl Checker {
                         .or_else(|| self.qualified_streams.get(&qualified))?
                         .scheme()
                         .return_schema()
-                        .cloned()
+                        .and_then(crate::sema::constants::SchemaExpectation::closed_ground)
                 }
                 ArenaExprKind::Null
                 | ArenaExprKind::Bool(_)
@@ -254,12 +254,22 @@ impl Checker {
     }
 
     fn derive_checked_schema_origin(
-        &self, arena: &ArenaProgram, expression: ExprId,
+        &mut self, arena: &ArenaProgram, expression: ExprId,
     ) -> Option<super::super::constants::SchemaExpectation> {
         use super::super::constants::{SchemaComponent, SchemaExpectation};
         let span = arena.arena.expr(expression).span;
-        if let Some(constructor) = self.record_constructor_instances.get(&span) {
+        if let Some(constructor) = self.record_constructor_instances.get(&span)
+            .or_else(|| self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+                .and_then(|pending| pending.constructor_instances.get(&span)))
+        {
             return self.record_constructors.instance_expectation(&arena.arena, constructor.instance.definition, &constructor.instance.arguments).ok();
+        }
+        if matches!(arena.arena.expr(expression).kind, ArenaExprKind::Call { .. })
+            && let Some((schema, instance)) = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span))
+                .and_then(crate::sema::value_materialization::InstantiationEvidence::invocation)
+                .and_then(|(callable, instance)| callable.return_schema().map(|schema| (schema.clone(), instance.clone())))
+        {
+            return self.type_constraints.instantiate_schema(&schema, &instance, span).ok();
         }
         match arena.arena.expr(expression).kind {
             ArenaExprKind::If { branches, else_value } => return Self::common_checked_schema(
@@ -4014,12 +4024,12 @@ impl Checker {
         }
     }
 
-    pub(super) fn wrapper_solver_level(&self) -> u32 {
+    pub(super) fn callable_solver_level(&self) -> u32 {
         self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level())
     }
 
     pub(super) fn fresh_wrapper_type(&mut self, span: Span) -> Type {
-        self.type_constraints.fresh_at_level(span, self.wrapper_solver_level())
+        self.type_constraints.fresh_at_level(span, self.callable_solver_level())
     }
 
     fn wrapper_result_type(&mut self, span: Span) -> Type {
@@ -4063,7 +4073,7 @@ impl Checker {
                                 .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
                         });
                         if let Some(owner) = inferred_proc_owner {
-                            let (group, returned) = match self.type_constraints.ensure_proc_completion_group(owner, owner.body, self.wrapper_solver_level()) {
+                            let (group, returned) = match self.type_constraints.ensure_proc_completion_group(owner, owner.body, self.callable_solver_level()) {
                                 Ok(group) => group,
                                 Err(error) => {
                                     self.error(span, &format!("proc completion wrapper failed: {error}"), DiagnosticCode::CheckLocalInference);
@@ -4080,7 +4090,7 @@ impl Checker {
                     None => WrapperBoundary::TopLevel,
                 }
             };
-            let level = self.wrapper_solver_level();
+            let level = self.callable_solver_level();
             let effects = crate::sema::effects::EffectContract::variable(self.type_constraints.fresh_effect_at_level(span, level));
             self.check_wrapper_effect_contract(&effects, span);
             return self.check_wrapper_requirement(WrapperRequirementKind::Field { source: base_ty, name, result: result.clone(), boundary, effects }, span, DiagnosticCode::CheckNullSafeField, result);
@@ -4261,7 +4271,7 @@ impl Checker {
                         .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
                 });
                 if let Some(owner) = inferred_proc_owner {
-                    match self.type_constraints.ensure_proc_completion_group(owner, owner.body, self.wrapper_solver_level()) {
+                    match self.type_constraints.ensure_proc_completion_group(owner, owner.body, self.callable_solver_level()) {
                         Ok((group, returned)) => WrapperBoundary::ProcCompletion { returned, group: WrapperGroupRef::Source(group) },
                         Err(error) => {
                             self.error(span, &format!("proc completion wrapper failed: {error}"), DiagnosticCode::CheckLocalInference);

@@ -305,7 +305,7 @@ fn measure_checked_declarations(declarations: &CheckedDeclarations) -> (usize, u
                     .saturating_sub(size_of::<crate::sema::schemes::SchemeBodyFacts>())
                     .saturating_sub(scheme.retained_bytes());
             }
-            type_count += facts.expression_types().len() + facts.tail_types().len();
+            type_count += facts.expression_types().len() + facts.tail_types().len() + facts.constructor_instances().values().map(|constructor| 1 + constructor.instance.arguments.len()).sum::<usize>();
         } else if let Some(scheme) = &declaration.scheme
             && counted_schemes.insert(std::sync::Arc::as_ptr(scheme) as usize)
         {
@@ -563,7 +563,7 @@ fn measure_compact_declarations_with_allocations(declarations: &CompactDeclOutpu
                 .saturating_sub(size_of::<crate::sema::schemes::SchemeBodyFacts>())
                 .saturating_sub(scheme.retained_bytes());
         }
-        type_count += facts.expression_types().len() + facts.tail_types().len();
+        type_count += facts.expression_types().len() + facts.tail_types().len() + facts.constructor_instances().values().map(|constructor| 1 + constructor.instance.arguments.len()).sum::<usize>();
     }
 
     bytes += declarations.scheme_callables.retained_bytes(allocations, &counted_schemes);
@@ -692,12 +692,12 @@ impl OutputTypeNodes {
                 for parameter in monotype.params() {
                     self.add_scheme_type(&parameter.ty);
                     if let Some(context) = &parameter.schema_expectation {
-                        self.add_schema(context);
+                        self.add_schema(context, Self::add_scheme_type);
                     }
                 }
                 self.add_scheme_type(monotype.return_type());
                 if let Some(context) = monotype.return_schema() {
-                    self.add_schema(context);
+                    self.add_schema(context, Self::add_scheme_type);
                 }
             }
             SchemeType::List(inner)
@@ -723,15 +723,15 @@ impl OutputTypeNodes {
         }
     }
 
-    fn add_schema(&mut self, context: &crate::sema::constants::SchemaExpectation) {
+    fn add_schema<T>(&mut self, context: &crate::sema::constants::SchemaExpectation<T>, argument: fn(&mut Self, &T)) {
         for instance in &context.instances {
             for ty in &instance.arguments {
-                self.add_type(ty);
+                argument(self, ty);
             }
         }
         if self.first_shared(&context.children) {
             for child in context.children.values() {
-                self.add_schema(child);
+                self.add_schema(child, argument);
             }
         }
     }
@@ -743,12 +743,12 @@ impl OutputTypeNodes {
         for parameter in scheme.params() {
             self.add_scheme_type(&parameter.ty);
             if let Some(context) = &parameter.schema_expectation {
-                self.add_schema(context);
+                self.add_schema(context, Self::add_scheme_type);
             }
         }
         self.add_scheme_type(scheme.return_type());
         if let Some(context) = scheme.return_schema() {
-            self.add_schema(context);
+            self.add_schema(context, Self::add_scheme_type);
         }
         for application in &scheme.callable().requirements().applications {
             for ty in application.types() { self.add_scheme_type(ty); }
@@ -793,7 +793,7 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
         }
         nodes.add_type(&signature.return_ty);
         for context in signature.parameter_schemas.iter().flatten() {
-            nodes.add_schema(context);
+            nodes.add_schema(context, OutputTypeNodes::add_type);
         }
     }
     for info in declarations.types.values() {
@@ -838,6 +838,10 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
         nodes.add_type_scheme(facts.scheme());
         for ty in facts.expression_types().values().chain(facts.tail_types().values()) {
             nodes.add_scheme_type(ty);
+        }
+        for constructor in facts.constructor_instances().values() {
+            nodes.add_scheme_type(&constructor.ty);
+            for argument in &constructor.instance.arguments { nodes.add_scheme_type(argument); }
         }
         for plan in facts.registered_calls().values() {
             for check in plan.argument_checks.iter().flatten() {
@@ -893,7 +897,7 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
     }
     for target in body.requirement_targets.values() {
         nodes.add_type(&target.ty);
-        nodes.add_schema(&target.context);
+        nodes.add_schema(&target.context, OutputTypeNodes::add_type);
     }
     for call in body.api_calls.values() {
         for ty in &call.params {
@@ -950,7 +954,7 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
 fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
     let body = &declarations.bodies;
     let scheme_body_nodes = declarations.scheme_bodies.values().try_fold(0usize, |total, facts| {
-        [facts.expression_types().len(), facts.tail_types().len(), facts.registered_calls().len(),
+        [facts.expression_types().len(), facts.tail_types().len(), facts.constructor_instances().len(), facts.registered_calls().len(),
             facts.read_bindings().len(), facts.proc_return_site_count(), facts.constructor_producers().len()]
             .into_iter().try_fold(total, usize::checked_add)
     }).expect("scheme body evidence node count overflowed");

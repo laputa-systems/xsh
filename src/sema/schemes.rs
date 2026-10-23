@@ -190,7 +190,7 @@ pub(crate) struct SchemeRowParameter {
 pub(crate) struct SchemeParameter {
     pub(crate) name: Name,
     pub(crate) ty: SchemeType,
-    pub(crate) schema_expectation: Option<SchemaExpectation>,
+    pub(crate) schema_expectation: Option<SchemaExpectation<SchemeType>>,
     pub(crate) defaulted: bool,
     pub(crate) rest: bool,
 }
@@ -208,7 +208,7 @@ pub(crate) struct CallableScheme {
 pub(crate) struct CallableMonotype {
     params: Arc<[SchemeParameter]>,
     return_type: SchemeType,
-    return_schema: Option<SchemaExpectation>,
+    return_schema: Option<SchemaExpectation<SchemeType>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -313,6 +313,7 @@ pub(crate) struct SchemeBodyFacts {
     scheme: Arc<TypeScheme>,
     expression_types: BTreeMap<ExprId, SchemeType>,
     constructor_producers: BTreeMap<ExprId, NonmaterialConstructor>,
+    constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<SchemeType>>,
     tail_types: BTreeMap<StmtId, SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>,
     read_bindings: BTreeSet<super::check::BindingId>,
@@ -362,7 +363,7 @@ impl TypeScheme {
         row_parameters: Vec<SchemeRowParameter>,
         params: Vec<SchemeParameter>,
         return_type: SchemeType,
-        return_schema: Option<SchemaExpectation>,
+        return_schema: Option<SchemaExpectation<SchemeType>>,
         explicit_return: bool,
         effects: Option<Vec<crate::syntax::node::Effect>>,
         inferred_effects: bool,
@@ -426,7 +427,7 @@ impl TypeScheme {
         self.callable.return_type()
     }
 
-    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation> {
+    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation<SchemeType>> {
         self.callable.return_schema()
     }
 
@@ -466,7 +467,7 @@ impl CallableScheme {
         row_parameters: Vec<SchemeRowParameter>,
         params: Vec<SchemeParameter>,
         return_type: SchemeType,
-        return_schema: Option<SchemaExpectation>,
+        return_schema: Option<SchemaExpectation<SchemeType>>,
         explicit_return: bool,
         requirements: CallableRequirements,
     ) -> Result<Self, SchemeBuildError> {
@@ -497,7 +498,7 @@ impl CallableScheme {
         let mut used_rows = BTreeSet::new();
         let mut row_requirements = BTreeMap::<SchemeRowParameterId, BTreeSet<Name>>::new();
         for parameter in &params {
-            if let Some(schema) = &parameter.schema_expectation { validate_schema_ground_types(schema)?; }
+            if let Some(schema) = &parameter.schema_expectation { validate_schema_types(schema, &mut |ty| ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements))?; }
             parameter.ty.validate(
                 &type_ids,
                 &row_ids,
@@ -517,7 +518,7 @@ impl CallableScheme {
             &mut used_rows,
             &mut row_requirements,
         )?;
-        if let Some(schema) = &return_schema { validate_schema_ground_types(schema)?; }
+        if let Some(schema) = &return_schema { validate_schema_types(schema, &mut |ty| ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements))?; }
         for (parameter, iteration) in &requirements.iteration_parameters {
             if !type_ids.contains(parameter) { return Err(SchemeBuildError::UnboundTypeParameter); }
             for ty in iteration.types() {
@@ -609,7 +610,7 @@ impl CallableScheme {
         self.monotype.return_type()
     }
 
-    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation> {
+    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation<SchemeType>> {
         self.monotype.return_schema()
     }
 
@@ -781,7 +782,7 @@ impl CallableMonotype {
     pub(crate) fn new(
         params: Vec<SchemeParameter>,
         return_type: SchemeType,
-        return_schema: Option<SchemaExpectation>,
+        return_schema: Option<SchemaExpectation<SchemeType>>,
     ) -> Self {
         Self { params: params.into(), return_type, return_schema }
     }
@@ -794,7 +795,7 @@ impl CallableMonotype {
         &self.return_type
     }
 
-    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation> {
+    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation<SchemeType>> {
         self.return_schema.as_ref()
     }
 
@@ -1138,6 +1139,7 @@ impl SchemeBodyFacts {
             scheme,
             expression_types,
             constructor_producers: BTreeMap::new(),
+            constructor_instances: BTreeMap::new(),
             tail_types,
             registered_calls: BTreeMap::new(),
             read_bindings: BTreeSet::new(),
@@ -1271,6 +1273,28 @@ impl SchemeBodyFacts {
         self
     }
 
+    pub(crate) fn with_constructor_instances(mut self, constructors: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<SchemeType>>) -> Result<Self, SchemeBuildError> {
+        let type_ids = self.scheme.type_parameters().iter().copied().collect();
+        let row_ids = self.scheme.row_parameters().iter().map(|row| row.id).collect();
+        let effect_ids = self.scheme.callable().requirements().effect_parameters.iter().copied().collect();
+        for (&expression, constructor) in &constructors {
+            if self.expression_types.get(&expression) != Some(&constructor.ty) { return Err(SchemeBuildError::UnresolvedSchema); }
+            let mut used_effects = BTreeSet::new();
+            let mut used_types = BTreeSet::new();
+            let mut used_rows = BTreeSet::new();
+            let mut row_requirements = BTreeMap::new();
+            for ty in constructor.instance.arguments.iter().chain(std::iter::once(&constructor.ty)) {
+                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
+            }
+        }
+        self.constructor_instances = constructors;
+        Ok(self)
+    }
+
+    pub(crate) fn constructor_instances(&self) -> &BTreeMap<ExprId, super::constants::CheckedRecordConstructor<SchemeType>> {
+        &self.constructor_instances
+    }
+
     pub(crate) fn constructor_producers(&self) -> &BTreeMap<ExprId, NonmaterialConstructor> {
         &self.constructor_producers
     }
@@ -1317,6 +1341,10 @@ impl SchemeBodyFacts {
                     .sum::<usize>(),
             )
             .saturating_add(self.constructor_producers.len() * size_of::<(ExprId, NonmaterialConstructor)>())
+            .saturating_add(self.constructor_instances.len() * size_of::<(ExprId, super::constants::CheckedRecordConstructor<SchemeType>)>())
+            .saturating_add(self.constructor_instances.values().map(|constructor| constructor.ty.retained_bytes()
+                .saturating_add(constructor.instance.arguments.capacity() * size_of::<SchemeType>())
+                .saturating_add(constructor.instance.arguments.iter().map(SchemeType::retained_bytes).sum::<usize>())).sum::<usize>())
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
             .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.operation_sites.len() * size_of::<(ExprId, u32)>())
@@ -1334,27 +1362,43 @@ impl SchemeBodyFacts {
     }
 }
 
+impl SchemaExpectation<SchemeType> {
+    pub(crate) fn closed_ground(&self) -> Option<SchemaExpectation> {
+        self.try_map(&mut |ty| ty.closed_ground_type().ok_or(())).ok()
+    }
+
+    pub(crate) fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
+        let mut pending = vec![self];
+        while let Some(schema) = pending.pop() {
+            for instance in &mut schema.instances {
+                for argument in &mut instance.arguments { argument.map_ground_types(map); }
+            }
+            pending.extend(Arc::make_mut(&mut schema.children).values_mut());
+        }
+    }
+}
+
 fn schema_expectation_retained_bytes(
-    expectation: &SchemaExpectation,
+    expectation: &SchemaExpectation<SchemeType>,
     counted_children: &mut BTreeSet<usize>,
 ) -> usize {
     use std::mem::size_of;
 
-    let mut bytes = expectation.instances.capacity() * size_of::<SchemaInstance>();
+    let mut bytes = expectation.instances.capacity() * size_of::<SchemaInstance<SchemeType>>();
     for instance in &expectation.instances {
-        bytes = bytes.saturating_add(instance.arguments.capacity() * size_of::<Type>());
+        bytes = bytes.saturating_add(instance.arguments.capacity() * size_of::<SchemeType>());
         for argument in &instance.arguments {
             bytes = bytes.saturating_add(
                 argument
                     .retained_bytes()
-                    .saturating_sub(size_of::<Type>()),
+                    .saturating_sub(size_of::<SchemeType>()),
             );
         }
     }
     if counted_children.insert(Arc::as_ptr(&expectation.children) as usize) {
-        bytes = bytes.saturating_add(size_of::<BTreeMap<SchemaComponent, SchemaExpectation>>());
+        bytes = bytes.saturating_add(size_of::<BTreeMap<SchemaComponent, SchemaExpectation<SchemeType>>>());
         bytes = bytes.saturating_add(
-            expectation.children.len() * size_of::<(SchemaComponent, SchemaExpectation)>(),
+            expectation.children.len() * size_of::<(SchemaComponent, SchemaExpectation<SchemeType>)>(),
         );
         for (component, child) in expectation.children.iter() {
             if let SchemaComponent::Field(name) = component {
@@ -1636,10 +1680,10 @@ impl SchemeType {
             Self::Callable { monotype, effects, .. } => {
                 validate_effect_contract(effects, effect_ids, used_effects)?;
                 for parameter in monotype.params() {
-                    if let Some(schema) = &parameter.schema_expectation { validate_schema_ground_types(schema)?; }
+                    if let Some(schema) = &parameter.schema_expectation { validate_schema_types(schema, &mut |ty| ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements))?; }
                     parameter.ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)?;
                 }
-                if let Some(schema) = monotype.return_schema() { validate_schema_ground_types(schema)?; }
+                if let Some(schema) = monotype.return_schema() { validate_schema_types(schema, &mut |ty| ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements))?; }
                 monotype.return_type().validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)
             }
             Self::Parameter(id) => {
@@ -1752,11 +1796,11 @@ fn validate_ground(ty: &Type) -> Result<(), SchemeBuildError> {
     }
 }
 
-fn validate_schema_ground_types(schema: &SchemaExpectation) -> Result<(), SchemeBuildError> {
+fn validate_schema_types(schema: &SchemaExpectation<SchemeType>, validate: &mut impl FnMut(&SchemeType) -> Result<(), SchemeBuildError>) -> Result<(), SchemeBuildError> {
     let mut pending = vec![schema];
     while let Some(schema) = pending.pop() {
         for instance in &schema.instances {
-            for argument in &instance.arguments { validate_ground(argument)?; }
+            for argument in &instance.arguments { validate(argument)?; }
         }
         pending.extend(schema.children.values());
     }
@@ -1929,11 +1973,30 @@ mod tests {
             };
             assert!(matches!(callback(None, None).closed_ground_type(), Some(Type::Callable(_))));
             let schema = SchemaExpectation {
-                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![Type::Int] }],
+                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![SchemeType::Ground(Type::Int)] }],
                 ..SchemaExpectation::default()
             };
             assert_eq!(callback(Some(schema.clone()), None).closed_ground_type(), None);
             assert_eq!(callback(None, Some(schema)).closed_ground_type(), None);
+        });
+    }
+
+    #[test]
+    fn scoped_schema_arguments_use_the_callable_binders_without_runtime_reification() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let binder = super::SchemeTypeParameterId(0);
+            let parameter = SchemeParameter { name: Name::intern("value"), ty: SchemeType::Parameter(binder), schema_expectation: None, defaulted: false, rest: false };
+            let schema = |argument| SchemaExpectation {
+                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![argument] }],
+                ..SchemaExpectation::default()
+            };
+            let result = SchemeType::Record { fields: BTreeMap::from([(Name::intern("value"), SchemeType::Parameter(binder))]), tail: SchemeRowTail::Closed };
+            let callable = CallableScheme::new(vec![binder], Vec::new(), vec![parameter.clone()], result.clone(),
+                Some(schema(SchemeType::Parameter(binder))), false, super::CallableRequirements::default()).unwrap();
+            assert!(callable.return_schema().unwrap().closed_ground().is_none());
+            let foreign = CallableScheme::new(vec![binder], Vec::new(), vec![parameter], result,
+                Some(schema(SchemeType::Parameter(super::SchemeTypeParameterId(1)))), false, super::CallableRequirements::default());
+            assert_eq!(foreign, Err(SchemeBuildError::UnboundTypeParameter));
         });
     }
 
@@ -1943,7 +2006,7 @@ mod tests {
             let mut constraints = crate::sema::constraints::TypeConstraints::default();
             let variable = constraints.fresh(crate::source::Span::at(crate::source::SourceId::new(0), 0));
             let schema = SchemaExpectation {
-                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![variable] }],
+                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![SchemeType::Ground(variable)] }],
                 ..SchemaExpectation::default()
             };
             for schema_in_parameter in [false, true] {
@@ -2344,7 +2407,7 @@ mod tests {
             let expectation = SchemaExpectation {
                 instances: vec![SchemaInstance {
                     definition: TypeDefId::from_index(0),
-                    arguments: vec![Type::List(Box::new(Type::Str))],
+                    arguments: vec![SchemeType::List(Box::new(SchemeType::Ground(Type::Str)))],
                 }],
                 children: Arc::new(BTreeMap::from([(
                     SchemaComponent::Field(field),
@@ -2379,9 +2442,9 @@ mod tests {
             let required_payload_bytes = field.as_str().len()
                 + parameter_name.as_str().len()
                 + 2 * std::mem::size_of::<Name>()
-                + std::mem::size_of::<SchemaInstance>()
+                + std::mem::size_of::<SchemaInstance<SchemeType>>()
                 + std::mem::size_of::<Type>()
-                + std::mem::size_of::<(SchemaComponent, SchemaExpectation)>();
+                + std::mem::size_of::<(SchemaComponent, SchemaExpectation<SchemeType>)>();
             assert!(scheme.retained_bytes() >= plain.retained_bytes() + required_payload_bytes);
         });
     }

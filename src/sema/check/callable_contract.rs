@@ -165,8 +165,8 @@ fn structural_storage_type(ty: &Type, wire_enums: &PreparedWireEnums) -> bool {
     }
 }
 
-fn project_structural_schema(schema: &SchemaExpectation, ty: &Type,
-    identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> SchemaExpectation
+fn project_structural_schema<T: Clone>(schema: &SchemaExpectation<T>, ty: &Type,
+    identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> SchemaExpectation<T>
 {
     let instances = schema.instances.iter().filter(|instance| {
         !instance.arguments.is_empty() || !identities.get(&instance.definition).is_some_and(|identity| {
@@ -186,7 +186,7 @@ fn project_structural_schema(schema: &SchemaExpectation, ty: &Type,
     SchemaExpectation { instances, children: Arc::new(children) }
 }
 
-pub(super) fn structural_schema_is_redundant(schema: &SchemaExpectation, ty: &Type,
+pub(super) fn structural_schema_is_redundant<T: Clone>(schema: &SchemaExpectation<T>, ty: &Type,
     identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
     schema_has_obligations(schema)
@@ -196,7 +196,9 @@ pub(super) fn structural_schema_is_redundant(schema: &SchemaExpectation, ty: &Ty
 pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
-    BoundEquivalence::new(left_schemas, right_schemas, None, None).schema(left, right)
+    let left = left.map(|schema| schema.map(&mut |ty| SchemeType::Ground(ty.clone())));
+    let right = right.map(|schema| schema.map(&mut |ty| SchemeType::Ground(ty.clone())));
+    BoundEquivalence::new(left_schemas, right_schemas, None, None).schema(left.as_ref(), right.as_ref())
 }
 
 pub(super) fn same_bound_effects(
@@ -245,7 +247,7 @@ impl CheckedCallableContract {
 
     pub(crate) fn scheme(&self) -> &Arc<TypeScheme> { &self.scheme }
 
-    pub(crate) fn structural_interface_schema(&self, ty: &SchemeType, schema: Option<&SchemaExpectation>, checked: &Type) -> bool {
+    pub(crate) fn structural_interface_schema(&self, ty: &SchemeType, schema: Option<&SchemaExpectation<SchemeType>>, checked: &Type) -> bool {
         let Some(schema) = schema else { return false; };
         let Some(ground) = ty.closed_ground_type() else { return false; };
         ground == *checked && structural_schema_is_redundant(schema, &ground, &self.schema_identities)
@@ -302,8 +304,9 @@ impl CheckedCallableContract {
             && equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
     }
 
-    /// Tests whether this concrete contract is an exact instance of the given
-    /// scheme, preserving labels, layout, schema identities, and effects.
+    /// Tests whether this concrete contract is an instance of the given scheme,
+    /// preserving labels, layout, schemas, parameter and success types, and
+    /// effects. A resolved Result error may narrow under callable return rules.
     /// Returns an error when the original is generic or the comparison cannot
     /// establish a resolved instance. An error does not establish a mismatch.
     pub fn is_instance_of(&self, generalized: &Self) -> Result<bool, ContractComparisonError> {
@@ -327,16 +330,14 @@ impl CheckedCallableContract {
         {
             return Ok(None);
         }
-        let schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
+        let mut schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
             self.scheme_callables.as_deref(), generalized.scheme_callables.as_deref());
         if !schemas.interface_schema(self.scheme.return_schema(), generalized.scheme.return_schema(), self.scheme.return_type(), generalized.scheme.return_type())
             || !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)| {
                 old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest
                     && schemas.interface_schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref(), &old.ty, &new.ty)
             })
-        {
-            return Ok(None);
-        }
+        { return Ok(None); }
         let ground = self.scheme.params().iter().map(|parameter| &parameter.ty)
             .chain(std::iter::once(self.scheme.return_type()))
             .map(SchemeType::closed_ground_type).collect::<Option<Vec<_>>>()
@@ -345,11 +346,19 @@ impl CheckedCallableContract {
         let origin = Span::at(SourceId::new(0), 0);
         let instance = constraints.instantiate_callable(generalized.scheme.callable(), 1, origin, crate::sema::constraints::CallableApplicationScope::Invocation)
             .map_err(|_| ContractComparisonError::UnsupportedContract)?;
-        let instantiated = instance.params.iter().chain(std::iter::once(&instance.return_type));
-        for (expected, actual) in instantiated.clone().zip(&ground) {
+        for (expected, actual) in instance.params.iter().zip(&ground) {
             constraints.constrain_annotation(expected, actual, origin)
                 .map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         }
+        let original_return = ground.last().ok_or(ContractComparisonError::UnsupportedContract)?;
+        let constrained_return = constraints.resolve(&instance.return_type).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+        let (expected_return, actual_return) = match (&constrained_return, original_return) {
+            (Type::Result(expected_success, _), Type::Result(actual_success, _)) =>
+                (expected_success.as_ref(), actual_success.as_ref()),
+            (expected, actual) => (expected, actual),
+        };
+        constraints.constrain_annotation(expected_return, actual_return, origin)
+            .map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         constraints.solve_callable_applications().map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         let expected_effects = constraints.instantiate_effect_contract(generalized.scheme.effects(), &instance)
             .map_err(|_| ContractComparisonError::UnresolvedInstance)?;
@@ -361,10 +370,19 @@ impl CheckedCallableContract {
         }
         constraints.finish_effect_constraints().map_err(|_| ContractComparisonError::UnresolvedInstance)?;
         if constraints.resolve_effect(expected_effects.contract()).map_err(|_| ContractComparisonError::UnresolvedInstance)? != actual_effects { return Ok(None); }
-        for (expected, actual) in instantiated.zip(&ground) {
+        for (expected, actual) in instance.params.iter().zip(&ground) {
             let resolved = constraints.resolve(expected).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
             if &resolved != actual { return Ok(None); }
         }
+        let resolved_return = constraints.resolve(&instance.return_type).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+        if resolved_return.contains_recovery() || resolved_return.contains_inference() {
+            return Err(ContractComparisonError::UnresolvedInstance);
+        }
+        if resolved_return != *original_return && !matches!((&resolved_return, original_return),
+            (Type::Result(actual_success, _), Type::Result(expected_success, _))
+                if actual_success == expected_success
+                    && crate::sema::types::callable_return_fits(&resolved_return, original_return))
+        { return Ok(None); }
         Ok(Some(CallableInstanceEvidence { constraints, instance, scheme: Arc::clone(&generalized.scheme), origin }))
     }
 
@@ -462,7 +480,7 @@ impl CheckOutput {
     }
 }
 
-fn schema_has_obligations(schema: &SchemaExpectation) -> bool {
+fn schema_has_obligations<T>(schema: &SchemaExpectation<T>) -> bool {
     let mut pending = vec![schema];
     while let Some(schema) = pending.pop() {
         if !schema.instances.is_empty() { return true; }
@@ -610,7 +628,7 @@ impl BoundEquivalence<'_> {
             })
     }
 
-    fn schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>) -> bool {
+    fn schema(&mut self, left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>) -> bool {
         let left = left.filter(|schema| schema_has_obligations(schema));
         let right = right.filter(|schema| schema_has_obligations(schema));
         match (left, right) {
@@ -618,7 +636,8 @@ impl BoundEquivalence<'_> {
             (Some(left), Some(right)) => left.instances.len() == right.instances.len()
                 && left.instances.iter().zip(&right.instances).all(|(left, right)| {
                     self.left_schemas.get(&left.definition).is_some_and(|identity| Some(identity) == self.right_schemas.get(&right.definition))
-                        && left.arguments == right.arguments
+                        && left.arguments.len() == right.arguments.len()
+                        && left.arguments.iter().zip(&right.arguments).all(|(left, right)| self.ty(left, right))
                 })
                 && left.children.values().filter(|child| schema_has_obligations(child)).count()
                     == right.children.values().filter(|child| schema_has_obligations(child)).count()
@@ -628,7 +647,7 @@ impl BoundEquivalence<'_> {
         }
     }
 
-    fn interface_schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>, left_type: &SchemeType, right_type: &SchemeType) -> bool {
+    fn interface_schema(&mut self, left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>, left_type: &SchemeType, right_type: &SchemeType) -> bool {
         match (left_type.closed_ground_type(), right_type.closed_ground_type()) {
             (Some(left_type), Some(right_type)) if left_type == right_type => {
                 let left = left.map(|schema| project_structural_schema(schema, &left_type, self.left_schemas));
@@ -868,6 +887,61 @@ mod tests {
         assert!(original.is_instance_of(&inferred).unwrap());
         assert!(!original.equivalent_to(&other));
         assert!(!original.is_instance_of(&other).unwrap_or(false));
+    }
+
+    #[test]
+    fn result_return_instance_preserves_existing_callable_error_compatibility() {
+        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        let original = root_schema_contract(&format!("{declarations}pure describe(ok: Bool) -> Result[Str] {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
+        let inferred = root_schema_contract(&format!("{declarations}pure describe(ok: Bool) {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
+        assert!(original.is_instance_of(&inferred).unwrap());
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let binder = SchemeTypeParameterId(7);
+            let original = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Ground(Type::Str))],
+                SchemeType::Result(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Error))),
+                Vec::new(), Vec::new(), Some(Vec::new()));
+            let inferred = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Parameter(binder))],
+                SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Ground(Type::ErrorVariant {
+                    family: Name::intern("Failure"), variant: Name::intern("Bad"),
+                }))), vec![binder], Vec::new(), Some(Vec::new()));
+            assert!(inferred.is_generic());
+            assert!(original.is_instance_of(&inferred).unwrap());
+            let narrow = Type::Result(Box::new(Type::Str), Box::new(Type::ErrorVariant {
+                family: Name::intern("Failure"), variant: Name::intern("Bad"),
+            }));
+            let original_identity = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Ground(narrow))],
+                SchemeType::Result(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Error))),
+                Vec::new(), Vec::new(), Some(Vec::new()));
+            let generic_identity = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Parameter(binder))], SchemeType::Parameter(binder),
+                vec![binder], Vec::new(), Some(Vec::new()));
+            assert!(original_identity.is_instance_of(&generic_identity).unwrap());
+            let error = SchemeTypeParameterId(8);
+            let unresolved = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Parameter(binder))],
+                SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Parameter(error))),
+                vec![binder, error], Vec::new(), Some(Vec::new()));
+            assert_eq!(original.is_instance_of(&unresolved), Err(ContractComparisonError::UnresolvedInstance));
+        });
+    }
+
+    #[test]
+    fn result_error_compatibility_retains_bare_errors_families_and_wrapping() {
+        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        for (original, candidate) in [
+            ("pure describe() -> Error { Failure.Bad(\"bad\") }\n", "pure describe() { Failure.Bad(\"bad\") }\n"),
+            ("pure describe(ok: Bool) -> Result[Str, Failure] { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n", "pure describe(ok: Bool) { guard ok else { return Err(Other.Wrong(\"bad\")) }; \"yes\" }\n"),
+            ("pure describe(ok: Bool) -> Result[Any] { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n", "pure describe(ok: Bool) { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n"),
+            ("pure describe() -> Result[Str] { \"yes\" }\n", "pure describe() { \"yes\" }\n"),
+        ] {
+            let original = root_schema_contract(&format!("{declarations}{original}"));
+            let candidate = root_schema_contract(&format!("{declarations}{candidate}"));
+            assert!(!original.is_instance_of(&candidate).unwrap_or(false));
+        }
     }
 
     #[test]

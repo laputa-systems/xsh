@@ -92,7 +92,7 @@ impl Checker {
         };
         let source = match ty.unvalidated() { Type::Result(ok, _) => ok.unvalidated(), source => source };
         if !matches!(source, Type::Inference(_)) { return stream_type_from_input(ty); }
-        let item = self.type_constraints.fresh_at_level(span, self.wrapper_solver_level());
+        let item = self.type_constraints.fresh_at_level(span, self.callable_solver_level());
         let required = crate::sema::schemes::IterationRequirement {
             item: item.clone(),
             policy: crate::sema::schemes::IterationPolicy::PipelineTransport,
@@ -1130,7 +1130,7 @@ impl Checker {
             }
             if *item_ty == Type::Any {
                 self.reject_dynamic_use("a byte-bounded batch item", None, argument.span);
-            } else if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
+            } else if !self.require_value_conversion(item_ty, crate::sema::schemes::ValueConversion::Argv, argument.span) {
                 self.error(
                     argument.span,
                     "byte-bounded batches require argv-compatible items",
@@ -1412,6 +1412,7 @@ mod inferred_sort_key_tests {
             assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
             assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
             assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
         }
     }
 }

@@ -878,6 +878,21 @@ not decide them, and conflicting evidence is an error, never a guessed `Any`
 substitution. Functions, enums, error families, and module contracts are not
 generic, and there is no expression-level type-argument syntax.
 
+Within an inferred callable, a constructor parameter can remain tied to an
+inferred input type:
+
+```xsh
+type Box[T] = {value: T}
+pure boxed(value) { Box(value:) }
+let number = boxed(7)
+let word = boxed("kept")
+```
+
+The constructor's declaration identity and type relationship remain part of the
+callable's checked contract. An unused schema parameter still needs evidence
+from a field or an explicit schema context. Runtime validation requires a
+closed, reifiable static target.
+
 A schema is structural: any record with its fields fits it. `nominal type`
 declares a schema whose name is also an identity, for a value whose fields
 alone do not say what it is:
@@ -3379,6 +3394,12 @@ and defaulted schema obligations remain constrained. Removing a return
 annotation that selects `UInt` conversion or `Result` wrapping changes source
 meaning and does not qualify as an equivalent erasure.
 
+A candidate `Result` return can have a narrower error under the existing
+callable return rule after the same parameter instance resolves its exact
+success type. This does not admit a different success domain, an unresolved
+error, a bare `Error` return, or a removed `Result` wrapper. Body comparison
+retains each error constructor's canonical family and variant identity.
+
 Local initializer comparison can project a redundant implicit structural check
 when both views independently establish the same stored type and initializer
 type, and all checked operations and effects remain unchanged. A canonical
@@ -4667,6 +4688,11 @@ per item. `jobs`, `batch` limits, and chunk sizes must be positive; `take`,
 `drop`, and `repeat` accept zero. `batch` needs at least one limit, closes a
 batch at the first limit reached, and keeps a final short batch.
 `batch(max_argv: true)` sizes batches to fit an argv.
+Count-only batches preserve arbitrary item values. Byte-bounded and
+argv-bounded batches require argv-compatible items: `Str`, `Int`, `UInt`,
+`Bool`, `Path`, `Duration`, or a union whose members all support that
+conversion. Generic batches retain the same requirement for each call.
+An explicit `max_argv: false` adds no item conversion requirement.
 
 `par-map` maps items on a bounded pool of workers (by default about one per
 CPU) and keeps input order. The stage is eager: it maps every item before the

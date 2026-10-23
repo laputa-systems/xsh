@@ -22,6 +22,15 @@ proc failed_sort(value) { domain_values(value) |> sort-by { |item| let _ = domai
 proc bad_direction() -> Result[Bool, Str] { Err("direction failed") }
 proc failed_direction(value) { domain_values(value) |> sort(desc: bad_direction()?) }
 
+var sort_events = ""
+stream sort_event_values(value) { defer { sort_events += "close;" }; sort_events += "pull;"; yield value; sort_events += "second;"; yield value }
+proc sort_event_direction() -> Bool { sort_events += "config;"; true }
+proc sort_event_failure() -> Result[Bool, Str] { sort_events += "bad;"; Err("direction failed") }
+proc typed_empty_sort(value: Str) -> Result[List[Str]] { sort_event_values(value) |> take(0) |> sort(desc: sort_event_direction()) }
+proc generic_empty_sort(value) { sort_event_values(value) |> take(0) |> sort(desc: sort_event_direction()) }
+proc typed_failed_direction(value: Str) { sort_event_values(value) |> sort(desc: sort_event_failure()?) }
+proc generic_failed_direction(value) { sort_event_values(value) |> sort(desc: sort_event_failure()?) }
+
 proc generic_key_domains() -> Result[Unit] {
   assert sorted(2, 1) == [1, 2]
   assert sorted("b", "a") == ["a", "b"]
@@ -53,10 +62,29 @@ proc generic_key_domains() -> Result[Unit] {
     Err(error) => assert error == "direction failed"
     Ok(_) => assert false
   }
-  assert domain_closed == 1
+  assert domain_closed == 2
   match try { failed_sort(7)? } {
     Err(error) => assert error == "sort failed"
     Ok(_) => assert false
   }
-  assert domain_closed == 2
+  assert domain_closed == 3
+  assert typed_empty_sort("typed")? == []
+  let typed_empty_events = sort_events
+  assert typed_empty_events == "config;"
+  sort_events = ""
+  assert generic_empty_sort(7)? == []
+  assert sort_events == typed_empty_events
+  sort_events = ""
+  match try { typed_failed_direction("typed")? } {
+    Err(error) => assert error == "direction failed"
+    Ok(_) => assert false
+  }
+  let typed_failed_events = sort_events
+  assert typed_failed_events == "pull;second;close;bad;"
+  sort_events = ""
+  match try { generic_failed_direction(7)? } {
+    Err(error) => assert error == "direction failed"
+    Ok(_) => assert false
+  }
+  assert sort_events == typed_failed_events
 }

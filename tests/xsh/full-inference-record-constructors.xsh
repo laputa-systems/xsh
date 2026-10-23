@@ -39,3 +39,30 @@ pure make(payload, item: Right) {
 let result = make(7, Right(value: 3))
 """, status: 2, stderr: ["[check.type-mismatch]"])?
 }
+
+test test_generic_schema_constructors_keep_input_relationships_and_defaults { |ctx|
+  let output = test.run_xsh(ctx, r"""type Box[T] = {value: T, extra: Int = 9, items: List[T] = []}
+type Envelope[T] = {item: Box[T]}
+pure boxed(value) { Box(value:) }
+pure wrapped(value) { Envelope(item: boxed(value)) }
+proc observed(label: Str, value: Int) [io] -> Int { print $label; return value }
+proc ordered(value: Int) [io] -> Box[Int] { return Box(extra: observed("extra", 7), value: { let _ = observed("value", 0); value }) }
+let number = wrapped(7)
+let word = wrapped("kept")
+assert number.item.value == 7
+assert word.item.value == "kept"
+assert number.item.extra == 9
+assert word.item.items.len() == 0
+assert ordered(7).value == 7
+assert ordered(8).value == 8
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "extra\nvalue\nextra\nvalue\n"
+}
+
+test test_generic_schema_constructors_reject_unanchored_phantom_arguments { |ctx|
+  test.expect(ctx, r"""type Phantom[T] = {value: Int}
+pure phantom(value: Int) { Phantom(value:) }
+let result = phantom(7)
+""", status: 2, stderr: ["[check.constructor-inference]"])?
+}

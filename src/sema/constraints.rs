@@ -850,7 +850,6 @@ impl TypeConstraints {
         })
     }
 
-    #[cfg(test)]
     pub(crate) fn generalize_types(
         &self,
         types: &[Type],
@@ -1120,6 +1119,78 @@ impl TypeConstraints {
             wrappers: scope.wrappers.clone(),
             row_parameters: callable.row_parameters().to_vec(), effect_parameters: callable.requirements().effect_parameters.clone(),
         }
+    }
+
+    pub(crate) fn generalize_scoped_schema(
+        &self,
+        schema: &super::constants::SchemaExpectation,
+        generalized: &GeneralizedTypes,
+    ) -> Result<super::constants::SchemaExpectation<SchemeType>, SchemeOperationError> {
+        let mut generalization = Self::body_generalization(generalized);
+        let schema = schema.try_map(&mut |ty| self.generalize_type(ty, 0, &mut generalization, 0))?;
+        Self::check_body_generalization(&generalization, generalized)?;
+        Ok(schema)
+    }
+
+    fn body_generalization(generalized: &GeneralizedTypes) -> Generalization {
+        let scope = &generalized.generalization_scope;
+        Generalization {
+            type_ids: scope.types.clone(), row_ids: scope.rows.clone(), effect_ids: scope.effects.clone(),
+            applications: scope.applications.clone(), operations: scope.operations.clone(), methods: scope.methods.clone(), wrappers: scope.wrappers.clone(),
+            type_parameters: generalized.type_parameters.clone(), row_parameters: generalized.row_parameters.clone(),
+            effect_parameters: generalized.requirements.effect_parameters.clone(),
+        }
+    }
+
+    fn check_body_generalization(generalization: &Generalization, generalized: &GeneralizedTypes) -> Result<(), SchemeOperationError> {
+        let scope = &generalized.generalization_scope;
+        if generalization.type_ids != scope.types || generalization.row_ids != scope.rows || generalization.effect_ids != scope.effects {
+            return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn generalize_constructor_template(&self, constructor: &super::constants::CheckedRecordConstructor)
+        -> Result<(GeneralizedTypes, super::constants::CheckedRecordConstructor<SchemeType>), SchemeOperationError>
+    {
+        let mut types = constructor.instance.arguments.clone();
+        types.push(constructor.ty.clone());
+        let mut generalized = self.generalize_types(&types, 0)?;
+        let binders = generalized.type_parameters.iter().enumerate().map(|(index, binder)|
+            u32::try_from(index).map(|index| (*binder, SchemeTypeParameterId(index)))
+                .map_err(|_| SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema)))
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        for binder in generalized.generalization_scope.types.values_mut() { *binder = binders[binder]; }
+        generalized.type_parameters = generalized.type_parameters.iter().map(|binder| binders[binder]).collect();
+        let normalized = self.generalize_scoped_constructor(constructor, &generalized)?;
+        Ok((generalized, normalized))
+    }
+
+    pub(crate) fn generalize_scoped_constructor(
+        &self,
+        constructor: &super::constants::CheckedRecordConstructor,
+        generalized: &GeneralizedTypes,
+    ) -> Result<super::constants::CheckedRecordConstructor<SchemeType>, SchemeOperationError> {
+        let mut generalization = Self::body_generalization(generalized);
+        let arguments = constructor.instance.arguments.iter().map(|ty| self.generalize_type(ty, 0, &mut generalization, 0))
+            .collect::<Result<_, _>>()?;
+        let ty = self.generalize_type(&constructor.ty, 0, &mut generalization, 0)?;
+        Self::check_body_generalization(&generalization, generalized)?;
+        Ok(super::constants::CheckedRecordConstructor {
+            instance: super::constants::SchemaInstance { definition: constructor.instance.definition, arguments }, ty,
+        })
+    }
+
+    pub(crate) fn instantiate_schema(
+        &mut self,
+        schema: &super::constants::SchemaExpectation<SchemeType>,
+        instance: &InstantiatedScheme,
+        origin: Span,
+    ) -> Result<super::constants::SchemaExpectation, SchemeOperationError> {
+        schema.try_map(&mut |ty| {
+            let ty = self.instantiate_scheme_type(ty, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, 1, origin, 0)?;
+            self.resolve(&ty).map_err(SchemeOperationError::Resolution)
+        })
     }
 
     #[cfg(test)]
