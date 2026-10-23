@@ -2742,7 +2742,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .program
             .arena
             .span(self.program.arena.block(def.body).span);
-        let scheme_body_facts = self.declarations.scheme_bodies.get(&body_span).cloned();
+        let scheme_body_facts = self.declarations.scheme_bodies.get(&body_span).map(|facts| {
+            let mut canonicalize = |ty: &mut Type| *ty = self.canonicalize_checked_type(ty.clone());
+            let scheme = Arc::new(facts.scheme().map_ground_types(&mut canonicalize));
+            facts.map_ground_types(scheme, &mut canonicalize)
+        });
         let scheme = scheme_body_facts
             .as_ref()
             .map(|facts| Arc::clone(facts.scheme()));

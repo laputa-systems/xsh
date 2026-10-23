@@ -54554,3 +54554,77 @@ mod formal_bridge;
 
 #[cfg(test)]
 mod noncompletion_tests;
+
+#[cfg(test)]
+mod namespace_error_body_tests {
+    fn prepare(root: &std::path::Path, source: &str) -> super::FullProgram {
+        let entry = root.join("entry.xsh");
+        let file = entry.to_str().unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.to_owned()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{}", renderer.render(&declarations.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &declarations, source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn imported_generic_error_producers_keep_their_nominal_namespace() {
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        for module in ["first", "second"] {
+            std::fs::write(root.path().join(format!("{module}.xsh")), r#"##! Nominal error fixture.
+## A failure with module ownership.
+export error Collision = Failed
+pure invalid(text: Str) { Collision.Failed(text) }
+## Keeps a generic success and an owned error.
+export pure attempt(value, failed: Bool) {
+    if failed { return Err(invalid("rejected")) }
+    Ok(value)
+}
+"#).unwrap();
+        }
+        let source = r#"use first as left
+use second as right
+assert left.attempt(7, false) == Ok(7)
+assert right.attempt("kept", false) == Ok("kept")
+assert match left.attempt(7, true) { Err(left.Collision.Failed {message}) => message == "rejected"; Err(_) => false; Ok(_) => false }
+assert match right.attempt("kept", true) { Err(right.Collision.Failed {message}) => message == "rejected"; Err(_) => false; Ok(_) => false }
+"#;
+        let program = std::sync::Arc::new(prepare(root.path(), source));
+        super::FullVerifier::verify(&program).unwrap();
+        let producer = |module: &str| {
+            let owner = program.store.functions.iter().enumerate().find_map(|(owner, function)| {
+                let span = program.function_definition_spans[owner];
+                (program.store.string(function.name).unwrap() == "attempt" && program.sources.get(span.source_id).unwrap().name().ends_with(&format!("/{module}.xsh"))).then_some(owner)
+            }).unwrap();
+            let calls = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| program.store.tags[instruction] == super::FullTag::ExprDirectPureCall).collect::<Vec<_>>();
+            assert_eq!(calls.len(), 1);
+            let function = super::IrFunctionId::new(owner).unwrap();
+            let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function == function && fact.instruction as usize == calls[0] && fact.kind() == super::schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            (function, fact)
+        };
+        let (_, first) = producer("first");
+        let (other, second) = producer("second");
+        let first_type = program.store.scheme_body_facts[first].ty().unwrap();
+        let second_type = program.store.scheme_body_facts[second].ty().unwrap();
+        assert_eq!(program.store.scheme_types[first_type.index()].tag, super::schema::FullSchemeTypeTag::Ground);
+        assert_ne!(program.store.scheme_types[first_type.index()].first, program.store.scheme_types[second_type.index()].first);
+        let mut wrong_family = (*program).clone();
+        wrong_family.store.scheme_types[first_type.index()] = program.store.scheme_types[second_type.index()];
+        assert_eq!(super::FullVerifier::verify(&wrong_family).unwrap_err().message, "generic declaration disagrees with its initializer");
+        let mut foreign_owner = (*program).clone();
+        foreign_owner.store.scheme_body_facts[first].function = other;
+        assert!(super::FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(std::sync::Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+    }
+}
