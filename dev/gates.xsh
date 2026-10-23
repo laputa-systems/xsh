@@ -20,14 +20,24 @@ export type Selection = {areas: List[Area], native_files: List[Str]}
 ## Automatic tiers exclude full verification authority.
 export enum Tier { Edit, Change, Scenario }
 
+## Runtime limits use seconds; manual cases retain their existing owner lifecycle.
+export enum CaseLimit { RuntimeSeconds(Int), ManualOwner }
+
 ## Commands and aliases cannot grant a manual full request.
-export enum CaseExecution { RunCommand(contract.CommandSpec), DocumentationCheck, Alias, ManualFull }
+export enum CaseExecution {
+  RunCommand(contract.CommandSpec), DocumentationCheck, Alias, ManualFull,
+  ManualPreparation(ManualProducts),
+  ManualCommand(contract.CommandSpec), ManualNative, ManualDocumentation,
+}
+
+## Products provided by one retained manual preparation command.
+export type ManualProducts = {products: List[tests.Product], command: contract.CommandSpec}
 
 ## A declared case owns its command, prerequisites, products and bounded scope.
 export type CatalogCase = {
   id: Str,
   tier: Tier,
-  timeout_seconds: Int,
+  limit: CaseLimit,
   products: List[tests.Product],
   prerequisite_ids: List[Str],
   reasons: List[Str],
@@ -43,6 +53,8 @@ export type CatalogPlan = {
 }
 
 enum OutputMode { Execute, InspectText, InspectJson }
+
+enum RequestAuthority { FocusedAuthority, FullAuthority }
 
 enum GateRequest { Focused(Tier, List[Str], List[Str], OutputMode), Full }
 
@@ -98,21 +110,35 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   Focused(tier, paths, case_ids, output)
 }
 
-pure resolve_case(catalogue: List[CatalogCase], id: Str, explicit: List[Str], visiting: List[Str], completed: List[CatalogCase]) -> Result[List[CatalogCase], Error] {
+pure resolve_case(catalogue: List[CatalogCase], id: Str, explicit: List[Str], visiting: List[Str], completed: List[CatalogCase], authority: RequestAuthority) -> Result[List[CatalogCase], Error] {
   return Err(PlanError.Invalid(detail: f"catalogue cycle at {id}")) when id in visiting
   return completed when id in [entry.id for entry in completed]
   let matches = [entry for entry in catalogue |> where .id == id]
   return Err(PlanError.Invalid(detail: f"case {id} has {matches.len()} declarations")) when matches.len() != 1
   let entry = matches[0]
   match entry.execution {
-    ManualFull => { return Err(PlanError.Invalid(detail: f"manual case {id} requires sole --full")) }
+    ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {
+      return Err(PlanError.Invalid(detail: f"manual case {id} requires sole --full")) when authority == FocusedAuthority
+    }
     RunCommand(_) | DocumentationCheck | Alias => {}
   }
   return Err(PlanError.Invalid(detail: f"scenario {id} requires explicit --case")) when entry.tier == Scenario and id not in explicit
-  return Err(PlanError.Invalid(detail: f"case {id} has no timeout")) when entry.timeout_seconds <= 0
+  match entry.limit {
+    RuntimeSeconds(seconds) => {
+      return Err(PlanError.Invalid(detail: f"case {id} has no positive runtime limit")) when seconds <= 0
+      match entry.execution {
+        ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => { return Err(PlanError.Invalid(detail: f"manual case {id} must retain its owner lifecycle")) }
+        RunCommand(_) | DocumentationCheck | Alias => {}
+      }
+    }
+    ManualOwner => match entry.execution {
+      RunCommand(_) | DocumentationCheck => { return Err(PlanError.Invalid(detail: f"case {id} requires a runtime limit")) }
+      Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {}
+    }
+  }
   var resolved = completed
   for dependency in entry.prerequisite_ids {
-    resolved = resolve_case(catalogue, dependency, explicit, [@visiting, id], resolved)?
+    resolved = resolve_case(catalogue, dependency, explicit, [@visiting, id], resolved, authority)?
   }
   [@resolved, entry]
 }
@@ -122,10 +148,21 @@ export pure resolve_plan(catalogue: List[CatalogCase], ids: List[Str], tier: Tie
   resolve_selection(catalogue, ids, ids, tier)
 }
 
+pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
+  var ids: List[Str] = []
+  for entry in entries {
+    return Err(PlanError.Invalid(detail: "catalogue case IDs cannot be empty")) when entry.id.trim() == ""
+    return Err(PlanError.Invalid(detail: f"duplicate catalogue case ID {entry.id}")) when entry.id in ids
+    ids += [entry.id]
+  }
+  return
+}
+
 pure resolve_selection(catalogue: List[CatalogCase], ids: List[Str], explicit_ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
+  validate_cases(catalogue)?
   var resolved: List[CatalogCase] = []
   for id in ids {
-    resolved = resolve_case(catalogue, id, explicit_ids, [], resolved)?
+    resolved = resolve_case(catalogue, id, explicit_ids, [], resolved, FocusedAuthority)?
   }
   var products: List[tests.Product] = []
   for entry in resolved {
@@ -351,12 +388,39 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
 
 ## Runs the complete sequence at an integration boundary without source-tree
 ## formatters or autofixers.
-export proc batch(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+export proc batch(ctx: context.Context, request: GateRequest) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   let profile = tests.execution_profile()?
-  tests.run_commands(tests.rust_plan(ctx, profile, privileged: ctx.target.os == "linux")?)
-  tests.native(ctx, profile, ["--jobs", "4"])
-  tests.run_commands(batch_checks(ctx, profile))
-  docs_gate(ctx, profile)
+  dispatch_catalogue(ctx, profile, request,
+    catalogue(ctx, profile, Selection(areas: [], native_files: []), ["explicit Full request"])?)
+}
+
+## Dispatches live catalogue entries only with an opaque, separately parsed Full request.
+export proc dispatch_catalogue(ctx: context.Context, profile: tests.TestProfile, request: GateRequest, entries: List[CatalogCase]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  present(dispatch_manual(ctx, profile, request, entries))
+}
+
+proc dispatch_manual(ctx: context.Context, profile: tests.TestProfile, request: GateRequest, entries: List[CatalogCase]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  match request {
+    Full => {
+      let plan = resolve_full(entries)?
+      return execute_full(ctx, profile, plan)
+    }
+    Focused(_, _, _, _) => { return Err(PlanError.Invalid(detail: "manual dispatch requires the sole literal --full request")) }
+  }
+}
+
+proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  for entry in plan.cases {
+    match entry.execution {
+      ManualPreparation(preparation) => tests.run_commands([preparation.command])
+      ManualCommand(spec) => tests.run_commands([spec])
+      RunCommand(_) | DocumentationCheck => execute_plan(ctx, profile,
+        CatalogPlan(tier: entry.tier, cases: [entry], products: [], unresolved: []), [])
+      ManualNative => tests.native(ctx, profile, ["--jobs", "4"])
+      ManualDocumentation => docs_gate(ctx, profile)
+      ManualFull | Alias => {}
+    }
+  }
 }
 
 pure tier_name(tier: Tier) -> Str {
@@ -364,7 +428,7 @@ pure tier_name(tier: Tier) -> Str {
 }
 
 pure declared_case(spec: contract.CommandSpec, products: List[tests.Product], reasons: List[Str]) -> CatalogCase {
-  {id: spec.stage, tier: Change, timeout_seconds: 300, products: products,
+  {id: spec.stage, tier: Change, limit: RuntimeSeconds(300), products: products,
     prerequisite_ids: [], reasons: reasons, execution: RunCommand(spec)}
 }
 
@@ -382,7 +446,7 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     }
   }
   if Docs in selection.areas {
-    entries += [CatalogCase(id: "check-docs", tier: Change, timeout_seconds: 300,
+    entries += [CatalogCase(id: "check-docs", tier: Change, limit: RuntimeSeconds(300),
       products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons: reasons,
       execution: DocumentationCheck)]
   }
@@ -392,16 +456,85 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     entries += [declared_case(spec, required_products(owner), reasons)] when spec.stage not in [entry.id for entry in entries]
   }
   entries += [CatalogCase(id: "showcase/tokei/correctness", tier: Edit,
-    timeout_seconds: 30, products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    limit: RuntimeSeconds(30), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
     reasons: ["showcase/tokei.xsh output and classification contract"],
     execution: RunCommand(native_gate(ctx, profile, "showcase/tests/test-tokei.xsh")))]
   entries += [CatalogCase(id: "core/lsmem/correctness", tier: Edit,
-    timeout_seconds: 30, products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    limit: RuntimeSeconds(30), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
     reasons: ["core/lsmem.xsh rooted memory inventory contract"],
     execution: RunCommand(native_gate(ctx, profile, "core/tests/test-lsmem.xsh")))]
-  entries += [CatalogCase(id: "full", tier: Change, timeout_seconds: 1,
-    products: [], prerequisite_ids: [], reasons: ["explicit comprehensive verification"], execution: ManualFull)]
+  entries += manual_cases(ctx, profile)?
   entries
+}
+
+pure manual_cases(ctx: context.Context, profile: tests.TestProfile) -> Result[List[CatalogCase], Error] {
+  let rust = tests.rust_plan(ctx, profile, privileged: ctx.target.os == "linux")?
+  return Err(PlanError.Invalid(detail: "the Full Rust owner omitted product preparation")) when rust.is_empty() or rust[0].stage != "test-products"
+  let preparation_id = "full/products"
+  var cases = [CatalogCase(id: preparation_id, tier: Change, limit: ManualOwner,
+    products: [], prerequisite_ids: [], reasons: ["Full product preparation"],
+    execution: ManualPreparation(ManualProducts(products: tests.all_products(), command: rust[0])))]
+  var root_ids = [preparation_id]
+  var index = 1
+  for spec in rust |> drop(1) {
+    let id = f"full/rust/{index}/{spec.stage}"
+    cases += [CatalogCase(id: id, tier: Change, limit: ManualOwner,
+      products: tests.all_products(), prerequisite_ids: [preparation_id],
+      reasons: ["Full Rust owner"], execution: ManualCommand(spec))]
+    root_ids += [id]
+    index += 1
+  }
+  cases += [CatalogCase(id: "full/native", tier: Change, limit: ManualOwner,
+    products: tests.all_products(), prerequisite_ids: [preparation_id],
+    reasons: ["Full native owner with retained admission policy"], execution: ManualNative)]
+  root_ids += ["full/native"]
+  for spec in batch_checks(ctx, profile) {
+    let id = f"full/checks/{spec.stage}"
+    let products = match spec.stage {
+      "batch-diff" => []
+      "batch-ratchets" => [tests.Xsh]
+      else => [tests.Xsht]
+    }
+    cases += [CatalogCase(id: id, tier: Change, limit: ManualOwner,
+      products: products, prerequisite_ids: [preparation_id],
+      reasons: ["Full repository check owner"], execution: ManualCommand(spec))]
+    root_ids += [id]
+  }
+  cases += [CatalogCase(id: "full/docs", tier: Change, limit: ManualOwner,
+    products: [tests.Xsh, tests.Xsht], prerequisite_ids: [preparation_id],
+    reasons: ["Full documentation owner"], execution: ManualDocumentation)]
+  root_ids += ["full/docs"]
+  cases += [CatalogCase(id: "full", tier: Change, limit: ManualOwner,
+    products: [], prerequisite_ids: root_ids,
+    reasons: ["explicit comprehensive verification"], execution: ManualFull)]
+  cases
+}
+
+## Resolves the manual root and its complete dependency and product closure without effects.
+export pure resolve_full(catalogue: List[CatalogCase]) -> Result[CatalogPlan, Error] {
+  validate_cases(catalogue)?
+  let roots = [entry for entry in catalogue |> where .id == "full"]
+  return Err(PlanError.Invalid(detail: "Full requires exactly one manual root")) when roots.len() != 1 or roots[0].execution != ManualFull
+  return Err(PlanError.Invalid(detail: "Full root has no declared verification dependencies")) when roots[0].prerequisite_ids.is_empty()
+  let cases = resolve_case(catalogue, "full", [], [], [], FullAuthority)?
+  var available: List[tests.Product] = []
+  for entry in cases {
+    for product in entry.products {
+      return Err(PlanError.Invalid(detail: f"Full case {entry.id} requires an unprepared product")) when product not in available
+    }
+    match entry.execution {
+      ManualPreparation(preparation) => {
+        for product in preparation.products { available += [product] when product not in available }
+      }
+      RunCommand(_) | DocumentationCheck | Alias | ManualFull | ManualCommand(_) | ManualNative | ManualDocumentation => {}
+    }
+  }
+  {tier: Change, cases: cases, products: available, unresolved: []}
+}
+
+## Constructs Full from the same catalogue and the retained batch owners before dispatch.
+export pure full_plan(ctx: context.Context, profile: tests.TestProfile) -> Result[CatalogPlan, Error] {
+  resolve_full(catalogue(ctx, profile, Selection(areas: [], native_files: []), ["explicit Full request"])?)
 }
 
 pure all_areas() -> List[Area] {
@@ -431,7 +564,11 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
   }
   let selection = select(known_paths)?
   for entry in catalogue(ctx, profile, selection, [f"changed {changed_path}" for changed_path in known_paths])? {
-    continue when entry.id in ["full", "showcase/tokei/correctness", "core/lsmem/correctness"]
+    match entry.execution {
+      ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => continue
+      RunCommand(_) | DocumentationCheck | Alias => {}
+    }
+    continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness"]
     chosen += [entry]
     selected_ids += [entry.id] when entry.id not in selected_ids
   }
@@ -473,12 +610,27 @@ pure product_name(product: tests.Product) -> Str {
 }
 
 pure case_argv(execution: CaseExecution) -> List[Str] {
-  match execution { RunCommand(spec) => spec.argv, DocumentationCheck => [], Alias => [], ManualFull => [] }
+  match execution { RunCommand(spec) => spec.argv, DocumentationCheck => [], Alias => [], ManualFull => [], ManualPreparation(preparation) => preparation.command.argv, ManualCommand(spec) => spec.argv, ManualNative => [], ManualDocumentation => [] }
+}
+
+pure runtime_seconds(limit: CaseLimit) -> Int? {
+  match limit { RuntimeSeconds(seconds) => seconds, ManualOwner => null }
+}
+
+pure limit_owner(limit: CaseLimit) -> Str {
+  match limit { RuntimeSeconds(_) => "runtime", ManualOwner => "manual_owner" }
+}
+
+pure required_runtime_seconds(limit: CaseLimit) -> Result[Int, Error] {
+  match limit {
+    RuntimeSeconds(seconds) => seconds
+    ManualOwner => Err(PlanError.Invalid(detail: "automatic command cannot use manual lifecycle policy"))
+  }
 }
 
 proc inspect_plan(plan: CatalogPlan, machine: Bool) [error, io] {
   let cases = [
-    {id: entry.id, tier: tier_name(entry.tier), timeout_seconds: entry.timeout_seconds,
+    {id: entry.id, tier: tier_name(entry.tier), timeout_seconds: runtime_seconds(entry.limit), limit_owner: limit_owner(entry.limit),
       reasons: entry.reasons, prerequisite_ids: entry.prerequisite_ids,
       products: [product_name(product) for product in entry.products], argv: case_argv(entry.execution)}
     for entry in plan.cases
@@ -558,7 +710,7 @@ export proc run_case(ctx: context.Context, action: CaseAction, id: Str, paths: L
       return docs_gate(ctx, profile)
     }
     Alias => return
-    ManualFull => { return Err(PlanError.Invalid(detail: "manual leaf cannot execute in a focused request")) }
+    ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => { return Err(PlanError.Invalid(detail: "manual leaf cannot execute in a focused request")) }
   }
 }
 
@@ -662,12 +814,13 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       }
       DocumentationCheck => commands = [leaf_adapter(ctx, profile, "execute", entry.id, paths)?]
       Alias => {}
-      ManualFull => { return Err(PlanError.Invalid(detail: "manual request in focused execution")) }
+      ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => { return Err(PlanError.Invalid(detail: "manual request in focused execution")) }
     }
     for command in commands {
-      let available_ns = if entry.tier == Scenario { entry.timeout_seconds * 1000000000 } else { remaining_ns }
+      let seconds = required_runtime_seconds(entry.limit)?
+      let available_ns = if entry.tier == Scenario { seconds * 1000000000 } else { remaining_ns }
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when available_ns < 1000000
-      let limit = gate_execution.limit_ms(entry.timeout_seconds, available_ns)?
+      let limit = gate_execution.limit_ms(seconds, available_ns)?
       let started = time.monotonic()?
       let outcome = gate_execution.execute(command, limit)?
       let elapsed = time.monotonic()? - started
@@ -716,13 +869,15 @@ proc container_status(status: Status) [error] -> Result[Unit, Error] {
 }
 
 proc execute_request(ctx: context.Context, requested: List[Str]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  match parse_request(requested)? {
+  let request = parse_request(requested)?
+  match request {
     Full => {
+      let profile = tests.execution_profile()?
+      let _ = full_plan(ctx, profile)?
       if ctx.target.os == "linux" {
-        let profile = tests.execution_profile()?
         return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-full", true, [])?)
       }
-      return batch(ctx)
+      return batch(ctx, request)
     }
     Focused(tier, paths, ids, output) => return focused(ctx, tier, paths, ids, output)
   }

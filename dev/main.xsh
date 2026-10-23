@@ -354,7 +354,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         GateLane => {
           return container_internal.gate_lane(ctx, rest)
         }
-        GateFull => return container_internal.gate_full(ctx)
+        GateFull => return container_internal.gate_full(ctx, args[0])
         Coverage => return container_internal.container_coverage(ctx)
       }
     }

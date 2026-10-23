@@ -57,6 +57,8 @@ Aliases and prerequisites are resolved before commands start. A focused closure
 containing a manual case, a missing ID or a cycle fails with exit 2.
 Native-file IDs emitted by path plans replay with `--case ID`. Planning rejects
 duplicate IDs, missing files and native files that resolve outside the owned root.
+The catalogue uses `RuntimeSeconds` for bounded cases and `ManualOwner` for
+manual cases that retain the existing owner lifecycle.
 Scenario cases require explicit `--case ID` selection. Path ownership cannot
 select a Scenario through a prerequisite.
 
@@ -64,7 +66,7 @@ The initial focused cases include `showcase/tokei/correctness` and
 `core/lsmem/correctness`. Each selects its existing native behavior module.
 Edit rejects Change-only cases before preparing products. Edit runtime is limited
 to 30 seconds and Change runtime to 300 seconds across selected automatic cases.
-Each command also has its declared case limit. Explicit Scenario cases use their
+Each automatic command also has its declared case limit. Explicit Scenario cases use their
 declared per-case limit and do not increase any automatic case's budget.
 
 Compilation runs outside the runtime budget and is reported as a separate stage.
@@ -75,8 +77,10 @@ exit 1 while retaining the raw status. Gate cancellation consumes cleanup and ex
 130. No timeout or failure can request Full verification.
 
 Result reconciliation, source snapshot binding, per-case product profiles and
-explicit workload inputs remain open campaign work. Explicit Full still uses the
-static batch sequence. Its catalogue closure qualification remains open.
+explicit workload inputs remain open campaign work. Full derives its dependency
+and product closure from the retained batch owners. It validates the complete
+closure before Docker, product preparation or child execution. Dispatch controls
+use bounded substitute commands and do not perform actual Full verification.
 The current Git path collection is line-based and does not qualify newline or
 non-UTF-8 working-tree paths. These checks do not qualify P0 or the post-inference
 campaign.

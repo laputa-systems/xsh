@@ -2,6 +2,7 @@ use docker
 use fixtures
 use gates
 use gate_execution
+use internal as container_internal
 use test_workflows as tests
 use unix
 
@@ -486,12 +487,12 @@ main()?
 test test_focused_catalogue_rejects_manual_closure_cycles_and_missing_cases {
   let ctx = fixtures.linux_context(/repo)?
   let command = gates.CatalogCase(
-    id: "safe", tier: gates.Change, timeout_seconds: 30,
+    id: "safe", tier: gates.Change, limit: gates.RuntimeSeconds(30),
     products: [tests.Xsht], prerequisite_ids: [], reasons: ["fixture"],
     execution: gates.RunCommand({stage: "safe", target: ctx.target.triple,
       executable: "never-start", argv: ["never-start"], cwd: ctx.root, environment: {}}),
   )
-  let manual = {...command, id: "full", execution: gates.ManualFull}
+  let manual = {...command, id: "full", limit: gates.ManualOwner, execution: gates.ManualFull}
   let alias = {...command, id: "alias", prerequisite_ids: ["full"], execution: gates.Alias}
   let transit = {...command, id: "transit", prerequisite_ids: ["alias"]}
   let cycle = {...command, id: "cycle", prerequisite_ids: ["cycle"]}
@@ -579,7 +580,7 @@ test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership
   assert plan.unresolved.is_empty()
   match plan.cases[0].execution {
     gates.RunCommand(spec) => assert spec.argv[1..] == ["test", "core/tests/test-lsmem.xsh"]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull => test.fail("core correctness was not a native command")
+    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("core correctness was not a native command")
   }
 }
 
@@ -821,5 +822,117 @@ test test_native_file_case_discovery_rejects_symlink_escapes { |ctx|
   match gates.plan_paths(fixtures.linux_context(root)?, tests.Verification, [], ["native-tests/xsh/escape.xsh"], gates.Change) {
     Ok(_) => test.fail("native case discovery escaped its owned root")
     Err(error) => assert error.message == "PlanError.Invalid"
+  }
+}
+
+test test_full_catalogue_validates_alias_dependency_and_product_closure {
+  let ctx = fixtures.linux_context(/repo)?
+  let command = {stage: "substitute", target: ctx.target.triple, executable: "never-start",
+    argv: ["never-start"], cwd: ctx.root, environment: {}}
+  let base = gates.CatalogCase(id: "prepare", tier: gates.Change, limit: gates.ManualOwner,
+    products: [], prerequisite_ids: [], reasons: ["fixture"],
+    execution: gates.ManualPreparation({products: [tests.Xsht], command: command}))
+  let check = {...base, id: "check", products: [tests.Xsht], prerequisite_ids: ["prepare"], execution: gates.ManualCommand(command)}
+  let alias = {...base, id: "alias", prerequisite_ids: ["check"], execution: gates.Alias}
+  let full = {...base, id: "full", prerequisite_ids: ["alias"], execution: gates.ManualFull}
+  let valid = gates.resolve_full([base, check, alias, full])?
+  assert [entry.id for entry in valid.cases] == ["prepare", "check", "alias", "full"]
+  assert valid.products == [tests.Xsht]
+  let missing = {...check, prerequisite_ids: ["missing"]}
+  let cycle = {...check, prerequisite_ids: ["alias"]}
+  let unprepared = {...check, products: [tests.Xshi]}
+  for catalogue in [
+    [base, missing, alias, full], [base, cycle, alias, full],
+    [base, unprepared, alias, full], [base, check, check, alias, full],
+    [base, check, alias], [base, check, alias, full, full],
+  ] {
+    match gates.resolve_full(catalogue) {
+      Ok(_) => test.fail("invalid manual closure was accepted")
+      Err(error) => assert error.message == "PlanError.Invalid"
+    }
+  }
+  match gates.resolve_plan([base, check, alias, full], ["alias"], gates.Change) {
+    Ok(_) => test.fail("a manual child acquired focused authority through its alias")
+    Err(error) => assert error.message == "PlanError.Invalid"
+  }
+}
+
+test test_full_catalogue_preserves_the_existing_batch_owner_sequence {
+  let ctx = fixtures.linux_context(/repo)?
+  let rust = tests.rust_plan(ctx, tests.Verification, privileged: true)?
+  let plan = gates.full_plan(ctx, tests.Verification)?
+  let commands = collect {
+    for entry in plan.cases {
+      match entry.execution {
+        gates.ManualPreparation(preparation) => yield preparation.command
+        gates.ManualCommand(spec) => yield spec
+        gates.RunCommand(_) | gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualNative | gates.ManualDocumentation => {}
+      }
+    }
+  }
+  assert commands == [@rust, @gates.batch_checks(ctx, tests.Verification)]
+  assert [entry.id for entry in plan.cases |> where .execution == gates.ManualNative] == ["full/native"]
+  assert [entry.id for entry in plan.cases |> where .execution == gates.ManualDocumentation] == ["full/docs"]
+  assert plan.products == tests.all_products()
+}
+
+test test_manual_dispatch_validates_every_closure_before_any_substitute_process { |ctx|
+  test.timeout(ctx, 15s)
+  let repository = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "full-dispatch-contract")?
+  let marker = fp"{root}/started"
+  let runner = fp"{root}/substitute.sh"
+  runner.write("printf '%s\\n' \"$1\" >> \"$2\"\n")
+  let source = f"""
+use gates
+use fixtures
+use test_workflows as tests
+proc main(...arguments: List[Str]) [fs, process, env, time, error, io] {{
+  let ctx = fixtures.linux_context(p"{root}")?
+  let prepare_command = {{stage: "fixture-prepare", target: ctx.target.triple, executable: "sh",
+    argv: ["sh", "{runner}", "prepare", "{marker}"], cwd: ctx.root, environment: {{}}}}
+  let check_command = {{...prepare_command, stage: "fixture-check", argv: ["sh", "{runner}", "check", "{marker}"]}}
+  let preparation = gates.CatalogCase(id: "prepare", tier: gates.Change, limit: gates.ManualOwner,
+    products: [], prerequisite_ids: [], reasons: ["fixture"],
+    execution: gates.ManualPreparation({{products: [tests.Xsht], command: prepare_command}}))
+  let check = {{...preparation, id: "check", products: [tests.Xsht], prerequisite_ids: ["prepare"], execution: gates.ManualCommand(check_command)}}
+  let alias = {{...preparation, id: "alias", prerequisite_ids: ["check"], execution: gates.Alias}}
+  let full = {{...preparation, id: "full", prerequisite_ids: ["alias"], execution: gates.ManualFull}}
+  let variant = arguments[0]
+  let entries = match variant {{
+    "missing" => [preparation, {{...check, prerequisite_ids: ["missing"]}}, alias, full]
+    "cycle" => [preparation, {{...check, prerequisite_ids: ["alias"]}}, alias, full]
+    "duplicate" => [preparation, check, check, alias, full]
+    "missing-root" => [preparation, check, alias]
+    "wrong-root" => [preparation, check, alias, {{...full, execution: gates.RunCommand(check_command)}}]
+    "empty-root" => [preparation, check, alias, {{...full, prerequisite_ids: []}}]
+    "unprovided" => [{{...preparation, execution: gates.ManualPreparation({{products: [], command: prepare_command}})}}, check, alias, full]
+    "manual-runtime-limit" => [{{...preparation, limit: gates.RuntimeSeconds(1)}}, check, alias, full]
+    "automatic-manual-owner" => [preparation, {{...check, execution: gates.RunCommand(check_command)}}, alias, full]
+    "zero-runtime" => [preparation, {{...check, limit: gates.RuntimeSeconds(0), execution: gates.RunCommand(check_command)}}, alias, full]
+    "product-order" => [preparation, {{...check, prerequisite_ids: []}}, alias, {{...full, prerequisite_ids: ["check", "prepare"]}}]
+    else => [preparation, check, alias, full]
+  }}
+  let request = if variant == "focused" {{ gates.parse_request(["--case", "alias"])? }} else {{ gates.parse_request(["--full"])? }}
+  gates.dispatch_catalogue(ctx, tests.Verification, request, entries)?
+}}
+"""
+  for variant in ["missing", "cycle", "duplicate", "missing-root", "wrong-root", "empty-root", "unprovided", "product-order", "manual-runtime-limit", "automatic-manual-owner", "zero-runtime", "focused"] {
+    let _ = test.expect(ctx, source, status: 2, args: [variant],
+      env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
+    assert ! marker.exists()?
+  }
+  let _ = test.expect(ctx, source, status: 0, args: ["valid"],
+    env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
+  assert marker.read_lines()? == ["prepare", "check"]
+}
+
+test test_internal_full_rejects_automatic_operation_identity_before_effects {
+  let ctx = fixtures.linux_context(/path-that-must-not-be-created)?
+  for operation in ["", "gate-lane", "test-linux", "plan.json"] {
+    match container_internal.gate_full(ctx, operation) {
+      Ok(_) => test.fail("an automatic or serialized operation acquired Full authority")
+      Err(error) => assert error.message == "PlanError.Invalid"
+    }
   }
 }
