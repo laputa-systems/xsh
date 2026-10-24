@@ -342,7 +342,7 @@ fn branch_scope(scope: &LexicalScope, scopes: &mut LexicalScopes, budget: &mut S
 fn optional_guard_continuation(
     scope: &LexicalScope, scopes: &mut LexicalScopes, decoder: &FullDecoder<'_>, instruction: usize,
     actual: &SchemeType, payload: &SchemeType, expression_scopes: &BTreeMap<usize, LexicalScope>,
-    visited: &BTreeSet<usize>, budget: &mut SchemeInstantiationBudget,
+    visited: &BTreeSet<usize>, producer_index: &super::producers::GroundProducerIndex, budget: &mut SchemeInstantiationBudget,
 ) -> Result<LexicalScope, IrVerifyError> {
     let mut instruction = instruction;
     let (slot, initializer) = loop {
@@ -352,7 +352,8 @@ fn optional_guard_continuation(
             schema::ExprView::Param(slot) => {
                 let source_scope = expression_scopes.get(&instruction).ok_or_else(|| IrVerifyError::new("optional guard source has no lexical scope"))?;
                 let binding = source_scope.binding(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("optional guard source has no lexical binding"))?;
-                if binding.mutable || binding.access != BindingAccess::Value || !body_types_equal(&binding.ty, actual) { return Ok(*scope); }
+                if binding.access != BindingAccess::Value || !body_types_equal(&binding.ty, actual) { return Ok(*scope); }
+                if binding.mutable && !producer_index.mutable_guard_source_is_snapshot(decoder, instruction, slot, budget)? { return Ok(*scope); }
                 if scope.binding(scopes, slot, budget)?.is_some_and(|visible| std::ptr::eq(visible, binding)) {
                     break (slot, binding.initializer);
                 }
@@ -958,7 +959,7 @@ pub(super) fn verify_body(
     completion_sources: &mut BTreeMap<usize, super::super::schemes::FullSchemeBodyCompletionSource>,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
     slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, completion_group: Option<u32>, statements: Vec<usize>,
-    analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
+    analysis: &super::super::IndexedReturnAnalysis, producer_index: &super::producers::GroundProducerIndex, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<BodyProof, IrVerifyError> {
     let mut with_errors = None;
     let mut checked_accumulators = Vec::new();
@@ -1005,7 +1006,7 @@ pub(super) fn verify_body(
         budget.charge(1)?;
         match obligation {
             Obligation::GuardPublish { statements, position, scope, value, bindings, source, actual, payload } => {
-                let scope = optional_guard_continuation(&scope, &mut scopes, decoder, source, &actual, &payload, &expression_scopes, &visited, budget)?;
+                let scope = optional_guard_continuation(&scope, &mut scopes, decoder, source, &actual, &payload, &expression_scopes, &visited, producer_index, budget)?;
                 pending.push(Obligation::Publish { statements, position, scope, value, bindings });
             }
             Obligation::Publish { statements, position, scope, value, bindings } => {
@@ -3045,6 +3046,91 @@ test namespace_borrow {
         missing_guard.store.tags[guard] = program.store.tags[discarded];
         missing_guard.store.data[guard] = program.store.data[discarded];
         assert!(FullVerifier::verify(&missing_guard).is_err());
+    }
+
+    fn verify_mutable_optional_guard(annotation: &str) {
+        let source = format!("pure keep(marker{annotation}, value: Int?, minimum: Int) -> Int? {{ let _ = marker; var parsed = value; guard let number = parsed else {{ return null }}; return null when number < minimum; parsed }}\ntest verify_mutable_guard {{ assert keep(7, 4, 0) == 4; assert keep(7, 4, 9) == null; assert keep(7, null, 0) == null }}\n");
+        verify_optional_guard_test_source(&source, "verify_mutable_guard");
+    }
+
+    fn verify_optional_guard_test_source(source: &str, selector: &str) {
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("mutable-optional-guard.xsh", crate::loader::entry_source_from_text("mutable-optional-guard.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test(selector, crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty());
+            assert!(result.output.traceback.is_none());
+            assert!(matches!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(*value, crate::runtime::value::Value::Unit)));
+        }
+    }
+
+    #[test]
+    fn typed_mutable_optional_guard_retains_its_original_slot() {
+        verify_mutable_optional_guard(": Int");
+    }
+
+    #[test]
+    fn generic_mutable_optional_guard_retains_its_original_slot() {
+        verify_mutable_optional_guard("");
+    }
+
+    #[test]
+    fn mutable_optional_guard_native_fixture_retains_its_original_slots() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-guard-original-slot.xsh")).unwrap();
+        verify_optional_guard_test_source(&source, "verify_guard_original_slot");
+    }
+
+    #[test]
+    fn mutable_optional_guard_rejects_later_direct_and_callback_writes() {
+        for written in ["source = null;", "[1] |> each { source = null }; "] {
+            let program = prepare(&format!("proc keep(marker, value: Int?) [] -> Int? {{ let _ = marker; var source = value; guard let number = source else {{ return null }}; {written} number }}"));
+            let (owner, _) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let source = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Assign { slot, .. }) => Some(slot),
+                _ => None,
+            }).unwrap();
+            let tail = range.filter_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Return { value }) => Some(value.raw() as usize),
+                _ => None,
+            }).last().unwrap();
+            assert!(matches!(decoder.expression_view(tail).unwrap(), schema::ExprView::Param(slot) if slot != source));
+            let mut stale = program.clone();
+            stale.store.in_place.take();
+            let words = stale.store.data[tail].range().bounds(stale.store.extra.len()).unwrap();
+            stale.store.extra[words.start] = source as u32;
+            assert!(FullVerifier::verify(&stale).is_err(), "{written}");
+        }
+    }
+
+    #[test]
+    fn mutable_optional_guard_cannot_refine_a_foreign_lexical_source() {
+        let program = prepare("pure keep(marker, value: Int?, other: Int?, flag: Bool) -> Int? { let _ = marker; var source = value; if flag { var foreign = other; guard let selected = foreign else { return null }; let _ = selected }; guard let selected = source else { return null }; source }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut guards = Vec::new();
+        for instruction in program.store.function_instruction_range(owner).unwrap() {
+            let Ok(schema::StmtView::Guard { value, .. }) = decoder.statement_view(instruction) else { continue };
+            let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(value.raw() as usize).unwrap() else { panic!("guard source is evaluated in its lexical block") };
+            let read = body.find_map(|statement| match decoder.statement_view(statement.unwrap().raw() as usize).unwrap() {
+                schema::StmtView::Let { value, .. } => Some(value.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let schema::ExprView::Param(slot) = decoder.expression_view(read).unwrap() else { panic!("guard retains its actual source read") };
+            guards.push((read, slot));
+        }
+        assert_eq!(guards.len(), 2);
+        let mut escaped = program.clone();
+        escaped.store.in_place.take();
+        let words = escaped.store.data[guards[1].0].range().bounds(escaped.store.extra.len()).unwrap();
+        escaped.store.extra[words.start] = guards[0].1 as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
     }
 
     #[test]

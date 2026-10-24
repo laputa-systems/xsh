@@ -538,10 +538,13 @@ read before retaining its payload type. Later source writes do not change the co
 Snapshot reads retain condition and loop evidence while omitting mutation scans
 only when the binding has no shared storage or applicable writers.
 Every destructuring source and guard envelope is proved, including targets that
-bind no values. An optional guard refines the original immutable binding only in
+bind no values. An optional guard refines the original binding only in
 its successful continuation. Its evaluated source, value-block tail, and immutable
 temporary initializers prove the same visible binding; the handler retains the
-original scope. This refinement does not change mutable storage contracts.
+original scope. A mutable local also qualifies when the existing owner and
+lexical writer census proves its declaration is its only writer and it has no
+shared storage. Captures and written locals receive no snapshot refinement.
+This refinement does not change mutable storage contracts.
 Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
 exact owner, source, pattern, and slot identities. Every proposing use must agree

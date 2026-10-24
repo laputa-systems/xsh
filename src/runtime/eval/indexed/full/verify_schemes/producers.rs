@@ -1107,6 +1107,23 @@ fn record_condition_inputs(decoder: &FullDecoder<'_>, instruction: usize, output
 }
 
 impl GroundProducerIndex {
+    pub(super) fn mutable_guard_source_is_snapshot(
+        &self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize,
+        budget: &mut SchemeInstantiationBudget,
+    ) -> Result<bool, IrVerifyError> {
+        budget.charge(1)?;
+        let Some(owner) = self.owners.get(&decoder.owner) else {
+            return if self.demand == crate::runtime::eval::ProducerDemand::Absent { Ok(false) }
+                else { Err(IrVerifyError::new("mutable guard source has no producer owner")) };
+        };
+        if !owner.range.contains(&instruction)
+            || !matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(actual) if actual == slot)
+        { return Err(IrVerifyError::new("mutable guard source is not its owner's slot read")); }
+        let binding = owner.binding(decoder.store, decoder.owner, instruction, slot)?;
+        if !matches!(binding, ProducerBinding::ScopedDeclaration(_, declared) if declared == slot) { return Ok(false); }
+        owner.binding_path_is_snapshot(decoder, binding, slot, &mut |amount| budget.charge(amount))
+    }
+
     pub(super) fn static_namespace_capture(&self, store: &FullStore, binding: u32, expected: &Type, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
         budget.charge(1)?;
         let Some((_, step, _)) = self.binding_writers.get(binding as usize).and_then(|writer| *writer) else { return Ok(false); };
