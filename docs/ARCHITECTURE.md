@@ -131,7 +131,10 @@ non-null payload evidence. A ground checked result context relates to that same
 instance before source argument checking through unresolved input variables
 bound to actual fresh list literals. Static argument binding selects those
 inputs, and only compatible result projections contribute early constraints. Computed arithmetic result variables retain operand-selected
-signatures, including when aliased into an input. The existing expression completion owner retains the complete result relation
+signatures, including when aliased into an input. A checked UInt context constrains
+an unresolved intrinsic arithmetic result to Int; existing storage and return
+boundaries retain UInt validation. Journaled watcher inheritance follows result
+aliases across representative unions before queued operations run. The existing expression completion owner retains the complete result relation
 after argument solving and wrapper elaboration. This context does not bind declaration or
 recursive-component monotypes. Contextual list literals retain their actual
 checker domains as owned producer contexts. A shared context-role classifier admits

@@ -8,6 +8,114 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_unsigned_arithmetic_context(context: &str) {
+    let (body, returned) = match context {
+        "return" => ("value / 2", "UInt"),
+        "storage" => ("let whole: UInt = value / 2; whole", "UInt"),
+        "alias" => ("let raw = value / 2; let whole: UInt = raw; whole", "UInt"),
+        "record" => ("{high: value / 2, low: value % 2}", "Parts"),
+        _ => panic!("unknown unsigned arithmetic context"),
+    };
+    let source = format!("type Parts = {{high: UInt, low: UInt}}\npure typed(value: Int) -> {returned} {{ {body} }}\npure generic(value) -> {returned} {{ {body} }}\npure selected(value: Int) -> {returned} {{ generic(value) }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
+    let expected = program.symbol_owner().with_current(|| if context == "record" {
+        Value::Record([(Arc::from("high"), Value::Int(4)), (Arc::from("low"), Value::Int(1))].into_iter().collect())
+    } else { Value::Int(4) });
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for name in ["typed", "selected"] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, expected, "{context} {name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn inferred_unsigned_arithmetic_returns_preserve_intrinsic_integer_results() {
+    verify_unsigned_arithmetic_context("return");
+}
+
+#[test]
+fn inferred_unsigned_arithmetic_storage_preserves_intrinsic_integer_results() {
+    verify_unsigned_arithmetic_context("storage");
+}
+
+#[test]
+fn inferred_unsigned_arithmetic_record_fields_preserve_intrinsic_integer_results() {
+    verify_unsigned_arithmetic_context("record");
+}
+
+#[test]
+fn inferred_unsigned_arithmetic_aliases_preserve_intrinsic_integer_results() {
+    verify_unsigned_arithmetic_context("alias");
+}
+
+#[test]
+fn inferred_unsigned_arithmetic_preserves_typed_failure_and_cleanup_order() {
+    let source = r#"proc typed(value: Int, divisor: Int) [io, error] -> UInt {
+  defer { print "clean" }
+  value / divisor
+}
+
+proc generic(value, divisor: Int) [io, error] -> UInt {
+  defer { print "clean" }
+  value / divisor
+}
+proc selected(value: Int, divisor: Int) [io, error] -> UInt { generic(value, divisor) }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        for (value, divisor) in [(9, 2), (-9, 2), (9, 0), (i64::MIN, -1)] {
+            evaluator.stdout.clear();
+            let expected = evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &[Value::Int(value), Value::Int(divisor)], Span::at(source_id, 0)).unwrap();
+            let expected_stdout = evaluator.stdout.clone();
+            evaluator.stdout.clear();
+            let actual = evaluator.call_indexed_direct(key("selected"), CallableKind::Proc, &[Value::Int(value), Value::Int(divisor)], Span::at(source_id, 0)).unwrap();
+            assert_eq!(evaluator.stdout, expected_stdout, "value={value} divisor={divisor} frames={force_frames}");
+            assert_eq!(evaluator.stdout, b"clean\n");
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => { assert!(value >= 0 && divisor > 0); assert_eq!(actual, expected); }
+                (Err(expected), Err(actual)) => { assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family); }
+                (expected, actual) => panic!("value={value} divisor={divisor} frames={force_frames}: expected {expected:?}, found {actual:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn unsigned_arithmetic_contexts_preserve_duration_ratio_domains() {
+    let source = "pure divide(left, right) -> UInt { left / right }\npure ordinary() -> UInt { 8s / 2s }\npure selected() -> UInt { divide(8s, 2s) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for name in ["ordinary", "selected"] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(4));
+        }
+    }
+}
+
+#[test]
+fn unsigned_arithmetic_contexts_reject_incompatible_result_domains() {
+    for call in ["divide(8.0, 2.0)", "divide(8s, 2)", "divide(8, \"two\")"] {
+        let source = format!("pure divide(left, right) -> UInt {{ left / right }}\nlet invalid = {call}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+
 #[test]
 fn typed_driver_conditions_preserve_lexical_boolean_producers_on_both_routes() {
     on_scoped_body_test_stack(|| {

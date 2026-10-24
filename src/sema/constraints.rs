@@ -3624,6 +3624,10 @@ impl TypeConstraints {
                     { continue 'pairs; }
                 }
             }
+            let expected = if annotation && expected == Type::UInt
+                && let Type::Inference(variable) = actual
+                && self.is_unresolved_arithmetic_result(variable).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
+            { Type::Int } else { expected };
             match (&expected, &actual) {
                 (Type::Inference(id), Type::Record(fields))
                     if self.record_binding(*id).ok().flatten().is_some() =>
@@ -4771,6 +4775,7 @@ impl TypeConstraints {
             root_value.iteration = iteration.clone().map(Box::new);
             root_value.binding = binding.clone();
         }
+        self.operations.inherit_type_watchers(child, root, changes);
         if let (Some(first), Some(second)) = (left_iteration, right_iteration) {
             let merged = self.merge_iteration(&first, &second, origin, 0, changes).map_err(|error| error.2)?;
             let root = self.representative(root, Some(changes)).map_err(Some)?;
