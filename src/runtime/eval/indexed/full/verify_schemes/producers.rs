@@ -245,7 +245,7 @@ impl ProducerPrefixContext<'_> {
                     if target_kind != kind { return Ok(None); }
                     let metadata = decoder.store.function_metadata.get(target.index()).ok_or_else(|| IrVerifyError::new("generic callable target metadata is missing"))?;
                     if metadata.owner != child_owner || metadata.callable_kind != kind
-                        || metadata.flags != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
+                        || metadata.flags & super::super::FUNCTION_METADATA_BASE_FLAGS != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
                         || decoder.store.string(decoder.store.functions[target.index()].name)? != field.as_str()
                     { return Ok(None); }
                     let super::super::FullCallableContract::Scheme(scheme_id) = contract else { return Ok(None); };
@@ -3435,7 +3435,7 @@ impl<'a> ProducerProof<'a> {
                 (super::super::LoweredModuleExport::Callable { .. }, Some(ModuleExportType::Callable { kind: registered, sig, optional: false }), super::super::FullCallableContract::Ground(signature))
                     if *registered == kind && self.store.semantic.signature_matches_callable(signature, sig)? => {}
                 (super::super::LoweredModuleExport::GenericCallable { .. }, Some(ModuleExportType::GenericCallable { kind: registered, optional: false }), super::super::FullCallableContract::Scheme(id))
-                    if *registered == kind && metadata.flags == flags => {
+                    if *registered == kind => {
                     let scheme = self.store.scheme(id)?;
                     if scheme.callable_kind != kind || !scheme.is_quantified(self.store)? {
                         return Err(IrVerifyError::new("generic callable import has no matching quantified contract"));
