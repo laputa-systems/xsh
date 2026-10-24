@@ -59,9 +59,8 @@ Immutable `abb1c8b82` passes fifteen combined integration controls and builds
 matching verification products with ListBuild, interpolation and exit-effect
 repairs. Expanded strict native qualification runs 215 selectors per route:
 212 pass and the same three checker-control-flow cases fail in both modes;
-all prior 205 and both ListBuild cases pass. Six API selectors pass. Retry
-result proof, safe-stream reassignment and sort-after-return inference each
-have an expert owner; this boundary remains incomplete.
+all prior 205 and both ListBuild cases pass. Six API selectors pass. Retry result proof, safe-stream reassignment and sort-after-return inference
+now have focused repairs. Matching native replay remains required.
 
 Laputa's four prepared-discovery controls pass natively in both modes against
 these matching products. The reviewed four-file slice is committed and integrated
@@ -70,10 +69,31 @@ fresh/reuse/root case also passes against `cc79637f3`, with one fresh package,
 two reused dependencies, rerun reuse, inventory/link/payload checks and cleanup.
 Neither result establishes world, VM, P0 or timing qualification.
 
-Guard-local requirements, optional callable views and inferred-alias dispatch
-remain active inference work. Set producer and variant diagnostic repairs are
-integrated provisionally. Complete interface/migration qualification and inherited
-performance/deployment gates remain required. No mandatory item is waived.
+The later immutable `6e8be3eb4` library run has 2,606 passes, six failures
+and three ignored tests. All six failures have reviewed focused repairs:
+monomorphic root-alias signatures, canonical alias/rest expectations, the
+exit-hook effect fixture, and two precise cold-rejection expectations. This
+full run remains failed. Optional callable views, inferred-alias dispatch,
+retry error contracts, stream summaries, set producers and variant diagnostics
+are integrated provisionally through `c65107dc3`.
+
+Generic pipelines with no normal completion are integrated at `6d1d3bdb7`.
+Nine focused checks and independent review pass: Int/Str, both execution routes,
+empty/nonempty Count, authored storage contracts, effects, cleanup and genuine
+cold rejection controls. Matching native and combined-library evidence remain
+required. Guard-local requirements now execute imported rendering and Env
+preload on both routes after frontend disposal; six focused controls pass.
+Generic forwarding, prepared local consumers, effect/capture export and guarded
+cold evidence remain open. Neither milestone establishes campaign acceptance.
+
+Independent Pyramid integration now merges `c65107dc3` into its isolated branch
+at `c7b9b7b29`. All 27 lease and 22 inference-measurement Python controls pass;
+matching tool products and the public Laputa PM adapter are next. This is an
+early integration experiment, not P0 qualification. Corpus/interface replay and
+capability-boundary probes prepare alongside the builds. The next scaling repair
+is planned read-only until guard scope structures settle, avoiding competing
+writers in the constraint owner. Complete inference and inherited deployment
+gates remain required. No mandatory item is waived.
 
 Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
 verification products. With the precise native-input correction `1c9694a3c`,
@@ -120,11 +140,8 @@ Null arguments and public-name controls. All 163 primary-family declarations
 are discovered. Its six API selectors also pass. These products predate the
 membership and subsequent corpus repairs; no native credit transfers to them.
 
-Laputa's unchanged Kbuild module now prepares on `4c8d0d323`. Its four isolated
-kernel-discovery controls still stop before execution at a fresh
-`Err(...).context(...)` consumer boundary. A separate expert owns that proof;
-the reviewed Laputa source remains uncommitted until its behavior qualifies.
-Pyramid closure still follows inference
+The earlier `4c8d0d323` Laputa discovery failure is superseded by the matching
+`abb1c8b82` four-control result above. Pyramid closure still follows inference
 acceptance, local master integration and completed-worktree cleanup.
 
 The 2026-10-24 acceleration changes ordinary Cargo capacity from two to three
