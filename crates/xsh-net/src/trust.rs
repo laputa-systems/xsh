@@ -304,6 +304,7 @@ impl ServerCertVerifier for PolicyVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Async, DisabledVerifier, Duration, Executor, Instant, Ipv4Addr, NetAgent, NetBody, NetRequest, RedirectLimit, Write, default_provider, h12_client, run_request, runtime, thread, tls_config_for_key, validate_root_bundle};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
