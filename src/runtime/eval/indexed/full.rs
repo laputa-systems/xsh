@@ -23738,6 +23738,8 @@ assert result.resources[0].count == 7
             let (_, wrong, _) = program.store.semantic.signature_param(signature, 1).unwrap();
             assert_eq!(program.store.semantic.to_type(wrong).unwrap(), Type::Str);
             let mut incompatible = (*program).clone();
+            incompatible.store.in_place.take();
+            assert!(incompatible.store.in_place.get().is_none());
             let payload = incompatible.store.data[number].range().bounds(incompatible.store.extra.len()).unwrap();
             incompatible.store.extra[payload.start] = 1;
             let count = program.symbol_owner().intern("count");
@@ -23762,8 +23764,10 @@ assert result.resources[0].count == 7
                 let ty = replace_count(program.store.semantic.to_type(id).unwrap(), count);
                 incompatible.store.slot_type_facts[slot] = SemanticPoolBuilder::default().intern_type(&mut incompatible.store.semantic, &ty).unwrap().raw();
             }
+            program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&incompatible.store)).unwrap();
+            assert!(incompatible.store.in_place.get().is_none());
             let failure = FullVerifier::verify(&incompatible).expect_err("a checked record still proves the actual nested field domain");
-            assert!(failure.message.contains("checked record field disagrees") || failure.message.contains("checked value input disagrees"), "{failure:?}");
+            assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
             let checked = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
                 Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. }) if check.schema.is_none() => Some((instruction, check.ty.id, check.ty.materialize().unwrap())),
                 _ => None,
@@ -23773,11 +23777,15 @@ assert result.resources[0].count == 7
             let Type::Record(row) = item.as_mut() else { panic!("resources retains its record item contract"); };
             assert_eq!(Arc::make_mut(row).insert(count, Type::Int), Some(Type::Optional(Box::new(Type::Int))));
             let mut weakened = (*program).clone();
+            weakened.store.in_place.take();
+            assert!(weakened.store.in_place.get().is_none());
             let target = SemanticPoolBuilder::default().intern_type(&mut weakened.store.semantic, &Type::Record(fields)).unwrap();
             let payload = weakened.store.data[checked.0].range().bounds(weakened.store.extra.len()).unwrap();
             assert_eq!(weakened.store.extra[payload.start + 1], 0);
             assert_eq!(weakened.store.extra[payload.start + 2], checked.1.raw());
             weakened.store.extra[payload.start + 2] = target.raw();
+            program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&weakened.store)).unwrap();
+            assert!(weakened.store.in_place.get().is_none());
             let failure = FullVerifier::verify(&weakened).expect_err("the actual constructor gate must retain the declared optional item contract");
             assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
         });
