@@ -731,6 +731,11 @@ expression spans. A semantic body comparison uses the same retained callable
 instance as its header comparison. Raw effect-term equality proves only equality
 within one owner scope.
 
+A defaulted parameter of a ground callable keeps its actual signature as an
+argument producer contract. The canonical default flag and lexical header role
+select this proof; the same producer proof checks every incoming argument,
+default initializer and subsequent writer before accepting the parameter read.
+
 A ground invocation validates its complete immutable binder substitution once
 for its argument group. A private validated token reuses the canonical bound-type
 instantiator for each argument; conversion, MapKey and iteration checks still

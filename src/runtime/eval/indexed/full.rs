@@ -55906,3 +55906,86 @@ assert keep(7, p"wrong", .Unmapped, .Ready)? == 7
         }).unwrap().join().unwrap();
     }
 }
+
+#[cfg(test)]
+mod defaulted_ground_parameter_tests {
+    fn run(source: &str, force_frames: bool) -> crate::runtime::eval::EvalOutput {
+        let path = "defaulted-ground-parameter.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, crate::loader::entry_source_from_text(path, source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources);
+        evaluator.force_frames = force_frames;
+        evaluator.eval(&parsed.arena, source_id)
+    }
+
+    #[test]
+    fn defaulted_parameters_preserve_generic_argument_provenance() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            for source in [
+                "proc preserve(value: Str) [] -> Result[Str] { value }\npure keep(value: Str) -> Str { value }\nlet value: Str = preserve(\"row\")?\nassert keep(value) == \"row\"\n",
+                "proc preserve(value) { value }\npure keep(value) { value }\nlet value = preserve(\"row\")?\nassert keep(value) == \"row\"\n",
+                "proc preserve(value) { let _ = value; \"row\" }\npure keep(value) { value }\nlet value = preserve(7)?\nassert keep(value) == \"row\"\n",
+                "pure fallback() -> Str { \"row\" }\npure keep(value) { value }\nproc render(value = fallback()) { keep(value) }\nassert render()? == \"row\"\n",
+            ] {
+                for force_frames in [false, true] {
+                    let output = run(source, force_frames);
+                    assert_eq!(output.status, 0, "{} {:?}", crate::diagnostic::DiagnosticRenderer::new().render(&output.diagnostics, &output.sources), output.traceback);
+                    assert!(output.diagnostics.is_empty());
+                    assert!(output.traceback.is_none());
+                    assert!(output.stdout.is_empty());
+                    assert!(output.stderr.is_empty());
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn defaulted_ground_parameters_authenticate_sources_slots_and_owners() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = "pure fallback() -> Str { \"row\" }\npure integer() -> Int { 7 }\npure keep(value) { value }\npure other(value: Str) -> Str { keep(value) }\nproc render(value = fallback(), other: Int = 7) { var marker = integer(); marker += 1; assert marker == 8; keep(value) }\nassert render()? == \"row\"\nassert render(value: \"supplied\")? == \"supplied\"\n";
+            let path = "defaulted-ground-parameter-proof.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, crate::loader::entry_source_from_text(path, source.to_owned()), Vec::new());
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let program = super::FullBuilder::build_compact(&parsed.arena, &checked, source, std::sync::Arc::new(sources), source_id).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            let owner = |name| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let render = owner("render");
+            let decoder = super::function_view_decoder(&program.store, render);
+            let range = program.store.function_instruction_range(render).unwrap();
+            let read = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::Param(0)))).unwrap();
+            let writer = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(super::schema::StmtView::Assign { .. } | super::schema::StmtView::AssignInt { .. }))).unwrap();
+            let literal = program.store.function_instruction_range(owner("fallback")).unwrap().find(|&instruction| program.store.tags[instruction] == super::FullTag::ExprStr).unwrap();
+            let integer = program.store.function_instruction_range(owner("integer")).unwrap().find(|&instruction| program.store.tags[instruction] == super::FullTag::ExprInt).unwrap();
+            let other = owner("other");
+            let other_decoder = super::function_view_decoder(&program.store, other);
+            let foreign = program.store.function_instruction_range(other).unwrap().find(|&instruction| matches!(other_decoder.expression_view(instruction), Ok(super::schema::ExprView::Param(0)))).unwrap();
+            let call = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::DirectPureCall { function, .. }) if program.store.string(program.store.functions[function.id.index()].name).unwrap() == "keep")).unwrap();
+            let payload = program.store.payload(program.store.data[call].range()).unwrap();
+            let mut cursor = super::FullCursor::new(payload);
+            let _: super::LoweredFunctionKey = super::FullCodec::decode(&decoder, &mut cursor).unwrap();
+            let block = super::IrBlockId::from_raw(cursor.raw().unwrap()).unwrap();
+            let arguments = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(&program.store.extra[arguments.clone()], &[1, 0, read as u32]);
+            let cold = || { let mut forged = program.clone(); forged.store.in_place.take(); forged };
+            let mut wrong_default = cold();
+            wrong_default.store.tags[literal] = super::FullTag::ExprInt;
+            wrong_default.store.data[literal] = program.store.data[integer];
+            let mut wrong_slot = cold();
+            let read_payload = program.store.data[read].range().bounds(program.store.extra.len()).unwrap();
+            wrong_slot.store.extra[read_payload.start] = 1;
+            assert!(matches!(super::function_view_decoder(&wrong_slot.store, render).expression_view(read), Ok(super::schema::ExprView::Param(1))));
+            let mut wrong_writer = cold();
+            let write = program.store.data[writer].range().bounds(program.store.extra.len()).unwrap();
+            wrong_writer.store.extra[write.start] = 0;
+            let mut wrong_owner = cold();
+            wrong_owner.store.extra[arguments.start + 2] = foreign as u32;
+            for (label, forged) in [("wrong default producer", wrong_default), ("wrong header slot", wrong_slot), ("contradictory extra writer", wrong_writer), ("foreign argument owner", wrong_owner)] {
+                super::FullVerifier::verify(&forged).expect_err(label);
+            }
+        }).unwrap().join().unwrap();
+    }
+
+}

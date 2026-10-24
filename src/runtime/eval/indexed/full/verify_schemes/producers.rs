@@ -2441,7 +2441,13 @@ impl<'a> ProducerProof<'a> {
                         && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. } | schema::StmtView::ForStrLines { .. })
                     { return Ok(None); }
                 }
-                ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
+                ProducerBinding::HeaderParameter(parameter) => {
+                    let function = self.store.functions[function_index(owner)?];
+                    if !matches!(function.contract, FullCallableContract::Ground(_)) { return Ok(None); }
+                    let parameters = bounded(function.params, &self.store.params, "defaulted argument parameter range is invalid")?;
+                    if parameters.get(parameter).is_none_or(|parameter| parameter.flags & 2 == 0) { return Ok(None); }
+                }
+                ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
             }
             let Some(source) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)? else { return Ok(None) };
             self.binding_slot(owner, binding, slot, source)?;
