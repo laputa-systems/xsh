@@ -223,11 +223,9 @@ publishing, host installation and live-root changes remain outside the grant.
 - Installed Stop command and existing trust entries were reviewed. Interactive
   `/hooks` is unavailable in this API session; the configured guard is exercised
   directly instead. It correctly blocked unaccounted checkouts before allowances.
-  Final retained-checkout allowances and guard completion: pending final audit.
-
-Campaign log, 2026-10-24: owner-requested winddown; completed coherent slices
-integrated, unsafe/incomplete work committed on parked refs, checkout data
-preserved and no push performed.
+  Final retained-checkout allowances passed: all four XSH checkouts are clean,
+  the guard accepted the three named non-main consumers, and its marker was
+  consumed. No branch deletion, forced checkout removal or push occurred.
 
 <details>
 <summary>Earlier campaign record (retired checkout paths)</summary>
@@ -4278,3 +4276,5 @@ duplicate per-commit copies of controllers solely to record provenance.
 - Inspect local XSH and Laputa integration branches. Merge only reviewed accepted commits under the launch grant. Nothing is pushed by this campaign.
 
 </details>
+
+Campaign log, 2026-10-24: paused at owner request; completed slices integrated, three current incomplete branches parked, 312 checkouts reclaimed, reboot and Stop-guard audits passed, no push.
