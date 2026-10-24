@@ -292,3 +292,81 @@ print ${rows[1]}
   }
   assert outputs == ["41\n41\n", "41\n41\n"]
 }
+
+test test_full_inference_explicit_and_inferred_callables_preserve_defaults_pulls_and_cleanup { |ctx|
+  let cases = [
+    {
+      name: "explicit contracts",
+      source: r"""let prefix = "captured:"
+pure decorate(value: Str) -> Str { f"{prefix}{value}" }
+proc fallback() [io] -> Str { print "default"; "row" }
+proc render(value: Str = fallback()) [io] -> Result[Str] {
+  defer { print "proc closed" }
+  print "proc body"
+  decorate(value)
+}
+stream rows(value: Str) [io] -> Stream[Str] {
+  defer { print "stream closed" }
+  print "pulled"
+  yield value
+  print "unreached"
+  yield value
+}
+let idle = rows("idle")
+print "created"
+let value = render()?
+let supplied = render(value: "supplied")?
+assert supplied == "captured:supplied"
+for item in rows(value) {
+  print $item
+  break
+}
+print "done"
+""",
+    },
+    {
+      name: "inferred contracts",
+      source: r"""let prefix = "captured:"
+pure decorate(value) { f"{prefix}{value}" }
+proc fallback() [io] -> Str { print "default"; "row" }
+proc render(value = fallback()) {
+  defer { print "proc closed" }
+  print "proc body"
+  decorate(value)
+}
+stream rows(value) {
+  defer { print "stream closed" }
+  print "pulled"
+  yield value
+  print "unreached"
+  yield value
+}
+let idle = rows("idle")
+print "created"
+let value = render()?
+let supplied = render(value: "supplied")?
+assert supplied == "captured:supplied"
+for item in rows(value) {
+  print $item
+  break
+}
+print "done"
+""",
+    },
+  ]
+  for case in cases {
+    let output = test.run_xsh(ctx, case.source)?
+    assert output.success, f"{case.name}: {output.stderr}"
+    assert output.stderr == "", f"{case.name}: {output.stderr}"
+    assert output.stdout == "created\ndefault\nproc body\nproc closed\nproc body\nproc closed\npulled\ncaptured:row\nstream closed\ndone\n", f"{case.name}: {output.stdout}"
+  }
+
+  for source in [
+    "proc preserve(value: Int) [] -> Result[Int] { value }\nlet wrong: Str = preserve(7)?\n",
+    "proc preserve(value) { value }\nlet wrong: Str = preserve(7)?\n",
+    "stream rows(value: Int) [] -> Stream[Int] { yield value }\nlet wrong: List[Str] = rows(7) |> collect()\n",
+    "stream rows(value) { yield value }\nlet wrong: List[Str] = rows(7) |> collect()\n",
+  ] {
+    test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
+  }
+}
