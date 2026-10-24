@@ -6199,3 +6199,52 @@ fn resource_failure_value_tails_preserve_errors_and_cleanup_after_frontend_dispo
         assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
     }
 }
+
+#[test]
+fn inferred_row_list_splices_preserve_each_instance_and_source_order() {
+    let source = r#"
+pure combine(metadata) { [@metadata.deps, @metadata.mkdeps_host, @metadata.mkdeps_target] }
+pure numbers() -> List[Int] { combine({deps: [1, 2], mkdeps_host: [], mkdeps_target: [3]}) }
+pure words() -> List[Str] { combine({deps: ["run"], mkdeps_host: ["host"], mkdeps_target: ["target"]}) }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [
+            ("numbers", Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])),
+            ("words", Value::List(["run", "host", "target"].into_iter().map(|value| Value::Str(Arc::from(value))).collect())),
+        ] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, expected, "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn inferred_row_list_splices_preserve_nonempty_and_authored_empty_inputs() {
+    let source = r#"
+type Metadata = {deps: List[Int], mkdeps_host: List[Int], mkdeps_target: List[Int]}
+pure combine(metadata) { [@metadata.deps, @metadata.mkdeps_host, @metadata.mkdeps_target] }
+pure numbers() -> List[Int] { combine({deps: [1], mkdeps_host: [2], mkdeps_target: [3]}) }
+pure authored_empty() -> List[Int] { combine(Metadata(deps: [1, 2], mkdeps_host: [], mkdeps_target: [3])) }
+pure words() -> List[Str] { combine({deps: ["run"], mkdeps_host: ["host"], mkdeps_target: ["target"]}) }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [
+            ("numbers", Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])),
+            ("authored_empty", Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])),
+            ("words", Value::List(["run", "host", "target"].into_iter().map(|value| Value::Str(Arc::from(value))).collect())),
+        ] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, expected, "{name} frames={force_frames}");
+        }
+    }
+}

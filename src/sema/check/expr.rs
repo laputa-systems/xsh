@@ -1833,6 +1833,18 @@ impl Checker {
                 };
                 match actual.into_unvalidated() {
                     Type::List(ty) => *ty,
+                    Type::Inference(variable) => {
+                        let level = match self.type_constraints.type_level(variable) {
+                            Ok(level) => level,
+                            Err(error) => {
+                                self.error(span, &format!("list splice source scope could not be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                                return Type::Invalid;
+                            }
+                        };
+                        let item = self.type_constraints.fresh_at_level(span, level);
+                        self.expect_type(&Type::List(Box::new(item.clone())), &Type::Inference(variable), span);
+                        item
+                    }
                     Type::Unknown => Type::Unknown,
                     _ => {
                         self.error(span, "list literal splice requires List; handle Results explicitly and collect Streams explicitly", DiagnosticCode::CheckListSpliceType);
@@ -5252,5 +5264,61 @@ let enabled: Bool = name_of({name: true, version: 2})
         assert_arena_matches_raised("let x = [1, 2, 3].get(0, 99)");
         assert_arena_matches_raised("let x = {a: 1}.get(\"a\")");
         assert_arena_matches_raised("let x = maybe_undefined?.foo()");
+    }
+}
+
+#[cfg(test)]
+mod list_splice_relationship_tests {
+    use crate::diagnostic::Severity;
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn literal_splices_constrain_declaration_local_row_fields_without_callers() {
+        let source = "pure combine(metadata) { [@metadata.deps, @metadata.mkdeps_host, @metadata.mkdeps_target] }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn literal_splices_reject_nonlists_and_invariant_field_mismatches() {
+        let prefix = "pure combine(metadata) { [@metadata.left, @metadata.right] }\n";
+        for arguments in [
+            "{left: 7, right: [1]}",
+            "{left: [1], right: [\"wrong\"]}",
+            "{left: Ok([1]), right: [2]}",
+            "{left: b\"bytes\", right: [2]}",
+            "{left: {1, 2}, right: [3]}",
+            "{left: {\"key\": 1}, right: [2]}",
+            "{left: [1]}",
+        ] {
+            let source = format!("{prefix}let _ = combine({arguments})\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}");
+        }
+        let source = format!("{prefix}stream values() [] -> Stream[Int] {{ yield 1 }}\nlet _ = combine({{left: values(), right: [2]}})\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "Stream is not an implicit list splice");
+    }
+
+    #[test]
+    fn literal_splices_preserve_list_invariance_and_fixed_call_splice_rules() {
+        for source in [
+            "pure combine(metadata) { [@metadata.left, @metadata.right] }\nlet signed: List[Int] = [-1]\nlet unsigned: List[UInt] = [1]\nlet _ = combine({left: signed, right: unsigned})\n",
+            "pure fixed(first: Int, second: Int) -> Int { first + second }\npure invoke(values) { fixed(@values) }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}");
+        }
     }
 }

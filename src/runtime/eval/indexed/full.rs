@@ -56729,6 +56729,28 @@ assert text_probe("") == {equal: false, missing: true, size: 0}
             }
         }
     }
+    #[test]
+    fn inferred_row_list_splices_require_actual_list_producers() {
+        run_with_large_stack(|| {
+            let program = fixture("inferred-row-list-splice.xsh", "pure combine(metadata) { let scalar = 7; let wrong = [\"wrong\"]; [@metadata.left, @metadata.right] }\npure invoke() -> List[Int] { combine({left: [1], right: [2]}) }\n");
+            let _symbols = program.symbol_owner().enter();
+            FullVerifier::verify(&program).unwrap();
+            let function = scheme_fixture_named_function(&program, "combine");
+            let range = program.store.function_instruction_range(function).unwrap();
+            let list = range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprListBuild).unwrap();
+            let payload = program.store.data[list].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let elements = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            for tag in [FullTag::ExprInt, FullTag::ExprList] {
+                let replacement = range.clone().find(|instruction| program.store.tags[*instruction] == tag).unwrap();
+                let mut forged = program.clone();
+                forged.store.in_place.take();
+                forged.store.extra[elements.start + 2] = replacement as u32;
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(!error.message.contains("out of bounds") && !error.message.contains("boolean payload"), "{}", error.message);
+            }
+        });
+    }
 }
 
 #[cfg(test)]
