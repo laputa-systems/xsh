@@ -847,7 +847,10 @@ captures. Calls select a checked Optional or Result mode, or forward the exact
 caller-owned requirement; execution obtains that mode from the existing type
 substitution. Cold proof authenticates actual physical operands and ordered
 capture contributions. Dynamic projected binders require evidence from their
-exact source projection. Result constructor arguments derive their selected
+exact source projection. Closed fallback envelopes use their actual source
+type without a generalized wrapper requirement; Optional fallbacks match null
+without unwrapping a Result payload, and Result fallbacks project one layer.
+Result constructor arguments derive their selected
 payload from actual producers, using owned context only for the absent branch;
 the ordinary producer proof also checks aliases and causes. Constructor
 recursion observes the existing argument-depth bound before descending.

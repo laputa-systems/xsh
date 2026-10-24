@@ -2078,6 +2078,19 @@ fn verify_body_expression(
             budget.charge_scheme_clone(ty)?;
             ty.clone()
         }
+        schema::ExprView::ResultFallback { left, right } => {
+            let left = child(left, budget)?;
+            let right = child(right, budget)?;
+            let source = left.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic fallback has no closed source envelope"))?;
+            ensure_closed_type(&source)?;
+            let crate::sema::wrapper_operation::WrapperProjection::Result { value, .. } = crate::sema::wrapper_operation::fallback_projection(&source, crate::sema::wrapper_operation::FallbackKind::Value)
+                .map_err(|_| IrVerifyError::new("generic fallback has no actual result source"))? else {
+                    return Err(IrVerifyError::new("generic fallback has no actual result source"));
+                };
+            let value = SchemeType::Ground(value);
+            if !body_type_matches(&right, &value, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its actual payload")); }
+            value
+        }
         schema::ExprView::Param(slot) => {
             let actual = slots.slot_type(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?;
             if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))

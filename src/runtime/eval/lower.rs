@@ -4806,6 +4806,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::ResultFallback { left, right })
             }
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } if !matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
+                let source = facts.expression_types().get(&left)?.closed_ground_type()?;
+                let projection = crate::sema::wrapper_operation::fallback_projection(&source, crate::sema::wrapper_operation::FallbackKind::Value).ok()?;
+                let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
+                let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
+                match projection {
+                    crate::sema::wrapper_operation::WrapperProjection::Optional(value) => {
+                        let slot = slots.reserve("optional fallback");
+                        let null = push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
+                        let present = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
+                        let value_expr = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                        lowered_types.insert(value_expr, SchemeType::Ground(value));
+                        push_build_row!(self, expr, BuildExprRow::MatchExpr { value: left, arms: vec![(null, None, right), (present, None, value_expr)], span })
+                    }
+                    crate::sema::wrapper_operation::WrapperProjection::Result { .. } => push_build_row!(self, expr, BuildExprRow::ResultFallback { left, right }),
+                }
+            }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let left_type = facts.expression_types().get(&left).and_then(SchemeType::closed_ground_type);
                 let right_type = facts.expression_types().get(&right).and_then(SchemeType::closed_ground_type);

@@ -3086,6 +3086,90 @@ test namespace_borrow {
         verify_mutable_optional_guard("");
     }
 
+    fn verify_closed_wrapper_fallbacks(annotation: &str) {
+        let source = format!(r#"type FallbackRow = {{value: Int}}
+pure fallback_row() -> FallbackRow {{ {{value: 7}} }}
+pure optional_row(marker{annotation}, present: Bool) -> FallbackRow {{
+  let _ = marker
+  var counted = null
+  if present {{ counted = {{value: 9}} }}
+  counted ?? fallback_row()
+}}
+pure result_row(marker{annotation}, value: Result[FallbackRow, Str]) -> FallbackRow {{ let _ = marker; value ?? fallback_row() }}
+pure successful_row() -> Result[FallbackRow, Str] {{ Ok({{value: 9}}) }}
+pure failed_row() -> Result[FallbackRow, Str] {{ Err("failure") }}
+pure optional_result(marker{annotation}, value: Result[Int, Str]?) -> Result[Int, Str] {{ let _ = marker; value ?? Ok(7) }}
+pure nested_result(marker{annotation}, value: Result[Result[Int, Str], Str]) -> Result[Int, Str] {{ let _ = marker; value ?? Ok(7) }}
+pure failed_number() -> Result[Int, Str] {{ Err("inner") }}
+pure successful_number() -> Result[Int, Str] {{ Ok(9) }}
+pure backup_number() -> Result[Int, Str] {{ Ok(7) }}
+pure nested_number() -> Result[Result[Int, Str], Str] {{ Ok(failed_number()) }}
+pure lazy_optional(marker{annotation}, value: Int?) -> Int {{ let _ = marker; value ?? 1 / 0 }}
+pure lazy_result(marker{annotation}, value: Result[Int, Str]) -> Int {{ let _ = marker; value ?? 1 / 0 }}
+test verify_closed_fallbacks {{
+  assert optional_row(7, true).value == 9
+  assert optional_row(7, false).value == 7
+  assert result_row(7, successful_row()).value == 9
+  assert result_row(7, failed_row()).value == 7
+  assert optional_result(7, failed_number()) == failed_number()
+  assert optional_result(7, null) == backup_number()
+  assert nested_result(7, nested_number()) == failed_number()
+  assert lazy_optional(7, 9) == 9
+  assert lazy_result(7, successful_number()) == 9
+}}
+"#);
+        verify_optional_guard_test_source(&source, "verify_closed_fallbacks");
+    }
+
+    #[test]
+    fn typed_closed_wrapper_fallbacks_preserve_actual_payloads() {
+        verify_closed_wrapper_fallbacks(": Int");
+    }
+
+    #[test]
+    fn generic_closed_wrapper_fallbacks_preserve_actual_payloads() {
+        verify_closed_wrapper_fallbacks("");
+    }
+
+    #[test]
+    fn closed_result_fallbacks_require_actual_source_payload_and_owner() {
+        let program = prepare("pure keep(marker, value: Result[Int, Str], backup: Int, wrong: Str) -> Int { let _ = marker; value ?? backup }\npure other(marker) { marker }");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keep").unwrap();
+        let other = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "other").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        for slot in [1, 2] {
+            let instruction = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            changed.store.extra[words.start] = 3;
+            assert!(FullVerifier::verify(&changed).is_err(), "slot={slot}");
+        }
+        let instruction = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ResultFallback { .. }))).unwrap();
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && fact.function.index() == owner && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut changed = program.clone();
+        changed.store.scheme_body_facts[fact].function = IrFunctionId::new(other).unwrap();
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
+    fn closed_optional_fallbacks_require_the_actual_present_binding() {
+        let program = prepare("pure keep(marker, value: Int?, wrong: Str) -> Int { let _ = marker; value ?? 7 }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::MatchExpr { .. }))).unwrap();
+        let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        let _ = arms.next().unwrap().unwrap();
+        let (_, _, present) = arms.next().unwrap().unwrap();
+        assert!(matches!(decoder.expression_view(present.raw() as usize).unwrap(), schema::ExprView::Param(_)));
+        let words = program.store.data[present.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        changed.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
     #[test]
     fn mutable_optional_guard_native_fixture_retains_its_original_slots() {
         let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-guard-original-slot.xsh")).unwrap();
