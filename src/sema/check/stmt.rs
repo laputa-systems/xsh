@@ -2953,6 +2953,7 @@ impl Checker {
             if !binding.proof.accepts(narrowing) {
                 continue;
             }
+            let super::proof::Refinement::Type(ty) = &narrowing.refinement else { continue; };
             let mut narrowed = binding;
             if narrowed.unrefined_ty.is_none() {
                 narrowed.unrefined_ty = Some(narrowed.ty.clone());
@@ -2960,7 +2961,7 @@ impl Checker {
             if !super::proof::replace_projection(
                 &mut narrowed.ty,
                 &narrowing.path,
-                narrowing.ty.clone(),
+                ty.clone(),
             ) {
                 continue;
             }
@@ -3909,12 +3910,11 @@ impl Checker {
         left: ExprId,
         right: ExprId,
     ) -> ConditionNarrowings {
-        let Some((name, path, inner, binding)) =
-            self.null_compared_optional_binding_arena(arena, left, right)
+        let Some(narrowing) =
+            self.null_comparison_fact_arena(arena, left, right)
         else {
             return ConditionNarrowings::default();
         };
-        let narrowing = binding.proof.fact(name, path, inner);
         if matches!(
             arena.arena.expr(condition).kind,
             ArenaExprKind::Binary {
@@ -3934,22 +3934,23 @@ impl Checker {
         }
     }
 
-    fn null_compared_optional_binding_arena(
+    fn null_comparison_fact_arena(
         &self,
         arena: &ArenaProgram,
         left: ExprId,
         right: ExprId,
-    ) -> Option<(Name, Vec<Name>, Type, &Binding)> {
+    ) -> Option<Narrowing> {
         let subject = match (arena.arena.expr(left).kind, arena.arena.expr(right).kind) {
             (_, ArenaExprKind::Null) => left,
             (ArenaExprKind::Null, _) => right,
             _ => return None,
         };
         let (name, path, ty, binding) = self.proof_subject_arena(arena, subject)?;
-        let Type::Optional(inner) = ty else {
-            return None;
-        };
-        Some((name, path, *inner, binding))
+        match ty {
+            Type::Optional(inner) => Some(binding.proof.fact(name, path, *inner)),
+            Type::Inference(variable) => Some(binding.proof.non_null_fact(name, path, variable)),
+            _ => None,
+        }
     }
 
     fn infer_record_membership_narrowing_arena(
@@ -8237,6 +8238,41 @@ mod reader_binding_identity_tests {
             assert_eq!(name, subject_name);
             assert_eq!(path, vec![Name::intern("field")]);
             assert_eq!(ty, Type::Int);
+        });
+    }
+
+    #[test]
+    fn symbolic_null_guards_retain_source_identity_without_choosing_a_payload() {
+        let source = "var subject = 0\nlet present = subject != null\nlet absent = subject == null\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            let name = Name::intern("subject");
+            let condition = initializer_expr(program, statements[1]);
+            let unresolved = checker.type_constraints.fresh(program.arena.expr(condition).span);
+            checker.current_scope_mut().get_mut(&name).unwrap().ty = unresolved.clone();
+            let facts = checker.infer_condition_narrowings_arena(program, condition);
+            assert_eq!(facts.when_true.len(), 1);
+            assert!(facts.when_false.is_empty());
+            let Type::Inference(variable) = unresolved else { unreachable!() };
+            assert_eq!(facts.when_true[0].refinement, crate::sema::check::proof::Refinement::NonNull(variable));
+            let absent = checker.infer_condition_narrowings_arena(program, initializer_expr(program, statements[2]));
+            assert!(absent.when_true.is_empty());
+            assert_eq!(absent.when_false, facts.when_true);
+            assert!(checker.current_scope()[&name].proof.accepts(&facts.when_true[0]));
+            checker.apply_narrowings(&facts.when_true);
+            assert_eq!(checker.current_scope()[&name].ty, unresolved);
+            checker.current_scope_mut().get_mut(&name).unwrap().proof.mutate(&[]);
+            assert!(!checker.current_scope()[&name].proof.accepts(&facts.when_true[0]));
+            for erased in [Type::Any, Type::Unknown, Type::Invalid, Type::Null] {
+                checker.current_scope_mut().get_mut(&name).unwrap().ty = erased;
+                let facts = checker.infer_condition_narrowings_arena(program, condition);
+                assert!(facts.when_true.is_empty() && facts.when_false.is_empty());
+            }
         });
     }
 

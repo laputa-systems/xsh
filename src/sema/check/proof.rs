@@ -1,4 +1,5 @@
 use super::{Name, Type};
+use crate::sema::constraints::TypeVariableId;
 use std::sync::Arc;
 
 /// Clones represent the same binding; a new declaration gets a new identity.
@@ -43,7 +44,16 @@ impl BindingProof {
             path: path.into(),
             identity: Arc::clone(&self.identity),
             revision: self.revision,
-            ty,
+            refinement: Refinement::Type(ty),
+        }
+    }
+    pub(super) fn non_null_fact(&self, name: Name, path: Vec<Name>, source: TypeVariableId) -> Narrowing {
+        Narrowing {
+            name,
+            path: path.into(),
+            identity: Arc::clone(&self.identity),
+            revision: self.revision,
+            refinement: Refinement::NonNull(source),
         }
     }
     pub(super) fn accepts(&self, fact: &Narrowing) -> bool {
@@ -81,14 +91,20 @@ pub(super) struct Narrowing {
     pub(super) path: Arc<[Name]>,
     identity: Arc<()>,
     revision: u64,
-    pub(super) ty: Type,
+    pub(super) refinement: Refinement,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum Refinement {
+    Type(Type),
+    NonNull(TypeVariableId),
 }
 
 impl PartialEq for Narrowing {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
             && self.path == other.path
-            && self.ty == other.ty
+            && self.refinement == other.refinement
             && self.revision == other.revision
             && Arc::ptr_eq(&self.identity, &other.identity)
     }

@@ -5962,3 +5962,5 @@ pure present_count() -> Int { counted(7, [1]) }
         }
     }
 }
+
+mod guarded_requirements_tests;
