@@ -3982,6 +3982,13 @@ impl Checker {
         }
     }
 
+    pub(super) fn guard_output_condition_arena(&self, arena: &ArenaProgram, condition: ExprId) -> Option<bool> {
+        let ArenaExprKind::Binary { op: op @ (BinaryOp::Eq | BinaryOp::Ne), left, right } = arena.arena.expr(condition).kind else { return None; };
+        let left_null = matches!(arena.arena.expr(left).kind, ArenaExprKind::Null);
+        let right_null = matches!(arena.arena.expr(right).kind, ArenaExprKind::Null);
+        (left_null != right_null).then_some(op == BinaryOp::Ne)
+    }
+
     fn infer_record_membership_narrowing_arena(
         &self,
         arena: &ArenaProgram,
@@ -6044,7 +6051,7 @@ impl Checker {
         let collecting = self.inferred_returns.is_some();
         let actual = match node.kind {
             ArenaExprKind::If { branches, else_value } => {
-                self.check_if_expr_arena(arena, source, branches, else_value, expectation, TailCheckingPurpose::ProcCompletion)
+                self.check_if_expr_arena(arena, source, expression, branches, else_value, expectation, TailCheckingPurpose::ProcCompletion)
             }
             ArenaExprKind::Match { value, arms } => {
                 self.check_match_expr_arena(arena, source, value, arms, expectation, node.span, TailCheckingPurpose::ProcCompletion)
@@ -7260,6 +7267,10 @@ impl Checker {
                 if !if_stmt_may_produce_value(arena, id) {
                     return self.check_valueless_tail_if_arena(arena, source, id);
                 }
+                let output_parent = self.constraint_scope();
+                let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && expectation.is_none() && arena.arena.if_branches(branches).len() == 1).then(|| arena.arena.if_branches(branches)[0].condition)
+                    .and_then(|condition| self.guard_output_condition_arena(arena, condition).map(|polarity| (condition, polarity)));
+                let mut output_branch = None;
                 let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
                 let mut inferred = None;
                 let mut inferred_from_empty_list = true;
@@ -7289,6 +7300,7 @@ impl Checker {
                         branch_expectation,
                         purpose,
                     );
+                    if output_condition.is_some() { output_branch = Some((self.constraint_scope(), actual.clone())); }
                     let empty_list = tail_block_list_literal_is_empty(arena, branch.block)
                         == Some(true)
                         && actual == Type::List(Box::new(Type::Unknown))
@@ -7356,7 +7368,23 @@ impl Checker {
                         purpose,
                     );
                     self.check_required_block_exit(arena, block);
+                    let output_else = self.constraint_scope();
                     self.pop_scope();
+                    if let (Some((condition, nonnull_when)), Some((branch_scope, branch_type))) = (output_condition, output_branch.as_ref()) {
+                        let (live_scope, present, absent) = if nonnull_when { (*branch_scope, branch_type.clone(), actual.clone()) } else { (output_else, actual.clone(), branch_type.clone()) };
+                        if let crate::sema::constraints::CallableApplicationScope::Guard(guard) = live_scope
+                            && present != Type::Unknown && absent != Type::Unknown
+                        {
+                            match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr(condition).span, crate::sema::guarded_requirements::GuardOutputSite::Statement(stmt.span), present, absent, nonnull_when, self.callable_solver_level()) {
+                                Ok(Some(outward)) => return outward,
+                                Ok(None) => {},
+                                Err(error) => {
+                                    self.error(stmt.span, &format!("guarded output relationship is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                                    return Type::Invalid;
+                                }
+                            }
+                        }
+                    }
                     if !infer_branches {
                         self.check_unit_branch_completion(
                             arena,

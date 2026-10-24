@@ -442,6 +442,9 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
                     return Err(IrVerifyError::new("guard source or comparison leaves its callable"));
                 }
             }
+            if let Some(output) = metadata.output {
+                if !instruction_range.contains(&(output.instruction as usize)) || store.tags[output.instruction as usize].kind() != schema::InstructionKind::Expr { return Err(IrVerifyError::new("guard output leaves its callable")); }
+            }
             for read in mark_range(metadata.reads, &store.scheme_guard_reads, &mut guard_read_coverage, "guard read range is invalid or overlaps")? {
                 if !instruction_range.contains(&(read.instruction as usize)) || store.tags[read.instruction as usize].kind() != schema::InstructionKind::Expr {
                     return Err(IrVerifyError::new("guard read leaves its callable"));
@@ -467,15 +470,19 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
                     }
                 }
             }
+            let mut outputs = BTreeMap::new();
             let mut children = BTreeMap::<_, Vec<_>>::new();
             for pack in &guard_packs {
                 let parent = if pack.metadata.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.parent as usize).map_err(|_| IrVerifyError::new("guard parent id is invalid"))?) };
                 let id = crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
+                if let Some(output) = pack.metadata.output {
+                    if memberships.get(&(output.instruction as usize)).copied() != parent || outputs.insert(output.instruction as usize, id).is_some() { return Err(IrVerifyError::new("guard output has another parent or duplicate ownership")); }
+                }
                 let children = children.entry(parent).or_default();
                 if pack.metadata.binding_ordinal as usize != children.len() { return Err(IrVerifyError::new("guard binding ordinal disagrees with its lexical parent")); }
                 children.push(id);
             }
-            scope.guards = guards::GuardScopes::Scoped(Arc::new(guards::GuardCensus { owner: scheme_id, root: root_pack, root_applications: scheme.applications, root_operations: scheme.operations, root_methods: scheme.methods, root_wrappers: scheme.wrappers, root_guard_calls: scheme.guard_calls, scopes: guard_packs, memberships, children }));
+            scope.guards = guards::GuardScopes::Scoped(Arc::new(guards::GuardCensus { owner: scheme_id, root: root_pack, root_applications: scheme.applications, root_operations: scheme.operations, root_methods: scheme.methods, root_wrappers: scheme.wrappers, root_guard_calls: scheme.guard_calls, scopes: guard_packs, memberships, children, outputs }));
         }
         scope.applications = scheme.applications;
         scope.operations = scheme.operations;
@@ -737,6 +744,10 @@ fn verify_scheme_tables(
             for pack in &census.scopes {
                 let parent = if pack.metadata.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.parent as usize).map_err(|_| IrVerifyError::new("guard parent id is invalid"))?) };
                 let id = crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
+                if let Some(output) = pack.metadata.output {
+                    body_roots.entry(parent).or_default().extend([output.outward, output.absent]);
+                    body_roots.entry(Some(id)).or_default().push(output.present);
+                }
                 body_roots.entry(parent).or_default().push(pack.metadata.source);
                 body_roots.entry(Some(id)).or_default().push(pack.metadata.view);
                 for read in bounded(pack.metadata.reads, &store.scheme_guard_reads, "guard read range is invalid")? {
@@ -2554,6 +2565,20 @@ fn verify_body_expression(
             ty.clone()
         }
         schema::ExprView::IfExpr { mut branches, else_value, .. } => {
+            if let Some((id, output)) = scheme_scope.guard_output_at(instruction)? {
+                let parent = scheme_scope.guards.parent_scope(scheme_scope, id)?;
+                let local = scheme_scope.with_guard(Some(id))?;
+                let outward = decode_scheme_type(store, &parent, output.outward, budget, 0)?;
+                if !body_types_equal(ty, &outward) { return Err(IrVerifyError::new("guarded output disagrees with its parent result")); }
+                let present = decode_scheme_type(store, &local, output.present, budget, 0)?;
+                let absent = decode_scheme_type(store, &parent, output.absent, budget, 0)?;
+                let (condition, value) = branches.next().transpose()?.ok_or_else(|| IrVerifyError::new("guarded output has no branch"))?;
+                if branches.next().is_some() { return Err(IrVerifyError::new("guarded output has multiple conditions")); }
+                if !matches!(child(condition, budget)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("guarded output condition has no boolean contract")); }
+                let (selected, fallback) = if output.nonnull_when { (&present, &absent) } else { (&absent, &present) };
+                if !body_types_equal(&child(value, budget)?, selected) || !body_types_equal(&child(else_value, budget)?, fallback) { return Err(IrVerifyError::new("guarded output branches disagree with their actual producers")); }
+                ty.clone()
+            } else {
             for branch in &mut branches {
                 let (condition, value) = branch?;
                 if !matches!(child(condition, budget)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("generic branch condition has no checked boolean contract")); }
@@ -2561,6 +2586,7 @@ fn verify_body_expression(
             }
             if !body_type_matches(&child(else_value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
             ty.clone()
+            }
         }
         schema::ExprView::Index { base, index, .. } if operation_sites.contains_key(&instruction) => {
             let receiver = child(base, budget)?;
@@ -3282,7 +3308,7 @@ fn verify_call_instantiations(
                 &mut row_field_coverage,
             )?;
             let mut materialization = SchemeInstantiationBudget::new(store);
-            guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &substitution,
+            let guard_evidence = guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &substitution,
                 &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage, &mut materialization)?;
             effects::verify_predicates(store, scheme, scope, &substitution.effects, None, &mut materialization)?;
             applications::verify_bindings(store, scheme, scope,
@@ -3311,6 +3337,7 @@ fn verify_call_instantiations(
                 &mut materialization,
                 function_signatures,
                 producer_proof,
+                guard_evidence,
             )?);
             let result = checked_expression_type_id(store, instantiation.instruction)
                 .ok_or_else(|| IrVerifyError::new("generic call has no checked result type"))?;
@@ -4462,6 +4489,7 @@ fn verify_instantiated_call_arguments(
     materialization: &mut SchemeInstantiationBudget,
     function_signatures: &Arc<super::FunctionSignatureIndex>,
     producer_proof: &mut producers::ProducerProof<'_>,
+    guard_evidence: SchemeBinderEvidence,
 ) -> Result<Vec<producers::GroundArgumentRequest>, IrVerifyError> {
     let decoder = decoder_for_instruction(store, instruction, function_signatures)?;
     let view = decoder.expression_view(instruction)?;
@@ -4601,7 +4629,7 @@ fn verify_instantiated_call_arguments(
         }
         checked_arguments.push((expected, expected_scheme_type, is_splice, actual));
     }
-    let mut binder_evidence = SchemeBinderEvidence::default();
+    let mut binder_evidence = guard_evidence;
     for (expected, expected_scheme_type, is_splice, actual) in &checked_arguments {
         match actual {
             CheckedArgumentType::Known(actual) => {

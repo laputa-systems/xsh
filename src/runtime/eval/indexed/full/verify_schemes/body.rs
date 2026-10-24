@@ -6786,6 +6786,66 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
     }
 
     #[test]
+    fn guarded_outputs_authenticate_branch_types_polarity_and_prepared_results() {
+        let mut program = prepare(r#"
+pure selected(value) { if value != null { value + 1 } else { null } }
+proc driver() [error] -> Result[Unit, Error] {
+    let present: Int? = 1
+    assert selected(2) == 3
+    assert selected(present) == 2
+    assert selected(null) == null
+    Ok()
+}
+driver()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("the conditional output retains its source contract") };
+        let root = program.store.scheme(id).unwrap();
+        let guards = root.guards.bounds(program.store.scheme_guards.len()).unwrap();
+        assert_eq!(guards.len(), 1);
+        let output = program.store.scheme_guards[guards.start].output.unwrap();
+        let outward = program.store.scheme_types[output.outward.index()];
+        assert_eq!(outward.tag, FullSchemeTypeTag::Parameter);
+        let cold = || { let changed = program.clone(); assert!(changed.store.in_place.get().is_none()); changed };
+        let rejects = |label, changed: FullProgram, expected: &str| {
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert_eq!(error.message, expected, "{label}: {error:?}");
+        };
+        let mut polarity = cold();
+        polarity.store.scheme_guards[guards.start].output.as_mut().unwrap().nonnull_when = !output.nonnull_when;
+        rejects("a necessary guard is not an opposite result selector", polarity, "guarded output condition does not exactly classify its source");
+        let mut branches = cold();
+        let changed = branches.store.scheme_guards[guards.start].output.as_mut().unwrap();
+        std::mem::swap(&mut changed.present, &mut changed.absent);
+        rejects("live and absent outputs must retain their actual branch producers", branches, "guarded output branches disagree with their actual producers");
+        let mut escaped = cold();
+        let guard = &mut escaped.store.scheme_guards[guards.start];
+        std::mem::swap(&mut guard.view, &mut guard.output.as_mut().unwrap().outward);
+        rejects("a computed parent output cannot become a guard-local payload", escaped, "guard-local binder is outside its active scope");
+        let sites = program.store.checked_call_targets.iter().filter(|site| site.function.index() == owner).collect::<Vec<_>>();
+        assert_eq!(sites.len(), 3);
+        let results = sites.into_iter().map(|site| {
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == site.instruction).unwrap();
+            let mut arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            arguments.find(|&index| program.store.call_type_arguments[index].binder == outward.first).unwrap()
+        }).collect::<Vec<_>>();
+        let types = results.iter().map(|&index| program.store.call_type_arguments[index].ty).collect::<Vec<_>>();
+        assert!(types.iter().enumerate().all(|(index, ty)| types.iter().skip(index + 1).all(|other| ty != other)));
+        for index in [0, 1] {
+            let mut result = cold();
+            result.store.call_type_arguments[results[index]].ty = types[2];
+            result.store.call_type_arguments[results[2]].ty = types[index];
+            rejects("prepared outputs must follow actual plain, Optional, and Null sources", result, "guard output disagrees with its actual selected branch types");
+        }
+    }
+
+    #[test]
     fn guarded_requirements_authenticate_sources_polarity_scope_and_absence() {
         let mut program = prepare(r#"
 pure selected(value, other) -> Str {

@@ -624,6 +624,16 @@ record guard membership. Cold guard metadata identifies the physical source,
 comparison, and identity reads. Each live call packet owns only its local dense
 arguments and refers to its authenticated ancestor packet. Null supplies no
 local arguments. Root argument evidence remains independently total.
+A value-producing conditional with one exact null-comparison branch can retain a
+parent-owned output relation. Its live result belongs to the guard; its absent
+result and computed output belong to the parent. Actual non-null sources select
+the live type, Null selects only the absent type, and Optional sources use the
+same canonical branch join as ordinary inference. Compound conditions keep their
+ordinary join. Full authenticates the exact comparison leaf, physical branch
+producers, and selected prepared output before adding computed binder evidence.
+Synthetic branch blocks retain their actual tail's guard membership and undergo
+the same independent dominance proof. These value relations do not replace proc
+completion or error contribution relationships.
 Prepared packets retain the callable identity as well as their guard identity.
 Runtime consumers select the verified local packet from the physical instruction's
 guard membership; they do not infer bindings during execution. Actual closed

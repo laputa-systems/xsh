@@ -47,6 +47,7 @@ impl TypeConstraints {
         let mut scopes = component.iter().copied().map(CallableApplicationScope::Declaration).collect::<BTreeSet<_>>();
         let mut guards = scopes.iter().flat_map(|owner| self.wrappers.guard_owners.get(owner).into_iter().flatten().copied()).collect::<Vec<_>>();
         let mut visited_guards = BTreeSet::new();
+        let mut guard_outputs = BTreeSet::new();
         let mut visited = BTreeSet::new();
         let mut operations = BTreeSet::new();
         let mut methods = BTreeSet::new();
@@ -197,6 +198,16 @@ impl TypeConstraints {
                 if let EffectContract::Known(expression) = self.resolve_effect(&application.effects)? {
                     supported.effects.extend(expression.variables().map(|(id, _)| *id));
                 }
+                changed = true;
+            }
+            for &id in &visited_guards {
+                if guard_outputs.contains(&id) { continue; }
+                let guard = self.wrappers.guards.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                let Some(output) = &guard.output else { continue; };
+                let inputs = [guard.source.clone(), output.present.clone(), output.absent.clone()];
+                if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
+                guard_outputs.insert(id);
+                supported.extend(self.unresolved_input_variables(std::slice::from_ref(&output.outward))?);
                 changed = true;
             }
             if !changed { return Ok(supported); }

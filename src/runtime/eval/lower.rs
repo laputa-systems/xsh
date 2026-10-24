@@ -3514,6 +3514,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let branches = values.into_iter().map(|(condition, value, _)| (condition, value)).collect();
                     push_build_row!(self, expr, BuildExprRow::IfExpr { branches, else_value, span })
                 };
+                if let Some(sites) = facts.guard_scopes().statement_sites.get(&statement) {
+                    self.scratch.borrow_mut().scheme_guards.sites.entry(value.index()).or_default().extend(sites.iter().copied());
+                }
                 lowered_types.insert(value, ty);
                 Some(value)
             }
@@ -3618,11 +3621,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let value = self.lower_scheme_tail_value(tail, slots, current_function, facts, visited, lowered_types, &mut body)?;
         let ty = lowered_types.get(&value)?.clone();
+        let guard = self.scratch.borrow().scheme_guards.expressions.get(&value.index()).copied();
         let tail = push_build_row!(self, stmt, BuildStmtRow::Value { value });
         if self.bodies.resource_transfer(ResourceTransferSite::BlockValue(block))? { self.scratch.borrow_mut().mark_resource_transfer(tail); }
+        if let Some(guard) = guard { self.scratch.borrow_mut().scheme_guards.statements.insert(tail.index(), guard); }
         body.push(tail);
         slots.exit(saved);
         let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.span(block_data.span) });
+        if let Some(guard) = guard { self.scratch.borrow_mut().scheme_guards.expressions.insert(value.index(), guard); }
         lowered_types.insert(value, ty);
         Some(value)
     }
@@ -4699,7 +4705,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.record_scheme_guard_rows(facts.guard_scopes().expressions.get(&expression).copied(), start);
         if let Some(lowered) = result
             && let Some(sites) = facts.guard_scopes().sites.get(&expression) {
-            self.scratch.borrow_mut().scheme_guards.sites.entry(lowered.index()).or_default().extend(sites.iter().copied());
+            self.scratch.borrow_mut().scheme_guards.sites.entry(lowered.index()).or_default().extend(sites.iter().copied().filter(|site| !matches!(site, crate::sema::guarded_requirements::GuardBodySite::Output(_))));
         }
         result
     }
@@ -5626,6 +5632,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Some(ordinal) = facts.wrapper_site(expression) { self.scratch.borrow_mut().scheme_wrappers.insert(lowered.index(), ordinal); }
         if let Some(plan) = materialization {
             return self.publish_scheme_materialization(expression, lowered, plan, slots, lowered_types, body);
+        }
+        if let Some(sites) = facts.guard_scopes().sites.get(&expression) {
+            self.scratch.borrow_mut().scheme_guards.sites.entry(lowered.index()).or_default().extend(sites.iter().copied().filter(|site| matches!(site, crate::sema::guarded_requirements::GuardBodySite::Output(_))));
         }
         Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body))
     }
