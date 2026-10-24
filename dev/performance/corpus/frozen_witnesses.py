@@ -103,6 +103,8 @@ STRONG_SOURCE_SHAPE_CUES = {"iter", "join", "construction", "match"}
 PROC_PARAMETER_REASON = "current grammar requires nondefault proc/stream parameter type"
 PROC_RETURN_REASON = "omitted proc return defaults to Unit; preserve explicit value-return contract"
 EFFECT_REASON = "retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles"
+HOST_LINK_CONTEXT_SITE = 3209
+HOST_LINK_CONTEXT_REASON = "source meaning selector: context.Context supplies the nominal family for target-typed .Linux and .X86_64 variants in proc host_link_tools"
 
 
 @dataclass(frozen=True)
@@ -378,6 +380,16 @@ def meaning_selector_reason(site_id):
     return f"source meaning selector: {annotation} UInt fields and return schema in pure {owner}"
 
 
+def host_link_context_selector_reason(original, site):
+    _source, annotation, _owner, _context = exact_site_bytes(original, site)
+    if (site.site, site.project, site.path, site.kind, site.category, site.owner, site.reason, annotation) != (
+        HOST_LINK_CONTEXT_SITE, "xsh", "dev/docker.xsh", "parameter-type", "eligible-internal",
+        "proc host_link_tools parameter ctx", PROC_PARAMETER_REASON, b"context.Context",
+    ):
+        raise ValueError(f"nominal context meaning selector differs from frozen source at site {site.site}")
+    return HOST_LINK_CONTEXT_REASON
+
+
 def semantic_joint_candidate_rows(views_root, sites, retained):
     original = Path(views_root) / "original"
     proc_sites = {site.site for site in sites if site.site in retained and site.reason in {PROC_PARAMETER_REASON, PROC_RETURN_REASON}}
@@ -398,6 +410,7 @@ def semantic_joint_candidate_rows(views_root, sites, retained):
         if (site.project, site.path, site.kind, site.owner, annotation) != ("xsh", "core/wc.xsh", "return-type", f"pure {owner} return", expected_annotation.encode()):
             raise ValueError(f"meaning selector differs from frozen source at site {site_id}")
         rows[site_id] = [str(site_id), meaning_selector_reason(site_id)]
+    rows[HOST_LINK_CONTEXT_SITE] = [str(HOST_LINK_CONTEXT_SITE), host_link_context_selector_reason(original, by_site[HOST_LINK_CONTEXT_SITE])]
     accepted = [[str(site_id), row["reason"]] for site_id, row in retained.items()]
     result = [rows[site_id] for site_id in sorted(rows)]
     validate_frozen_candidate_rows(accepted, result, proc_sites, effect_sites)
@@ -431,7 +444,13 @@ def validate_frozen_candidate_rows(accepted_rows, candidate_rows, proc_sites, ef
     removed_effects = removed & effect_sites
     if removed_effects and removed_effects != effect_sites:
         raise ValueError("candidate must remove either zero or all 202 joint-effect rows")
-    if any(candidate[site_id] != accepted[site_id] for site_id in set(candidate) & set(accepted)):
+    for site_id in set(candidate) & set(accepted):
+        if candidate[site_id] == accepted[site_id]:
+            continue
+        if (site_id == HOST_LINK_CONTEXT_SITE
+                and accepted[site_id][1] == PROC_PARAMETER_REASON
+                and candidate[site_id][1] == HOST_LINK_CONTEXT_REASON):
+            continue
         raise ValueError("candidate changes a frozen retained row")
 
 
@@ -465,12 +484,10 @@ def validate_frozen_candidate(accepted_path, candidate_path, views_root=None):
         for site in sites
         if site.site in retained_ids and site.kind == "effect-list" and site.reason == EFFECT_REASON
     }
-    validate_frozen_candidate_rows(
-        accepted_rows,
-        retained_file(candidate_path),
-        proc_sites,
-        effect_sites,
-    )
+    candidate_rows = retained_file(candidate_path)
+    validate_frozen_candidate_rows(accepted_rows, candidate_rows, proc_sites, effect_sites)
+    if views_root is not None and [str(HOST_LINK_CONTEXT_SITE), HOST_LINK_CONTEXT_REASON] in candidate_rows:
+        host_link_context_selector_reason(Path(views_root) / "original", sites[HOST_LINK_CONTEXT_SITE])
 
 
 def safe_source_file(view_root, project, relative):

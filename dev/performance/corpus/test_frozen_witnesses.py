@@ -30,6 +30,55 @@ def site(site_id=1, kind="parameter-type", owner="pure f parameter x", reason=""
 
 
 class FrozenWitnessTests(unittest.TestCase):
+    def test_candidate_revises_only_the_verified_host_link_context_reason(self):
+        sites, _eligibility, retained, _individual, _facts = corpus.load_corpus()
+        accepted = [[str(site_id), row["reason"]] for site_id, row in sorted(retained.items())]
+        proc_sites = {entry.site for entry in sites if entry.site in retained and entry.reason in {corpus.PROC_PARAMETER_REASON, corpus.PROC_RETURN_REASON}}
+        effect_sites = {entry.site for entry in sites if entry.site in retained and entry.kind == "effect-list" and entry.reason == corpus.EFFECT_REASON}
+        reason = "source meaning selector: context.Context supplies the nominal family for target-typed .Linux and .X86_64 variants in proc host_link_tools"
+        candidate = [[site_id, reason if site_id == "3209" else old] for site_id, old in accepted]
+        corpus.validate_frozen_candidate_rows(accepted, candidate, proc_sites, effect_sites)
+        for changed_site, changed_reason in [("3209", "guessed"), (str(min(proc_sites - {3209})), reason)]:
+            invalid = [[site_id, changed_reason if site_id == changed_site else old] for site_id, old in accepted]
+            with self.assertRaisesRegex(ValueError, "frozen retained row"):
+                corpus.validate_frozen_candidate_rows(accepted, invalid, proc_sites, effect_sites)
+        wrong_original = [[site_id, "guessed" if site_id == "3209" else old] for site_id, old in accepted]
+        with self.assertRaisesRegex(ValueError, "frozen retained row"):
+            corpus.validate_frozen_candidate_rows(wrong_original, candidate, proc_sites, effect_sites)
+
+    def test_host_link_context_selector_authenticates_the_source_annotation(self):
+        WORK_TMP.mkdir(parents=True, exist_ok=True)
+        source = b"proc host_link_tools(ctx: context.Context) {}\n"
+        start = source.index(b"context.Context")
+        selected = corpus.Site(
+            site=3209, project="xsh", path="dev/docker.xsh", line=1,
+            kind="parameter-type", category="eligible-internal",
+            owner="proc host_link_tools parameter ctx", reason=corpus.PROC_PARAMETER_REASON,
+            span=corpus.Span(start, start + len(b"context.Context")),
+            owner_span=corpus.Span(0, len(source)), edit_span=corpus.Span(start - 2, start + len(b"context.Context")),
+        )
+        with tempfile.TemporaryDirectory(prefix="nominal-context-", dir=WORK_TMP) as temporary:
+            root = Path(temporary)
+            path = root / "xsh/dev/docker.xsh"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(source)
+            other_project = root / "laputa/dev/docker.xsh"
+            other_project.parent.mkdir(parents=True)
+            other_project.write_bytes(source)
+            (path.parent / "other.xsh").write_bytes(source)
+            self.assertEqual(corpus.host_link_context_selector_reason(root, selected), corpus.HOST_LINK_CONTEXT_REASON)
+            for changes in [
+                {"site": 3210}, {"kind": "local-type"},
+                {"project": "laputa"}, {"path": "dev/other.xsh"},
+                {"owner": "proc other parameter ctx"}, {"reason": "guessed"},
+            ]:
+                invalid = corpus.Site(**{**selected.__dict__, **changes})
+                with self.assertRaisesRegex(ValueError, "nominal context meaning selector"):
+                    corpus.host_link_context_selector_reason(root, invalid)
+            path.write_bytes(source.replace(b"context.Context", b"context.Options"))
+            with self.assertRaisesRegex(ValueError, "nominal context meaning selector"):
+                corpus.host_link_context_selector_reason(root, selected)
+
     def test_candidate_restores_only_the_whole_verified_wc_meaning_group(self):
         sites, _eligibility, retained, _individual, _facts = corpus.load_corpus()
         accepted = [[str(site_id), row["reason"]] for site_id, row in sorted(retained.items())]
