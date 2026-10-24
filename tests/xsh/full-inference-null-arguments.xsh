@@ -1,5 +1,5 @@
 test test_generic_null_arguments_preserve_exact_closed_shapes { |ctx|
-  let output = test.expect(ctx, r"""
+  let output = test.run_xsh(ctx, r"""
 pure keep(value) { value }
 pure forward(value) { keep(value) }
 assert keep(null) == null
