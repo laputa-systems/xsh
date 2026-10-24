@@ -72,15 +72,15 @@ the adapter, observer, table and keyed-reduction fixtures on both routes.
 
 F6 preparation adds six raw counters and four named-constructor workload
 shapes without changing the previous eight families or census denominators.
-Thirty-one of 32 new annotation variants execute successfully; the required
-inferred size-512 case fails the existing generic materialization work bound.
+Initial preparation passed 31 of 32 new annotation variants; the required
+inferred size-512 case exceeded the existing materialization work bound.
 The reviewed validate-once substitution repair is now integrated at
 `69ac216f1`: the unchanged size-512 program and all 512 assertions pass strict
 normal and forced execution, alongside unused-binder and resource negatives.
-Complete F6 scaling and timing qualification remain pending. Raw binder-clone counts are 8,704, 33,792, 133,120 and
-528,384 at sizes 64, 128, 256 and 512. These counts are not timing results or
-F6 acceptance. An expert is investigating repeated whole-substitution
-validation per argument without raising the budget or dropping assertions.
+Complete F6 scaling and timing qualification remain pending. Raw binder-clone
+counts are 8,704, 33,792, 133,120 and 528,384 at sizes 64, 128, 256 and 512.
+These counts are not timing results or F6 acceptance; the substitution repair
+does not establish a bound on the separate cloning cost.
 
 The previous `50f4552aa` product boundary passes six API selectors. Each native
 route runs 161 cases: 159 pass and two fixture defects fail. The corrected
