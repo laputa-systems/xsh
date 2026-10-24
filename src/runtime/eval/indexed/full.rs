@@ -14429,9 +14429,23 @@ impl<'a> FullDecoder<'a> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
-        let condition = if !is_boolean && let Some(prefix) = prefix {
-            let Some(condition) = prefix.guard_value_expression(self, condition, use_site, target, charge)? else { return Ok(false) };
-            condition
+        let condition = if !is_boolean {
+            if let Some(prefix) = prefix { prefix.verify_guard_value_owner(self, condition)?; }
+            match self.expression_view(condition)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(active_prefix) = prefix else { return Ok(false) };
+                    let Some((initializer, boolean)) = active_prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+                    return self.checked_condition_proves_nonnull_with_prefix(initializer, when_true, boolean, use_site, target, expected_payload, stability, Some(active_prefix), source, charge);
+                }
+                schema::ExprView::ValueBlock { .. } => match prefix {
+                    Some(prefix) => {
+                        let Some(condition) = prefix.guard_value_expression(self, condition, use_site, target, charge)? else { return Ok(false) };
+                        condition
+                    }
+                    None => condition,
+                },
+                _ => condition,
+            }
         } else { condition };
         if !is_boolean && let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(condition)? {
             charge(6)?;
@@ -14536,11 +14550,6 @@ impl<'a> FullDecoder<'a> {
             if yes == no { return Ok(false); }
             return self.checked_condition_proves_nonnull_with_prefix(nested.raw() as usize, when_true == yes, false,
                 use_site, target, expected_payload, stability, prefix, source, charge);
-        }
-        if let schema::ExprView::Param(slot) = self.expression_view(condition)? {
-            let Some(active_prefix) = prefix else { return Ok(false) };
-            let Some((initializer, boolean)) = active_prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
-            return self.checked_condition_proves_nonnull_with_prefix(initializer, when_true, boolean, use_site, target, expected_payload, stability, Some(active_prefix), source, charge);
         }
         let schema::ExprView::Binary {
             op,
@@ -49546,6 +49555,143 @@ pure apply(holder: Holder?, n: Int, flag: Bool) -> Int {
                 assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
             }
         });
+    }
+
+    #[test]
+    fn optional_fallback_guard_aliases_authenticate_snapshots_and_writers() {
+        let mut program = fixture("optional-fallback-guard-authority.xsh", r#"pure aliased(value: Int?) -> Bool {
+  let present = value != null
+  present and (value ?? -1) > 0
+}
+pure shadowed(value: Int?, other: Int?) -> Bool {
+  let present = value != null
+  let _ = present
+  if true {
+    let value = other
+    let present = value != null
+    return present and (value ?? -1) > 0
+  }
+  false
+}
+pure written(value: Int?) -> Bool {
+  var current = value
+  let present = current != null
+  if current != null {
+    let answer = present and current > 0
+    current = null
+    return answer
+  }
+  false
+}
+pure absent(value: Int?) -> Bool { value == null }
+"#);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        let cold = || {
+            let mut program = program.clone();
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            program
+        };
+        let proves_alias = |program: &FullProgram, function: &str, condition, target_slot| {
+            let decoder = return_analysis_decoder(program, function);
+            let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+            index.record(&decoder).unwrap();
+            let prefix = index.prefix_context(decoder.owner, &decoder.instruction_range).unwrap().unwrap();
+            let declared = program.store.semantic.to_type(decoder.checked_slot_type(target_slot).unwrap().unwrap()).unwrap();
+            let Type::Optional(payload) = declared else { panic!("the protected physical binding is optional") };
+            decoder.checked_condition_proves_nonnull_with_prefix(condition, true, false, condition, &(target_slot, Vec::new()),
+                GuardedReadContract::OptionalPayload(&payload), GuardPathStability::ImmutableSnapshot, Some(&prefix), None, &mut |_| Ok(())).unwrap()
+        };
+        let comparison = function_instruction_indices(&program, "aliased", FullTag::BoolLiteralCompareSlot)[0];
+        let owner = scheme_fixture_root_function(&program, "aliased");
+        let decoder = function_view_decoder(&program.store, owner);
+        let binding = function_instruction_indices(&program, "aliased", FullTag::StmtLetBool)[0];
+        let schema::StmtView::LetBool { slot: alias_slot, .. } = decoder.statement_view(binding).unwrap() else { unreachable!() };
+        let alias_condition = function_instruction_indices(&program, "aliased", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == alias_slot)
+        }).unwrap();
+        assert!(proves_alias(&cold(), "aliased", alias_condition, 0));
+        let equal = program.store.binary_ops.iter().position(|op| *op == BinaryOp::Eq).unwrap();
+        let mut initializer = cold();
+        initializer.store.extra[program.store.data[comparison].range().start as usize] = equal as u32;
+        assert!(!proves_alias(&initializer, "aliased", alias_condition, 0));
+
+        let owner = scheme_fixture_root_function(&program, "shadowed");
+        let decoder = function_view_decoder(&program.store, owner);
+        let bindings = function_instruction_indices(&program, "shadowed", FullTag::StmtLetBool).into_iter().filter_map(|instruction| {
+            let schema::StmtView::LetBool { slot, .. } = decoder.statement_view(instruction).unwrap() else { return None };
+            Some(slot)
+        }).collect::<Vec<_>>();
+        assert_eq!(bindings.len(), 2);
+        let alias = function_instruction_indices(&program, "shadowed", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == bindings[1])
+        }).unwrap();
+        let comparison = function_instruction_indices(&program, "shadowed", FullTag::BoolLiteralCompareSlot).into_iter().find(|&instruction| {
+            program.store.extra[program.store.data[instruction].range().start as usize + 1] != 0
+        }).unwrap();
+        let target_slot = program.store.extra[program.store.data[comparison].range().start as usize + 1] as usize;
+        assert!(proves_alias(&cold(), "shadowed", alias, target_slot));
+        let mut shadow = cold();
+        shadow.store.extra[program.store.data[alias].range().start as usize] = bindings[0] as u32;
+        assert!(!proves_alias(&shadow, "shadowed", alias, target_slot));
+
+        let owner = scheme_fixture_root_function(&program, "written");
+        let decoder = function_view_decoder(&program.store, owner);
+        let declaration = function_instruction_indices(&program, "written", FullTag::StmtLet)[0];
+        let schema::StmtView::Let { slot: target_slot, .. } = decoder.statement_view(declaration).unwrap() else { unreachable!() };
+        let read = function_instruction_indices(&program, "written", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == target_slot)
+        }).unwrap();
+        let proves_read = |program: &FullProgram| {
+            let decoder = return_analysis_decoder(program, "written");
+            let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+            index.record(&decoder).unwrap();
+            let prefix = index.prefix_context(decoder.owner, &decoder.instruction_range).unwrap().unwrap();
+            let declared = program.store.semantic.to_type(decoder.checked_slot_type(target_slot).unwrap().unwrap()).unwrap();
+            let Type::Optional(payload) = declared else { panic!("the mutable physical binding retains optional storage") };
+            prefix.optional_path_is_narrowed(&decoder, read, &(target_slot, Vec::new()), &payload, &mut |_| Ok(())).unwrap()
+        };
+        assert!(proves_read(&cold()));
+        let body = first_if_body_block(&program, "written");
+        let range = block_statement_range(&program, body);
+        let statements = &program.store.extra[range.clone()];
+        assert_eq!(statements.len(), 3);
+        assert_eq!(program.store.tags[statements[1] as usize], FullTag::StmtAssign);
+        let mut written = cold();
+        written.store.extra[range].swap(0, 1);
+        assert!(!proves_read(&written));
+    }
+
+    #[test]
+    fn optional_guard_identity_conditions_reject_foreign_contexts() {
+        let mut program = fixture("optional-guard-condition-owner.xsh", "pure guarded(value: Int?) -> Bool { let present = value != null; present and (value ?? -1) > 0 }\n");
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let mut decoder = return_analysis_decoder(&program, "guarded");
+        let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+        index.record(&decoder).unwrap();
+        let prefix = index.prefix_context(decoder.owner, &decoder.instruction_range).unwrap().unwrap();
+        let condition = decoder.instruction_range.clone().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: BinaryOp::Gt, .. }))
+        }).unwrap();
+        let declared = program.store.semantic.to_type(decoder.checked_slot_type(0).unwrap().unwrap()).unwrap();
+        let Type::Optional(payload) = declared else { panic!("the physical parameter retains its optional contract") };
+        let prove = |decoder: &FullDecoder<'_>, condition| decoder.checked_condition_proves_nonnull_with_prefix(
+            condition, true, false, condition, &(0, Vec::new()), GuardedReadContract::OptionalPayload(&payload),
+            GuardPathStability::ImmutableSnapshot, Some(&prefix), None, &mut |_| Ok(()),
+        );
+        assert!(!prove(&decoder, condition).unwrap());
+        let owner = decoder.owner;
+        decoder.owner = owner + 1;
+        assert_eq!(prove(&decoder, condition).unwrap_err().message, "guard value context disagrees with its owner");
+        decoder.owner = owner;
+        let range = decoder.instruction_range.clone();
+        decoder.instruction_range = range.start..range.end - 1;
+        assert_eq!(prove(&decoder, condition).unwrap_err().message, "guard value context disagrees with its owner");
+        decoder.instruction_range = range.clone();
+        assert_eq!(prove(&decoder, range.end).unwrap_err().message, "guard value leaves its owner range");
     }
 
     #[test]

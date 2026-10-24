@@ -8,6 +8,54 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_optional_fallback_guard(alias: bool) {
+    let condition = if alias { "let present = value != null; present" } else { "value != null" };
+    let source = format!("pure guarded(value: Int?) -> Bool {{ {condition} and (value ?? -1) > 0 }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
+    let name = program.symbol_owner().with_current(|| Name::intern("guarded"));
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        evaluator.force_frames = force_frames;
+        for (input, expected) in [(Value::Null, false), (Value::Int(7), true), (Value::Int(-1), false)] {
+            assert_eq!(evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), CallableKind::Pure, &[input], Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(expected));
+        }
+    }
+}
+
+#[test]
+fn optional_fallback_guard_alias_preserves_checked_payload() {
+    verify_optional_fallback_guard(true);
+}
+
+#[test]
+fn optional_fallback_direct_guard_preserves_checked_payload() {
+    verify_optional_fallback_guard(false);
+}
+
+#[test]
+fn optional_fallback_conjunction_guard_preserves_checked_payload() {
+    let source = r#"pure guarded(total: Int?, used: Int?, available: Int?) -> Bool {
+  let all_unavailable = total == null and used == null and available == null
+  let all_observed = total != null and used != null and available != null
+  if (! all_unavailable and ! all_observed) or (all_observed and ((total ?? -1) < 0 or (used ?? -1) < 0 or (available ?? -1) < 0 or (total ?? -1) > 9007199254740991 or (used ?? -1) > (total ?? -1) or (available ?? -1) > (total ?? -1))) {
+    return false
+  }
+  true
+}
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    let name = program.symbol_owner().with_current(|| Name::intern("guarded"));
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        evaluator.force_frames = force_frames;
+        for (input, expected) in [([Value::Null, Value::Null, Value::Null], true), ([Value::Int(10), Value::Int(4), Value::Int(6)], true), ([Value::Int(10), Value::Int(4), Value::Int(20)], false), ([Value::Null, Value::Int(4), Value::Null], false)] {
+            assert_eq!(evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), CallableKind::Pure, &input, Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(expected));
+        }
+    }
+}
+
 fn verify_captured_import_call(alias: bool) {
     on_scoped_body_test_stack(move || {
         let directory = tempfile::Builder::new().prefix("captured-import-call-").tempdir_in(".work/tmp").unwrap();

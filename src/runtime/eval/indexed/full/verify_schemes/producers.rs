@@ -427,16 +427,15 @@ impl ProducerPrefixContext<'_> {
         }
         let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         if !self.evidence.binding_path_is_snapshot(decoder, protected, target.0, charge)? { return Ok(None); }
-        self.immutable_value_initializer(decoder, condition, slot, use_site, target, charge)
+        self.immutable_value_initializer(decoder, condition, slot, use_site, target, protected, charge)
     }
 
     fn immutable_value_initializer(&self, decoder: &FullDecoder<'_>, condition: usize, slot: usize, use_site: usize,
-        target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+        target: &(usize, Vec<Name>), protected: ProducerBinding, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(usize, bool)>, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
             || !self.evidence.range.contains(&condition) || !self.evidence.range.contains(&use_site)
         { return Err(IrVerifyError::new("condition value context disagrees with its owner")); }
-        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         let query = ImmutableInitializerQuery { read: condition, slot, target: target.0, binding: protected };
         charge(1)?;
         if let Some(values) = self.evidence.immutable_initializers.borrow().get(&query) {
@@ -478,14 +477,21 @@ impl ProducerPrefixContext<'_> {
         self.evidence.work.borrow_mut().charge(amount)
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn verify_guard_value_owner(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<(), IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("guard value context disagrees with its owner"));
+        }
+        if !self.evidence.range.contains(&instruction) {
+            return Err(IrVerifyError::new("guard value leaves its owner range"));
+        }
+        Ok(())
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn guard_value_expression(
         &self, decoder: &FullDecoder<'_>, mut instruction: usize, use_site: usize,
         target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<usize>, IrVerifyError> {
-        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
-            return Err(IrVerifyError::new("guard value context disagrees with its owner"));
-        }
-        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
+        self.verify_guard_value_owner(decoder, instruction)?;
         for _ in self.evidence.range.clone() {
             charge(1)?;
             if !self.evidence.range.contains(&instruction) { return Err(IrVerifyError::new("guard value leaves its owner range")); }
@@ -495,8 +501,9 @@ impl ProducerPrefixContext<'_> {
                     instruction = decoder.checked_block_tail_expression(&mut body)?;
                 }
                 schema::ExprView::Param(slot) => {
+                    let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
                     if self.evidence.binding(decoder.store, decoder.owner, instruction, slot)? == protected { return Ok(Some(instruction)); }
-                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, charge)? else { return Ok(None) };
+                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, protected, charge)? else { return Ok(None) };
                     instruction = initializer;
                 }
                 _ => return Ok(Some(instruction)),
