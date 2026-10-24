@@ -2,10 +2,283 @@ use super::{
     ArenaCallArgKind, ArenaExprKind, ArenaStreamStage, BuildExprId, BuildExprRow, BuildStmtId, BuildStmtRow,
     CompactLowerConstructProbe, LoweredPipelineStage, LoweredRecordEntry, Name, ReduceByOp,
     SlotScope, StreamStageKind, Type, cleanup_pipeline_stage_item_slot,
+    SchemeBodyFacts, SchemeType, ExprId, FxHashSet, BTreeMap, CallArgument,
     compact_call_arg_expr,
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn lower_scheme_pipeline_shape_stage(
+        &mut self, expression: ExprId, stage: &ArenaStreamStage, item: SchemeType, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(LoweredPipelineStage, SchemeType)> {
+        if stage.block.is_some() { return None; }
+        let mut configuration = Vec::new();
+        let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+        let parameters = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
+        let binding = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?;
+        if arguments.len() != binding.argument_slots.len() || binding.callable_entry.is_some() { return None; }
+        let mut values = vec![None; parameters.len()];
+        for (argument, &slot) in arguments.iter().zip(&binding.argument_slots) {
+            if values.get_mut(slot)?.replace(argument.lowered?).is_some() { return None; }
+        }
+        let span = self.program.arena.span(stage.span);
+        let wrap = |this: &mut Self, value, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>| {
+            let ty = lowered_types.get(&value)?.clone();
+            let mut body = configuration.clone();
+            let tail = push_build_row!(this, stmt, super::BuildStmtRow::Value { value });
+            if ty.may_hold_resource() { this.scratch.borrow_mut().mark_resource_transfer(tail); }
+            body.push(tail);
+            let wrapped = push_build_row!(this, expr, BuildExprRow::ValueBlock { body, span });
+            lowered_types.insert(wrapped, ty);
+            Some(wrapped)
+        };
+        let output = match stage.kind {
+            StreamStageKind::Batch => SchemeType::List(Box::new(item)),
+            StreamStageKind::Zip => {
+                let right = Self::scheme_pipeline_item(lowered_types.get(&values[0]?)?, facts)?;
+                SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), item), (Name::intern("right"), right)]), tail: crate::sema::schemes::SchemeRowTail::Closed }
+            }
+            StreamStageKind::Range => SchemeType::Ground(Type::Int),
+            StreamStageKind::TablePrint => SchemeType::Ground(Type::Unit),
+            _ => item,
+        };
+        let lowered = match stage.kind {
+            StreamStageKind::Batch => match values.as_slice() {
+                [Some(count), None, None] => LoweredPipelineStage::BatchCount { count: wrap(self, *count, lowered_types)? },
+                [None, Some(max_bytes), None] => LoweredPipelineStage::BatchMaxBytes { max_bytes: wrap(self, *max_bytes, lowered_types)? },
+                _ => {
+                    let fields = parameters.iter().zip(&values).filter_map(|(parameter, value)| value.map(|value| super::LoweredRecordEntry::Field(parameter.name, value))).collect();
+                    let record = push_build_row!(self, expr, BuildExprRow::Record(fields));
+                    let ty = SchemeType::Record { fields: parameters.iter().zip(&values).filter_map(|(parameter, value)| value.map(|value| Some((parameter.name, lowered_types.get(&value)?.clone())))).collect::<Option<BTreeMap<_, _>>>()?, tail: crate::sema::schemes::SchemeRowTail::Closed };
+                    lowered_types.insert(record, ty);
+                    LoweredPipelineStage::BatchLimits { configuration: wrap(self, record, lowered_types)? }
+                }
+            },
+            StreamStageKind::Zip => LoweredPipelineStage::Zip { other: wrap(self, values[0]?, lowered_types)? },
+            StreamStageKind::Repeat => LoweredPipelineStage::Repeat { count: wrap(self, values[0]?, lowered_types)? },
+            StreamStageKind::Range => LoweredPipelineStage::Range { start: wrap(self, values[0]?, lowered_types)?, end: values[1]? },
+            StreamStageKind::BytesChunks => LoweredPipelineStage::BytesChunks { size: wrap(self, values[0]?, lowered_types)? },
+            StreamStageKind::TablePrint => match values[0] {
+                Some(value) => LoweredPipelineStage::TablePrintConfigured { columns: wrap(self, value, lowered_types)? },
+                None => LoweredPipelineStage::TablePrint { columns: None },
+            },
+            StreamStageKind::Shuffle => LoweredPipelineStage::Shuffle { seed: match values[0] { Some(value) => Some(wrap(self, value, lowered_types)?), None => None } },
+            _ => return None,
+        };
+        Some((lowered, output))
+    }
+
+    pub(super) fn scheme_pipeline_item(ty: &SchemeType, facts: &SchemeBodyFacts) -> Option<SchemeType> {
+        match ty {
+            SchemeType::List(item) | SchemeType::Stream(item) | SchemeType::Set(item) => Some((**item).clone()),
+            SchemeType::Ground(ty) => match ty.unvalidated() {
+                Type::List(item) | Type::Stream(item) | Type::Set(item) => Some(SchemeType::Ground((**item).clone())),
+                Type::Result(ok, _) => Self::scheme_pipeline_item(&SchemeType::Ground((**ok).clone()), facts),
+                _ => None,
+            },
+            SchemeType::Validated(_, ty) | SchemeType::Result(ty, _) => Self::scheme_pipeline_item(ty, facts),
+            SchemeType::Parameter(parameter) => facts.scheme().callable().requirements().iteration_parameters.get(parameter).map(|requirement| requirement.item.clone()),
+            _ => None,
+        }
+    }
+
+    pub(super) fn lower_scheme_pipeline_reduce_by(
+        &mut self, expression: ExprId, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<LoweredPipelineStage> {
+        let (item_slot, value) = self.lower_scheme_pipeline_callback(stage, item_type, slots, current_function, facts, visited, lowered_types)?;
+        let mut configuration = Vec::new();
+        let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+        let parameters = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
+        let binding = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?;
+        if arguments.len() != binding.argument_slots.len() || binding.callable_entry.is_some() { return None; }
+        let mut fields = BTreeMap::new();
+        let mut entries = Vec::new();
+        for (argument, &slot) in arguments.iter().zip(&binding.argument_slots) {
+            let name = parameters.get(slot)?.name;
+            let value = argument.lowered?;
+            if fields.insert(name, lowered_types.get(&value)?.clone()).is_some() { return None; }
+            entries.push(LoweredRecordEntry::Field(name, value));
+        }
+        let record = push_build_row!(self, expr, BuildExprRow::Record(entries));
+        let ty = SchemeType::Record { fields, tail: crate::sema::schemes::SchemeRowTail::Closed };
+        lowered_types.insert(record, ty.clone());
+        configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: record }));
+        let configuration = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+        lowered_types.insert(configuration, ty);
+        Some(LoweredPipelineStage::ReduceByConfigured { item_slot, body: Vec::new(), value, configuration })
+    }
+
+    pub(super) fn lower_scheme_pipeline_observer(
+        &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(usize, Vec<BuildStmtId>)> {
+        let Some(block) = stage.block else {
+            let (slot, value) = self.lower_scheme_pipeline_callback(stage, item_type, slots, current_function, facts, visited, lowered_types)?;
+            let actual = lowered_types.get(&value)?;
+            let unit = match actual {
+                SchemeType::Result(ok, _) => matches!(ok.as_ref(), SchemeType::Ground(Type::Unit)),
+                SchemeType::Ground(ty) => *ty == Type::Unit || ty.is_result_unit(),
+                _ => false,
+            };
+            if !unit { return None; }
+            return Some((slot, vec![push_build_row!(self, stmt, BuildStmtRow::Expr { value, span: self.program.arena.span(stage.span) })]));
+        };
+        let saved = slots.enter();
+        let observer = (|| {
+            let definition = self.program.arena.block(block);
+            let (span, name) = match self.program.arena.block_params(definition.params) {
+                [] => (self.program.arena.span(definition.span), crate::sema::check::item_binding()),
+                [parameter] => (self.program.arena.span(parameter.span), parameter.name),
+                _ => return None,
+            };
+            let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
+            let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
+            Some((slot, body))
+        })();
+        slots.exit(saved);
+        observer
+    }
+
+    pub(super) fn lower_scheme_pipeline_callback(
+        &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
+        current_function: super::Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(usize, BuildExprId)> {
+        let saved = slots.enter();
+        let callback = (|| {
+            if let Some(block) = stage.block {
+                let definition = self.program.arena.block(block);
+                let (span, name) = match self.program.arena.block_params(definition.params) {
+                    [] => (self.program.arena.span(definition.span), crate::sema::check::item_binding()),
+                    [parameter] => (self.program.arena.span(parameter.span), parameter.name),
+                    _ => return None,
+                };
+                let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
+                if crate::sema::check::block_callable_body_cannot_fall_through_arena(self.program, block, false, &self.bodies.expr_types, &self.declarations.tag_variants_by_name, &self.bodies.conversions, &self.bodies.argument_bindings, &self.bodies.checked_control_flow, &self.bodies.resolved_bindings) {
+                    let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
+                    let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.span(definition.span) });
+                    self.scratch.borrow_mut().scheme_noncompleting.insert(value.index());
+                    return Some((slot, value));
+                }
+                let value = self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?;
+                return Some((slot, value));
+            }
+            let entry = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.callable_entry?;
+            let callee = super::compact_call_arg_expr(self.program.arena.call_args(stage.args).get(entry)?)?;
+            if !visited.insert(callee) { return None; }
+            let name = crate::sema::check::item_binding();
+            let span = self.program.arena.expr(callee).span;
+            let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
+            let item = push_build_row!(self, expr, BuildExprRow::Param(slot));
+            lowered_types.insert(item, item_type.clone());
+            let result = facts.expression_types().get(&callee)?.clone();
+            let namespace = matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { base, .. }
+                if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding)).is_some_and(|declaration| declaration.global && matches!(declaration.kind, super::BindingKind::Module(_))));
+            let value = if namespace || self.declarations.static_callable_aliases.contains_key(&span)
+                || self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::call(callee))
+            {
+                self.lower_scheme_stage_value_call(callee, CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }, slots, current_function, facts, visited, lowered_types)?
+            } else if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
+                let function = self.function_index().checked_target_key(target)?;
+                let arguments = [CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }];
+                let arguments = self.lower_checked_function_arguments(callee, &arguments, function, slots, Some(current_function), None, SchemeType::closed_ground_type)?;
+                self.record_scheme_call_argument_checks(&arguments, lowered_types);
+                let value = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
+                if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(callee)).cloned() {
+                    let result_type = result.closed_ground_type().map(|ty| self.canonicalize_checked_type(ty));
+                    let mut scratch = self.scratch.borrow_mut();
+                    if !scratch.record_call_instantiation(value, instantiation)
+                        || result_type.is_some_and(|ty| !scratch.record_checked_call_result_type(value, ty))
+                    { return None; }
+                }
+                value
+            } else {
+                let plan = facts.registered_calls().get(&callee).cloned()?;
+                if plan.receiver.is_some() { return None; }
+                let [argument_slot] = plan.argument_slots.as_ref() else { return None; };
+                let mut body = Vec::new();
+                let item = match plan.argument_checks.get(*argument_slot).and_then(Option::as_ref) {
+                    Some(check) => self.lower_scheme_registered_argument(item, check, span, slots, lowered_types, &mut body),
+                    None => item,
+                };
+                let mut args = vec![None; plan.signature.params.len()];
+                *args.get_mut(*argument_slot)? = Some(item);
+                while args.last() == Some(&None) { args.pop(); }
+                let value = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.signature.op, args, span });
+                self.scratch.borrow_mut().registered_calls[value.index()] = Some(plan);
+                lowered_types.insert(value, result.clone());
+                if body.is_empty() { value } else {
+                    body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                    push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span })
+                }
+            };
+            lowered_types.insert(value, result);
+            Some((slot, value))
+        })();
+        slots.exit(saved);
+        callback
+    }
+
+    pub(super) fn lower_scheme_static_callable_projection(
+        &mut self, expression: ExprId, slots: &SlotScope, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        let ArenaExprKind::Field { base, name } = self.program.arena.expr(expression).kind else { return None; };
+        let binding = self.expression_binding(base)?;
+        let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
+        if !declaration.global || !matches!(declaration.kind, super::BindingKind::Module(_)) { return None; }
+        let source = slots.types.get(&binding)?.clone();
+        let Some(Type::Module(module)) = source.closed_ground_type() else { return None; };
+        if !module.exact { return None; }
+        let result = match module.get(&name)? {
+            super::ModuleExportType::GenericCallable { kind, optional: false } => {
+                let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(expression)).copied()
+                    .or_else(|| match facts.expression_types().get(&expression)?.closed_ground_type()? { Type::SchemeCallable(id) => Some(id), _ => None })?;
+                let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+                let target = self.bodies.selected_function_calls.get(&expression)?;
+                if contract.canonical().scheme().kind() != *kind || contract.targets().len() != 1 || contract.targets()[0].target() != *target { return None; }
+                Type::SchemeCallable(relationship)
+            }
+            export => export.static_callable_value_type()?,
+        };
+        let ArenaExprKind::Ident(namespace) = self.program.arena.expr(base).kind else { return None; };
+        if facts.expression_types().contains_key(&base) && !visited.insert(base) { return None; }
+        let base = self.lower_bare_ident(base, namespace, slots)?;
+        lowered_types.insert(base, source);
+        let value = push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span: self.program.arena.expr(expression).span });
+        lowered_types.insert(value, SchemeType::Ground(result));
+        Some(value)
+    }
+
+    pub(super) fn lower_scheme_pipeline_fold(
+        &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, initial: BuildExprId,
+        slots: &mut SlotScope, current_function: Name, facts: &SchemeBodyFacts,
+        visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<LoweredPipelineStage> {
+        let accumulator = lowered_types.get(&initial)?.clone();
+        let block = stage.block?;
+        let params = self.program.arena.block_params(self.program.arena.block(block).params);
+        if params.len() > 2 { return None; }
+        let saved = slots.enter();
+        let stage = (|| {
+            let acc_slot = match params.first() {
+                Some(parameter) => slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?, parameter.name, accumulator),
+                None => slots.reserve("pipeline.acc"),
+            };
+            let item_slot = match params.get(1) {
+                Some(parameter) => slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?, parameter.name, item_type.clone()),
+                None => slots.reserve("pipeline.item"),
+            };
+            let value = self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?;
+            Some(LoweredPipelineStage::Fold { acc_slot, item_slot, initial, body: Vec::new(), value })
+        })();
+        slots.exit(saved);
+        stage
+    }
+
     pub(super) fn fuse_par_map_flat_map_reduce_by(&self, stages: &mut Vec<LoweredPipelineStage>) {
         let mut fused = Vec::with_capacity(stages.len());
         let mut index = 0;
@@ -411,7 +684,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         )
         .ok()?;
         let lowered =
-            self.lower_expanded_argument_values(&expanded, slots, current_function, None)?;
+            self.lower_expanded_argument_values(&expanded, None, slots, current_function, None)?;
         let mut values = vec![None; params.len()];
         let mut types = vec![None; params.len()];
         let mut booleans = vec![Some(false); params.len()];

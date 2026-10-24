@@ -1,7 +1,7 @@
 let helper = fp"{args[0]}"
 let ready = fp"{args[1]}"
 
-on USR1 --pre-cancel=0ms [time, error] {
+on USR1 --pre-cancel=0ms [time, process, error] {
   time.sleep(50ms)?
   exit 0
 }

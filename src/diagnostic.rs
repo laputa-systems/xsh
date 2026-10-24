@@ -118,6 +118,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     pub fn new(severity: Severity, message: impl Into<String>) -> Self {
+        crate::sema::inference_work::record_diagnostic_work();
         Self {
             severity,
             code: None,

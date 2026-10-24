@@ -1,3 +1,6 @@
+mod compare;
+pub use compare::compare_paths_timed;
+
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
     CliOutput, ConfigCache, DiscoveryFor, cancellation_output, discover_scripts,
@@ -8,13 +11,14 @@ use crate::xsht::format::Formatter;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{
-    AnnotationFact, AnnotationFactKind, CheckOptions, CheckSession, Checker,
+    AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckSession, Checker,
 };
 use xsh::frontend::load as loader;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
@@ -424,7 +428,7 @@ fn check_entry(
             path_str,
             source_id,
             &mut sources,
-            module_roots,
+            module_roots.clone(),
         );
         report.sources = Arc::new(sources);
         if !parsed.diagnostics.is_empty() {
@@ -455,6 +459,19 @@ fn check_entry(
 
     let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &report.sources);
     let annotation_facts = std::mem::take(&mut checked.annotation_facts);
+    let annotation_plan = annotation_policy.map(|policy| {
+        report.sources.get(source_id).map(|source| {
+            let original = source.text().to_string();
+            let edits = annotation_edits(
+                &checked,
+                &annotation_facts,
+                policy,
+                source_id,
+                &original,
+            );
+            (original, edits)
+        })
+    });
     let lowering_diagnostics = timings.time(Stage::Lower, || {
         Evaluator::compact_lowerability_diagnostics_with_view(
             &view,
@@ -466,14 +483,13 @@ fn check_entry(
         )
     });
 
-    if let Some(annotation_policy) = annotation_policy {
+    if annotation_policy.is_some() {
         if !lowering_diagnostics.is_empty() {
             return report.failed(2, EntryOutput::Diagnostics(lowering_diagnostics));
         }
-        let Some(original) = report.sources.get(source_id).map(|s| s.text().to_string()) else {
+        let Some((original, edits)) = annotation_plan.flatten() else {
             return report.failed(2, EntryOutput::Text("xsht: missing script source\n".into()));
         };
-        let edits = annotation_edits(&annotation_facts, annotation_policy, source_id, &original);
         if !edits.is_empty() {
             let mut annotated = original.clone();
             for (start, end, replacement) in edits {
@@ -490,13 +506,20 @@ fn check_entry(
                     DiagnosticRenderer::new().render(&reformatted.diagnostics, &fmt_sources);
                 return report.failed(2, EntryOutput::Text(rendered));
             }
-            if reformatted.formatted != original
-                && let Err(err) = fs::write(path_str, &reformatted.formatted)
-            {
-                return report.failed(
-                    4,
-                    EntryOutput::Text(format!("xsht: failed to write '{path_str}': {err}\n")),
-                );
+            if reformatted.formatted != original {
+                if let Err(diagnostics) = validate_annotation_candidate(
+                    path_str,
+                    reformatted.formatted.clone(),
+                    module_roots,
+                ) {
+                    return report.failed(2, EntryOutput::Text(diagnostics));
+                }
+                if let Err(err) = fs::write(path_str, &reformatted.formatted) {
+                    return report.failed(
+                        4,
+                        EntryOutput::Text(format!("xsht: failed to write '{path_str}': {err}\n")),
+                    );
+                }
             }
         }
     } else {
@@ -614,8 +637,24 @@ fn configured_annotation_policy(
         .map_err(|message| format!("invalid xsht-config.ini check.annotate: {message}"))
 }
 
+fn annotation_source_for_fact(fact: &AnnotationFact) -> Option<String> {
+    if matches!(
+        &fact.kind,
+        AnnotationFactKind::ExportedProcReturn { .. }
+    ) && let xsh::frontend::check::Type::Result(ok, error) = &fact.ty
+    {
+        return Some(format!(
+            "Result[{}, {}]",
+            ok.annotation_source()?,
+            error.annotation_source()?
+        ));
+    }
+    fact.ty.annotation_source()
+}
+
 #[allow(clippy::single_call_fn)]
 fn annotation_edits(
+    checked: &CheckOutput,
     facts: &[AnnotationFact],
     policy: AnnotationPolicy,
     target_source: SourceId,
@@ -630,8 +669,29 @@ fn annotation_edits(
         {
             continue;
         }
-        let Some(ty) = fact.ty.annotation_source() else {
-            continue;
+        let annotation_span = match &fact.kind {
+            AnnotationFactKind::Binding { initializer, .. } => Some(*initializer),
+            AnnotationFactKind::DefaultedParam { default, .. } => Some(*default),
+            AnnotationFactKind::InferredPureReturn { .. }
+            | AnnotationFactKind::ExportedProcReturn { .. } => None,
+        };
+        let ty = if let Some(span) = annotation_span {
+            if let Some(contract) = checked.callable_value_contract_at(span) {
+                let Some(annotation) = contract.source_annotation() else {
+                    continue;
+                };
+                annotation
+            } else {
+                let Some(annotation) = annotation_source_for_fact(fact) else {
+                    continue;
+                };
+                annotation
+            }
+        } else {
+            let Some(annotation) = annotation_source_for_fact(fact) else {
+                continue;
+            };
+            annotation
         };
         match &fact.kind {
             AnnotationFactKind::Binding {
@@ -675,4 +735,82 @@ fn annotation_edits(
     edits.sort_unstable_by_key(|(start, end, _)| Reverse((*start, *end)));
     edits.dedup_by_key(|(start, end, _)| (*start, *end));
     edits
+}
+
+#[allow(clippy::single_call_fn)]
+fn validate_annotation_candidate(
+    path: &str,
+    source: String,
+    module_roots: Vec<PathBuf>,
+) -> Result<(), String> {
+    let entry_source = loader::entry_source_from_text(path, source);
+    let source_id = entry_source.source_id;
+    let (sources, parsed) =
+        loader::parse_load_entry_source_arena_only(path, entry_source, module_roots);
+    if !parsed.diagnostics.is_empty() {
+        return Err(DiagnosticRenderer::new().render(&parsed.diagnostics, &sources));
+    }
+
+    let arena = Arc::new(parsed.arena);
+    let statements = arena.statements;
+    let sources = Arc::new(sources);
+    let session = CheckSession::new(Arc::clone(&arena), Arc::clone(&sources));
+    let view = session.view_for_root(statements, source_id);
+    let checked = session.check_view(&view, CheckOptions::for_check_cli());
+    if !checked.diagnostics.is_empty() {
+        return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &sources));
+    }
+
+    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_view(
+        &view,
+        source_id,
+        Arc::clone(&sources),
+        Checker::compact_declarations(view.program(), checked),
+        Vec::new(),
+        xsh::execution::script::script_command_name(path),
+    );
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(DiagnosticRenderer::new().render(&diagnostics, &sources))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_annotation_candidate;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn rejects_invalid_annotation_candidate_with_import_context() {
+        let root = TempDir::new().expect("create project root");
+        let module_path = root.path().join("identity.xsh");
+        let entry_path = root.path().join("main.xsh");
+        let module_source = "##! Generic identity module.\n## Returns its input unchanged.\nexport pure identity(value) {\n  value\n}\n";
+        let original_source =
+            "use identity as shared\nlet generic = shared.identity\nlet value = generic(42)\n";
+        let candidate_source =
+            "use identity as shared\nlet generic = shared.identity\nlet value: Str = generic(42)\n";
+        fs::write(&module_path, module_source).expect("write imported module");
+        fs::write(&entry_path, original_source).expect("write original entry source");
+
+        let diagnostic = validate_annotation_candidate(
+            &entry_path.to_string_lossy(),
+            candidate_source.to_string(),
+            vec![root.path().to_path_buf()],
+        )
+        .expect_err("reject mismatched candidate annotation");
+
+        assert!(diagnostic.contains("err[check.type-mismatch]"), "{diagnostic}");
+        assert!(diagnostic.contains("expected Str, found Int"), "{diagnostic}");
+        assert_eq!(
+            fs::read_to_string(&entry_path).expect("read original entry source"),
+            original_source
+        );
+        assert_eq!(
+            fs::read_to_string(&module_path).expect("read imported module"),
+            module_source
+        );
+    }
 }

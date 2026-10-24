@@ -71,13 +71,68 @@ def frontend_result(entry='/src/main.xsh', *, counters=True, retained=7, active=
     return {'files': [record]}
 
 
+CHECK_TIMING = b'xsht check: 1 file in 0.01s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lower 0.00s)\n'
+
+
 class InferenceMeasurementTests(unittest.TestCase):
+    def test_check_stage_accepts_canonical_timing_footer_and_retains_raw_stderr(self):
+        workload = next(case for case in fixed_inference_workloads() if case.family == 'alias-chain' and case.size == 64)
+        directories = {'annotated': Path('/sources/annotated'), 'reduced': Path('/sources/reduced')}
+        products = {'candidate': {'xsht': '/candidate/xsht', 'xsh': '/candidate/xsh'}}
+        summaries = (CHECK_TIMING, CHECK_TIMING.replace(b'1 file', b'3 files').replace(b'0.01s', b'0.02s'))
+        for summary in summaries:
+            with self.subTest(summary=summary):
+                sampler = SimpleNamespace(invoke=lambda *args, **kwargs: observation(stdout=b'', stderr=summary))
+                supported = measurement.reference_support('/reference/xsht', directories['annotated'] / 'main.xsh', sampler, {})
+                self.assertTrue(supported['supported'])
+                self.assertEqual(supported['stderr_bytes'], len(summary))
+                result = run_distribution(workload, directories, products, sampler, {}, stage='check', count=1,
+                                          arms={'annotated': ('candidate', 'annotated'), 'reduced': ('candidate', 'reduced')})
+                sample = result['arms']['annotated']['samples'][0]
+                self.assertEqual(sample['stderr_bytes'], len(summary))
+                self.assertEqual(sample['stderr_sha256'], measurement.hashlib.sha256(summary).hexdigest())
+
+    def test_check_footer_cannot_hide_diagnostics_failures_or_runtime_stderr(self):
+        workload = next(case for case in fixed_inference_workloads() if case.family == 'alias-chain' and case.size == 64)
+        directories = {'annotated': Path('/sources/annotated'), 'reduced': Path('/sources/reduced')}
+        products = {'candidate': {'xsht': '/candidate/xsht', 'xsh': '/candidate/xsh'}}
+        invalid = (
+            observation(stdout=b'', status=2, stderr=CHECK_TIMING),
+            observation(stdout=b'unexpected', stderr=CHECK_TIMING),
+            observation(stdout=b'', stderr=b'err[check.type-mismatch]: bad input\n' + CHECK_TIMING),
+            observation(stdout=b'', stderr=CHECK_TIMING + b'extra\n'),
+            observation(stdout=b'', stderr=CHECK_TIMING + CHECK_TIMING),
+            observation(stdout=b'', stderr=CHECK_TIMING.rstrip(b'\n')),
+            observation(stdout=b'', stderr=CHECK_TIMING.replace(b'1 file', b'0 files')),
+            observation(stdout=b'', stderr=CHECK_TIMING.replace(b'1 file', b'1 files')),
+            observation(stdout=b'', stderr=CHECK_TIMING.replace(b', lower 0.00s', b'')),
+            observation(stdout=b'', stderr=CHECK_TIMING.replace(b'xsht check:', b'xsht lint:')),
+        )
+        for row in invalid:
+            with self.subTest(row=row):
+                sampler = SimpleNamespace(invoke=lambda *args, **kwargs: row)
+                self.assertFalse(measurement.reference_support('/reference/xsht', directories['annotated'] / 'main.xsh', sampler, {})['supported'])
+                with self.assertRaises(ValueError):
+                    run_distribution(workload, directories, products, sampler, {}, stage='check', count=1,
+                                     arms={'annotated': ('candidate', 'annotated'), 'reduced': ('candidate', 'reduced')})
+        sampler = SimpleNamespace(invoke=lambda *args, **kwargs: observation(stdout=workload.expected_stdout, stderr=CHECK_TIMING))
+        with self.assertRaises(ValueError):
+            run_distribution(workload, directories, products, sampler, {}, stage='runtime', count=1,
+                             arms={'annotated': ('candidate', 'annotated'), 'reduced': ('candidate', 'reduced')})
+
+    def test_old_artifact_missing_schema_work_is_unavailable(self):
+        value = {'files': [{'semantic_retained_bytes': 1, 'function_body_check_entries': 1,
+                            'inference_work': {name: 0 for name in METRIC_FIELDS
+                                               if name != 'generalization_binding_clones'}}]}
+        with self.assertRaisesRegex(ValueError, 'unavailable.*generalization_binding_clones'):
+            canonical_inference_metrics(value)
+
     def test_candidate_counter_reader_requires_canonical_entry_and_full_solver_shape(self):
         with self.assertRaisesRegex(ValueError, 'one entry-root'):
             canonical_inference_metrics({'totals': {'semantic_type_count': 4}})
         incomplete = {'files': [{'path': '/src/main.xsh', 'semantic_retained_bytes': 7,
                                 'function_body_check_entries': 1,
-                                'inference_work': {name: 0 for name in METRIC_FIELDS[:-1]}}]}
+                                'inference_work': {name: 0 for name in METRIC_FIELDS if name != 'evidence_nodes'}}]}
         with self.assertRaisesRegex(ValueError, 'evidence_nodes'):
             canonical_inference_metrics(incomplete)
         complete = frontend_result()

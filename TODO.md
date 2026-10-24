@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 21
+Next: 23
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
@@ -10,6 +10,15 @@ Next: 21
 - **Problem:** Final private/resource qualification remains unrun on the current frozen source. The scheduler comparison failed, so composed baseline close cannot proceed.
 - **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks.
 - **Fix with:** benchmark-checklist
+- **Effort:** S
+
+### XSH-21 · P2 · Keep Docker output removable during worktree cleanup
+
+- **Area:** Operability
+- **Where:** `dev/performance/check.py:176`, `Dockerfile.test`
+- **Problem:** Owned Docker builds leave root-owned artifacts in campaign checkouts. A normal `git worktree remove` deleted one completed checkout's Git registration before artifact deletion failed. Recovery required ownership repair and rebuilding the registration.
+- **Recommendation:** Return writable build artifacts to the invoking user's ownership on success, failure and interruption. Check artifact removability before Git removes a worktree's registration.
+- **Fix with:** lifecycle-concurrency
 - **Effort:** S
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
@@ -139,6 +148,15 @@ Next: 21
 - **Recommendation:** Preserve the existing behavior in XSH and retain only required device and sysfs operations in Rust. Require measurements and an XSH implementation for any native performance exception.
 - **Fix with:** api-surface-and-module-boundaries
 - **Effort:** L
+
+### XSH-22 · P3 · Define and enforce ground IR provenance checks
+
+- **Area:** Types
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs:3184`, `src/runtime/eval/indexed/full/verify_schemes/producers.rs:6832`
+- **Problem:** Cold comprehension controls admit a header-field read substitution, a different iterable and an unused incorrect slot-type fact on both inferred and previously supported annotated ground paths. The actual source checker still rejects ill-typed source; these admissions concern independently mutated internal IR. They predate the appended-list proof repair and are not covered by its lexical binding and complete-writer guarantees. No runtime expression check explained the admissions in the minimal witness.
+- **Recommendation:** Establish which used field/iterable relationships and unused type rows the ground verifier promises to authenticate. Add independent annotated/inferred controls, then enforce the promised relationships through existing producer and scope proofs without rejecting legitimate dynamic checks. Preserve the distinction from universal Rust correspondence and from generic scheme verification.
+- **Fix with:** root-cause
+- **Effort:** M
 
 ### XSH-5 · P4 · Decide whether inferred proc returns become default
 

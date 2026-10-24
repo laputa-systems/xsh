@@ -885,6 +885,63 @@ fn qualified_function_names() -> &'static RwLock<QualifiedFunctionNames> {
     })
 }
 
+#[derive(Clone)]
+pub struct CallableValue {
+    representation: CallableRepresentation,
+}
+
+#[derive(Clone)]
+enum CallableRepresentation {
+    Named { kind: crate::sema::types::CallableKind, identity: FunctionName },
+    Prepared {
+        identity: FunctionName,
+        instance: Arc<crate::runtime::eval::PreparedCallable>,
+    },
+}
+
+impl CallableValue {
+    pub fn named(kind: crate::sema::types::CallableKind, identity: FunctionName) -> Self {
+        Self { representation: CallableRepresentation::Named { kind, identity } }
+    }
+
+    pub fn kind(&self) -> crate::sema::types::CallableKind {
+        match &self.representation {
+            CallableRepresentation::Named { kind, .. } => *kind,
+            CallableRepresentation::Prepared { instance, .. } => instance.kind(),
+        }
+    }
+
+    pub fn identity(&self) -> FunctionName {
+        match &self.representation {
+            CallableRepresentation::Named { identity, .. }
+            | CallableRepresentation::Prepared { identity, .. } => *identity,
+        }
+    }
+
+    pub(in crate::runtime) fn prepared(identity: FunctionName, instance: Arc<crate::runtime::eval::PreparedCallable>) -> Self {
+        Self { representation: CallableRepresentation::Prepared { identity, instance } }
+    }
+
+    pub(in crate::runtime) fn instance(&self) -> Option<&Arc<crate::runtime::eval::PreparedCallable>> {
+        match &self.representation {
+            CallableRepresentation::Named { .. } => None,
+            CallableRepresentation::Prepared { instance, .. } => Some(instance),
+        }
+    }
+}
+
+impl fmt::Debug for CallableValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("CallableValue").field(&self.kind()).field(&self.identity()).finish()
+    }
+}
+
+impl PartialEq for CallableValue {
+    fn eq(&self, other: &Self) -> bool { self.kind() == other.kind() && self.identity() == other.identity() }
+}
+
+impl Eq for CallableValue {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Value {
     Null,
@@ -907,14 +964,13 @@ pub enum Value {
     Module(RecordMap),
     Result(ResultValue),
     Status(ProcessStatus),
-    EnvPathList,
+    EnvPathList(EnvPathListSnapshot),
     // Boxed: `RuntimeError` is large (~9 fields); inlining it made every `Value`
     // ~216 bytes, so every move/clone `memmove`d that much. Boxing keeps `Value`
     // small (errors are the cold path).
     Error(Box<RuntimeError>),
     RunError(Box<RunError>),
-    Pure(FunctionName),
-    Proc(FunctionName),
+    Callable(CallableValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
@@ -965,6 +1021,19 @@ impl Value {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnvPathListSnapshot {
+    entries: Arc<[PathValue]>,
+}
+
+impl EnvPathListSnapshot {
+    pub(crate) fn from_environment(entries: Vec<PathValue>) -> Self {
+        Self { entries: entries.into() }
+    }
+
+    pub(crate) fn entries(&self) -> &[PathValue] { &self.entries }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1154,8 +1223,9 @@ impl PartialEq for NetJobValue {
 }
 impl Eq for NetJobValue {}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct StreamValue {
+    pub(in crate::runtime) contract: Option<Arc<crate::runtime::eval::PreparedStreamContract>>,
     pub items: Vec<StreamItem>,
     pub(crate) source: Option<StreamSource>,
     /// A producer whose body is suspended until an item is pulled.
@@ -1309,9 +1379,19 @@ impl PartialEq for ScriptStreamState {
 
 impl Eq for ScriptStreamState {}
 
+impl PartialEq for StreamValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items && self.source == other.source
+            && self.script == other.script && self.owner == other.owner
+    }
+}
+
+impl Eq for StreamValue {}
+
 impl StreamValue {
     pub fn from_items(items: Vec<StreamItem>) -> Self {
         Self {
+            contract: None,
             items,
             source: None,
             script: None,
@@ -1321,6 +1401,7 @@ impl StreamValue {
 
     pub fn from_values(values: Vec<Value>) -> Self {
         Self {
+            contract: None,
             items: values
                 .into_iter()
                 .enumerate()
@@ -1339,6 +1420,7 @@ impl StreamValue {
     /// A stream whose items come from a suspended script producer.
     pub(crate) fn from_script(producer: ScriptStreamState) -> Self {
         Self {
+            contract: None,
             items: Vec::new(),
             source: None,
             script: Some(producer),
@@ -1366,6 +1448,7 @@ impl StreamValue {
 
     pub(crate) fn from_live(name: &'static str, source: impl LiveStream + 'static) -> Self {
         Self {
+            contract: None,
             items: Vec::new(),
             source: Some(StreamSource::new(name, source)),
             script: None,

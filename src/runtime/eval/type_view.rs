@@ -61,7 +61,14 @@ impl<'a> ValueView<'a> {
         Ok(())
     }
 
-    fn scalar_type(self) -> Option<Type> {
+    pub(super) fn environment_path_snapshot(self) -> Option<&'a crate::runtime::value::EnvPathListSnapshot> {
+        match self {
+            Self::Runtime(Value::EnvPathList(paths)) | Self::Lowered(LoweredValue::EnvPathList(paths)) => Some(paths),
+            _ => None,
+        }
+    }
+
+    pub(super) fn scalar_type(self) -> Option<Type> {
         Some(match self {
             Self::Int(_) | Self::Key(MapKeyRef::Int(_)) => Type::Int,
             Self::Str | Self::Key(MapKeyRef::Str(_)) => Type::Str,
@@ -81,11 +88,10 @@ impl<'a> ValueView<'a> {
                 Value::Regex(_) => Type::Regex,
                 Value::Path(_) => Type::Path,
                 Value::Status(_) => Type::Status,
-                Value::EnvPathList => Type::EnvPathList,
+                Value::EnvPathList(_) => return None,
                 Value::Error(_) => Type::Error,
                 Value::RunError(_) => Type::ProcessError,
-                Value::Pure(_) => Type::Pure,
-                Value::Proc(_) => Type::Proc,
+                Value::Callable(callable) => Type::Function(callable.kind()),
                 Value::Command(_) => Type::Command,
                 Value::ProcessHandle(_) => Type::ProcessHandle,
                 Value::NetJob(_) => Type::NetJob,
@@ -107,12 +113,12 @@ impl<'a> ValueView<'a> {
                 LoweredValue::Digest(_) => Type::Digest,
                 LoweredValue::Regex(_) => Type::Regex,
                 LoweredValue::Path(_) => Type::Path,
+                LoweredValue::EnvPathList(_) => return None,
                 LoweredValue::Status(_) => Type::Status,
                 LoweredValue::Error(value) => {
                     if matches!(value.as_ref(), Value::RunError(_)) { Type::ProcessError } else { Type::Error }
                 }
-                LoweredValue::Pure(_) => Type::Pure,
-                LoweredValue::Proc(_) => Type::Proc,
+                LoweredValue::Callable(callable) => Type::Function(callable.kind()),
                 LoweredValue::Command(_) => Type::Command,
                 LoweredValue::ProcessHandle(_) => Type::ProcessHandle,
                 LoweredValue::NetJob(_) => Type::NetJob,
@@ -140,6 +146,13 @@ impl<'a> ValueView<'a> {
         )
     }
 
+    pub(super) fn stream(self) -> Option<&'a crate::runtime::value::StreamValue> {
+        match self {
+            Self::Runtime(Value::Stream(stream)) | Self::Lowered(LoweredValue::Stream(stream)) => Some(stream),
+            _ => None,
+        }
+    }
+
     fn is_stream(self) -> bool {
         matches!(
             self,
@@ -157,6 +170,7 @@ impl<'a> ValueView<'a> {
                 // storage value, and diagnostics retain that public name.
                 Type::ProcessError => "Error",
                 Type::Tag(_) => "Tag",
+                Type::Function(kind) => kind.value_type_name(),
                 ty => ty
                     .builtin_type_name()
                     .expect("runtime scalar types have builtin names")
@@ -205,6 +219,7 @@ impl<'a> ValueView<'a> {
 
     fn list_len(self) -> Option<usize> {
         match self {
+            Self::Runtime(Value::EnvPathList(paths)) | Self::Lowered(LoweredValue::EnvPathList(paths)) => Some(paths.entries().len()),
             Self::Runtime(Value::List(items)) => Some(items.len()),
             Self::Lowered(LoweredValue::List(items)) => Some(items.len()),
             Self::Lowered(LoweredValue::SharedList(items)) => Some(items.len()),
@@ -214,6 +229,7 @@ impl<'a> ValueView<'a> {
 
     fn all_list(self, mut accepts: impl FnMut(Self) -> bool) -> bool {
         match self {
+            Self::Runtime(Value::EnvPathList(paths)) | Self::Lowered(LoweredValue::EnvPathList(paths)) => paths.entries().iter().all(|path| accepts(Self::Path(&path.bytes))),
             Self::Runtime(Value::List(items)) => items.iter().all(|item| accepts(Self::Runtime(item))),
             Self::Lowered(LoweredValue::List(items)) => items.iter().all(|item| accepts(Self::Lowered(item))),
             Self::Lowered(LoweredValue::SharedList(items)) => items.iter().all(|item| accepts(Self::Lowered(item))),
@@ -334,8 +350,58 @@ impl<'a> ValueView<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum RetainedValueContract<'a> {
+    SchemeCallable(crate::sema::types::SchemeCallableId),
+    Callable(CallableContractView<'a>),
+    GenericCallable(crate::sema::types::CallableKind),
+    Stream(&'a Type),
+    EnvironmentPathList,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CallableContractView<'a> {
+    Value(&'a crate::sema::types::TypedCallable),
+    Export { kind: crate::sema::types::CallableKind, sig: &'a crate::sema::types::CallableType },
+}
+
+impl CallableContractView<'_> {
+    pub(super) fn kind(self) -> crate::sema::types::CallableKind {
+        match self { Self::Value(callable) => callable.kind, Self::Export { kind, .. } => kind }
+    }
+
+    pub(super) fn accepts(self, actual: &crate::sema::types::TypedCallable) -> bool {
+        if self.kind() != actual.kind { return false; }
+        match self {
+            Self::Value(expected) => expected.mismatch(actual.kind, &actual.sig, true).is_none(),
+            Self::Export { sig: expected, .. } => super::module_contract::signature_mismatch(&actual.sig, expected).is_none(),
+        }
+    }
+}
+
 pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool {
-    // Stored key domains never widen to container or optional types.
+    value_matches_type_with_contracts(value, ty, &mut |value, contract| match contract {
+        RetainedValueContract::EnvironmentPathList => value.environment_path_snapshot().is_some(),
+        contract => runtime_contract_matches(value, contract),
+    })
+}
+
+pub(super) fn value_matches_runtime_type(value: ValueView<'_>, ty: &Type) -> bool {
+    value_matches_type_with_contracts(value, ty, &mut runtime_contract_matches)
+}
+
+fn runtime_contract_matches(value: ValueView<'_>, contract: RetainedValueContract<'_>) -> bool {
+    match contract {
+        RetainedValueContract::Callable(callable) => callable.kind() != crate::sema::types::CallableKind::Stream && value.scalar_type() == Some(Type::Function(callable.kind())),
+        RetainedValueContract::SchemeCallable(_) | RetainedValueContract::GenericCallable(_) | RetainedValueContract::EnvironmentPathList => false,
+        RetainedValueContract::Stream(_) => value.stream().is_some(),
+    }
+}
+
+pub(super) fn value_matches_type_with_contracts(
+    value: ValueView<'_>, ty: &Type,
+    accepts_contract: &mut impl FnMut(ValueView<'_>, RetainedValueContract<'_>) -> bool,
+) -> bool {
     if matches!(value, ValueView::Key(_)) && !matches!(ty,
         Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Bytes
         | Type::Path | Type::Duration | Type::Any | Type::Unknown | Type::Invalid)
@@ -348,24 +414,21 @@ pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool
         Type::UInt => value.integer().is_some_and(|value| value >= 0),
         Type::Null | Type::Bool | Type::Int | Type::Float | Type::Duration
         | Type::Str | Type::Bytes | Type::Digest | Type::Regex | Type::Path
-        | Type::Status | Type::EnvPathList | Type::ProcessError | Type::Pure
-        | Type::Proc | Type::Command | Type::ProcessHandle | Type::NetJob
+        | Type::Status | Type::ProcessError | Type::Function(_) | Type::Command | Type::ProcessHandle | Type::NetJob
         | Type::FsRoot | Type::FsLock | Type::Unit | Type::Tag(_) => value.scalar_type().as_ref() == Some(ty),
-        Type::List(item) => value.all_list(|value| value_matches_static_type(value, item)),
+        Type::EnvPathList => accepts_contract(value, RetainedValueContract::EnvironmentPathList),
+        Type::List(item) => value.all_list(|value| value_matches_type_with_contracts(value, item, accepts_contract)),
         Type::Map(key, item) => {
             if value.map_fields() {
-                key.as_ref() == &Type::Str && value.all_record_values(|value| value_matches_static_type(value, item))
+                key.as_ref() == &Type::Str && value.all_record_values(|value| value_matches_type_with_contracts(value, item, accepts_contract))
             } else {
-                value.all_map(|found_key, value| value_matches_static_type(ValueView::Key(found_key), key) && value_matches_static_type(value, item))
+                value.all_map(|found_key, value| value_matches_type_with_contracts(ValueView::Key(found_key), key, accepts_contract) && value_matches_type_with_contracts(value, item, accepts_contract))
             }
         }
-        Type::Set(item) => value.set().is_some_and(|items| items.iter().all(|key| value_matches_static_type(ValueView::Key(key.as_ref()), item))),
-        // A type test cannot inspect a stream's items or start its producer.
-        Type::Stream(_) => matches!(value, ValueView::Runtime(Value::Stream(_)) | ValueView::Lowered(LoweredValue::Stream(_))),
+        Type::Set(item) => value.set().is_some_and(|items| items.iter().all(|key| value_matches_type_with_contracts(ValueView::Key(key.as_ref()), item, accepts_contract))),
+        Type::Stream(item) => accepts_contract(value, RetainedValueContract::Stream(item)),
         Type::ErasedRecord => value.is_record(true),
-        Type::Record(fields) => value.is_record(false) && fields.iter().all(|(name, ty)| value.field(*name).is_some_and(|field| value_matches_static_type(field, ty))),
-        // Shape tests check export presence and kind. Full callable signatures
-        // remain the responsibility of the module validation boundary.
+        Type::Record(fields) => value.is_record(false) && fields.iter().all(|(name, ty)| value.field(*name).is_some_and(|field| value_matches_type_with_contracts(field, ty, accepts_contract))),
         Type::Module(contract) => {
             let Some(len) = value.module_len() else { return false; };
             let mut present = 0;
@@ -373,27 +436,25 @@ pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool
                 Some(field) => {
                     present += 1;
                     match export {
-                        ModuleExportType::Value { ty, .. } => value_matches_static_type(field, ty),
-                        ModuleExportType::Proc { .. } => field.scalar_type() == Some(Type::Proc),
-                        ModuleExportType::Pure { .. } | ModuleExportType::GenericPure { .. } => {
-                            field.scalar_type() == Some(Type::Pure)
-                        }
+                        ModuleExportType::Value { ty, .. } => value_matches_type_with_contracts(field, ty, accepts_contract),
+                        ModuleExportType::Callable { kind, sig, .. } => accepts_contract(field, RetainedValueContract::Callable(CallableContractView::Export { kind: *kind, sig })),
+                        ModuleExportType::GenericCallable { kind, .. } => accepts_contract(field, RetainedValueContract::GenericCallable(*kind)),
                     }
                 }
                 None => export.optional(),
             }) && (!contract.exact || present == len)
         }
         Type::DynamicModule => value.module_len().is_some(),
-        Type::Result(ok, error) => value.result().is_some_and(|(success, value)| value_matches_static_type(value, if success { ok } else { error })),
+        Type::Result(ok, error) => value.result().is_some_and(|(success, value)| value_matches_type_with_contracts(value, if success { ok } else { error }, accepts_contract)),
         Type::Error => matches!(value.scalar_type(), Some(Type::Error | Type::ProcessError)),
         Type::ErrorFamily(family) => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_identity(), *family)),
         Type::ErrorVariant { family, variant } => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_identity(), *family) && error.variant_name() == *variant),
         Type::ErrorFacet(facet) => value.error().is_some_and(|error| facet.with_str(|facet| error.facets.iter().any(|value| value == facet))),
-        // Callable handles carry their kind, not their checked signature.
-        Type::Callable(callable) => value.scalar_type() == Some(if callable.pure { Type::Pure } else { Type::Proc }),
-        Type::Optional(inner) => value.scalar_type() == Some(Type::Null) || value_matches_static_type(value, inner),
-        Type::Union(members) => crate::sema::types::first_accepting_union_member(members, |ty| value_matches_static_type(value, ty)).is_some(),
-        Type::Validated(validated) => value_matches_static_type(value, validated.base()) && value.passes(validated.validation()),
+        Type::SchemeCallable(id) => accepts_contract(value, RetainedValueContract::SchemeCallable(*id)),
+        Type::Callable(callable) => accepts_contract(value, RetainedValueContract::Callable(CallableContractView::Value(callable))),
+        Type::Optional(inner) => value.scalar_type() == Some(Type::Null) || value_matches_type_with_contracts(value, inner, accepts_contract),
+        Type::Union(members) => crate::sema::types::first_accepting_union_member(members, |ty| value_matches_type_with_contracts(value, ty, accepts_contract)).is_some(),
+        Type::Validated(validated) => value_matches_type_with_contracts(value, validated.base(), accepts_contract) && value.passes(validated.validation()),
     }
 }
 

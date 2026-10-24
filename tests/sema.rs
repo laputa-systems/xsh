@@ -33,16 +33,81 @@ fn checked_outputs_accept_default_control_flow_facts() {
 }
 
 #[test]
-fn pure_declarations_alone_accept_unannotated_required_parameters() {
+fn pure_callable_accepts_unannotated_required_parameter() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), "pure identity(value) { value }\n");
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let parameter = parsed.arena.arena.params[0].clone();
     assert!(parameter.annotation.is_none());
     assert!(parameter.default.is_none());
+}
+
+#[test]
+fn callable_header_parameter_omission_boundaries() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ExprId};
+
+    let source = "proc identity(value) [] { value }\nlet integer = identity(42)\nlet text = identity(\"demo\")\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let parameter = parsed.arena.arena.params[0].clone();
+    assert!(parameter.annotation.is_none());
+    assert!(parameter.default.is_none());
+
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let mut inferred_calls = Vec::new();
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let expression = ExprId::from_index(raw);
+        let node = parsed.arena.arena.expr(expression);
+        if !matches!(node.kind, ArenaExprKind::Call { .. }) {
+            continue;
+        }
+        let spelling = &source[node.span.range()];
+        if !spelling.starts_with("identity(") {
+            continue;
+        }
+        inferred_calls.push((
+            node.span.start(),
+            spelling.to_owned(),
+            checked.expr_types[&node.span].clone(),
+        ));
+    }
+    inferred_calls.sort_by_key(|(start, _, _)| *start);
+    assert_eq!(
+        inferred_calls,
+        vec![
+            (
+                source.find("identity(42)").unwrap(),
+                "identity(42)".to_owned(),
+                Type::Result(Box::new(Type::Int), Box::new(Type::Error)),
+            ),
+            (
+                source.find("identity(\"demo\")").unwrap(),
+                "identity(\"demo\")".to_owned(),
+                Type::Result(Box::new(Type::Str), Box::new(Type::Error)),
+            ),
+        ]
+    );
+
+    let source = "stream values(value) [] -> Stream[Int] { yield 1 }\nlet integers = values(42)\nlet strings = values(\"demo\")\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(parsed.arena.arena.params[0].annotation.is_none());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let mut calls = Vec::new();
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let expression = parsed.arena.arena.expr(ExprId::from_index(raw));
+        if matches!(expression.kind, ArenaExprKind::Call { .. })
+            && source[expression.span.range()].starts_with("values(")
+        {
+            calls.push(checked.expr_types[&expression.span].clone());
+        }
+    }
+    assert_eq!(calls, vec![Type::Stream(Box::new(Type::Int)); 2]);
 
     for source in [
-        "proc add(value) [] {}\n",
-        "stream values(value) [] -> Stream[Int] { yield 1 }\n",
         "type Plugin = module { export pure call(value) -> Int }\n",
         "type Callback = pure(value) -> Int\n",
     ] {
@@ -759,6 +824,22 @@ proc local(input = Path(".")) {
 export proc entry(flag = true) {
 }
 
+proc private_entry(flag = true) {
+}
+
+pure identity(value) { value }
+
+export proc alias_entry(flag = true) {
+  let local_identity = identity
+  let local_names = ["inside"]
+  let _ = local_identity(flag)
+  let _ = local_identity("kept")
+  let _ = local_names
+}
+
+export proc explicit_entry() -> Result[Unit, Error] {
+}
+
 reveal_type(names)
 "#;
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -801,6 +882,30 @@ reveal_type(names)
             .iter()
             .any(|fact| matches!(fact.kind, AnnotationFactKind::ExportedProcReturn { .. }))
     );
+    parsed.arena.symbol_owner().with_current(|| {
+        let declaration = |name: &str| output.checked_declarations.functions.values()
+            .find(|declaration| declaration.name == name).unwrap();
+        for name in ["entry", "alias_entry"] {
+            let declaration = declaration(name);
+            assert!(declaration.is_exported());
+            assert_eq!(output.function_return_types[&declaration.body], xsh::frontend::check::Type::Result(
+                Box::new(xsh::frontend::check::Type::Unit), Box::new(xsh::frontend::check::Type::Error)));
+            assert_eq!(output.annotation_facts.iter().filter(|fact|
+                matches!(fact.kind, AnnotationFactKind::ExportedProcReturn { body } if body == declaration.body)
+            ).count(), 1, "{name}");
+        }
+        for name in ["private_entry", "explicit_entry"] {
+            let declaration = declaration(name);
+            assert_eq!(declaration.is_exported(), name == "explicit_entry");
+            assert!(!output.annotation_facts.iter().any(|fact|
+                matches!(fact.kind, AnnotationFactKind::ExportedProcReturn { body } if body == declaration.body)
+            ), "{name}");
+        }
+    });
+    let local_names = output.annotation_facts.iter().find(|fact|
+        matches!(fact.kind, AnnotationFactKind::Binding { span, .. } if source[span.range()].contains("local_names"))
+    ).unwrap();
+    assert!(matches!(local_names.kind, AnnotationFactKind::Binding { exported: false, .. }));
     assert_eq!(output.reveal_types.len(), 1);
     assert_eq!(output.reveal_types[0].message, "revealed type: List[Str]");
 }
@@ -1145,7 +1250,7 @@ fn file_backed_byte_operations_require_and_infer_filesystem_effects() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, &source);
         assert!(checked.diagnostics.is_empty(), "{operation}: {:?}", checked.diagnostics);
-        assert_eq!(checked.callable_effects["inferred"], Some(vec![Effect::Fs]), "{operation}");
+        assert_eq!(checked.callable_effects["inferred"].concrete().unwrap(), Some(vec![Effect::Fs]), "{operation}");
         let compact = compact_check(&parsed.arena, &source);
         parsed.arena.symbol_owner().with_current(|| {
             assert_eq!(compact.procs[&xsh::frontend::symbols::Name::intern("inferred")].effects,
@@ -1180,7 +1285,7 @@ fn private_proc_effects_publish_matching_full_and_compact_facts() {
     parsed.arena.symbol_owner().with_current(|| {
         for name in ["forwarding", "clock"] {
             let effects = Some(vec![xsh::frontend::syntax::node::Effect::Time]);
-            assert_eq!(checked.callable_effects[name], effects);
+            assert_eq!(checked.callable_effects[name].concrete().unwrap(), effects);
             let signature = &compact.procs[&xsh::frontend::symbols::Name::intern(name)];
             assert_eq!(signature.effects, effects);
             assert!(signature.inferred_effects);
@@ -1223,7 +1328,7 @@ fn effect_inference_keeps_unknown_dynamic_and_test_boundaries() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        assert_eq!(checked.callable_effects[name], effects, "{name}");
+        assert_eq!(checked.callable_effects[name].concrete().unwrap(), effects, "{name}");
         let compact = compact_check(&parsed.arena, source);
         parsed.arena.symbol_owner().with_current(|| {
             let name = xsh::frontend::symbols::Name::intern(name);
@@ -1243,7 +1348,7 @@ fn effect_inference_keeps_unknown_dynamic_and_test_boundaries() {
     let fact = checked.function_effect_facts.values().next().unwrap();
     assert!(!fact.inference_allowed);
     assert!(!fact.inferred);
-    assert_eq!(fact.effective, None);
+    assert_eq!(fact.effective.concrete().unwrap(), None);
     assert!(checked.callable_effects.is_empty());
 }
 
@@ -1464,7 +1569,10 @@ proc read(plugin: Plugin) {
         let span = parsed.arena.arena.expr(id).span;
         assert!(matches!(
             checked.projections[&span].callable,
-            Some(xsh::frontend::check::ModuleExportType::Pure { .. })
+            Some(xsh::frontend::check::ModuleExportType::Callable {
+                kind: xsh::frontend::check::CallableKind::Pure,
+                ..
+            })
         ));
     }
     for (id, ty) in compact.expr_types {

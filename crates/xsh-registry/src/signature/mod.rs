@@ -25,6 +25,8 @@ pub(in crate::signature) use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 mod builders;
+mod arithmetic;
+pub use arithmetic::{ArithmeticDomain, ArithmeticOperator, ArithmeticResult, ArithmeticSignature};
 mod docs;
 mod linux_storage;
 mod methods;
@@ -42,15 +44,133 @@ pub struct ApiSpec {
     pub modules: Vec<ModuleEntry>,
     pub methods: Vec<MethodReceiverSig>,
     docs: BTreeMap<String, ApiDocs>,
+    registered_methods: Vec<RegisteredMethodLocation>,
+    registered_method_ids: Vec<BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
+    method_family_members: [Vec<RegisteredMethodId>; 5],
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RegisteredMethodLocation {
+    receiver: usize,
+    method: usize,
+    overload: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum MethodFamilyId {
+    Length,
+    Emptiness,
+    PathWrite,
+    PathParent,
+    PathNormalize,
+}
+
+impl MethodFamilyId {
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        match raw {
+            0 => Some(Self::Length),
+            1 => Some(Self::Emptiness),
+            2 => Some(Self::PathWrite),
+            3 => Some(Self::PathParent),
+            4 => Some(Self::PathNormalize),
+            _ => None,
+        }
+    }
+
+    pub const fn raw(self) -> u8 {
+        self as u8
+    }
+}
+
+fn method_family_for_signature(
+    receiver: MethodReceiver,
+    name: &str,
+    signature: &MethodSig,
+) -> Option<MethodFamilyId> {
+    let params = &signature.sig.params;
+    let result_ty = &signature.sig.return_ty;
+    match (receiver, name, signature.sig.op) {
+        (MethodReceiver::List, "len", RuntimeOp::ListLen)
+        | (MethodReceiver::Map, "len", RuntimeOp::MapLen)
+        | (MethodReceiver::Set, "len", RuntimeOp::SetLen)
+        | (MethodReceiver::Bytes, "len", RuntimeOp::BytesLen)
+            if params.is_empty() && *result_ty == Type::Int && signature.sig.pure =>
+        {
+            Some(MethodFamilyId::Length)
+        }
+        (MethodReceiver::List, "is_empty", RuntimeOp::ListIsEmpty)
+        | (MethodReceiver::Map, "is_empty", RuntimeOp::MapIsEmpty)
+        | (MethodReceiver::Set, "is_empty", RuntimeOp::SetIsEmpty)
+        | (MethodReceiver::Bytes, "is_empty", RuntimeOp::BytesIsEmpty)
+        | (MethodReceiver::Str, "is_empty", RuntimeOp::TextIsEmpty)
+            if params.is_empty() && *result_ty == Type::Bool && signature.sig.pure =>
+        {
+            Some(MethodFamilyId::Emptiness)
+        }
+        (MethodReceiver::Path, "write", RuntimeOp::FsWrite)
+            if !signature.sig.pure
+                && *result_ty == result(Type::Unit)
+                && (params.len() == 1 || params.len() == 2)
+                && matches!(&params[0].ty, Type::Str | Type::Bytes)
+                && (params.len() == 1
+                    || params[1].ty == Type::Int
+                        && params[1].name == "mode"
+                        && !params[1].defaulted) =>
+        {
+            Some(MethodFamilyId::PathWrite)
+        }
+        (MethodReceiver::Path | MethodReceiver::RelPath, "parent", RuntimeOp::PathParent)
+            if params.is_empty() && signature.sig.pure
+                && signature.receiver_ty.as_ref() == Some(result_ty) => Some(MethodFamilyId::PathParent),
+        (MethodReceiver::Path | MethodReceiver::RelPath, "normalize", RuntimeOp::PathNormalize)
+            if params.is_empty() && signature.sig.pure
+                && signature.receiver_ty.as_ref() == Some(result_ty) => Some(MethodFamilyId::PathNormalize),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct RegisteredMethodId(u32);
+
+impl RegisteredMethodId {
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 }
 
 impl ApiSpec {
     pub fn new(modules: Vec<ModuleEntry>, methods: Vec<MethodReceiverSig>) -> Self {
         let docs = docs::build_api_docs(&modules, &methods);
+        let mut registered_methods = Vec::new();
+        let mut registered_method_ids = Vec::<BTreeMap<_, Vec<_>>>::new();
+        let mut method_family_members = std::array::from_fn(|_| Vec::new());
+        for (receiver_index, receiver) in methods.iter().enumerate() {
+            let lookup_index = receiver.receiver as usize;
+            if registered_method_ids.len() <= lookup_index { registered_method_ids.resize_with(lookup_index + 1, BTreeMap::new); }
+            for (method_index, method) in receiver.methods.iter().enumerate() {
+                for (overload, signature) in method.overloads.iter().enumerate() {
+                    let id = RegisteredMethodId(u32::try_from(registered_methods.len()).expect("registered method count fits its identifier"));
+                    registered_methods.push(RegisteredMethodLocation { receiver: receiver_index, method: method_index, overload });
+                    registered_method_ids[lookup_index].entry(method.name).or_default().push(id);
+                    if let Some(family) = method_family_for_signature(receiver.receiver, method.name, signature) {
+                        method_family_members[family.raw() as usize].push(id);
+                    }
+                }
+            }
+        }
         let spec = Self {
             modules,
             methods,
             docs,
+            registered_methods,
+            registered_method_ids,
+            method_family_members,
         };
         spec.validate_docs()
             .expect("standard API registry must have complete documentation");
@@ -59,6 +179,41 @@ impl ApiSpec {
 
     pub fn docs(&self, id: &str) -> Option<&ApiDocs> {
         self.docs.get(id)
+    }
+
+    pub fn method_family_id(
+        &self,
+        receiver: MethodReceiver,
+        name: &str,
+        overload: usize,
+    ) -> Option<MethodFamilyId> {
+        let id = *self.registered_method_ids.get(receiver as usize)?.get(name)?.get(overload)?;
+        let (_, _, _, signature) = self.registered_method(id)?;
+        method_family_for_signature(receiver, name, signature)
+    }
+
+    pub fn registered_method_id(
+        &self,
+        receiver: MethodReceiver,
+        name: &str,
+        overload: usize,
+    ) -> Option<RegisteredMethodId> {
+        self.registered_method_ids.get(receiver as usize)?.get(name)?.get(overload).copied()
+    }
+
+    pub fn registered_method(
+        &self,
+        id: RegisteredMethodId,
+    ) -> Option<(MethodReceiver, &'static str, usize, &MethodSig)> {
+        let location = self.registered_methods.get(id.raw() as usize)?;
+        let receiver = self.methods.get(location.receiver)?;
+        let method = receiver.methods.get(location.method)?;
+        let signature = method.overloads.get(location.overload)?;
+        Some((receiver.receiver, method.name, location.overload, signature))
+    }
+
+    pub fn method_family_member_ids(&self, family: MethodFamilyId) -> &[RegisteredMethodId] {
+        &self.method_family_members[family.raw() as usize]
     }
 
     /// Every embedded implementation module identity named by a binding.
@@ -503,6 +658,20 @@ mod tests {
     use super::{api_spec, result, RuntimeOp, Type};
     use crate::{records, reference};
 
+    fn method_overloads<'a>(
+        spec: &'a super::ApiSpec,
+        receiver: super::MethodReceiver,
+        name: &str,
+    ) -> Option<&'a [super::MethodSig]> {
+        spec.methods
+            .iter()
+            .find(|entry| entry.receiver == receiver)?
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .map(|method| method.overloads.as_slice())
+    }
+
     #[test]
     fn membership_aliases_are_absent_from_callable_and_documentation_inventory() {
         for (receiver, name) in [
@@ -702,5 +871,61 @@ mod tests {
             references.len(),
             "language reference IDs must be unique"
         );
+    }
+    #[test]
+    fn method_families_are_closed_over_canonical_signatures() {
+        let spec = api_spec();
+        for (receiver, name, family) in [
+            (super::MethodReceiver::List, "len", super::MethodFamilyId::Length),
+            (super::MethodReceiver::Map, "len", super::MethodFamilyId::Length),
+            (super::MethodReceiver::Set, "len", super::MethodFamilyId::Length),
+            (super::MethodReceiver::Bytes, "len", super::MethodFamilyId::Length),
+            (super::MethodReceiver::List, "is_empty", super::MethodFamilyId::Emptiness),
+            (super::MethodReceiver::Map, "is_empty", super::MethodFamilyId::Emptiness),
+            (super::MethodReceiver::Set, "is_empty", super::MethodFamilyId::Emptiness),
+            (super::MethodReceiver::Bytes, "is_empty", super::MethodFamilyId::Emptiness),
+            (super::MethodReceiver::Str, "is_empty", super::MethodFamilyId::Emptiness),
+        ] {
+            let overloads = method_overloads(spec, receiver, name).expect("registered family member");
+            assert!(!overloads.is_empty());
+            for index in 0..overloads.len() {
+                assert_eq!(spec.method_family_id(receiver, name, index), Some(family));
+            }
+        }
+        let writes = method_overloads(spec, super::MethodReceiver::Path, "write").unwrap();
+        assert_eq!(writes.len(), 4);
+        for index in 0..writes.len() {
+            assert_eq!(spec.method_family_id(super::MethodReceiver::Path, "write", index), Some(super::MethodFamilyId::PathWrite));
+        }
+        assert!(method_overloads(spec, super::MethodReceiver::Str, "len").is_none());
+        for receiver in [super::MethodReceiver::Str, super::MethodReceiver::Bytes] {
+            assert!(method_overloads(spec, receiver, "byte_at").unwrap().iter().enumerate()
+                .all(|(index, _)| spec.method_family_id(receiver, "byte_at", index).is_none()));
+        }
+        for receiver in &spec.methods {
+            for method in &receiver.methods {
+                for (overload, signature) in method.overloads.iter().enumerate() {
+                    let id = spec.registered_method_id(receiver.receiver, method.name, overload).unwrap();
+                    let (actual_receiver, actual_name, actual_overload, actual_signature) = spec.registered_method(id).unwrap();
+                    assert_eq!(actual_receiver, receiver.receiver);
+                    assert_eq!(actual_name, method.name);
+                    assert_eq!(actual_overload, overload);
+                    assert!(std::ptr::eq(actual_signature, signature));
+                }
+            }
+        }
+        for family in [
+            super::MethodFamilyId::Length,
+            super::MethodFamilyId::Emptiness,
+            super::MethodFamilyId::PathWrite,
+        ] {
+            let members = spec.method_family_member_ids(family);
+            assert!(!members.is_empty());
+            for &id in members {
+                let (receiver, name, overload, signature) = spec.registered_method(id).unwrap();
+                assert_eq!(spec.method_family_id(receiver, name, overload), Some(family));
+                assert!(std::ptr::eq(signature, &method_overloads(spec, receiver, name).unwrap()[overload]));
+            }
+        }
     }
 }

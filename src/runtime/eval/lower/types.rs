@@ -2,7 +2,7 @@ use super::{
     Arc, ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaProgram,
     ArenaTypeExprTag, AstArena, BindingTargetId, BuildExprId, BuildExprRow, CompactDeclOutput,
     CompactLowerConstructProbe, ExprId, LoweredReturnKind,
-    LoweredType, LoweredTypeCheck, Name, SlotScope, Span, Symbol, Type, TypeExprId, api_spec,
+    LoweredType, LoweredTypeCheck, LoweredValueCheck, Name, SlotScope, Span, Symbol, Type, TypeExprId, api_spec,
     compact_checked_type_is_concrete, concrete_checked_fact, lowered_method_name,
 };
 
@@ -378,7 +378,7 @@ pub(super) fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
     match kind {
         // Set elements and tag identities are not part of the kind.
         LoweredType::Set | LoweredType::Tag => None,
-        kind => Some(crate::runtime::eval::indexed::full::lowered_type_to_type(kind)),
+        kind => crate::runtime::eval::indexed::full::lowered_type_to_type(kind),
     }
 }
 
@@ -426,7 +426,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         push_build_row!(
             self,
             expr,
-            BuildExprRow::CheckedValue { value, check, span }
+            BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }
         )
     }
 
@@ -500,18 +500,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::Try {
-                    value: push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Require {
-                            value: lowered,
-                            check,
-                            span,
-                        }
-                    ),
-                    span
-                }
+                BuildExprRow::CheckedValue { value: lowered, check: LoweredValueCheck::Ground(check), span }
             ))
         } else {
             Some(lowered)

@@ -201,6 +201,7 @@ pure pick() {
     let rejected = test.run_script(ctx, case.source)?
     assert ! rejected.success, case.source
     assert case.message in rejected.stderr, rejected.stderr
+    assert "check.stream-item" not in rejected.stderr, rejected.stderr
   }
 }
 

@@ -220,23 +220,10 @@ impl Evaluator {
                                     "module export binding was not encoded",
                                 ).with_span(span));
                             }
-                            crate::runtime::eval::LoweredModuleExport::Pure {
+                            crate::runtime::eval::LoweredModuleExport::Callable { kind, name, function_namespace }
+                            | crate::runtime::eval::LoweredModuleExport::GenericCallable { kind, name, function_namespace } => (
                                 name,
-                                function_namespace,
-                            }
-                            | crate::runtime::eval::LoweredModuleExport::GenericPure {
-                                name,
-                                function_namespace,
-                            } => (
-                                name,
-                                Value::Pure(QualifiedName::new(function_namespace, name).into()),
-                            ),
-                            crate::runtime::eval::LoweredModuleExport::Proc {
-                                name,
-                                function_namespace,
-                            } => (
-                                name,
-                                Value::Proc(QualifiedName::new(function_namespace, name).into()),
+                                Value::Callable(crate::runtime::value::CallableValue::named(kind, QualifiedName::new(function_namespace, name).into())),
                             ),
                         };
                         record_fields.push((name, value));

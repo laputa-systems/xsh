@@ -36,6 +36,11 @@ cargo test --profile verification --target "$TARGET" --test integration \
   runtime::modules::native_xsh_core_dns_clients -- --exact --nocapture
 ```
 
+On Linux, `dev/cargo_test_runner.sh` uses libtest `--list` to check a focused
+test filter. It exits 125 if no test matches or the runner cannot verify the
+selection. Unfiltered runs, metadata requests, and benchmarks pass directly to
+libtest.
+
 ## Gates
 
 Process tests and native suites use the optimized `verification` profile by

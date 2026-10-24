@@ -1,12 +1,20 @@
 pub mod arguments;
 pub(crate) mod builtin_templates;
+pub(crate) mod callable_application;
 pub mod check;
 pub(crate) mod cli_entry;
 pub mod constants;
 pub mod constraints;
+pub(crate) mod inference_work;
+pub(crate) mod effects;
+pub(crate) mod guarded_requirements;
 pub mod projection;
 pub mod records;
 pub(crate) mod schemes;
+pub(crate) mod scheme_callable;
+pub(crate) mod sealed_operation;
+pub(crate) mod wrapper_operation;
+pub(crate) mod value_materialization;
 pub mod types;
 pub mod validated;
 

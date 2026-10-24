@@ -95,8 +95,8 @@ impl Linter<'_> {
                     candidate.deletion.end() - candidate.deletion.start(),
                 ));
             }
-            self.inferred_proc_return_proof_facts(&rewritten, source_id, &ranges).as_ref()
-                == Some(&before)
+            self.inferred_proc_return_proof_facts(&rewritten, source_id, &ranges)
+                .is_some_and(|candidate| before.preserved_by(&candidate))
         };
         // An annotation only adds information to the inference of other
         // definitions, so when the file is unchanged with every candidate
@@ -136,10 +136,15 @@ impl Linter<'_> {
 
 type WarningFact = (Option<(usize, usize)>, Option<&'static str>, String);
 
-#[derive(Eq, PartialEq)]
 struct ProofFacts {
     checked: CheckedReturnRemovalFacts,
     warnings: Vec<WarningFact>,
+}
+
+impl ProofFacts {
+    fn preserved_by(&self, candidate: &Self) -> bool {
+        self.warnings == candidate.warnings && self.checked.preserved_by(&candidate.checked)
+    }
 }
 
 /// `Result[Unit]` with no error type, or with the `Error` it defaults to.
@@ -168,10 +173,18 @@ impl Linter<'_> {
         if self.source_id != Some(source_id) {
             return None;
         }
-        if source == self.source && removed.is_empty() {
+        if source == self.source && removed.is_empty()
+            && let Some(checked) = self.checked_output.as_deref()
+            && !super::probes::checked_effect_facts_cover_source(checked, source_id, &self.effect_body_spans) {
+            return None;
+        }
+        if source == self.source && removed.is_empty() && self.return_proof.is_none() {
             let checked = self.checked_output.as_deref()?;
+            let sources = super::probes::standalone_sources(source_id, source);
             return proof_facts_from_output(
                 checked,
+                self.program,
+                &sources,
                 source_id,
                 &self.effect_body_spans,
                 removed,
@@ -181,13 +194,13 @@ impl Linter<'_> {
             super::probes::LintProbeTransport::loaded(
                 context,
                 source,
-                xsh::frontend::check::CheckOptions::default(),
+                xsh::frontend::check::CheckOptions::for_execution(),
             )?
         } else {
             super::probes::LintProbeTransport::standalone(
                 source_id,
                 source,
-                xsh::frontend::check::CheckOptions::default(),
+                xsh::frontend::check::CheckOptions::for_execution(),
             )
         };
         if !snapshot.parse_diagnostics.is_empty()
@@ -197,13 +210,21 @@ impl Linter<'_> {
             return None;
         }
         let checked = snapshot.checked.as_ref()?;
+        let sources = snapshot.sources.as_ref()?;
         let (entry_source, effect_body_spans) = super::probes::checked_source_effect_bodies(
             &snapshot.program,
             snapshot.program.arena.stmt_ids(snapshot.program.statements),
             source,
         )?;
         snapshot.program.symbol_owner().with_current(|| {
-            proof_facts_from_output(checked, entry_source, &effect_body_spans, removed)
+            proof_facts_from_output(
+                checked,
+                &snapshot.program,
+                sources,
+                entry_source,
+                &effect_body_spans,
+                removed,
+            )
         })
     }
 }
@@ -214,6 +235,8 @@ impl Linter<'_> {
 /// versions compare directly.
 fn proof_facts_from_output(
     checked: &CheckOutput,
+    program: &xsh::frontend::syntax::arena::ArenaProgram,
+    sources: &xsh::frontend::source::SourceMap,
     entry_source: SourceId,
     expected_effect_bodies: &[Span],
     removed: &[(usize, usize)],
@@ -254,6 +277,8 @@ fn proof_facts_from_output(
     warnings.sort();
     let checked_facts = super::probes::checked_return_removal_facts_from_output(
         checked,
+        program,
+        sources,
         entry_source,
         expected_effect_bodies,
         removed,
@@ -352,6 +377,39 @@ mod tests {
                 diagnostic.code == Some(DiagnosticCode::LintPreferInferredProcReturn)
             }),
             "incomplete checked facts cannot authorize a fix: {:?}",
+            output.diagnostics
+        );
+    }
+
+    #[test]
+    fn return_proof_context_does_not_reload_around_missing_original_effect_facts() {
+        let source = "proc one() -> Result[Int] {\n  1\n}\n\nprint ${one()?}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(!checked.function_effect_facts.is_empty());
+        checked.function_effect_facts.clear();
+        let output = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                prefer_inferred_proc_returns: true,
+                only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
+                return_proof: Some(super::ReturnProofContext {
+                    file: "return-proof.xsh".to_owned(),
+                    module_roots: Vec::new(),
+                }),
+                ..LintOptions::default()
+            },
+        );
+
+        assert!(
+            !output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::LintPreferInferredProcReturn)
+            }),
+            "incomplete original facts cannot be replaced by a loaded baseline: {:?}",
             output.diagnostics
         );
     }

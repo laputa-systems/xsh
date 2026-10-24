@@ -38,7 +38,12 @@ unimplemented inference, and three unsuccessful experiments are reasons to
 reassign diagnosis, not reasons to waive the deliverable.
 
 Keep at least four lanes active when four disjoint assignments are ready,
-with a ceiling of six. When fewer are ready, use every disjoint assignment
+with a ceiling of eight after the owner's repeated 2026-10-23 acceleration request.
+All delegated lanes use experts. The active campaign permits three ordinary
+builds with disjoint outputs and one native job, retaining the host reserve.
+Use the follow-up task operation for approvals and next assignments so completed
+lanes resume immediately; messages alone do not restart them.
+When fewer are ready, use every disjoint assignment
 and have the coordinator resolve their dependencies. Never create competing
 signature redesigns to fill slots. The core compiler owner takes the coupled
 scheme/checker/lowerer/verifier changes end to end. Other lanes own independent
@@ -53,7 +58,7 @@ with `perf-gate-ready -s`. Preserve the active campaign's allocations:
 
 | Work | CPU/jobs limit | Memory limit | Concurrency |
 |---|---|---|---|
-| Ordinary compiler build | 2 CPUs, 2 jobs | 8 GiB | At most two, with disjoint Cargo outputs and available leases |
+| Ordinary compiler build | 2 CPUs, 2 jobs | 8 GiB | At most three, with disjoint Cargo outputs and available leases |
 | Lightweight focused check | 2 CPUs | 4 GiB | Up to the admitted disjoint lane count |
 | Inherited final/release build or native observer | 12 CPUs, 12 build jobs | 24 GiB | Alone |
 | Inherited scheduler pair | 32 CPUs | 40 GiB | Alone |
@@ -71,6 +76,8 @@ check. Split verification only across disjoint inputs and output directories.
 Poll owned jobs at least every 60 seconds while active, consume completions
 immediately, and inspect every lane at least every 15 minutes. Do not end a
 coordinating turn with an unattended job and no active completion owner.
+Use `followup_task` when a lane must answer or perform work; `send_message`
+does not wake an idle or completed lane. Reserve it for updates needing no reply.
 F0 must also enforce completion ownership in the existing launcher path:
 retain the child handle until status and cleanup are consumed, and chain a
 dependent stage only from an observed successful terminal result. Reproduce

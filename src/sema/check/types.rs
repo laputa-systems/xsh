@@ -6,6 +6,7 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::records::standard_record_type;
+use crate::sema::wrapper_operation::{WrapperErrorContribution, WrapperRequirementKind};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{ArenaProgram, ArenaTypeExprTag, TypeExprId};
 use xsh_registry::types::BuiltinTypeName;
@@ -43,7 +44,46 @@ fn require_target_spelling(target: &Type) -> Option<String> {
 }
 
 impl Checker {
+    pub(super) fn propagation_effect_is_permitted(&self) -> bool {
+        self.boundary.current_effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
+            || self.defer_effect_diagnostics && !self.boundary.in_pure && self.boundary.current_effects.is_none()
+                && self.boundary.effect_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+                    .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc)
+    }
+
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
+        let resolved;
+        let ty = if ty.contains_inference() {
+            let resolved_type = match self.type_constraints.resolve(ty) {
+                Ok(resolved) => resolved,
+                Err(error) => {
+                    let message = match error {
+                        crate::sema::constraints::ConstraintResolutionError::ForeignVariable =>
+                            "propagated type belongs to another inference problem",
+                        crate::sema::constraints::ConstraintResolutionError::TypeDepth =>
+                            "propagated type exceeds the supported nesting depth",
+                    };
+                    self.error(span, message, DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            };
+            resolved = if matches!(&resolved_type, Type::Inference(_)) {
+                match self.type_constraints.constrain_result_pattern_subject(&resolved_type, span) {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        self.error(
+                            span,
+                            &format!("propagated type constraint failed: {error:?}"),
+                            DiagnosticCode::CheckLocalInference,
+                        );
+                        return Type::Invalid;
+                    }
+                }
+            } else {
+                resolved_type
+            };
+            &resolved
+        } else { ty };
         if self.boundary.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
@@ -59,7 +99,7 @@ impl Checker {
             self.reject_dynamic_use("a propagated value", None, span);
             return Type::Unknown;
         }
-        self.record_required_effect(Effect::Error);
+        self.record_required_effect(Effect::Error, span);
         self.check_required_effect_clause(
             Effect::Error,
             span,
@@ -75,10 +115,7 @@ impl Checker {
             return Type::Unknown;
         };
         self.propagating_error_spans.insert(span);
-        let allowed = self
-            .boundary.current_effects
-            .as_ref()
-            .is_some_and(|effects| effects.contains(&Effect::Error))
+        let allowed = self.propagation_effect_is_permitted()
             || self
                 .boundary.current_return
                 .as_ref()
@@ -95,10 +132,14 @@ impl Checker {
                 DiagnosticCode::CheckTryContext,
             );
         }
-        if let Some(super::ReturnContext::Function(Type::Result(_, return_err))) =
+        if let Some(super::ReturnContext::Function(returned @ Type::Result(_, return_err))) =
             &self.boundary.current_return
             && !err.matches_expected(return_err)
         {
+            if err.contains_inference() && !return_err.contains_inference() {
+                let returned = returned.clone();
+                return self.check_wrapper_requirement(WrapperRequirementKind::Propagation { source: ty.clone(), returned }, span, DiagnosticCode::CheckTryError, ok);
+            }
             self.diagnostics.push(
                 Diagnostic::error("incompatible propagated error")
                     .with_code(DiagnosticCode::CheckTryError)
@@ -129,7 +170,7 @@ impl Checker {
         };
         self.propagating_error_spans.insert(span);
         if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
-            errors.push((err, span));
+            errors.push((WrapperErrorContribution::Explicit(err), span));
         }
         ok
     }
@@ -139,81 +180,94 @@ impl Checker {
         self.boundary.error_boundary_errors.push(Vec::new());
     }
 
-    pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
+    pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>, span: Span) -> Type {
         self.boundary.retry_attempt_depth -= 1;
         let errors = self
             .boundary.error_boundary_errors
             .pop()
             .expect("checked error boundary");
-        let mut inferred = expected.cloned();
-        for (error, span) in errors {
-            if let Some(current) = &inferred {
-                if error.matches_expected(current) {
-                    continue;
-                }
-                if expected.is_none() && current.matches_expected(&error) {
-                    inferred = Some(error);
-                    continue;
-                }
-                if expected.is_none() {
-                    let family = match (current, &error) {
-                        (
-                            Type::ErrorVariant { family: left, .. } | Type::ErrorFamily(left),
-                            Type::ErrorVariant { family: right, .. } | Type::ErrorFamily(right),
-                        ) if left == right => Some(*left),
-                        _ => None,
-                    };
-                    inferred = Some(family.map(Type::ErrorFamily).unwrap_or(Type::Error));
-                } else {
-                    self.expect_type(current, &error, span);
-                }
-            } else {
-                inferred = Some(error);
-            }
+        if errors.iter().any(|(error, _)| match error { WrapperErrorContribution::Source(_) | WrapperErrorContribution::KeyValidation(_) | WrapperErrorContribution::KeyValidationBoundary(_) => true, WrapperErrorContribution::Explicit(ty) => ty.contains_inference() }) {
+            use crate::sema::wrapper_operation::WrapperRequirementKind;
+            let result = expected.cloned().unwrap_or_else(|| self.fresh_wrapper_type(span));
+            let contributions = errors.into_iter().map(|(term, _)| term).collect::<Vec<_>>();
+            return self.check_wrapper_requirement(WrapperRequirementKind::Capture { contributions: contributions.into(), result: result.clone(), expected: expected.is_some() }, span, DiagnosticCode::CheckTryError, result);
         }
-        inferred.unwrap_or(Type::Error)
+        let errors = errors.into_iter().map(|(error, span)| match error {
+            WrapperErrorContribution::Explicit(error) => (error, span),
+            WrapperErrorContribution::Source(_) | WrapperErrorContribution::KeyValidation(_) | WrapperErrorContribution::KeyValidationBoundary(_) => unreachable!("deferred wrapper contributions retain their capture relationship"),
+        });
+        if let Some(expected) = expected {
+            for (error, span) in errors { self.expect_type(expected, &error, span); }
+            expected.clone()
+        } else {
+            Type::captured_error_type(errors.map(|(error, _)| error))
+        }
     }
 
-    pub(super) fn record_callee_propagation(
+    pub(super) fn record_invocation_propagation(
         &mut self,
-        effects: &Option<Vec<Effect>>,
+        effects: &super::InvocationEffects,
         return_ty: &Type,
         span: Span,
+        ticket: Option<super::infer_effects::DeferredInvocationTicket>,
     ) {
-        let may_error = effects
-            .as_ref()
-            .is_some_and(|effects| effects.contains(&Effect::Error));
-        if may_error && matches!(return_ty.unvalidated(), Type::Stream(_)) {
-            self.latent_stream_error_spans.insert(span);
-        } else if may_error && !return_ty.is_result() {
-            self.propagating_error_spans.insert(span);
-            if self.boundary.retry_attempt_depth > 0
-                && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
-            {
-                errors.push((Type::Error, span));
+        if let super::InvocationEffects::Pending(target) = effects {
+            self.attach_invocation_return(ticket, *target, return_ty, span);
+            return;
+        }
+        if return_ty.is_result() { return; }
+        let super::InvocationEffects::Checked(effects) = effects else { unreachable!() };
+        match self.invocation_error_flow(effects, return_ty) {
+            Ok(flow) => self.record_callee_error_flow(flow, span),
+            Err(_) => {
+                self.error(span, "invocation error flow escaped its effect scope", DiagnosticCode::CheckLocalInference);
             }
         }
     }
 
-    /// A pure function reports failure only through its `Result`. A statement
-    /// that propagates outside any capture needs that `Result` exactly as `?`
-    /// does; otherwise the failure would unwind out of a function whose
-    /// signature says it cannot fail. A proc is held to its `error` effect
-    /// instead.
-    fn require_pure_propagation_context(
+    pub(super) fn invocation_error_flow(&self, effects: &crate::sema::types::CallableEffects, return_ty: &Type) -> Result<crate::sema::types::CalleeErrorFlow, crate::sema::constraints::ConstraintResolutionError> {
+        let may_error = self.invocation_may_error(effects)?;
+        Ok(return_ty.callee_error_flow(Some(if may_error { &[Effect::Error] } else { &[] })))
+    }
+
+    pub(super) fn invocation_may_error(&self, effects: &crate::sema::types::CallableEffects) -> Result<bool, crate::sema::constraints::ConstraintResolutionError> {
+        let contract = self.type_constraints.resolve_effect(effects.contract())?;
+        Ok(match contract {
+            crate::sema::effects::EffectContract::Unknown => true,
+            crate::sema::effects::EffectContract::Known(expression) => expression.direct().contains(Effect::Error)
+                || expression.variables().any(|(_, mask)| mask.contains(Effect::Error)),
+        })
+    }
+
+    fn record_callee_error_flow(&mut self, flow: crate::sema::types::CalleeErrorFlow, span: Span) {
+        match flow {
+            crate::sema::types::CalleeErrorFlow::None => {}
+            crate::sema::types::CalleeErrorFlow::Latent => { self.latent_stream_error_spans.insert(span); }
+            crate::sema::types::CalleeErrorFlow::Immediate => {
+                self.propagating_error_spans.insert(span);
+                if self.boundary.retry_attempt_depth > 0
+                    && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
+                {
+                    errors.push((WrapperErrorContribution::Explicit(Type::Error), span));
+                }
+            }
+        }
+    }
+
+    fn record_statement_propagation_context(
         &mut self,
         error: &Type,
         span: Span,
         message: &'static str,
     ) {
-        if !self.boundary.in_pure || self.boundary.current_yield.is_some() {
+        if self.boundary.current_yield.is_some() {
             return;
         }
         if self.inferred_returns.is_some()
             && self.boundary.current_return == Some(super::ReturnContext::Function(Type::Unknown))
         {
             self.inferred_propagations.push((error.clone(), span));
-        } else if self
+        } else if self.boundary.in_pure && self
             .boundary.current_return
             .as_ref()
             .is_some_and(|context| !context.accepts_failure())
@@ -256,11 +310,11 @@ impl Checker {
         };
         self.require_effect(Effect::Error, span, subject);
         if self.boundary.retry_attempt_depth == 0 {
-            self.require_pure_propagation_context(error, span, pure_context);
+            self.record_statement_propagation_context(error, span, pure_context);
             return;
         }
         if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
-            errors.push((error.as_ref().clone(), span));
+            errors.push((WrapperErrorContribution::Explicit(error.as_ref().clone()), span));
         }
     }
 
@@ -270,10 +324,17 @@ impl Checker {
         actual: &Type,
         span: Span,
     ) -> Result<(), crate::sema::constraints::ConstraintConflict> {
+        match self.method_result_matches_written_path_return(expected, actual) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(error) => return Err(crate::sema::constraints::ConstraintConflict { expected: expected.clone(), actual: actual.clone(), initializer: None, established: None, contribution: span, resolution_error: Some(error) }),
+        }
         if let Some(seed) = self.prepared_nullable_seed(expected) {
             if self.collecting_local_constraints() {
                 self.type_constraints
-                    .constrain_nullable_seed(seed, actual, span)
+                    .constrain_nullable_seed(seed, actual, span)?;
+                self.record_nullable_storage_check(seed, actual, span);
+                Ok(())
             } else {
                 self.type_constraints
                     .check_nullable_seed(seed, actual, span)
@@ -286,7 +347,7 @@ impl Checker {
         }
     }
 
-    fn report_inferred_type_conflict(
+    pub(super) fn report_inferred_type_conflict(
         &mut self,
         conflict: crate::sema::constraints::ConstraintConflict,
     ) {
@@ -308,6 +369,7 @@ impl Checker {
     }
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
+        if self.scheme_callable_types_compatible(expected, actual) { return; }
         if expected.contains_inference() || actual.contains_inference() {
             match self.constrain_inferred_expectation(expected, actual, span) {
                 Ok(()) => return,
@@ -540,9 +602,7 @@ impl Checker {
 
     pub(super) fn type_from_arena(&mut self, program: &ArenaProgram, type_id: TypeExprId) -> Type {
         let ty = self.resolve_type_expression(program, type_id);
-        if !self.collecting_effects {
-            self.resolved_type_expressions.annotations.insert((self.current_namespace, type_id), ty.clone());
-        }
+        self.resolved_type_expressions.annotations.insert((self.current_namespace, type_id), ty.clone());
         ty
     }
 
@@ -814,12 +874,12 @@ impl Checker {
                             params,
                             effects,
                             return_ty,
-                        } => ModuleExportType::Proc {
+                        } => ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                             sig: self.callable_type_from_parts(params, effects, return_ty),
                             optional: entry.optional,
                         },
                         ModuleContractEntryKind::Pure { params, return_ty } => {
-                            ModuleExportType::Pure {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                                 sig: self.callable_type_from_parts(params, None, return_ty),
                                 optional: entry.optional,
                             }
@@ -861,8 +921,27 @@ impl Checker {
                 })
                 .collect(),
             return_ty: Box::new(self.type_from_ann(&return_ty)),
-            effects,
+            effects: crate::sema::types::CallableEffects::from_clause(effects),
         }
+    }
+}
+
+fn null_branch_payload<'a>(left: &'a Type, right: &'a Type) -> Option<&'a Type> {
+    match (left, right) {
+        (Type::Null, payload) | (payload, Type::Null) => Some(payload),
+        _ => None,
+    }
+}
+
+fn null_branch_candidate(left: &Type, right: &Type) -> bool {
+    null_branch_payload(left, right).is_some_and(|payload| !matches!(payload, Type::Any | Type::Unknown | Type::Invalid))
+}
+
+pub(super) fn join_null_branches(left: &Type, right: &Type) -> Option<Type> {
+    let payload = null_branch_payload(left, right)?;
+    match payload {
+        Type::Null | Type::Optional(_) => Some(payload.clone()),
+        _ => Some(Type::Optional(Box::new(payload.clone()))),
     }
 }
 
@@ -888,7 +967,8 @@ impl<'a> TypeExpectation<'a> {
 
     pub(super) fn accepts_optional_branch(self, actual: &Type) -> bool {
         matches!(self, Self::BranchCandidate(previous)
-            if matches!(actual, Type::Optional(_)) && previous.matches_expected(actual))
+            if null_branch_candidate(previous, actual)
+                || matches!(actual, Type::Optional(_)) && previous.matches_expected(actual))
     }
 }
 
@@ -912,15 +992,21 @@ pub(super) fn next_branch_expectation<'a>(
     }
 }
 
-pub(super) fn merge_branch_candidate(
+pub(super) fn merge_checked_branches(
     expectation: Option<TypeExpectation<'_>>,
     previous: &Type,
     actual: &Type,
 ) -> Option<Type> {
-    let TypeExpectation::BranchCandidate(candidate) = expectation? else {
-        return None;
+    let candidate = match expectation? {
+        TypeExpectation::Required(expected) => {
+            let joined = join_null_branches(previous, actual)?;
+            return joined.matches_expected(expected.result_ok().unwrap_or(expected)).then_some(joined);
+        }
+        TypeExpectation::BranchCandidate(candidate) => candidate,
     };
-    if actual.matches_expected(previous) {
+    if null_branch_candidate(previous, actual) {
+        join_null_branches(previous, actual)
+    } else if actual.matches_expected(previous) {
         Some(previous.clone())
     } else if matches!(actual, Type::Optional(_)) && previous.matches_expected(actual) {
         Some(actual.clone())
@@ -951,3 +1037,7 @@ pub(super) fn collection_item_ty(ty: &Type) -> Type {
         _ => Type::Unknown,
     }
 }
+
+#[cfg(test)]
+#[path = "nullable_join_tests.rs"]
+mod nullable_join_tests;

@@ -12,11 +12,13 @@ pub mod check {
     };
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
+        BodyContractError, BodyContractOwner,
         CheckBundleView, CheckSession, CheckOptions, CheckOutput, CheckedControlFlowFacts,
         CheckedCommandArgument, CheckedModuleCommand,
+        CheckedCallableContract, ContractComparisonError, CheckedCliEntryContract, CliContractError,
         CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
         CheckedFunctionKind, CheckedProjection, CheckedStreamStage, CheckedTypeDeclaration,
-        Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
+        Checker, CheckedEffectScope, CheckedEffects, UnresolvedCallableEffects, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
         Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo, FunctionEffectFact,
         InstantiatedTypeExpressions, MessagePayloadConstructor, ProjectionOperation,
         RecordRequireMigration, RequirementTarget, ResolvedBindings, ResolvedTypeExpressions,
@@ -29,7 +31,7 @@ pub mod check {
     };
     pub use crate::sema::records::record_schemas;
     pub use crate::sema::types::{
-        CallableParamType, CallableType, ModuleExportType, ModuleType, Type, union_member_error,
+        CallableKind, CallableParamType, CallableType, ModuleExportType, ModuleType, Type, union_member_error,
     };
 }
 
@@ -43,7 +45,7 @@ pub mod load {
         parse_load_check_entry_source, parse_load_check_entry_source_with_token_table,
         parse_load_check_file, parse_load_check_text, parse_load_entries_shared_arena_only,
         parse_load_entries_shared_arena_only_with_cancellation,
-        parse_load_entry_source_arena_only,
+        parse_load_entry_source_arena_only, parse_load_entry_source_arena_only_with_overrides,
         parse_load_entry_source_arena_only_with_linkage, parse_load_entry_source_compact_file_unit,
         parse_load_entry_source_shared_arena_only, parse_script, parse_script_with_module_roots,
         prepare_stdlib_catalog_module, resolve_user_module,

@@ -105,7 +105,7 @@ pub(crate) const FRONTEND_WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
 
 pub use api::api_command;
 pub use check::{
-    AnnotationPolicy, AnnotationSelection, check_paths_timed,
+    AnnotationPolicy, AnnotationSelection, check_paths_timed, compare_paths_timed,
 };
 pub use coverage::CoverageCollector;
 pub use desugar::desugar_script;

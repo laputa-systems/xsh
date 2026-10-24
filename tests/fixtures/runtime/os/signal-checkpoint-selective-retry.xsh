@@ -1,7 +1,7 @@
 let helper = fp"{args[0]}"
 error FetchError = Busy(message: Str)
 
-on USR1 [] {
+on USR1 [process] {
   print "hook"
   exit 0
 }

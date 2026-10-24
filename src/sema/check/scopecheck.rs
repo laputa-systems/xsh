@@ -22,6 +22,7 @@ enum BindingOrigin {
     With(SpanId),
     Import(UseStmtId),
     Item(BlockId),
+    StageItem(ExprId, u32),
     Args,
 }
 
@@ -53,6 +54,7 @@ pub struct ResolvedBindings {
     pub tails: FxHashMap<StmtId, BindingId>,
     pub value_sites: FxHashMap<(Span, Name), BindingId>,
     pub expression_namespaces: FxHashMap<ExprId, Option<Name>>,
+    immutable_value_sources: FxHashMap<ExprId, StmtId>,
 }
 
 impl BindingId {
@@ -80,6 +82,8 @@ impl ResolvedBindings {
             namespace: None,
             globals: FxHashMap::default(),
             zero_variants: FxHashSet::default(),
+            callable: None,
+            immutable_definitions: FxHashMap::default(),
             assignment_owner: None,
             assignment_capture: false,
             assignment_raw_blocks: Vec::new(),
@@ -134,6 +138,7 @@ impl ResolvedBindings {
         merge_binding_map(&mut merged.expressions, &other.expressions);
         merge_binding_map(&mut merged.tails, &other.tails);
         merge_binding_map(&mut merged.value_sites, &other.value_sites);
+        merge_binding_map(&mut merged.immutable_value_sources, &other.immutable_value_sources);
         merge_binding_map(
             &mut merged.expression_namespaces,
             &other.expression_namespaces,
@@ -181,7 +186,19 @@ impl ResolvedBindings {
         }
     }
 
-    /// Only physical targets that lexical checking declared have identities.
+    pub(super) fn immutable_value_source(&self, program: &ArenaProgram, expression: ExprId) -> Option<ExprId> {
+        let ArenaExprKind::Ident(name) = program.arena.expr(expression).kind else { return None; };
+        let binding = self.expressions.get(&expression)?;
+        let statement = *self.immutable_value_sources.get(&expression)?;
+        let ArenaStmtKind::Let { target, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } = program.arena.stmt(statement).kind else { return None; };
+        let ArenaBindingTargetKind::Name(declared) = program.arena.binding_target(target).kind else { return None; };
+        if name != declared || self.target(target) != Some(*binding)
+            || self.declarations.get(binding)?.kind != BindingKind::Runtime
+            || self.expression_namespaces.get(&expression).copied()? != self.declarations.get(binding)?.namespace
+        { return None; }
+        Some(value)
+    }
+
     pub fn target(&self, target: BindingTargetId) -> Option<BindingId> {
         let id = BindingId(BindingOrigin::Target(target));
         self.declarations.contains_key(&id).then_some(id)
@@ -224,6 +241,8 @@ struct ScopeChecker<'a> {
     namespace: Option<Name>,
     globals: FxHashMap<(Option<Name>, Name), BindingId>,
     zero_variants: FxHashSet<(Option<Name>, Name)>,
+    callable: Option<FunctionDefId>,
+    immutable_definitions: FxHashMap<BindingId, (FunctionDefId, StmtId)>,
     assignment_owner: Option<(SourceId, ArenaRange)>,
     assignment_capture: bool,
     assignment_raw_blocks: Vec<BlockId>,
@@ -402,6 +421,7 @@ impl ScopeChecker<'_> {
     }
 
     fn function(&mut self, function: FunctionDefId) {
+        let previous = self.callable.replace(function);
         let def = self.program.arena.function_def(function);
         for parameter in self.program.arena.params(def.params) {
             if let Some(default) = parameter.default { self.expr(default); }
@@ -414,6 +434,7 @@ impl ScopeChecker<'_> {
         }
         self.block(def.body);
         self.scopes.pop();
+        self.callable = previous;
     }
 
     fn import(&mut self, import: UseStmtId, span: Span, global: bool) {
@@ -479,6 +500,10 @@ impl ScopeChecker<'_> {
                     self.scopes.len() == 1,
                     exported,
                 );
+                if matches!(node.kind, ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(_), .. })
+                    && matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
+                    && let (Some(owner), Some(binding)) = (self.callable, self.facts.target(target))
+                { self.immutable_definitions.insert(binding, (owner, statement)); }
             }
             ArenaStmtKind::Guard { target, .. } => {
                 self.stmt_children(statement);
@@ -535,8 +560,12 @@ impl ScopeChecker<'_> {
                 }
             }
             ArenaStmtKind::Export(inner) => self.stmt_with_exported(inner, true),
-            ArenaStmtKind::SignalHook(_)
-            | ArenaStmtKind::Loop { .. } => self.stmt_children(statement),
+            ArenaStmtKind::SignalHook(_) => {
+                let callable = self.callable.take();
+                self.stmt_children(statement);
+                self.callable = callable;
+            }
+            ArenaStmtKind::Loop { .. } => self.stmt_children(statement),
             ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_)
             | ArenaStmtKind::Return(_)
@@ -599,6 +628,9 @@ impl ScopeChecker<'_> {
                 if let Some(id) = self.lookup(name) {
                     self.facts.expressions.insert(expression, id);
                     self.facts.value_sites.insert((node.span, name), id);
+                    if let Some(&(owner, statement)) = self.immutable_definitions.get(&id)
+                        && self.callable == Some(owner)
+                    { self.facts.immutable_value_sources.insert(expression, statement); }
                 }
             }
             ArenaExprKind::Item => {
@@ -705,6 +737,13 @@ impl ScopeChecker<'_> {
     }
 
     fn expr_children(&mut self, expression: ExprId) {
+        if let ArenaExprKind::StructuredPipeline { stages, .. } = self.program.arena.expr(expression).kind {
+            for (position, stage) in self.program.arena.stream_stages(stages).iter().enumerate() {
+                if let Ok(Some((_, callee))) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |_| Some(crate::sema::types::Type::Unknown)) {
+                    self.declare(BindingOrigin::StageItem(expression, u32::try_from(position).expect("a stage position fits its arena range")), super::item_binding(), self.program.arena.expr(callee).span, BindingKind::Runtime, false, false);
+                }
+            }
+        }
         let mut children = Vec::new();
         self.program.arena.for_each_expr_child(expression, |child| children.push(child));
         let callback = matches!(self.program.arena.expr(expression).kind,
@@ -743,6 +782,25 @@ impl ScopeChecker<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn generic_pipeline_named_callback_items_have_distinct_stage_owners() {
+        let source = "pure identity(value) { value }\npure nested(value) { [value] |> map { |item| [item] |> map(identity) |> map(identity) } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let bindings = ResolvedBindings::collect(&parsed.arena);
+            let items = (0..parsed.arena.arena.expr_tags.len()).filter_map(|index| {
+                let expression = parsed.arena.arena.expr(ExprId::from_index(index));
+                if !matches!(expression.kind, ArenaExprKind::Ident(name) if name == "identity") { return None; }
+                Some(*bindings.declaration_sites.get(&(expression.span, super::super::item_binding())).expect("a named callback retains its implicit item declaration"))
+            }).collect::<Vec<_>>();
+            assert_eq!(items.len(), 2);
+            assert_ne!(items[0], items[1]);
+            let outer = bindings.declarations.iter().find_map(|(&binding, declaration)| (declaration.name == "item").then_some(binding)).unwrap();
+            assert!(!items.contains(&outer));
+        });
+    }
+
     use super::*;
     use crate::sema::check::Checker;
     use crate::source::SourceId;
@@ -752,6 +810,35 @@ mod tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         parsed.arena.symbol_owner().with_current(|| verify(&ResolvedBindings::collect(&parsed.arena)));
+    }
+
+    #[test]
+    fn immutable_value_sources_keep_lexical_and_callable_owners() {
+        let source = "pure outer(value) {\nlet rows = [value]\nlet alias = rows\n{ let rows: List[Int] = []; let copy = rows; copy }\npure inner() { let copy = rows; copy }\nvar mutable_rows = [value]\nlet mutable_alias = mutable_rows\nlet _ = mutable_alias\nalias\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let bindings = ResolvedBindings::collect(&parsed.arena);
+            let mut reads = bindings.expressions.keys().copied().filter(|&id|
+                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "rows")
+            ).collect::<Vec<_>>();
+            reads.sort_by_key(|&id| parsed.arena.arena.expr(id).span);
+            assert_eq!(reads.len(), 3);
+            let outer = bindings.immutable_value_source(&parsed.arena, reads[0]).unwrap();
+            let shadow = bindings.immutable_value_source(&parsed.arena, reads[1]).unwrap();
+            assert!(matches!(parsed.arena.arena.expr(outer).kind, ArenaExprKind::List(items) if items.len() == 1));
+            assert!(matches!(parsed.arena.arena.expr(shadow).kind, ArenaExprKind::List(items) if items.is_empty()));
+            assert_eq!(bindings.expressions[&reads[0]], bindings.expressions[&reads[2]]);
+            assert_ne!(bindings.expressions[&reads[0]], bindings.expressions[&reads[1]]);
+            assert!(bindings.immutable_value_source(&parsed.arena, reads[2]).is_none());
+            let mutable = bindings.expressions.keys().copied().find(|&id|
+                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "mutable_rows")
+            ).unwrap();
+            assert!(bindings.immutable_value_source(&parsed.arena, mutable).is_none());
+            let mut forged = bindings.clone();
+            forged.immutable_value_sources.insert(reads[0], bindings.immutable_value_sources[&reads[1]]);
+            assert!(forged.immutable_value_source(&parsed.arena, reads[0]).is_none());
+        });
     }
 
     #[test]

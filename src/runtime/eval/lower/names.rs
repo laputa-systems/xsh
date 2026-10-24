@@ -1,6 +1,6 @@
 use super::{
     Arc, ArenaStmtKind, BindingId, BuildExprId, BuildExprRow, CompactFunctionIndex,
-    CompactLowerConstructProbe, LoweredFunctionKey, Name, QualifiedName, Rc,
+    CallableKind, CompactLowerConstructProbe, LoweredFunctionKey, Name, QualifiedName, Rc,
     SlotScope, Span, StmtId, Type, lower_command_word_reference, lower_prepared_literal,
 };
 
@@ -45,7 +45,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let Some(function) = definitions.definition(key) else {
             return false;
         };
-        if !function.pure {
+        if function.kind == CallableKind::Proc {
             return false;
         }
         let def = self.program.arena.function_def(function.id);
@@ -207,11 +207,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let binding = self.expression_binding(expression);
         if binding.is_some() {
-            return self.lower_named_binding(binding, name, slots);
+            let lowered = self.lower_named_binding(binding, name, slots)?;
+            if !self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::value(expression))
+                && let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression)) {
+                let target = *self.bodies.selected_function_calls.get(&expression)?;
+                let key = self.function_index().checked_target_key(target)?;
+                return self.record_materialized_function_value(lowered, key, self.bodies.expr_types.get(&expression)?, instantiation);
+            }
+            return Some(lowered);
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
             let checked_type = self.bodies.expr_types.get(&expression)?;
-            return self.lower_selected_function_ref(target, name, checked_type);
+            return self.lower_selected_function_ref(target, name, checked_type, self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression)));
         }
         if self.compact_tag_variant_arity(name) == Some(0) {
             return self.lower_nullary_tag_value(name);
@@ -232,7 +239,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Some((target, checked_type)) =
             self.bodies.selected_function_references.get(&span).cloned()
         {
-            return self.lower_selected_function_ref(target, name, checked_type.as_ref()?);
+            return self.lower_selected_function_ref(target, name, checked_type.as_ref()?, None);
         }
         if self.compact_tag_variant_arity(name) == Some(0) {
             return self.lower_nullary_tag_value(name);
@@ -240,11 +247,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         None
     }
 
-    fn lower_selected_function_ref(
+    pub(super) fn lower_selected_function_ref(
         &self,
         target: crate::sema::check::CheckedFunctionTarget,
         name: Name,
         checked_type: &Type,
+        instantiation: Option<&crate::sema::schemes::CallInstantiation>,
     ) -> Option<BuildExprId> {
         if target.name != name || target.namespace != self.current_namespace {
             return None;
@@ -253,30 +261,44 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let key = index.checked_target_key(target)?;
         let definition = index.definition(key)?;
         let matches_checked_type = match checked_type {
-            Type::Pure => definition.pure,
-            Type::Proc => !definition.pure,
+            Type::Function(kind) => definition.kind == *kind,
+            Type::SchemeCallable(relationship) => {
+                let relationship = self.declarations.scheme_callables.get(*relationship).ok()?;
+                instantiation.is_none() && relationship.targets().iter().any(|member| member.target() == target) && relationship.canonical().scheme().kind() == definition.kind
+            }
+            Type::Callable(expected) if instantiation.is_some() => expected.kind == definition.kind,
             Type::Callable(expected) => {
                 let signature = self.compact_function_sig_for_key(key)?;
                 let actual = crate::sema::types::CallableType {
                     params: signature.params.clone(),
                     return_ty: Box::new(signature.return_ty.clone()),
-                    effects: signature.effects.clone(),
+                    effects: crate::sema::types::CallableEffects::from_clause(signature.effects.clone()),
                 };
-                expected.mismatch(definition.pure, &actual, true).is_none()
+                expected.mismatch(definition.kind, &actual, true).is_none()
             }
             _ => return None,
         };
         if !matches_checked_type {
             return None;
         }
-        self.lower_function_ref(key)
+        let lowered = self.lower_function_ref(key)?;
+        if let Some(instantiation) = instantiation {
+            return self.record_materialized_function_value(lowered, key, checked_type, instantiation);
+        }
+        Some(lowered)
+    }
+
+    fn record_materialized_function_value(&self, lowered: BuildExprId, key: LoweredFunctionKey, checked_type: &Type, instantiation: &crate::sema::schemes::CallInstantiation) -> Option<BuildExprId> {
+        let mut scratch = self.scratch.borrow_mut();
+        if !scratch.record_call_instantiation(lowered, instantiation.clone())
+            || !scratch.record_checked_call_target(lowered, key)
+            || !scratch.record_checked_expr_type(lowered, checked_type.clone(), false)
+        { return None; }
+        Some(lowered)
     }
 
     fn lower_function_ref(&self, key: LoweredFunctionKey) -> Option<BuildExprId> {
-        let pure = self.function_index().definition(key).map_or_else(
-            || self.functions.is_none_or(|functions| functions.pure_contains(key)),
-            |function| function.pure,
-        );
+        let kind = self.function_index().definition(key)?.kind;
         Some(push_build_row!(
             self,
             expr,
@@ -285,7 +307,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     LoweredFunctionKey::Name(name) => name.into(),
                     LoweredFunctionKey::Qualified(name) => name.into(),
                 },
-                pure,
+                kind,
             }
         ))
     }
@@ -313,6 +335,39 @@ mod tests {
     use crate::source::SourceMap;
     use crate::syntax::arena::{ArenaExprKind, ArenaRecordFieldKind, ExprId};
     use crate::syntax::parser::ArenaParseOutput;
+
+    #[test]
+    fn generic_named_constants_execute_from_their_prepared_bindings() {
+        let many = format!("[{}]", vec!["\"constant:\""; 2048].join(","));
+        for (constant, definition, expected) in [
+            ("\"constant:\"", "pure select(value) { {marker: marker, value: value}.marker }", "constant:"),
+            ("\"constant:\"", "pure select(value) { marker }", "constant:"),
+            ("{label: \"constant:\", words: [\"one\", \"two\"]}", "pure select(value) { marker.label }", "constant:"),
+            ("[\"constant:\", \"unused\"]", "pure select(value) { marker[0] }", "constant:"),
+        ].into_iter().chain(std::iter::once((many.as_str(), "pure select(value) { {marker: marker, value: value}.marker[0] }", "constant:"))) {
+            let source = format!("const marker = {constant}\n{definition}\npure number() -> Str {{ select(42) }}\npure text() -> Str {{ select(\"demo\") }}\n");
+            let (program, sources, source_id) = {
+                let entry = entry_source_from_text("generic-constant-read.xsh", source.clone());
+                let source_id = entry.source_id;
+                let (sources, parsed) = parse_load_entry_source_arena_only("generic-constant-read.xsh", entry, Vec::new());
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                assert!(declarations.diagnostics.is_empty(), "{constant} {definition}\n{:?}", declarations.diagnostics);
+                let program = crate::runtime::eval::FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources.clone()), source_id).unwrap();
+                (Arc::new(program), sources, source_id)
+            };
+            for force_frames in [false, true] {
+                for name in ["number", "text"] {
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources.clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                    let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                    assert_eq!(actual, crate::runtime::value::Value::Str(Arc::from(expected)), "{definition} {name} frames={force_frames}");
+                }
+            }
+        }
+    }
 
     fn checked_program() -> (String, SourceMap, ArenaParseOutput, CompactDeclOutput) {
         let source = "type Renderer = pure(value: Int) -> Int\npure render() -> Int { 1 }\npure other() -> Int { 2 }\npure render_defaulted(value: Int = 1) -> Int { value }\npure factory() -> Renderer { render_defaulted }\nlet first = render\nlet second = other\nlet fields = {render, marker: 1}\n".to_string();
@@ -437,13 +492,13 @@ mod tests {
             .lower_bare_ident(expression, render, &SlotScope::default())
             .expect("the checked function target lowers");
         let scratch = probe.scratch.borrow();
-        let BuildExprRow::FunctionRef { function, pure } =
+        let BuildExprRow::FunctionRef { function, kind } =
             &scratch.expressions[lowered.index()]
         else {
             panic!("function values lower as function references");
         };
         assert_eq!(function.as_name(), Some(render));
-        assert!(*pure);
+        assert_eq!(*kind, CallableKind::Pure);
     }
 
     #[test]
@@ -490,8 +545,11 @@ mod tests {
         let (source, sources, parsed, mut declarations) = checked_program();
         let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
-        assert_eq!(declarations.bodies.expr_types.get(&expression), Some(&Type::Pure));
-        declarations.bodies.expr_types.insert(expression, Type::Proc);
+        let Some(Type::Callable(actual)) = declarations.bodies.expr_types.get(&expression) else { panic!("the actual function value retains its callable signature") };
+        assert_eq!(actual.kind, crate::sema::types::CallableKind::Pure);
+        let mut wrong_kind = (**actual).clone();
+        wrong_kind.kind = crate::sema::types::CallableKind::Proc;
+        declarations.bodies.expr_types.insert(expression, Type::Callable(std::sync::Arc::new(wrong_kind)));
 
         let probe = probe(&parsed, &declarations, &source, &sources);
         assert!(probe
@@ -519,13 +577,13 @@ mod tests {
             .lower_bare_ident_stmt(statement, name, &SlotScope::default())
             .expect("the checked callable tail lowers");
         let scratch = probe.scratch.borrow();
-        let BuildExprRow::FunctionRef { function, pure } =
+        let BuildExprRow::FunctionRef { function, kind } =
             &scratch.expressions[lowered.index()]
         else {
             panic!("function-valued tails lower as function references");
         };
         assert_eq!(function.as_name(), Some(name));
-        assert!(*pure);
+        assert_eq!(*kind, CallableKind::Pure);
     }
 
     #[test]
@@ -600,13 +658,13 @@ mod tests {
             .lower_bare_ident_at(span, render, &SlotScope::default())
             .expect("the shorthand's checked function target lowers");
         let scratch = probe.scratch.borrow();
-        let BuildExprRow::FunctionRef { function, pure } =
+        let BuildExprRow::FunctionRef { function, kind } =
             &scratch.expressions[lowered.index()]
         else {
             panic!("function shorthand lowers as a function reference");
         };
         assert_eq!(function.as_name(), Some(render));
-        assert!(*pure);
+        assert_eq!(*kind, CallableKind::Pure);
     }
 
     #[test]
@@ -620,11 +678,11 @@ mod tests {
             .get(&span)
             .cloned()
             .expect("the checker publishes the shorthand target and type");
-        assert_eq!(checked_type, Some(Type::Pure));
+        assert_eq!(checked_type, Some(Type::Function(crate::sema::types::CallableKind::Pure)));
         declarations
             .bodies
             .selected_function_references
-            .insert(span, (target, Some(Type::Proc)));
+            .insert(span, (target, Some(Type::Function(crate::sema::types::CallableKind::Proc))));
 
         let probe = probe(&parsed, &declarations, &source, &sources);
         assert!(probe

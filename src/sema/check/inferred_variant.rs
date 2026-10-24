@@ -574,6 +574,85 @@ mod pattern_tests {
         })
     }
 
+    #[test]
+    fn inferred_variant_equality_keeps_declaration_local_nominal_selection() {
+        use crate::diagnostic::{DiagnosticCode, Severity};
+        let modules = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules/inferred-enum-context");
+        let declarations = r#"
+use first
+use second
+type FirstContext = {kind: first.Choice}
+type SecondContext = {kind: second.Choice}
+pure first_contextual(ctx: FirstContext) -> Bool { ctx.kind == .Same }
+pure second_contextual(ctx: SecondContext) -> Bool { ctx.kind == .Same }
+pure first_qualified(ctx) -> Bool { ctx.kind == first.Same }
+pure second_qualified(ctx) -> Bool { ctx.kind == second.Same }
+assert first_contextual({kind: first.Same}) == first_qualified({kind: first.Same})
+assert second_contextual({kind: second.Same}) == second_qualified({kind: second.Same})
+"#;
+        for (extra, expected) in [
+            ("", None),
+            ("pure unselected(ctx) -> Bool { ctx.kind == .Same }\n", Some(DiagnosticCode::CheckInferredVariant)),
+            ("first_qualified({kind: second.Same})\n", Some(DiagnosticCode::CheckTypeMismatch)),
+        ] {
+            let source = format!("{declarations}{extra}");
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("enum-selection.xsh", crate::loader::entry_source_from_text("enum-selection.xsh", source.clone()), vec![modules.clone()]);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, crate::sema::check::CheckOptions::for_check_cli());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if let Some(expected) = expected {
+                assert!(errors.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{errors:?}");
+            } else {
+                assert!(errors.is_empty(), "{source}\n{errors:?}");
+                let families = checked.inferred_variants.iter().map(|(span, variant)| {
+                    assert_eq!(span.source_id, source_id);
+                    assert_eq!(&source[span.range()], ".Same");
+                    let crate::sema::check::InferredVariant::Tag { type_name, .. } = variant else { panic!("an enum family is selected") };
+                    *type_name
+                }).collect::<Vec<_>>();
+                assert_eq!(families.len(), 2);
+                assert_ne!(families[0], families[1]);
+                for (family, qualified) in families.into_iter().zip(["first.Same", "second.Same"]) {
+                    assert!(checked.expr_types.iter().any(|(span, ty)| span.source_id == source_id && &source[span.range()] == qualified && *ty == crate::sema::types::Type::Tag(family)));
+                }
+            }
+            if expected == Some(DiagnosticCode::CheckInferredVariant) {
+                let variant = checked.diagnostics.iter().find(|diagnostic| diagnostic.code == expected).unwrap().labels[0].span;
+                assert_eq!(&source[variant.range()], ".Same");
+                assert!(!checked.inferred_variants.contains_key(&variant));
+            }
+        }
+    }
+
+    #[test]
+    fn uncontextual_variant_initializer_reports_only_its_variant_span() {
+        let source = "enum Kind { File, Binary }\nlet kind = .Binary\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(crate::diagnostic::DiagnosticCode::CheckInferredVariant));
+        assert_eq!(&source[errors[0].labels[0].span.range()], ".Binary");
+    }
+
+    #[test]
+    fn leading_dots_preserve_item_and_callback_field_diagnostics() {
+        use crate::diagnostic::DiagnosticCode;
+        for (source, expected) in [
+            ("let value = .\n", DiagnosticCode::CheckStreamItem),
+            ("enum Kind { File, Binary }\nlet tools = [{kind: Binary}] |> where .kind == .Binary\n", DiagnosticCode::CheckUnknownField),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}: {:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckInferredVariant)), "{source}: {:?}", checked.diagnostics);
+        }
+    }
+
     const PRELUDE: &str = "enum Level { Info, Fault(Str) }\n\
         error E = Usage | Other(code: Int)\n\
         pure narrow() -> Result[Level, E] { Ok(Info) }\n\

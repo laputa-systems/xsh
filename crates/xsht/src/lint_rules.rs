@@ -567,9 +567,7 @@ fn run_typed_callable_finalizer(
     let parameters = std::mem::take(&mut linter.callable_parameters);
     let findings = parameters.finish(
         linter.arena,
-        linter.source,
-        &linter.checked_function_returns,
-        &|body| linter.checked_effect_fact(body).cloned(),
+        linter.checked_output.as_deref(),
     );
     linter.diagnostics.extend(findings);
 }
@@ -915,13 +913,12 @@ fn lint_statement_typed_callable_parameters(linter: &mut Linter<'_>, statement: 
                 linter.callable_parameters.define(
                     function.name,
                     def,
-                    false,
                     !exported && !entrypoint,
                 );
             }
             ArenaStmtKind::PureDef(def) => {
                 let name = linter.arena.function_def(def).name;
-                linter.callable_parameters.define(name, def, true, !exported);
+                linter.callable_parameters.define(name, def, !exported);
             }
             _ => {}
         }

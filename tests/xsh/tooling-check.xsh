@@ -157,7 +157,7 @@ export let label: Str = "demo"
 
 proc local(input: Path = Path(".")) {}
 
-export proc entry(flag: Bool = true) -> Result[Unit] {}
+export proc entry(flag: Bool = true) -> Result[Unit, Error] {}
 """
 }
 
@@ -179,6 +179,86 @@ let command = process.command_argv("echo", names)
 let names: List[Str] = ["a", "b"]
 let command: Command = process.command_argv("echo", names)
 """
+}
+
+test test_check_annotate_preserves_imported_generic_aliases { |ctx|
+  let root = project(
+    ctx,
+    {
+      "identity.xsh": r"""##! Generic identity module.
+## Returns its input unchanged.
+export pure identity(value) {
+  value
+}
+""",
+      "main.xsh": r"""use identity as shared
+let generic = shared.identity
+let integer = generic(42)
+let text = generic("demo")
+print $integer
+print $text
+""",
+    },
+  )?
+  cd $root {
+    let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert annotated.status.exited_with(0), annotated.stderr
+    assert annotated.stdout == ""
+    assert diagnostics(annotated.stderr) == "", annotated.stderr
+
+    let source = p"main.xsh".read_text()?
+    assert "generic: Pure" not in source, source
+    let output = run.capture --text "xsh" main.xsh
+    assert output.status.exited_with(0), output.stderr
+    assert output.stdout == "42\ndemo\n"
+
+    let repeated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert repeated.status.exited_with(0), repeated.stderr
+    assert repeated.stdout == ""
+    assert diagnostics(repeated.stderr) == "", repeated.stderr
+    assert p"main.xsh".read_text()? == source
+  }
+}
+
+test test_check_annotate_uses_call_result_types { |ctx|
+  let root = project(
+    ctx,
+    {
+      "main.xsh": r"""pure identity(value) {
+  value
+}
+pure singleton(value: Int) -> List[Int] {
+  [value]
+}
+pure defaulted(value: Int = 1) -> List[Int] {
+  [value]
+}
+let generic_result = identity([42])
+let scalar_result = identity(7)
+let direct_result = singleton(41)
+let defaulted_result = defaulted()
+print ${generic_result[0]}
+print $scalar_result
+print ${direct_result[0]}
+print ${defaulted_result[0]}
+""",
+    },
+  )?
+  cd $root {
+    let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert annotated.status.exited_with(0), annotated.stderr
+    assert annotated.stdout == ""
+    assert diagnostics(annotated.stderr) == "", annotated.stderr
+
+    let source = p"main.xsh".read_text()?
+    assert "let generic_result: List[Int] = identity([42])" in source, source
+    assert "let scalar_result:" not in source, source
+    assert "let direct_result: List[Int] = singleton(41)" in source, source
+    assert "let defaulted_result: List[Int] = defaulted()" in source, source
+    let output = run.capture --text "xsh" main.xsh
+    assert output.status.exited_with(0), output.stderr
+    assert output.stdout == "42\n7\n41\n1\n"
+  }
 }
 
 test test_check_annotate_uses_exact_configured_classes { |ctx|
@@ -821,4 +901,21 @@ test test_check_reports_invalid_utf8_source_as_a_diagnostic { |ctx|
   let checked = run.capture --text "xsht" check $script
   assert checked.status.exited_with(2), checked.stderr
   assert "source.invalid-utf8" in checked.stderr, checked.stderr
+}
+
+test test_check_compare_preserves_public_type_names { |ctx|
+  let model = "##! Event values.\n## Public event.\nexport type Event = {id: Int}\n## Return the event.\nexport pure identity(value: Event) -> Event { value }\n"
+  let main = "use model\npure keep(value: model.Event) -> model.Event { model.identity(value) }\n"
+  let root = project(ctx, {"original/model.xsh": model, "original/main.xsh": main, "candidate/model.xsh": model, "candidate/main.xsh": main})?
+  cd $root {
+    let unchanged = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
+    assert unchanged.status.exited_with(0), unchanged.stderr
+    assert unchanged.stdout == "xsht check interface qualification: 2 callable, 0 CLI\n"
+    p"candidate/model.xsh".write(model.replace("Event", with: "RenamedEvent"))?
+    p"candidate/main.xsh".write(main.replace("Event", with: "RenamedEvent"))?
+    let renamed = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
+    assert renamed.status.exited_with(2), renamed.stderr
+    assert renamed.stdout == ""
+    assert "missing candidate exported type Event" in renamed.stderr, renamed.stderr
+  }
 }

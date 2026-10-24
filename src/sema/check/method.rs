@@ -12,8 +12,67 @@ use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 mod host_obligations;
 pub(super) use host_obligations::HostObligations;
 
-/// Registered method calls instantiate receiver relationships before checking
-/// arguments. Effects and overload selection remain owned by the same registry.
+#[derive(Clone)]
+pub(super) enum HostCallSource {
+    Expression(crate::syntax::arena::ExprId),
+    Callback {
+        callee: crate::syntax::arena::ExprId,
+        argument: Type,
+        argument_span: Span,
+    },
+}
+
+pub(super) fn method_with_unique_layout<'a>(
+    overloads: &'a [MethodSig],
+    arguments: Option<&[crate::sema::arguments::ExpandedArgument]>,
+) -> Option<&'a MethodSig> {
+    if let [method] = overloads { return Some(method); }
+    let arguments = arguments?;
+    let mut eligible = overloads.iter().filter(|method| {
+        let params = crate::sema::builtin_templates::callable_parameters(&method.sig);
+        crate::sema::arguments::bind_static_arguments(&params, arguments).is_ok()
+    });
+    let first = eligible.next()?;
+    eligible.next().is_none().then_some(first)
+}
+
+pub(super) fn method_argument_contexts(
+    arena: &ArenaProgram,
+    args: &[ArenaCallArg],
+    overloads: &[MethodSig],
+    receiver_schema: Option<&crate::sema::constants::SchemaExpectation>,
+) -> Vec<super::args::CheckedArgumentContext> {
+    let expanded = crate::sema::arguments::expand_named_arguments(arena, args, |_| None);
+    args.iter().enumerate().map(|(index, _)| {
+        let mut common = None;
+        let mut differs = false;
+        if let Ok(expanded) = &expanded {
+            for method in overloads {
+                let params = crate::sema::builtin_templates::callable_parameters(&method.sig);
+                let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, expanded) else { continue; };
+                let schemas = crate::sema::builtin_templates::parameter_schema_contexts(&method.sig, method.receiver_ty.as_ref(), receiver_schema);
+                let Some(&slot) = binding.argument_slots.get(index) else { continue; };
+                let schema = schemas.get(slot).cloned().flatten().unwrap_or_default();
+                match &common {
+                    Some(previous) if previous != &schema => differs = true,
+                    Some(_) => {},
+                    None => common = Some(schema),
+                }
+            }
+        }
+        super::args::CheckedArgumentContext {
+            expected: common_method_overload_expected_arena(args, overloads, index),
+            schema: if differs { Default::default() } else { common.unwrap_or_default() },
+        }
+    }).collect()
+}
+
+enum MethodSelection<'a> {
+    BeforeArguments(&'a MethodSig),
+    AfterArguments { method: &'a MethodSig, values: super::args::CheckedArgumentValues },
+    Invalid,
+}
+
 impl Checker {
     pub(super) fn reject_host_inference_resolution(
         &mut self,
@@ -35,6 +94,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call_source: HostCallSource,
         base: crate::syntax::arena::ExprId,
         base_ty: Type,
         name: &str,
@@ -47,7 +107,7 @@ impl Checker {
             Err(error) => return self.reject_host_inference_resolution(error, span),
         };
         if matches!(base_ty, Type::Inference(_)) {
-            return self.check_inferred_host_method(arena, source, base, base_ty, name, args, span, expected);
+            return self.check_inferred_host_method(arena, source, call_source, base, base_ty, name, args, span, expected);
         }
         if (name == "contains" && matches!(base_ty, Type::Str | Type::Bytes | Type::List(_)))
             || (name == "has"
@@ -93,6 +153,7 @@ impl Checker {
                 return self.check_registered_method_arena(
                     arena,
                     source,
+                    call_source.clone(),
                     receiver,
                     name,
                     args,
@@ -105,7 +166,7 @@ impl Checker {
             }
             let base_ty = validated.base().clone();
             return self.check_method_dispatch_arena(
-                arena, source, base, base_ty, name, args, span, expected,
+                arena, source, call_source, base, base_ty, name, args, span, expected,
             );
         }
         if base_ty == Type::Any {
@@ -119,6 +180,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Result,
                 name,
                 args,
@@ -135,6 +197,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::EnvPathList,
                 name,
                 args,
@@ -149,6 +212,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Path,
                 name,
                 args,
@@ -163,6 +227,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Int,
                 name,
                 args,
@@ -177,6 +242,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Float,
                 name,
                 args,
@@ -191,6 +257,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Stream,
                 name,
                 args,
@@ -211,6 +278,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::List,
                 name,
                 args,
@@ -225,6 +293,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Set,
                 name,
                 args,
@@ -239,6 +308,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Map,
                 name,
                 args,
@@ -254,7 +324,7 @@ impl Checker {
             Type::ErasedRecord | Type::Record(_) | Type::Module(_)
         ) {
             let generic_export = if name == "get" {
-                crate::sema::projection::generic_pure_export_for_get(
+                crate::sema::projection::generic_callable_export_for_get(
                     &arena.arena,
                     &self.prepared_constants,
                     &base_ty,
@@ -283,6 +353,7 @@ impl Checker {
             let result = self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Record,
                 name,
                 args,
@@ -297,7 +368,7 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
             if generic_export.is_some() {
-                return self.reject_generic_pure_module_value(span);
+                return self.reject_generic_callable_module_value(span);
             }
             if let Type::Result(_, error) = &result
                 && let Some(projection) = projection
@@ -315,6 +386,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Str,
                 name,
                 args,
@@ -329,6 +401,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Bytes,
                 name,
                 args,
@@ -343,6 +416,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Status,
                 name,
                 args,
@@ -357,6 +431,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::ProcessHandle,
                 name,
                 args,
@@ -371,6 +446,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::NetJob,
                 name,
                 args,
@@ -385,6 +461,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::FsRoot,
                 name,
                 args,
@@ -399,6 +476,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Digest,
                 name,
                 args,
@@ -413,6 +491,7 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                call_source.clone(),
                 MethodReceiver::Regex,
                 name,
                 args,
@@ -423,10 +502,10 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
         }
-        if base_ty == Type::Proc {
+        if base_ty == Type::Function(crate::sema::types::CallableKind::Proc) {
             return self.check_proc_call_method_arena(arena, source, name, args, span);
         }
-        if base_ty == Type::Pure {
+        if base_ty == Type::Function(crate::sema::types::CallableKind::Pure) {
             return self.check_pure_call_method_arena(arena, source, name, args, span);
         }
         // Every other concrete receiver has no methods. Accepting the call as
@@ -521,6 +600,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call_source: HostCallSource,
         receiver: MethodReceiver,
         name: &str,
         args: &[ArenaCallArg],
@@ -534,7 +614,23 @@ impl Checker {
             self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
             return Type::Unknown;
         };
-        let (method, _) = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
+        let family = overloads.first().and_then(|method| api_spec().method_family_id(receiver, name, method));
+        if self.stream_origin_owner.is_some()
+            && overloads.len() > 1
+            && family.is_some_and(|family| overloads.iter().all(|method| api_spec().method_family_id(receiver, name, method) == Some(family)))
+            && let HostCallSource::Expression(call) = call_source.clone()
+            && let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = arena.arena.expr(call).kind
+            && let crate::syntax::arena::ArenaExprKind::Field { base, .. }
+                | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } = arena.arena.expr(callee).kind
+        {
+            return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), name, args, span, expected);
+        }
+        let selection = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
+        let (method, checked_values) = match selection {
+            MethodSelection::BeforeArguments(method) => (method, None),
+            MethodSelection::AfterArguments { method, values } => (method, Some(values)),
+            MethodSelection::Invalid => return Type::Invalid,
+        };
         let mut instance = match crate::sema::builtin_templates::BuiltinInstantiation::new(
             &method.sig,
             method.receiver_ty.as_ref(),
@@ -552,16 +648,14 @@ impl Checker {
                     ),
                     DiagnosticCode::CheckTypeMismatch,
                 );
-                for arg in args {
-                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                if checked_values.is_none() {
+                    for arg in args {
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    }
                 }
                 return Type::Invalid;
             }
         };
-        // A plain expectation for a Result-returning method only guides its
-        // success payload. When the payload disagrees, the consumer still
-        // receives a `Result` it did not expect and reports that with both
-        // full types, so reporting the payload too would say it twice.
         if let Some(expected) = expected
             && let Err(conflict) =
                 instance.constrain_result(expected, &mut self.type_constraints, span)
@@ -569,24 +663,40 @@ impl Checker {
         {
             self.expect_type(&conflict.expected, &conflict.actual, span);
         }
-        if self.boundary.in_pure && !method.sig.pure {
-            self.error(
-                span,
-                "effectful method is not allowed in pure functions",
-                DiagnosticCode::CheckPureEffect,
-            );
-        }
-        for required in method.sig.effects {
-            self.require_effect(required.clone(), span, &format!("method `{name}`"));
-        }
+        let context = self.host_method_context();
         let schemas = crate::sema::builtin_templates::parameter_schema_contexts(
             &method.sig,
             method.receiver_ty.as_ref(),
             receiver_schema.as_ref(),
         );
+        if matches!(method.sig.arg_check, ApiArgCheck::Standard | ApiArgCheck::ResultContext) {
+            let arguments = if let Some(mut values) = checked_values {
+                self.retain_original_method_arguments(arena, &call_source, &mut values);
+                let params = crate::sema::builtin_templates::callable_parameters(&instance.signature);
+                match crate::sema::arguments::bind_static_arguments(&params, &values.arguments) {
+                    Ok(binding) => super::args::SelectedMethodArguments::Values { values, binding, schemas },
+                    Err(error) => {
+                        let required = params.iter().filter(|parameter| !parameter.defaulted).count();
+                        let code = if values.arguments.len() < required || values.arguments.len() > params.len() { DiagnosticCode::CheckArity } else { DiagnosticCode::CheckNamedArg };
+                        self.error(error.span, &error.message, code);
+                        super::args::SelectedMethodArguments::Invalid
+                    }
+                }
+            } else {
+                match self.check_retained_signature_arguments_arena(arena, source, args, &instance.signature, span, &schemas, None) {
+                    Some(mut bound) => {
+                        self.retain_original_method_arguments(arena, &call_source, &mut bound.values);
+                        super::args::SelectedMethodArguments::Bound(bound)
+                    }
+                    None => super::args::SelectedMethodArguments::Invalid,
+                }
+            };
+            return self.finalize_selected_host_method(arena, receiver, name, method, instance.signature, arguments, &context, span);
+        }
+        self.finalize_host_method_effects(&context, &method.sig, name, span);
         let mut concrete = method.clone();
         concrete.sig = instance.signature.clone();
-        self.check_method_args_arena(arena, source, args, &concrete, false, span, &schemas);
+        self.check_method_args_arena(arena, source, args, &concrete, span, &schemas);
         instance.resolve(&self.type_constraints);
         if let Some(key) = instance.invalid_map_key() {
             self.error(
@@ -614,8 +724,78 @@ impl Checker {
         instance.signature.return_ty
     }
 
-    /// Publishes the selected overload's binding for lowering. Spread and
-    /// splice entries have no static plan and lower through their own paths.
+    pub(super) fn finalize_selected_host_method(
+        &mut self,
+        arena: &ArenaProgram,
+        receiver: MethodReceiver,
+        name: &str,
+        method: &'static MethodSig,
+        mut signature: ModuleFnSig,
+        arguments: super::args::SelectedMethodArguments,
+        context: &super::infer_effects::HostMethodContext,
+        span: Span,
+    ) -> Type {
+        assert!(matches!(method.sig.arg_check, ApiArgCheck::Standard | ApiArgCheck::PathLikeSingle | ApiArgCheck::ResultContext));
+        let diagnostics_before = self.diagnostics.len();
+        let deferred_before = self.deferred_effect_checks.len();
+        self.finalize_host_method_effects(context, &method.sig, name, span);
+        let mut instance = crate::sema::builtin_templates::BuiltinInstantiation { signature };
+        instance.resolve(&self.type_constraints);
+        let binding = match arguments {
+            super::args::SelectedMethodArguments::Invalid => {
+                self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
+                return Type::Invalid;
+            }
+            super::args::SelectedMethodArguments::Bound(bound) => bound.binding,
+            super::args::SelectedMethodArguments::Values { values, binding, schemas } => match method.sig.arg_check {
+                ApiArgCheck::Standard | ApiArgCheck::ResultContext => {
+                    match self.complete_checked_method_arguments(arena, span, values, binding, &instance.signature, &schemas) {
+                        Ok(bound) => bound.binding,
+                        Err(_) => {
+                            self.error(span, "method argument schema was not established by its checked source", DiagnosticCode::CheckLocalInference);
+                            self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
+                            return Type::Invalid;
+                        }
+                    }
+                }
+                ApiArgCheck::PathLikeSingle => {
+                    let [argument] = values.arguments.as_slice() else { panic!("a selected Path-like method retains its single argument") };
+                    let actual = self.type_constraints.resolve(&argument.ty).expect("a selected Path-like argument remains in its owning constraints");
+                    self.check_checked_path_like_argument(&actual, argument.span);
+                    binding
+                }
+                _ => unreachable!("a host continuation retains its specialized argument checker"),
+            },
+        };
+        if let Some(key) = instance.invalid_map_key() {
+            self.error(span, &format!("unsupported Map key type {key}"), DiagnosticCode::CheckMapKey);
+            self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
+            return Type::Invalid;
+        }
+        instance.resolve(&self.type_constraints);
+        signature = instance.signature;
+        if receiver != MethodReceiver::PathConstructor {
+            self.publish_bound_api_call(span, Some(receiver), &method.sig, &signature, binding);
+        }
+        if matches!(name, "collect" | "to_list" | "to_set") {
+            self.cardinality_preserving_collection_calls.insert(span);
+        }
+        self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
+        signature.return_ty
+    }
+
+    pub(super) fn publish_bound_api_call(
+        &mut self,
+        span: Span,
+        receiver: Option<MethodReceiver>,
+        sig: &'static ModuleFnSig,
+        concrete: &ModuleFnSig,
+        binding: crate::sema::arguments::StaticArgumentBinding,
+    ) {
+        let params = crate::sema::builtin_templates::callable_parameters(concrete).into_iter().map(|parameter| parameter.ty).collect();
+        self.api_calls.insert(span, super::CheckedApiCall { receiver, sig, params, argument_slots: binding.argument_slots });
+    }
+
     pub(super) fn publish_api_call(
         &mut self,
         arena: &ArenaProgram,
@@ -633,16 +813,7 @@ impl Checker {
         let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded) else {
             return;
         };
-        let params = params.into_iter().map(|param| param.ty).collect();
-        self.api_calls.insert(
-            span,
-            super::CheckedApiCall {
-                receiver,
-                sig,
-                params,
-                argument_slots: binding.argument_slots,
-            },
-        );
+        self.publish_bound_api_call(span, receiver, sig, concrete, binding);
     }
 
     pub(super) fn publish_api_call_with_checked_argument(
@@ -740,34 +911,17 @@ impl Checker {
         args: &[ArenaCallArg],
         overloads: &'a [MethodSig],
         span: Span,
-    ) -> (&'a MethodSig, bool) {
-        if overloads.len() == 1 {
-            return (&overloads[0], false);
-        }
-        let eligible = overloads
-            .iter()
-            .filter(|method| {
-                let params = crate::sema::builtin_templates::callable_parameters(&method.sig);
-                let Ok(expanded) =
-                    crate::sema::arguments::expand_named_arguments(arena, args, |_| None)
-                else {
-                    return false;
-                };
-                crate::sema::arguments::bind_static_arguments(&params, &expanded).is_ok()
-            })
-            .collect::<Vec<_>>();
-        if let [method] = eligible.as_slice() {
-            return (method, false);
+    ) -> MethodSelection<'a> {
+        let expanded = crate::sema::arguments::expand_named_arguments(arena, args, |_| None);
+        if let Some(method) = method_with_unique_layout(overloads, expanded.as_deref().ok()) {
+            return MethodSelection::BeforeArguments(method);
         }
 
-        let actuals = args
-            .iter()
-            .enumerate()
-            .map(|(index, arg)| {
-                let expected = common_method_overload_expected_arena(args, overloads, index);
-                self.check_call_arg_arena(arena, source, &arg.kind, expected.as_ref())
-            })
-            .collect::<Vec<_>>();
+        let contexts = method_argument_contexts(arena, args, overloads, None);
+        let Some(values) = self.check_argument_values_arena(arena, source, args, contexts) else {
+            return MethodSelection::Invalid;
+        };
+        let actuals = values.arguments.iter().map(|argument| argument.ty.clone()).collect::<Vec<_>>();
         let matches = overloads
             .iter()
             .filter(|method| module_overload_matches_arena(args, &actuals, &method.sig))
@@ -780,7 +934,7 @@ impl Checker {
                     DiagnosticCode::CheckAmbiguousOverload,
                 );
             }
-            return (method, true);
+            return MethodSelection::AfterArguments { method, values };
         }
 
         let arity_matches = overloads
@@ -793,7 +947,7 @@ impl Checker {
                 "incorrect standard API arity",
                 DiagnosticCode::CheckArity,
             );
-            return (&overloads[0], true);
+            return MethodSelection::AfterArguments { method: &overloads[0], values };
         }
         if arity_matches
             .iter()
@@ -816,7 +970,7 @@ impl Checker {
                     DiagnosticCode::CheckNamedArg,
                 );
             }
-            return (arity_matches[0], true);
+            return MethodSelection::AfterArguments { method: arity_matches[0], values };
         }
 
         let mut dynamic_boundary = false;
@@ -829,7 +983,7 @@ impl Checker {
             }
         }
         if dynamic_boundary {
-            return (arity_matches[0], true);
+            return MethodSelection::AfterArguments { method: arity_matches[0], values };
         }
 
         self.error(
@@ -837,7 +991,7 @@ impl Checker {
             "no standard API overload matches argument types",
             DiagnosticCode::CheckTypeMismatch,
         );
-        (arity_matches[0], true)
+        MethodSelection::AfterArguments { method: arity_matches[0], values }
     }
 
     fn check_method_args_arena(
@@ -846,22 +1000,12 @@ impl Checker {
         source: &str,
         args: &[ArenaCallArg],
         method: &MethodSig,
-        args_checked: bool,
         span: Span,
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
     ) {
         match method.sig.arg_check {
-            ApiArgCheck::Standard | ApiArgCheck::JsonCompatible => {
-                if !args_checked {
-                    self.check_module_sig_args_with_schema_arena(
-                        arena,
-                        source,
-                        args,
-                        &method.sig,
-                        span,
-                        schemas,
-                    );
-                }
+            ApiArgCheck::Standard | ApiArgCheck::JsonCompatible | ApiArgCheck::ResultContext | ApiArgCheck::HashVerifyFile => {
+                self.check_module_sig_args_with_schema_arena(arena, source, args, &method.sig, span, schemas);
             }
             ApiArgCheck::PathLikeSingle => {
                 if args.len() != 1 {
@@ -871,59 +1015,10 @@ impl Checker {
                     self.check_path_like_arg_arena(arena, source, Some(&arg.kind), span);
                 }
             }
-            ApiArgCheck::ResultContext => {
-                self.check_result_context_args_arena(arena, source, args, span);
-            }
-            ApiArgCheck::HashVerifyFile => {
-                if !args_checked {
-                    self.check_module_sig_args_with_schema_arena(
-                        arena,
-                        source,
-                        args,
-                        &method.sig,
-                        span,
-                        schemas,
-                    );
-                }
-            }
+
         }
     }
 
-    fn check_result_context_args_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        args: &[ArenaCallArg],
-        span: Span,
-    ) {
-        if args.is_empty() {
-            self.error(span, "context requires a kind", DiagnosticCode::CheckArity);
-        }
-        if let Some(arg) = args.first() {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Str));
-            self.expect_type(&Type::Str, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
-        if let Some(arg) = args.get(1) {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Str));
-            self.expect_type(&Type::Str, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
-        for arg in args.iter().skip(2) {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, None);
-            if actual == Type::Any {
-                self.reject_dynamic_use(
-                    "a context value",
-                    None,
-                    call_arg_span_arena(arena, &arg.kind),
-                );
-            } else if !actual.can_display() && !matches!(actual, Type::Unknown) {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "context values must be displayable",
-                    DiagnosticCode::CheckDisplayConversion,
-                );
-            }
-        }
-    }
 }
 
 /// The candidate closest to a misspelled name, if any is near enough to be
@@ -966,7 +1061,6 @@ fn edit_distance(left: &str, right: &str) -> usize {
     previous[right.len()]
 }
 
-#[allow(dead_code)]
 fn common_method_overload_expected_arena(
     args: &[ArenaCallArg],
     overloads: &[MethodSig],

@@ -112,7 +112,7 @@ proc assert_completed_net_job_rejects_cancel(job: NetJob) [net] {
 }
 
 test test_net_start_mock_job_is_single_consumption { |ctx|
-  let response = {
+  let response: NetResponse = {
     status: 200,
     reason: "OK",
     bytes: 2,
@@ -156,7 +156,7 @@ test test_net_job_progresses_while_synchronous_request_waits {
 }
 
 test test_net_start_transfers_returned_job_ownership { |ctx|
-  let response = {
+  let response: NetResponse = {
     status: 200,
     reason: "OK",
     bytes: 2,
@@ -173,7 +173,7 @@ test test_net_start_transfers_returned_job_ownership { |ctx|
 }
 
 test test_net_start_aliases_share_one_consumption { |ctx|
-  let response = {
+  let response: NetResponse = {
     status: 204,
     reason: "No Content",
     bytes: 0,
@@ -193,7 +193,7 @@ test test_net_start_aliases_share_one_consumption { |ctx|
 }
 
 test test_net_start_enforces_live_job_capacity { |ctx|
-  let response = {
+  let response: NetResponse = {
     status: 204,
     reason: "No Content",
     bytes: 0,
@@ -236,7 +236,7 @@ test test_net_start_enforces_live_job_capacity { |ctx|
 }
 
 test test_net_start_scope_cleanup_releases_admission { |ctx|
-  let response = {
+  let response: NetResponse = {
     status: 204,
     reason: "No Content",
     bytes: 0,
@@ -272,7 +272,7 @@ test test_net_start_scope_cleanup_releases_admission { |ctx|
 }
 
 test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
-  let response = {
+  let response: NetResponse = {
     status: 204,
     reason: "No Content",
     bytes: 0,
@@ -917,4 +917,35 @@ test test_net_request_wait_stops_at_a_within_deadline {
   }
 
   assert time.now() - started < 10000
+}
+
+test test_net_mock_empty_headers_require_a_material_response_schema { |ctx|
+  let source = r"""test sample { |ctx|
+  let response = {
+    status: 200,
+    reason: "OK",
+    bytes: 0,
+    headers: [],
+    url: "https://example.test/",
+    effective_url: "https://example.test/",
+    redirect_count: 0,
+    body: b"",
+  }
+  test.mock(ctx, "net.start", {url: "https://example.test/"}, Ok(response))
+}
+"""
+  test.expect(ctx, source, status: 2, stderr: ["check.local-inference"])?
+  let typed = source.replace("let response =", with: "let response: NetResponse =")
+  test.expect(ctx, typed, status: 0)?
+  test.expect(
+    ctx,
+    typed.replace("headers: []", with: "headers: [1]"),
+    status: 2,
+    stderr: ["check.type-mismatch"],
+  )?
+  let material = "pure keep(response: NetResponse) -> NetResponse { response }\n" + source.replace(
+    "Ok(response)",
+    with: "Ok(keep(response))",
+  )
+  test.expect(ctx, material, status: 0)?
 }

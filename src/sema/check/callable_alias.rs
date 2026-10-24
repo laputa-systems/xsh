@@ -11,7 +11,7 @@ pub struct StaticCallableAlias {
     pub name: Name,
     pub method_call: bool,
     pub signature: CallableType,
-    pub pure: bool,
+    pub kind: crate::sema::types::CallableKind,
     pub definition: Option<Span>,
 }
 
@@ -19,7 +19,7 @@ pub struct StaticCallableAlias {
 pub(super) struct CallableAlias {
     pub name: Name,
     pub signature: FunctionSig,
-    pub pure: bool,
+    pub kind: crate::sema::types::CallableKind,
 }
 
 impl CallableAlias {
@@ -28,20 +28,51 @@ impl CallableAlias {
             name: self.name,
             method_call: false,
             signature: super::decl::callable_type_from_function_signature(&self.signature)?,
-            pure: self.pure,
+            kind: self.kind,
             definition: self.signature.definition,
         })
     }
 }
 
 impl Checker {
+    pub(super) fn check_generic_module_alias_initializer(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        expression: ExprId,
+    ) -> Option<CallableAlias> {
+        let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
+            return None;
+        };
+        if self.is_inferred_variant_expr(program, expression) {
+            return None;
+        }
+        if let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind
+            && matches!(
+                self.lookup_value_binding_for_expr(program, base),
+                super::ValueBindingLookup::NoSite
+            )
+            && super::api_spec().module(&namespace.as_str()).is_some()
+        {
+            return None;
+        }
+        let Type::Module(exports) = self.check_expr_arena(program, source, base, None) else {
+            return None;
+        };
+        let export = exports.get(&name)?;
+        let alias = self.resolve_generic_module_callable_alias(program, base, name, export)?;
+        self.record_selected_function_value(program.arena.expr(expression).span, &alias.signature);
+        self.expr_types.insert(program.arena.expr(expression).span, Type::Function(alias.kind));
+        Some(alias)
+    }
+
     pub(super) fn resolve_callable_alias_target(
         &self,
         program: &ArenaProgram,
         expression: ExprId,
     ) -> Option<CallableAlias> {
         let span = program.arena.expr(expression).span;
-        if matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc)) {
+        if matches!(self.expr_types.get(&span), Some(Type::Function(_))) {
             let projected = match program.arena.expr(expression).kind {
                 ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr(inner).span),
                 _ => self.projections.get(&span),
@@ -66,7 +97,7 @@ impl Checker {
                 return Some(target);
             }
         }
-        let (name, signature, pure) = match program.arena.expr(expression).kind {
+        let (name, signature, kind) = match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(name) => {
                 match self.lookup_value_binding_for_expr(program, expression) {
                     super::ValueBindingLookup::Found(binding) => {
@@ -76,10 +107,11 @@ impl Checker {
                     super::ValueBindingLookup::NoSite => {}
                 }
                 if let Some(signature) = self.pures.get(&name) {
-                    (name, self.local_function_signature(*signature)?, true)
+                    (name, self.local_function_signature(*signature)?, crate::sema::types::CallableKind::Pure)
+                } else if let Some(signature) = self.procs.get(&name) {
+                    (name, self.local_function_signature(*signature)?, crate::sema::types::CallableKind::Proc)
                 } else {
-                    let signature = self.local_function_signature(*self.procs.get(&name)?)?;
-                    (name, signature, false)
+                    (name, self.local_function_signature(*self.streams.get(&name)?)?, crate::sema::types::CallableKind::Stream)
                 }
             }
             ArenaExprKind::Field { base, name } => {
@@ -95,9 +127,11 @@ impl Checker {
                 }
                 let qualified = QualifiedName::new(namespace, name);
                 if let Some(signature) = self.qualified_pures.get(&qualified).cloned() {
-                    (name, signature, true)
+                    (name, signature, crate::sema::types::CallableKind::Pure)
+                } else if let Some(signature) = self.qualified_procs.get(&qualified) {
+                    (name, signature.clone(), crate::sema::types::CallableKind::Proc)
                 } else {
-                    (name, self.qualified_procs.get(&qualified)?.clone(), false)
+                    (name, self.qualified_streams.get(&qualified)?.clone(), crate::sema::types::CallableKind::Stream)
                 }
             }
             _ => return None,
@@ -105,11 +139,11 @@ impl Checker {
         Some(CallableAlias {
             name,
             signature,
-            pure,
+            kind,
         })
     }
 
-    fn resolve_module_callable_alias(
+    pub(super) fn resolve_module_callable_alias(
         &self,
         program: &ArenaProgram,
         receiver: ExprId,
@@ -132,40 +166,29 @@ impl Checker {
                 return Some(CallableAlias {
                     name,
                     signature: signature.clone(),
-                    pure: true,
+                    kind: crate::sema::types::CallableKind::Pure,
                 });
             }
             if let Some(signature) = self.qualified_procs.get(&qualified) {
                 return Some(CallableAlias {
                     name,
                     signature: signature.clone(),
-                    pure: false,
+                    kind: crate::sema::types::CallableKind::Proc,
                 });
             }
+            if let Some(signature) = self.qualified_streams.get(&qualified) {
+                return Some(CallableAlias { name, signature: signature.clone(), kind: crate::sema::types::CallableKind::Stream });
+            }
         }
-        let (sig, pure) = match export {
-            ModuleExportType::Pure {
-                sig,
-                optional: false,
-            } => (sig, true),
-            ModuleExportType::Proc {
-                sig,
-                optional: false,
-            } => (sig, false),
-            _ => return None,
-        };
-        if self.collecting_effects && !pure {
+        let ModuleExportType::Callable { kind, sig, optional: false } = export else { return None };
+        if self.collecting_effects && *kind != crate::sema::types::CallableKind::Pure {
             self.provisional_effects_read.set(true);
         }
         Some(CallableAlias {
             name,
-            pure,
+            kind: *kind,
             signature: FunctionSig::ground(
-                if pure {
-                    super::super::schemes::SchemeCallableKind::Pure
-                } else {
-                    super::super::schemes::SchemeCallableKind::Proc
-                },
+                *kind,
                 None,
                 false,
                 None,
@@ -183,11 +206,31 @@ impl Checker {
                     .collect(),
                 (*sig.return_ty).clone(),
                 None,
-                sig.effects.clone(),
+                sig.effects.concrete().ok()?,
                 false,
                 true,
             )?,
         })
+    }
+
+    pub(super) fn resolve_generic_module_callable_alias(
+        &self,
+        program: &ArenaProgram,
+        receiver: ExprId,
+        name: Name,
+        export: &ModuleExportType,
+    ) -> Option<CallableAlias> {
+        let ModuleExportType::GenericCallable {
+            kind,
+            optional: false,
+        } = export
+        else {
+            return None;
+        };
+        let alias = self.resolve_module_callable_alias(program, receiver, name, export)?;
+        let scheme = alias.signature.scheme();
+        (alias.kind == *kind && scheme.kind() == *kind && scheme.callable().is_quantified())
+        .then_some(alias)
     }
 
     pub(super) fn resolve_callable_alias_call(
@@ -201,11 +244,24 @@ impl Checker {
         {
             return Some(alias);
         }
+        if let ArenaExprKind::Ident(name) = program.arena.expr(expression).kind
+            && matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite)
+            && let Some(declaration) = self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name))
+            && !self.local_function_is_alias(*declaration)?
+        {
+            return None;
+        }
         let target = self.resolve_callable_alias_target(program, expression)?;
         target.signature.is_alias.then_some(target)
     }
 
+    fn local_function_is_alias(&self, declaration: super::FunctionDeclarationId) -> Option<bool> {
+        self.declaration_inference.checked(declaration).map(|signature| signature.is_alias)
+            .or_else(|| self.declaration_inference.pending(declaration).map(|signature| signature.is_alias))
+    }
+
     pub(super) fn record_callable_alias(&mut self, span: Span, alias: &CallableAlias) {
+        self.record_selected_function_value(span, &alias.signature);
         if let Some(alias) = alias.checked() {
             self.static_callable_aliases.insert(span, alias);
         }

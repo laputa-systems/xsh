@@ -1,48 +1,51 @@
+use crate::sema::types::CallableKind;
+use crate::sema::callable_application::{inferred_proc_return_envelope, join_error_types};
 use super::{
-    AnnotationFact, AnnotationFactKind, CheckBundleView, Checker, FxHashMap, FxHashSet, Name, Span,
+    AnnotationFact, AnnotationFactKind, BTreeMap, CheckBundleView, Checker, FxHashSet, Name, Span,
     Type,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
+    ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun,
     ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId,
-    PatternId, StmtId,
+    StmtId,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct CheckedProcReturnSite {
+    pub(super) application: crate::sema::constraints::CallableApplicationReference,
+    pub(super) envelope: u32,
+}
+
+#[derive(Clone)]
+pub(super) struct InferredReturn {
+    pub(super) ty: Type,
+    pub(super) span: Span,
+    pub(super) origin: super::stream_origins::StreamOrigins,
+    pub(super) schema: Option<crate::sema::constants::SchemaExpectation>,
+    pub(super) failure_only_result: bool,
+}
 
 struct ReturnDeclaration {
     name: Name,
     names: Vec<Name>,
     span: Span,
-    function: Option<FunctionDefId>,
-    proc_def: bool,
+    function: Option<(FunctionDefId, CallableKind)>,
     statement: StmtId,
-    exported: bool,
-    parameters: FxHashSet<Name>,
 }
 
-/// Where the program reads and rebinds names. Dependency ordering consults
-/// it for every module, so it is collected once per checked program rather
-/// than once per module.
+impl ReturnDeclaration {
+    fn definition(&self) -> Option<FunctionDefId> { self.function.map(|(definition, _)| definition) }
+    fn kind(&self) -> Option<CallableKind> { self.function.map(|(_, kind)| kind) }
+}
+
 #[derive(Clone, Default)]
 pub(super) struct ReturnInferenceIndex {
-    /// The source ranges in which a local binding hides each name.
-    shadows: FxHashMap<Name, Vec<Span>>,
-    /// Every name read, in source order, and whether it is a call's callee.
-    references: Vec<(Span, Name, bool)>,
+    references: Vec<(Span, Name, Option<ExprId>)>,
 }
 
 impl ReturnInferenceIndex {
     pub(super) fn merge_owner(&mut self, other: &Self) {
-        for (&name, spans) in &other.shadows {
-            self.shadows
-                .entry(name)
-                .or_default()
-                .extend(spans.iter().copied());
-        }
-        for spans in self.shadows.values_mut() {
-            spans.sort_unstable();
-            spans.dedup();
-        }
         self.references.extend(other.references.iter().copied());
         self.references.sort_unstable();
         self.references.dedup();
@@ -50,179 +53,10 @@ impl ReturnInferenceIndex {
 
     pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
-        let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
-        let mut add_shadow = |target, span| {
-            for name in binding_names(program, target) {
-                shadows.entry(name).or_default().push(span);
-            }
-        };
-        // Every pass below reads only the rows of this view's sources; the
-        // arena may hold a whole workspace.
-        let blocks = view.block_ids();
-        for &block_id in &blocks {
-            let block = program.arena.block(block_id);
-            let block_span = program.arena.span(block.span);
-            for id in program.arena.stmt_ids(block.statements) {
-                let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
-                match stmt.kind {
-                    ArenaStmtKind::Let { target, .. }
-                    | ArenaStmtKind::Const { target, .. }
-                    | ArenaStmtKind::Var { target, .. }
-                    | ArenaStmtKind::Guard { target, .. } => {
-                        add_shadow(
-                            target,
-                            Span::new(stmt.span.source_id, stmt.span.end(), block_span.end()),
-                        );
-                    }
-                    ArenaStmtKind::For { target, block, .. } => {
-                        add_shadow(target, program.arena.span(program.arena.block(block).span));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        drop(add_shadow);
-        for &block_id in &blocks {
-            let block = program.arena.block(block_id);
-            let span = program.arena.span(block.span);
-            for param in program.arena.block_params(block.params) {
-                shadows.entry(param.name).or_default().push(span);
-            }
-        }
-        let statements = view.stmt_ids();
-        for &statement_id in &statements {
-            let statement = program.arena.stmt(statement_id);
-            match statement.kind {
-                ArenaStmtKind::Match { arms, .. } => {
-                    for arm in program.arena.match_arms(arms) {
-                        let span = program.arena.span(arm.span);
-                        for name in pattern_binding_names(program, arm.pattern) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                ArenaStmtKind::If { branches, .. } => {
-                    for branch in program.arena.if_branches(branches) {
-                        let span = program.arena.span(program.arena.block(branch.block).span);
-                        for name in pattern_condition_bindings(program, branch.condition) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                ArenaStmtKind::While { condition, block } => {
-                    let span = program.arena.span(program.arena.block(block).span);
-                    for name in pattern_condition_bindings(program, condition) {
-                        shadows.entry(name).or_default().push(span);
-                    }
-                }
-                ArenaStmtKind::With { bindings, body, .. } => {
-                    let span = program.arena.span(program.arena.block(body).span);
-                    for binding in program.arena.with_bindings(bindings) {
-                        shadows.entry(binding.name).or_default().push(span);
-                    }
-                }
-                _ => {}
-            }
-        }
         let expressions = view.expr_ids();
-        for &expr_id in &expressions {
-            let expr = program.arena.expr(expr_id);
-            match expr.kind {
-                ArenaExprKind::Match { arms, .. } => {
-                    for arm in program.arena.match_expr_arms(arms) {
-                        let span = program.arena.span(arm.span);
-                        for name in pattern_binding_names(program, arm.pattern) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                ArenaExprKind::If { branches, .. } => {
-                    for branch in program.arena.if_expr_branches(branches) {
-                        let span = program.arena.expr(branch.value).span;
-                        for name in pattern_condition_bindings(program, branch.condition) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                // A resource binding is in scope from the end of its value
-                // to the end of the scope.
-                ArenaExprKind::ResourceScope { bindings, .. } => {
-                    for binding in program.arena.with_bindings(bindings) {
-                        let span = Span::new(
-                            expr.span.source_id,
-                            program.arena.expr(binding.initializer).span.end(),
-                            expr.span.end(),
-                        );
-                        shadows.entry(binding.name).or_default().push(span);
-                    }
-                }
-                ArenaExprKind::ListComp { qualifiers, .. }
-                | ArenaExprKind::MapComp { qualifiers, .. } => {
-                    for qualifier in program.arena.comp_qualifiers(qualifiers) {
-                        if let ArenaCompQualifier::For { target, iter, .. } = qualifier {
-                            let span = Span::new(
-                                expr.span.source_id,
-                                program.arena.expr(*iter).span.end(),
-                                expr.span.end(),
-                            );
-                            for name in binding_names(program, *target) {
-                                shadows.entry(name).or_default().push(span);
-                                let outputs = match expr.kind {
-                                    ArenaExprKind::ListComp { expr, .. } => vec![expr],
-                                    ArenaExprKind::MapComp { key, value, .. } => vec![key, value],
-                                    _ => Vec::new(),
-                                };
-                                for output in outputs {
-                                    shadows
-                                        .entry(name)
-                                        .or_default()
-                                        .push(program.arena.expr(output).span);
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        let mut callees = FxHashSet::default();
-        for &expr_id in &expressions {
-            if let ArenaExprKind::Call { callee, .. } = program.arena.expr(expr_id).kind {
-                callees.insert(callee);
-            }
-        }
-        // Named record keys may have speculative Ident rows in the arena.
-        // Their spelling selects a field and does not read a binding.
+        let statements = view.stmt_ids();
         let rows = program.arena.source_rows();
-        let record_keys = view
-            .record_field_indices()
-            .into_iter()
-            .map(|index| &program.arena.record_fields[index])
-            .filter_map(|field| match field.kind {
-                ArenaRecordFieldKind::Path { path, span, .. } => {
-                    let span = program.arena.span(span);
-                    if !view.contains_source(span.source_id) {
-                        return None;
-                    }
-                    program
-                        .arena
-                        .names(path)
-                        .next()
-                        .map(|name| (span.source_id, span.start(), name))
-                }
-                ArenaRecordFieldKind::Named { name, span, .. } => {
-                    let span = program.arena.span(span);
-                    if !view.contains_source(span.source_id) {
-                        return None;
-                    }
-                    Some((span.source_id, span.start(), name))
-                }
-                _ => None,
-            })
-            .collect::<FxHashSet<_>>();
         let mut references = Vec::new();
-        // A shorthand field of any source is a reference, so the record
-        // expressions of every source are visited with this view's.
         let mut reference_exprs = expressions.clone();
         reference_exprs.extend(rows.record_expr_ids());
         reference_exprs.sort_unstable();
@@ -231,14 +65,13 @@ impl ReturnInferenceIndex {
             let expr = program.arena.expr(id);
             if view.contains_source(expr.span.source_id)
                 && let ArenaExprKind::Ident(name) = expr.kind
-                && !record_keys.contains(&(expr.span.source_id, expr.span.start(), name))
             {
-                references.push((expr.span, name, callees.contains(&id)));
+                references.push((expr.span, name, Some(id)));
             }
             if let ArenaExprKind::Record(fields) = expr.kind {
                 for field in program.arena.record_fields(fields) {
                     if let ArenaRecordFieldKind::Shorthand { name, span } = &field.kind {
-                        references.push((program.arena.span(*span), *name, false));
+                        references.push((program.arena.span(*span), *name, None));
                     }
                 }
             }
@@ -246,23 +79,26 @@ impl ReturnInferenceIndex {
         for &statement_id in &statements {
             let stmt = program.arena.stmt(statement_id);
             if let ArenaStmtKind::TailBareIdent(name) = stmt.kind {
-                references.push((stmt.span, name, false));
+                references.push((stmt.span, name, None));
             }
         }
         references.sort_unstable_by_key(|(span, _, _)| (span.source_id, span.start()));
-        Self {
-            shadows,
-            references,
-        }
+        Self { references }
     }
 }
 
 impl Checker {
-    /// Infer definitions in dependency order before checking their callers.
-    /// An annotation fixes a callable boundary, but every recursive component
-    /// still requires its unannotated pure members to declare that boundary.
-    /// Unannotated procs whose body may produce a value are probed here too;
-    /// their bodies are still checked in source order with the inferred return.
+    pub(super) fn failure_only_proc_unit_envelope(
+        &mut self,
+        program: &ArenaProgram,
+        def: &crate::syntax::arena::ArenaFunctionDef,
+    ) -> Type {
+        match self.type_from_arena(program, def.return_ty) {
+            Type::Result(_, error) => Type::Result(Box::new(Type::Unit), error),
+            ty => ty,
+        }
+    }
+
     pub(super) fn infer_local_pure_returns(
         &mut self,
         view: &CheckBundleView<'_>,
@@ -272,13 +108,13 @@ impl Checker {
         let program = view.program;
         let mut declarations = Vec::new();
         for &statement in statements {
-            let (statement, exported) = match program.arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => (inner, true),
-                _ => (statement, false),
+            let statement = match program.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => inner,
+                _ => statement,
             };
             let stmt = program.arena.stmt(statement);
             match stmt.kind {
-                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function)
+                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function) | ArenaStmtKind::StreamDef(function)
                     if !program.arena.function_def(function).test_declaration =>
                 {
                     let def = program.arena.function_def(function);
@@ -286,21 +122,19 @@ impl Checker {
                         name: def.name,
                         names: vec![def.name],
                         span: stmt.span,
-                        function: Some(function),
-                        proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)),
+                        function: Some((function, match stmt.kind {
+                            ArenaStmtKind::PureDef(_) => CallableKind::Pure,
+                            ArenaStmtKind::ProcDef(_) => CallableKind::Proc,
+                            ArenaStmtKind::StreamDef(_) => CallableKind::Stream,
+                            _ => unreachable!(),
+                        })),
                         statement,
-                        exported,
-                        parameters: program
-                            .arena
-                            .params(def.params)
-                            .iter()
-                            .map(|param| param.name)
-                            .collect(),
                     });
                 }
                 ArenaStmtKind::Let { target, .. }
                 | ArenaStmtKind::Const { target, .. }
-                | ArenaStmtKind::Var { target, .. } => {
+                | ArenaStmtKind::Var { target, .. }
+                | ArenaStmtKind::Guard { target, .. } => {
                     let names = binding_names(program, target)
                         .into_iter()
                         .filter(|name| *name != "_")
@@ -311,35 +145,41 @@ impl Checker {
                             names,
                             span: stmt.span,
                             function: None,
-                            proc_def: false,
                             statement,
-                            exported,
-                            parameters: FxHashSet::default(),
                         });
                     }
                 }
                 _ => {}
             }
         }
-        if !declarations.iter().any(|decl| {
-            decl.function.is_some_and(|id| {
-                let def = program.arena.function_def(id);
-                let has_inferred_parameter = !decl.proc_def
-                    && program.arena.params(def.params).iter().any(|parameter| {
-                        parameter.annotation.is_none() && parameter.default.is_none()
-                    });
-                def.return_ty_defaulted
-                    && (!decl.proc_def || proc_may_return_value(program, def))
-                    || has_inferred_parameter
-            })
-        }) {
+        if !declarations.iter().any(|declaration| declaration.definition().is_some()) {
             return;
         }
-        let indices: FxHashMap<_, _> = declarations
-            .iter()
-            .enumerate()
-            .flat_map(|(index, decl)| decl.names.iter().map(move |name| (*name, index)))
-            .collect();
+        let function_indices = declarations.iter().enumerate().filter_map(|(index, declaration)| {
+            let definition = declaration.definition()?;
+            let def = program.arena.function_def(definition);
+            Some((super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body)), index))
+        }).collect::<BTreeMap<_, _>>();
+        let mut binding_indices = BTreeMap::new();
+        for (index, declaration) in declarations.iter().enumerate() {
+            let target = match program.arena.stmt(declaration.statement).kind {
+                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } | ArenaStmtKind::Guard { target, .. } => target,
+                _ => continue,
+            };
+            let mut pending = vec![(target, declaration.span)];
+            while let Some((target, span)) = pending.pop() {
+                match program.arena.binding_target(target).kind {
+                    ArenaBindingTargetKind::Name(name) => {
+                        if let Some(&binding) = self.resolved_bindings.declaration_sites.get(&(span, name)) {
+                            binding_indices.insert(binding, index);
+                        }
+                    }
+                    ArenaBindingTargetKind::Record { fields, .. } => {
+                        pending.extend(program.arena.destructure_fields(fields).iter().map(|field| (field.target, program.arena.span(field.span))));
+                    }
+                }
+            }
+        }
         let index = match &self.return_inference_index {
             Some(index) => index.clone(),
             None => {
@@ -348,14 +188,9 @@ impl Checker {
                 index
             }
         };
-        let ReturnInferenceIndex {
-            shadows,
-            references,
-        } = &*index;
+        let references = &index.references;
         let mut edges = vec![Vec::new(); declarations.len()];
         for (index, decl) in declarations.iter().enumerate() {
-            // Binding target spellings are declarations, not dependencies.
-            // Parser speculation may retain nodes with those source spans.
             let dependency_span = match program.arena.stmt(decl.statement).kind {
                 ArenaStmtKind::Let { initializer, .. }
                 | ArenaStmtKind::Const { initializer, .. }
@@ -368,7 +203,7 @@ impl Checker {
                 (span.source_id, span.start())
                     < (dependency_span.source_id, dependency_span.start())
             });
-            for &(span, name, callee) in &references[start..] {
+            for &(span, name, expression) in &references[start..] {
                 if span.source_id != dependency_span.source_id
                     || span.start() >= dependency_span.end()
                 {
@@ -377,47 +212,21 @@ impl Checker {
                 if span.end() > dependency_span.end() {
                     continue;
                 }
-                let parameter_shadow = decl.parameters.contains(&name)
-                    && decl.function.is_some_and(|id| {
-                        let body_span = program.arena.span(
-                            program
-                                .arena
-                                .block(program.arena.function_def(id).body)
-                                .span,
-                        );
-                        span.start() >= body_span.start() && span.end() <= body_span.end()
-                    });
-                let shadowed = parameter_shadow
-                    || shadows.get(&name).is_some_and(|ranges| {
-                        ranges.iter().any(|range| {
-                            range.source_id == span.source_id
-                                && range.start() <= span.start()
-                                && range.end() >= span.end()
-                        })
-                    });
-                if (!shadowed
-                    || callee && (self.pures.contains_key(&name) || self.procs.contains_key(&name)))
-                    && let Some(&dependency) = indices.get(&name)
-                {
-                    edges[index].push(dependency);
+                if expression.is_some_and(|expression| !self.resolved_bindings.expression_namespaces.contains_key(&expression)) {
+                    continue;
                 }
+                let dependency = if let Some(binding) = self.resolved_bindings.value_sites.get(&(span, name)) {
+                    binding_indices.get(binding).copied()
+                } else {
+                    self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name))
+                        .and_then(|declaration| function_indices.get(declaration)).copied()
+                };
+                if let Some(dependency) = dependency { edges[index].push(dependency); }
             }
             edges[index].sort_unstable();
             edges[index].dedup();
         }
         let (order, cyclic) = declaration_dependency_order(&edges);
-        for &index in &cyclic {
-            let decl = &declarations[index];
-            if !decl.proc_def && let Some(id) = decl.function {
-                let def = program.arena.function_def(id);
-                let declaration = super::FunctionDeclarationId::new(
-                    self.effect_declaration_id(program, def.body),
-                );
-                if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
-                    signature.make_monomorphic();
-                }
-            }
-        }
         let saved_scopes = self.scopes.clone();
         // Imports provide checked signatures and immutable module values to
         // inferred bodies even when their use statement follows a definition.
@@ -435,99 +244,123 @@ impl Checker {
             }
         }
         for component in order {
+            if component.iter().any(|index| cyclic.contains(index)) {
+                self.infer_recursive_bodies(program, source, &component, &declarations);
+                continue;
+            }
             for &index in &component {
                 let decl = &declarations[index];
-                let Some(id) = decl.function else {
-                    if !cyclic.contains(&index) {
-                        let kind = program.arena.stmt(decl.statement).kind;
-                        if let ArenaStmtKind::Let {
-                            target,
-                            ty,
-                            initializer,
-                        }
-                        | ArenaStmtKind::Const {
-                            target,
-                            ty,
-                            initializer,
-                        }
-                        | ArenaStmtKind::Var {
-                            target,
-                            ty,
-                            initializer,
-                        } = kind
-                        {
-                            let before = self.annotation_facts.len();
-                            let reported = self.diagnostics.len();
-                            let annotated = ty.map(|id| self.type_from_arena(program, id));
-                            let actual = self.without_pending_call_instantiations(|checker| {
-                                checker.check_expr_or_run_arena(
-                                    program,
-                                    source,
-                                    initializer,
-                                    annotated.as_ref(),
-                                )
-                            });
-                            self.diagnostics.truncate(reported);
-                            let ty = annotated.unwrap_or(actual);
-                            self.define_binding_target_arena(
+                let Some(id) = decl.definition() else {
+                    let kind = program.arena.stmt(decl.statement).kind;
+                    if let ArenaStmtKind::Guard { target, ty, initializer, else_block } = kind {
+                        let before = self.annotation_facts.len();
+                        let reported = self.diagnostics.len();
+                        self.without_pending_call_instantiations(|checker| {
+                            checker.check_guard_arena(program, source, target, ty, initializer, else_block, decl.span);
+                        });
+                        self.diagnostics.truncate(reported);
+                        self.annotation_facts.truncate(before);
+                        continue;
+                    }
+                    if let ArenaStmtKind::Let {
+                        target,
+                        ty,
+                        initializer,
+                    }
+                    | ArenaStmtKind::Const {
+                        target,
+                        ty,
+                        initializer,
+                    }
+                    | ArenaStmtKind::Var {
+                        target,
+                        ty,
+                        initializer,
+                    } = kind
+                    {
+                        let before = self.annotation_facts.len();
+                        let reported = self.diagnostics.len();
+                        let annotated = ty.map(|id| self.type_from_arena(program, id));
+                        let actual = self.without_pending_call_instantiations(|checker| {
+                            checker.check_expr_or_run_arena(
                                 program,
-                                target,
-                                &ty,
-                                matches!(kind, ArenaStmtKind::Var { .. }),
-                                decl.span,
-                            );
-                            self.annotation_facts.truncate(before);
-                        }
+                                source,
+                                initializer,
+                                annotated.as_ref(),
+                            )
+                        });
+                        self.diagnostics.truncate(reported);
+                        let ty = annotated.unwrap_or(actual);
+                        let origin = match initializer {
+                            ArenaExprOrRun::Expr(expression) => self.stream_expr_origin(program, expression),
+                            ArenaExprOrRun::Run(_) => super::stream_origins::StreamOrigins::unproven(&ty),
+                        };
+                        let alias = if matches!(kind, ArenaStmtKind::Let { ty: None, .. } | ArenaStmtKind::Const { ty: None, .. }) {
+                            match initializer { ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(program, expression), _ => None }
+                        } else { None };
+                        self.define_binding_target_arena(
+                            program,
+                            target,
+                            &ty,
+                            matches!(kind, ArenaStmtKind::Var { .. }),
+                            decl.span,
+                            &origin,
+                        );
+                        self.record_literal_capture_payload(program, decl.statement);
+                        if let Some(alias) = alias
+                            && let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
+                        { self.attach_callable_alias(name, alias, super::expr::expr_or_run_span_arena(program, initializer)); }
+                        self.annotation_facts.truncate(before);
                     }
                     continue;
                 };
                 let def = program.arena.function_def(id);
-                if !decl.proc_def && !def.return_ty_defaulted {
-                    self.check_pure_body_before_callers(program, source, decl, &declarations, def);
-                    if !cyclic.contains(&index) {
-                        self.generalize_pending_function(program, id);
-                    }
+                if decl.kind() == Some(CallableKind::Stream) {
+                    self.check_body_before_callers(program, source, decl, &declarations, def);
+                    self.generalize_pending_function(program, id);
                     continue;
                 }
                 if !def.return_ty_defaulted {
+                    self.check_body_before_callers(program, source, decl, &declarations, def);
+                    self.generalize_pending_function(program, id);
                     continue;
                 }
-                if decl.proc_def {
+                if decl.kind() == Some(CallableKind::Proc) {
                     if proc_may_return_value(program, def) {
-                        let boundary = if decl.exported {
-                            Some("exported")
-                        } else if decl.name == "main" || decl.name.as_str().starts_with("main ") {
+                        let boundary = if decl.name == "main" || decl.name.as_str().starts_with("main ") {
                             Some("entry")
-                        } else if cyclic.contains(&index) {
-                            Some("recursive")
                         } else {
                             None
                         };
+                        let diagnostics_before = self.diagnostics.len();
                         self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                        if !self.diagnostics[diagnostics_before..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                            let body = program.arena.span(program.arena.block(def.body).span);
+                            if let Some(return_ty) = self.function_return_types.get(&body).cloned().filter(|ty| *ty != Type::Invalid) {
+                                self.finish_recorded_stream_return_summary(program, def, &return_ty);
+                            }
+                        }
+                        let declaration = super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+                        if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
+                            signature.mark_body_checked();
+                        }
                     }
+                    self.check_body_before_callers(program, source, decl, &declarations, def);
+                    self.generalize_pending_function(program, id);
                     continue;
                 }
                 let body_span = program.arena.span(program.arena.block(def.body).span);
-                if cyclic.contains(&index) {
-                    let message = format!(
-                        "recursive pure `{}` requires an explicit return annotation",
-                        decl.name
-                    );
-                    self.error(decl.span, &message, DiagnosticCode::CheckRequiredReturn);
-                    self.function_return_types.insert(body_span, Type::Invalid);
-                    self.update_pending_return_type(program, def, Type::Invalid);
-                    continue;
-                }
                 self.inferred_returns = Some(Vec::new());
                 self.inferred_propagations.clear();
                 self.inference_reachable = true;
-                self.check_pure_body_before_callers(program, source, decl, &declarations, def);
+                self.check_body_before_callers(program, source, decl, &declarations, def);
                 let candidates = self.inferred_returns.take().unwrap();
+                let schema = Self::common_checked_schema(candidates.iter().map(|candidate| candidate.schema.clone()));
                 let mut inferred = None;
-                for (candidate, span) in candidates {
+                for candidate in &candidates {
                     inferred = Some(match inferred {
-                        None => candidate,
-                        Some(previous) => self.unify_inferred_returns(previous, candidate, span),
+                        None => candidate.ty.clone(),
+                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty.clone(), candidate.span),
                     });
                 }
                 let ty = inferred.unwrap_or(Type::Unknown);
@@ -545,6 +378,27 @@ impl Checker {
                     Type::Invalid
                 };
                 let mut ty = ty;
+                if !ty.contains_recovery() {
+                    let diagnostics = self.diagnostics.len();
+                    for candidate in &candidates {
+                        let expected = self.type_constraints.resolve(&ty);
+                        let actual = self.type_constraints.resolve(&candidate.ty);
+                        let expected = match (&expected, &actual) {
+                            (Ok(expected), Ok(actual)) => {
+                                if super::tail_type_matches_expected(expected, actual) { continue; }
+                                match expected {
+                                    Type::Result(success, _) if !actual.is_result() => success.as_ref(),
+                                    _ => expected,
+                                }
+                            }
+                            _ => &ty,
+                        };
+                        self.expect_type(expected, &candidate.ty, candidate.span);
+                    }
+                    if self.diagnostics[diagnostics..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                        ty = Type::Invalid;
+                    }
+                }
                 for (error, span) in std::mem::take(&mut self.inferred_propagations) {
                     match &ty {
                         Type::Result(_, expected) if error.matches_expected(expected) => {}
@@ -560,47 +414,180 @@ impl Checker {
                 }
                 self.function_return_types.insert(body_span, ty.clone());
                 self.update_pending_return_type(program, def, ty.clone());
+                self.update_pending_return_schema(program, def, schema);
                 if ty != Type::Invalid {
                     self.annotation_facts.push(AnnotationFact {
                         kind: AnnotationFactKind::InferredPureReturn { body: body_span },
                         ty,
                     });
-                    if !decl.proc_def {
+                    if decl.kind() != Some(CallableKind::Proc) {
                         self.generalize_pending_function(program, id);
                     }
                 }
-            }
-            for index in component {
-                let decl = &declarations[index];
-                if decl.proc_def || !cyclic.contains(&index) {
-                    continue;
-                }
-                let Some(id) = decl.function else { continue; };
-                let def = program.arena.function_def(id);
-                if def.return_ty_defaulted {
-                    continue;
-                }
-                let mut reported = std::collections::BTreeSet::new();
-                for parameter in program.arena.params(def.params) {
-                    let span = program.arena.span(parameter.span);
-                    if let Some(ty) = self.parameter_types.get_mut(&span) {
-                        super::local_inference::finalize_type(
-                            &self.type_constraints,
-                            ty,
-                            span,
-                            &mut reported,
-                            &mut self.diagnostics,
-                        );
-                    }
-                }
-                self.publish_parameter_types(program, def);
-                self.generalize_pending_function(program, id);
             }
         }
         self.scopes = saved_scopes;
     }
 
-    fn check_pure_body_before_callers(
+    fn infer_recursive_bodies(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        component: &[usize],
+        declarations: &[ReturnDeclaration],
+    ) {
+        let definitions = component.iter().filter_map(|&index| declarations[index].definition()).collect::<Vec<_>>();
+        let start = self.diagnostics.len();
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream) { continue; }
+            if declaration.kind() == Some(CallableKind::Proc) && (declaration.name == "main" || declaration.name.as_str().starts_with("main "))
+                && proc_may_return_value(program, def)
+            {
+                self.error(declaration.span, "entry proc returns a value and requires an explicit return annotation", DiagnosticCode::CheckRequiredReturn);
+            }
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let ty = if declaration.kind() == Some(CallableKind::Proc) {
+                if proc_may_return_value(program, def) {
+                    Type::Result(Box::new(self.type_constraints.fresh_at_level(body, 1)), Box::new(self.type_constraints.fresh_at_level(body, 1)))
+                } else { self.type_from_arena(program, def.return_ty) }
+            } else { self.type_constraints.fresh_at_level(body, 1) };
+            self.update_pending_return_type(program, def, ty.clone());
+            self.function_return_types.insert(body, ty);
+        }
+        let mut propagations = Vec::new();
+        let mut inferred_dynamic_returns = std::collections::BTreeSet::new();
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else {
+                self.error(declaration.span, "recursive value bindings require a callable declaration boundary", DiagnosticCode::CheckLocalInference);
+                continue;
+            };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream)
+                || (declaration.kind() == Some(CallableKind::Proc) && !proc_may_return_value(program, def))
+            {
+                self.check_body_before_callers(program, source, declaration, declarations, def);
+                continue;
+            }
+            self.inferred_returns = Some(Vec::new());
+            self.inferred_propagations.clear();
+            self.inference_reachable = true;
+            self.return_conflicts = (declaration.kind() == Some(CallableKind::Proc)).then(Vec::new);
+            self.check_body_before_callers(program, source, declaration, declarations, def);
+            let candidates = self.inferred_returns.take().expect("recursive return checking owns its candidates");
+            let inferred_dynamic_return = declaration.kind() == Some(CallableKind::Pure)
+                && candidates.iter().any(|candidate| candidate.ty.contains_any());
+            if inferred_dynamic_return {
+                inferred_dynamic_returns.insert(self.effect_declaration_id(program, def.body));
+            }
+            let errors = std::mem::take(&mut self.inferred_propagations);
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let original = self.function_return_types[&body].clone();
+            if declaration.kind() == Some(CallableKind::Proc) {
+                let owner = self.effect_declaration_id(program, def.body);
+                if !self.finish_proc_completion_group(owner, &candidates, &errors, body) {
+                    self.function_return_types.insert(body, Type::Invalid);
+                    continue;
+                }
+                let actual = self.normalize_inferred_proc_returns(owner, candidates, &errors);
+                self.expect_type(&original, &actual, body);
+                for (left, right, span) in self.return_conflicts.take().unwrap_or_default() {
+                    self.error(span, &format!("incompatible recursive proc completions `{left}` and `{right}`"), DiagnosticCode::CheckTypeMismatch);
+                }
+            } else {
+                for candidate in candidates {
+                    self.expect_type(&original, &candidate.ty, candidate.span);
+                }
+                propagations.push((original, errors));
+            }
+        }
+        if let Err(error) = self.solve_host_obligations(program) {
+            let span = definitions.first().map(|&definition| program.arena.span(program.arena.block(program.arena.function_def(definition).body).span))
+                .unwrap_or_else(|| Span::at(crate::source::SourceId::new(0), 0));
+            self.reject_host_inference_resolution(error, span);
+        }
+        if let Err(error) = self.type_constraints.solve_callable_applications() {
+            let span = declarations[component[0]].span;
+            self.error(span, &format!("recursive callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
+        }
+        for (ty, errors) in propagations {
+            let ty = self.type_constraints.resolve(&ty).unwrap_or(Type::Invalid);
+            for (error, span) in errors {
+                match &ty {
+                    Type::Result(_, expected) => self.expect_type(expected, &error, span),
+                    _ => self.error(span, "recursive propagation requires a Result return determined by the component", DiagnosticCode::CheckTryContext),
+                }
+            }
+        }
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream) { continue; }
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let Some(ty) = self.function_return_types.get(&body) else { continue; };
+            let ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
+            let owner = self.effect_declaration_id(program, def.body);
+            let inferred_dynamic_return = inferred_dynamic_returns.contains(&owner);
+            if !return_type_is_concrete(&ty) || inferred_dynamic_return {
+                let message = if inferred_dynamic_return {
+                    "pure recursive return includes dynamic Any; declare a return annotation"
+                } else {
+                    "recursive return shape is not determined by its component"
+                };
+                self.error(body, message, DiagnosticCode::CheckInferReturn);
+            }
+        }
+        if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+            self.reject_recursive_component(program, &definitions);
+            self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
+            return;
+        }
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() != Some(CallableKind::Proc)
+                || !proc_may_return_value(program, def)
+            { continue; }
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let Some(return_ty) = self.function_return_types.get(&body).cloned() else { continue; };
+            let return_ty = self.type_constraints.resolve(&return_ty).unwrap_or(Type::Invalid);
+            self.finish_recorded_stream_return_summary(program, def, &return_ty);
+        }
+        if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+            self.reject_recursive_component(program, &definitions);
+            self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
+            return;
+        }
+        self.generalize_recursive_component(program, &definitions);
+        self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
+    }
+
+    fn mark_inferred_proc_component_bodies_checked(
+        &mut self,
+        program: &ArenaProgram,
+        component: &[usize],
+        declarations: &[ReturnDeclaration],
+    ) {
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() != Some(CallableKind::Proc)
+                || !proc_may_return_value(program, def)
+            { continue; }
+            let id = super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+            if let Some(signature) = self.declaration_inference.pending_mut(id) {
+                signature.mark_body_checked();
+            }
+        }
+    }
+
+    fn check_body_before_callers(
         &mut self,
         program: &ArenaProgram,
         source: &str,
@@ -619,14 +606,14 @@ impl Checker {
                 }
             }
         }
-        self.check_function_arena(program, source, def, true);
+        match decl.kind().expect("a callable declaration owns its body") {
+            CallableKind::Pure => self.check_function_arena(program, source, def, true),
+            CallableKind::Proc => self.check_function_arena(program, source, def, false),
+            CallableKind::Stream => self.check_stream_function_arena(program, source, def),
+        }
         self.scopes = visible_scopes;
     }
 
-    /// A speculative value-body check decides the success type; the checker
-    /// keeps only that type. A body whose completions are all Unit-like keeps
-    /// the statement reading and `Result[Unit]`. Once any completion produces a
-    /// value, every completion must join with it.
     fn infer_proc_return(
         &mut self,
         program: &ArenaProgram,
@@ -636,57 +623,87 @@ impl Checker {
         def: &crate::syntax::arena::ArenaFunctionDef,
         boundary: Option<&str>,
     ) {
-        let visible_scopes = self.scopes.clone();
-        for binding in declarations {
-            if binding.function.is_none()
-                && binding.span.source_id == decl.span.source_id
-                && binding.span.start() >= decl.span.start()
-            {
-                for name in &binding.names {
-                    self.current_scope_mut().remove(name);
+        let body_span = program.arena.span(program.arena.block(def.body).span);
+        let diagnostics_before = self.diagnostics.len();
+        self.inferred_returns = Some(Vec::new());
+        self.inferred_propagations.clear();
+        self.return_conflicts = Some(Vec::new());
+        self.inference_reachable = true;
+        let enclosing_return = self.boundary.current_return.take();
+        self.check_body_before_callers(program, source, decl, declarations, def);
+        self.boundary.current_return = enclosing_return;
+        let candidates = self.inferred_returns.take().unwrap_or_default();
+        let conflicts = self.return_conflicts.take().unwrap_or_default();
+        let propagated = std::mem::take(&mut self.inferred_propagations);
+        if self.diagnostics[diagnostics_before..]
+            .iter()
+            .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+        {
+            self.reject_recursive_component(program, &[decl.definition().expect("an inferred procedure retains its declaration")]);
+            return;
+        }
+        let owner = self.effect_declaration_id(program, def.body);
+        if !self.finish_proc_completion_group(owner, &candidates, &propagated, body_span) { return; }
+        if !candidates.iter().any(proc_candidate_produces_value) && conflicts.is_empty()
+        {
+            let mut ty = self.type_from_arena(program, def.return_ty);
+            if !candidates.is_empty() {
+                let failure_only = candidates.iter().any(|candidate| candidate.failure_only_result);
+                self.return_conflicts = Some(Vec::new());
+                let owner = self.effect_declaration_id(program, def.body);
+                let actual = self.normalize_inferred_proc_returns(
+                    owner,
+                    candidates,
+                    &propagated,
+                );
+                let conflicts = self.return_conflicts.take().unwrap_or_default();
+                if let Some((left, right, span)) = conflicts.into_iter().next() {
+                    let message = format!("completions of proc `{}` produce `{left}` and `{right}`", decl.name);
+                    self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message)
+                        .with_code(DiagnosticCode::CheckTypeMismatch)
+                        .with_label(crate::diagnostic::Label::primary(span, &message)));
+                    ty = Type::Invalid;
+                } else {
+                    if failure_only {
+                        ty = self.failure_only_proc_unit_envelope(program, def);
+                    }
+                    if failure_only {
+                        let validation_start = self.diagnostics.len();
+                        self.expect_type(&ty, &actual, body_span);
+                        ty = if self.diagnostics[validation_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                            Type::Invalid
+                        } else { actual };
+                    } else if propagated.is_empty() {
+                        self.expect_type(&ty, &actual, body_span);
+                    } else {
+                        ty = actual;
+                    }
                 }
             }
-        }
-        let mut probe = self.constraint_probe();
-        self.scopes = visible_scopes;
-        probe.inferred_returns = Some(Vec::new());
-        probe.inferred_propagations.clear();
-        probe.return_conflicts = Some(Vec::new());
-        probe.inference_reachable = true;
-        probe.boundary.current_return = None;
-        if boundary == Some("recursive") {
-            probe.update_pending_return_type(program, def, Type::Unknown);
-        }
-        probe.check_function_arena(program, source, def, false);
-        let clean = !probe
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
-        let candidates = probe.inferred_returns.take().unwrap_or_default();
-        let conflicts = probe.return_conflicts.take().unwrap_or_default();
-        let propagated = std::mem::take(&mut probe.inferred_propagations);
-        if !candidates
-            .iter()
-            .map(|(ty, _)| ty)
-            .chain(conflicts.iter().flat_map(|(left, right, _)| [left, right]))
-            .any(produces_value)
-        {
-            let ty = self.type_from_arena(program, def.return_ty);
+            for (error, span) in propagated {
+                match &ty {
+                    Type::Result(_, expected_error) if error.matches_expected(expected_error) => {}
+                    Type::Result(_, _) => self.error(span, "propagated error does not match the inferred Result; declare its return type", DiagnosticCode::CheckTryError),
+                    _ => self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext),
+                }
+            }
+            self.function_return_types.insert(body_span, ty.clone());
             self.update_pending_return_type(program, def, ty);
             return;
         }
-        // Once a completion produces a value, a statement completion conflicts
-        // with it as any other disagreeing completion does.
         self.return_conflicts = Some(conflicts);
-        let mut inferred: Option<Type> = None;
-        for (candidate, span) in candidates {
-            inferred = Some(match inferred {
-                None => candidate,
-                Some(previous) => self.unify_inferred_returns(previous, candidate, span),
-            });
-        }
+        let owner = self.effect_declaration_id(program, def.body);
+        let schema = Self::common_checked_schema(candidates.iter().map(|candidate| {
+            let schema = candidate.schema.clone()?;
+            if candidate.ty.is_result() { Some(schema) } else {
+                let mut wrapped = crate::sema::constants::SchemaExpectation::default();
+                wrapped.insert_child(crate::sema::constants::SchemaComponent::Success, schema);
+                Some(wrapped)
+            }
+        }));
+        let inferred = self.normalize_inferred_proc_returns(owner, candidates, &propagated);
+
         let conflicts = self.return_conflicts.take().unwrap_or_default();
-        let body_span = program.arena.span(program.arena.block(def.body).span);
         if let Some((left, right, span)) = conflicts.into_iter().next() {
             let (left, right) = if produces_value(&left) {
                 (left, right)
@@ -704,41 +721,148 @@ impl Checker {
             self.update_pending_return_type(program, def, Type::Invalid);
             return;
         }
-        if !clean {
-            return;
-        }
         let ty = if let Some(boundary) = boundary {
             self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), DiagnosticCode::CheckRequiredReturn);
             Type::Invalid
         } else {
-            match inferred.unwrap_or(Type::Invalid) {
+            match inferred {
                 Type::Invalid => Type::Invalid,
                 ty if !return_type_is_concrete(&ty) => {
                     self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), DiagnosticCode::CheckInferReturn);
                     Type::Invalid
                 }
-                // Every `?` in the body propagates through the inferred error
-                // type, so it joins with the errors of `Err(..)` completions.
-                Type::Result(ok, err) => Type::Result(
-                    ok,
-                    Box::new(
-                        propagated
-                            .iter()
-                            .fold(*err, |joined, (ty, _)| join_error_types(&joined, ty)),
-                    ),
-                ),
-                ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
+                ty => ty,
             }
         };
         self.function_return_types.insert(body_span, ty.clone());
         self.update_pending_return_type(program, def, ty);
+        self.update_pending_return_schema(program, def, schema);
+    }
+
+    pub(super) fn normalize_inferred_proc_returns(
+        &mut self,
+        owner: super::EffectDeclarationId,
+        candidates: Vec<InferredReturn>,
+        propagated: &[(Type, Span)],
+    ) -> Type {
+        self.proc_return_sites.remove(&owner);
+        let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).map(|pending| pending.solver_level());
+        let errors = propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>();
+        let completion_error = match self.type_constraints.proc_completion_return(owner) {
+            Ok(Some(returned)) => match self.type_constraints.resolve(&returned) {
+                Ok(Type::Result(_, error)) => Some(*error),
+                Ok(_) => {
+                    self.error(owner.body, "proc completion wrapper has no Result return", DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+                Err(error) => {
+                    self.error(owner.body, &format!("proc completion wrapper type resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            },
+            Ok(None) => None,
+            Err(error) => {
+                self.error(owner.body, &format!("proc completion wrapper lookup failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return Type::Invalid;
+            }
+        };
+        let mut inferred = None;
+        for candidate in candidates {
+            let applications = candidate.origin.return_applications();
+            let retain_applications = !applications.contains(&None);
+            let candidate_ty = match self.type_constraints.resolve(&candidate.ty) {
+                Ok(ty) => ty,
+                Err(error) => {
+                    self.error(candidate.span, &format!("proc completion constraint resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            };
+            for application in applications {
+                let ty = if let Some(reference) = application {
+                    let Some(level) = level else {
+                        self.error(owner.body, "proc application return has no declaration inference scope", DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    };
+                    if reference.scope != crate::sema::constraints::CallableApplicationScope::Declaration(owner) {
+                        self.error(candidate.span, "proc return application belongs to another declaration", DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                    let application_errors = completion_error.as_ref().map(std::slice::from_ref).unwrap_or(&errors);
+                    match self.type_constraints.referenced_callable_application(reference)
+                        .and_then(|id| self.type_constraints.defer_proc_application_return(id, application_errors, candidate.span, level))
+                    {
+                        Ok(ty) => {
+                            if retain_applications {
+                                let envelope = self.type_constraints.proc_return_envelope(reference, candidate.span).expect("the checked application return owns its envelope");
+                                self.proc_return_sites.entry(owner).or_default().entry(candidate.span).or_default().push(CheckedProcReturnSite { application: reference, envelope });
+                            }
+                            ty
+                        }
+                        Err(error) => {
+                            self.error(candidate.span, &format!("proc return application requirement failed: {error}"), DiagnosticCode::CheckLocalInference);
+                            return Type::Invalid;
+                        }
+                    }
+                } else if let Some(error) = &completion_error {
+                    Self::proc_completion_envelope(candidate_ty.clone(), error)
+                } else {
+                    inferred_proc_return_envelope(candidate_ty.clone(), &errors)
+                };
+                inferred = Some(match inferred {
+                    None => ty,
+                    Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span),
+                });
+            }
+        }
+        inferred.unwrap_or(Type::Invalid)
+    }
+
+    fn finish_proc_completion_group(
+        &mut self,
+        owner: super::EffectDeclarationId,
+        candidates: &[InferredReturn],
+        propagated: &[(Type, Span)],
+        span: Span,
+    ) -> bool {
+        let mut values = Vec::new();
+        let mut applications = Vec::new();
+        for candidate in candidates {
+            let sources = candidate.origin.return_applications();
+            if sources.contains(&None) {
+                values.push(candidate.ty.clone());
+            } else {
+                applications.extend(sources.into_iter().flatten());
+            }
+        }
+        match self.type_constraints.finish_proc_completion_group(owner, propagated, &values, &applications) {
+            Ok(_) => true,
+            Err(error) => {
+                self.error(span, &format!("proc completion wrapper failed: {error}"), DiagnosticCode::CheckLocalInference);
+                false
+            }
+        }
+    }
+
+    fn proc_completion_envelope(value: Type, error: &Type) -> Type {
+        let value = match value {
+            Type::Result(ok, _) => *ok,
+            value => value,
+        };
+        Type::Result(Box::new(value), Box::new(error.clone()))
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
+        if let Some(merged) = self.merge_scheme_callable_values(&left, &right) { return merged; }
         match unify_return_shapes(&left, &right) {
             Some(ty) => ty,
             None if matches!(left, Type::Invalid) || matches!(right, Type::Invalid) => {
                 Type::Invalid
+            }
+            None if left.contains_inference() || right.contains_inference() => {
+                let diagnostics = self.diagnostics.len();
+                self.expect_type(&left, &right, span);
+                if self.diagnostics.len() != diagnostics { return Type::Invalid; }
+                self.type_constraints.resolve(&left).unwrap_or(Type::Invalid)
             }
             None => {
                 if let Some(conflicts) = &mut self.return_conflicts {
@@ -762,16 +886,24 @@ fn produces_value(ty: &Type) -> bool {
     }
 }
 
+pub(super) fn proc_candidate_produces_value(candidate: &InferredReturn) -> bool {
+    !candidate.failure_only_result && proc_candidate_produces_value_type(&candidate.ty)
+}
+
+fn proc_candidate_produces_value_type(ty: &Type) -> bool {
+    match ty {
+        Type::Unknown => true,
+        Type::Result(ok, _) if matches!(ok.as_ref(), Type::Unknown) => false,
+        ty => produces_value(ty),
+    }
+}
+
 pub(super) fn proc_may_return_value(
     program: &ArenaProgram,
     def: &crate::syntax::arena::ArenaFunctionDef,
 ) -> bool {
-    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(program.arena.core_stmt_id(tail)).kind {
-        ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. } => true,
-        ArenaStmtKind::Command(command) => matches!(program.arena.command_stmt(command).command,
-            crate::syntax::arena::ArenaCommand::Run(run) if super::command::run_capture_result_type_arena(program, run).is_some()),
-        _ => false,
-    });
+    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| matches!(program.arena.stmt(program.arena.core_stmt_id(tail)).kind,
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. }));
     let body = program.arena.span(program.arena.block(def.body).span);
     tail_value
         || program.arena.source_rows().stmt_ids(body.source_id).any(|id| {
@@ -788,9 +920,7 @@ fn return_type_is_concrete(ty: &Type) -> bool {
         | Type::ErasedRecord
         | Type::Unknown
         | Type::Invalid
-        | Type::Null
-        | Type::Pure
-        | Type::Proc
+        | Type::Function(_)
         | Type::DynamicModule => false,
         Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             return_type_is_concrete(inner)
@@ -804,22 +934,18 @@ fn return_type_is_concrete(ty: &Type) -> bool {
     }
 }
 
-fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
+pub(super) fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     if left == right {
         return Some(left.clone());
     }
     match (left, right) {
         (Type::Unknown, other) | (other, Type::Unknown) => Some(other.clone()),
-        (Type::Null, Type::Optional(inner)) | (Type::Optional(inner), Type::Null) => {
-            Some(Type::Optional(inner.clone()))
-        }
-        // A failure-only `Err(..)` completion fixes the error type of a plain value.
         (Type::Result(ok, err), other) | (other, Type::Result(ok, err))
             if **ok == Type::Unknown && !matches!(other, Type::Result(_, _) | Type::Unit) =>
         {
             Some(Type::Result(Box::new(other.clone()), err.clone()))
         }
-        (Type::Null, other) | (other, Type::Null) => Some(Type::Optional(Box::new(other.clone()))),
+        (Type::Null, _) | (_, Type::Null) => super::types::join_null_branches(left, right),
         (Type::Error, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError)
         | (Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError, Type::Error) => {
             Some(Type::Error)
@@ -855,22 +981,6 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     }
 }
 
-// Failures from different completions join to their narrowest common error:
-// variants of one family join to the family, anything else to `Error`.
-fn join_error_types(left: &Type, right: &Type) -> Type {
-    match (left, right) {
-        _ if left == right => left.clone(),
-        (Type::Unknown, other) | (other, Type::Unknown) => other.clone(),
-        (Type::ErrorVariant { family, .. }, Type::ErrorVariant { family: other, .. })
-        | (Type::ErrorVariant { family, .. }, Type::ErrorFamily(other))
-        | (Type::ErrorFamily(family), Type::ErrorVariant { family: other, .. })
-            if family == other =>
-        {
-            Type::ErrorFamily(*family)
-        }
-        _ => Type::Error,
-    }
-}
 
 fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<Vec<usize>>, FxHashSet<usize>) {
     let mut visited = vec![false; edges.len()];
@@ -945,48 +1055,181 @@ fn binding_names(program: &ArenaProgram, target: BindingTargetId) -> Vec<Name> {
     names
 }
 
-fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name> {
-    let mut names = Vec::new();
-    let mut work = vec![pattern];
-    while let Some(pattern) = work.pop() {
-        match program.arena.pattern(pattern).kind {
-            ArenaPatternKind::Alias { name, .. } | ArenaPatternKind::Binding(name) => {
-                names.push(name);
-            }
-            ArenaPatternKind::Type { binding, .. } | ArenaPatternKind::TextHole { binding, .. } => {
-                if let Some(name) = binding {
-                    names.push(name);
-                }
-            }
-            ArenaPatternKind::Group(_)
-            | ArenaPatternKind::Wildcard
-            | ArenaPatternKind::TestName { .. }
-            | ArenaPatternKind::Literal(_)
-            | ArenaPatternKind::Record { .. }
-            | ArenaPatternKind::List { .. }
-            | ArenaPatternKind::Alternation(_)
-            | ArenaPatternKind::Constructor { .. }
-            | ArenaPatternKind::ErrorVariant { .. }
-            | ArenaPatternKind::Facet(_)
-            | ArenaPatternKind::Tuple(_)
-            | ArenaPatternKind::Text(_) => {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_data_returns_publish_closed_function_contracts() {
+        let source = "pure pure_null() { null }\npure pure_row() { {raw: null} }\npure pure_list() { [null] }\nproc proc_null() { null }\nproc proc_row() { {raw: null} }\npure joined(flag: Bool) { if flag { {raw: null} } else { {raw: \"present\"} } }";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{errors:?}");
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let row = |field| Type::Record(BTreeMap::from([(Name::intern("raw"), field)]).into());
+        for (name, expected) in [
+            ("pure_null", Type::Null),
+            ("pure_row", row(Type::Null)),
+            ("pure_list", Type::List(Box::new(Type::Null))),
+            ("proc_null", Type::Result(Box::new(Type::Null), Box::new(Type::Error))),
+            ("proc_row", Type::Result(Box::new(row(Type::Null)), Box::new(Type::Error))),
+            ("joined", row(Type::Optional(Box::new(Type::Str)))),
+        ] {
+            let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == name).unwrap();
+            assert_eq!(checked.function_return_types.get(&declaration.body), Some(&expected), "{name}");
         }
-        program.arena.for_each_pattern_child(pattern, |child| {
-            if let ArenaChild::Pattern(child) = child {
-                work.push(child);
-            }
-        });
     }
-    names
 }
 
-// Pattern captures are visible only in the selected body, never in the
-// condition subject or a sibling branch.
-fn pattern_condition_bindings(program: &ArenaProgram, condition: ExprId) -> Vec<Name> {
-    match program.arena.expr(condition).kind {
-        ArenaExprKind::PatternCondition { arms, .. } => {
-            pattern_binding_names(program, program.arena.match_expr_arms(arms)[0].pattern)
+#[cfg(test)]
+mod pure_error_return_tests {
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::sema::check::{CheckOptions, Checker};
+
+    #[test]
+    fn pure_return_error_domains_are_checked_before_lowering() {
+        let mut accepted_invalid = Vec::new();
+        for (label, definition, observation, should_pass) in [
+            ("typed string control", "pure attempt(flag: Bool, value: Int) -> Result[Int, Str] { if flag { return Err(\"stop\") }; Ok(value) }", "assert match attempt(true, 7) { Err(problem) => problem == \"stop\"; Ok(_) => false }", true),
+            ("nominal error and generic success control", "error Local = Stop\npure failure() -> Error { Local.Stop() }\npure attempt(flag, value) { if flag { return Err(failure()) }; Ok(value) }", "let integer: Result[Int] = attempt(false, 7)\nlet word: Result[Str] = attempt(false, \"kept\")\nassert integer == Ok(7)\nassert word == Ok(\"kept\")\nassert match attempt(true, 7) { Err(_) => true; Ok(_) => false }", true),
+            ("ordinary error and generic success control", "pure attempt(flag, value) { if flag { return Err(error.failure(\"stop\")) }; Ok(value) }", "let integer: Result[Int] = attempt(false, 7)\nlet word: Result[Str] = attempt(false, \"kept\")\nassert integer == Ok(7)\nassert word == Ok(\"kept\")", true),
+            ("inferred string and default error", "pure attempt(flag, value) { if flag { return Err(\"stop\") }; Ok(value) }", "let result = attempt(true, 7)", false),
+            ("inferred mixed authored errors", "pure attempt(flag, value) { if flag { return Err(\"stop\") }; if !flag { return Err(error.failure(\"structured\")) }; Ok(value) }", "let result = attempt(true, 7)", false),
+            ("typed error negative", "pure attempt(flag: Bool, value: Int) -> Result[Int, Error] { if flag { return Err(\"stop\") }; Ok(value) }", "let result = attempt(true, 7)", false),
+            ("ground string failure projection", "pure attempt(flag: Bool, value: Int) { if flag { return Err(\"stop\") }; Ok(value) }", "let result = attempt(true, 7)\nmatch result { Err(problem) => print $problem.message; Ok(_) => print \"unexpected success\" }", false),
+        ] {
+            let source = format!("{definition}\n{observation}\n");
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                "pure-error-return.xsh",
+                crate::loader::entry_source_from_text("pure-error-return.xsh", source.clone()),
+                Vec::new(),
+            );
+            assert!(parsed.diagnostics.is_empty(), "{label}: {:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if errors.is_empty() {
+                let output = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, source_id);
+                if should_pass {
+                    assert_eq!(output.status, 0, "{label}: {:?} {:?}", output.diagnostics, output.traceback);
+                    assert!(output.diagnostics.is_empty() && output.traceback.is_none(), "{label}: {:?} {:?}", output.diagnostics, output.traceback);
+                } else {
+                    accepted_invalid.push(label);
+                }
+            } else {
+                assert!(!should_pass, "{label}: {errors:?}");
+                assert!(errors.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{label}: {errors:?}");
+                assert!(checked.annotation_facts.iter().all(|fact| !matches!(fact.kind, crate::sema::check::AnnotationFactKind::InferredPureReturn { .. })), "{label}: an invalid inferred pure return was published");
+                let output = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, source_id);
+                assert_eq!(output.status, 2, "{label}: {:?}", output.diagnostics);
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{label}: {:?}", output.diagnostics);
+                assert!(output.traceback.is_none(), "{label}: {:?}", output.traceback);
+            }
         }
-        _ => Vec::new(),
+        assert!(accepted_invalid.is_empty(), "invalid pure returns passed the checker: {accepted_invalid:?}");
     }
+
+    #[test]
+    fn pure_return_validation_preserves_nullable_parameter_relationships() {
+        for source in [
+            "pure choose(flag, value) { if flag { return null }; value }\nlet integer: Int? = choose(false, 7)\nlet word: Str? = choose(false, \"kept\")\n",
+            "pure choose(flag, value) { if flag { return {row: {value: null}} }; {row: {value}} }\nlet integer: Int? = choose(false, 7).row.value\nlet word: Str? = choose(false, \"kept\").row.value\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn pure_error_return_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/pure-error-return-domains.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "pure-error-return-domains.xsh",
+            crate::loader::entry_source_from_text("pure-error-return-domains.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("pure_error_returns_preserve_explicit_payloads_and_nominal_errors", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
+                || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+}
+
+#[cfg(test)]
+mod pure_result_completion_tests {
+    fn accepts(annotation: &str) {
+        for (shape, definition, observation) in [
+            ("Int", "if failed { return Err(Local.Stop()) }; 7", "let result: Result[Int, Local] = attempt(false)"),
+            ("Int", "if !failed { return 7 }; Err(Local.Stop())", "let result: Result[Int, Local] = attempt(false)"),
+            ("Str", "if failed { return Err(Local.Stop()) }; \"kept\"", "let result: Result[Str, Local] = attempt(false)"),
+            ("Row", "if failed { return Err(Local.Stop()) }; {value: 7}", "let result: Result[Row, Local] = attempt(false)"),
+        ] {
+            let returned = annotation.replace("PAYLOAD", shape);
+            let source = format!("error Local = Stop\ntype Row = {{value: Int}}\npure attempt(failed: Bool) {returned} {{ {definition} }}\n{observation}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(errors.is_empty(), "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn typed_ground_result_returns_wrap_bare_success_values() {
+        accepts("-> Result[PAYLOAD, Local]");
+    }
+
+    #[test]
+    fn inferred_ground_result_returns_wrap_bare_success_values() {
+        accepts("");
+    }
+
+    #[test]
+    fn actual_result_candidates_keep_their_outer_error_domain() {
+        for source in [
+            "pure attempt(failed: Bool) { if failed { return Err(\"wrong\") }; Ok(7) }\n",
+            "pure attempt(failed: Bool) { if failed { return Err(\"wrong\") }; Ok(Ok(7)) }\n",
+            "pure attempt(failed: Bool) -> Result[Result[Int, Str], Error] { if failed { return Err(\"wrong\") }; Ok(Ok(7)) }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn inferred_pure_result_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/inferred-pure-result-completions.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("inferred-pure-result-completions.xsh", crate::loader::entry_source_from_text("inferred-pure-result-completions.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("inferred_pure_results_wrap_success_and_preserve_failures", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit)) || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{:?}", result.result);
+        }
+    }
+
 }

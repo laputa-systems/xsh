@@ -1,9 +1,9 @@
 use super::{
-    Arc, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, CallArgument, CallableParamType,
+    Arc, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, CallArgument, CallableParamType, CheckedCallParameters,
     CompactLowerConstructProbe, ExprId, FxHashMap, FxHashSet, LoweredCallArg, LoweredFunctionKey,
     CheckedFunctionTarget, LoweredHashVerifyFileArgs, LoweredProcessCommandArgv, LoweredRecordEntry,
     LoweredStrPredicate,
-    LoweredTypeCheck,
+    LoweredTypeCheck, LoweredValueCheck,
     ModuleExportType, Name, QualifiedName, RuntimeOp, SlotScope, Span, StdlibLowerLinkage, Type,
     api_spec, call_positional_arguments, is_env_module_expr, lower_archive_tar_create_args,
     lower_fs_files_args, lower_fs_list_args, lower_hash_verify_file_args, lower_path_remove_args,
@@ -11,7 +11,135 @@ use super::{
     lowered_module_call_args, lowered_str_byte_op, script_argument_slots,
 };
 
+pub(super) struct CheckedRecordConstruction<T = Type> {
+    pub(super) schema: T,
+    pub(super) defaults: std::collections::BTreeMap<Name, crate::sema::constants::LiteralConstant>,
+    pub(super) positional_fields: Vec<Name>,
+    pub(super) name: Arc<str>,
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    fn canonical_alias_signature(&self, mut signature: crate::sema::types::CallableType, kind: crate::sema::types::CallableKind) -> Type {
+        signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(kind));
+        self.canonicalize_checked_type(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind, sig: signature })))
+    }
+
+    pub(super) fn lower_scheme_stage_value_call(
+        &mut self, callee: ExprId, argument: CallArgument<super::SchemeType>, slots: &mut SlotScope,
+        current_function: Name, facts: &super::SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
+    ) -> Option<BuildExprId> {
+        let span = self.program.arena.expr(callee).span;
+        let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(callee)).copied();
+        let alias = self.declarations.static_callable_aliases.get(&span).cloned();
+        let alias_signature = alias.as_ref().map(|alias| {
+            let mut sig = alias.signature.clone();
+            sig.effects = crate::sema::types::CallableEffects::from_contract(sig.effects.contract().clone().for_invocation(alias.kind));
+            Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: alias.kind, sig }))
+        });
+        let source = match self.program.arena.expr(callee).kind {
+            ArenaExprKind::Field { base, .. } if alias.as_ref().is_some_and(|alias| alias.method_call) => base,
+            _ => callee,
+        };
+        let signature = alias_signature.or_else(|| {
+            let ArenaExprKind::Field { base, name } = self.program.arena.expr(source).kind else { return None; };
+            let binding = self.expression_binding(base)?;
+            let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
+            if !declaration.global || !matches!(declaration.kind, super::BindingKind::Module(_)) { return None; }
+            let Some(Type::Module(module)) = slots.types.get(&binding)?.closed_ground_type() else { return None; };
+            module.exact.then(|| module.get(&name)?.static_callable_value_type())?
+        });
+        let source_type = self.expression_binding(source).and_then(|binding| slots.types.get(&binding)).cloned()
+            .or_else(|| relationship.map(|relationship| super::SchemeType::Ground(Type::SchemeCallable(relationship))))
+            .or_else(|| signature.clone().map(super::SchemeType::Ground))?;
+        let namespace = matches!(self.program.arena.expr(source).kind, ArenaExprKind::Field { base, .. }
+            if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding)).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Module(_))));
+        let value = if namespace {
+            let value = self.lower_scheme_static_callable_projection(source, slots, facts, visited, lowered_types)?;
+            if lowered_types.get(&value).and_then(super::SchemeType::closed_ground_type) != source_type.closed_ground_type() { return None; }
+            value
+        } else {
+            let value = self.lower_expr_untyped(source, slots, Some(current_function), None)?;
+            lowered_types.insert(value, source_type);
+            value
+        };
+        let arguments = if let Some(relationship) = relationship {
+            let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+            let parameters = contract.canonical().scheme().params();
+            let arguments = self.lower_function_call_argument_elaborations(callee, vec![argument], parameters, slots, Some(current_function), None, super::SchemeType::closed_ground_type)?;
+            self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Scheme(parameters)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
+        } else {
+            let Type::Callable(callable) = signature.as_ref()? else { return None; };
+            self.lower_function_call_args(&[argument], Some(CheckedCallParameters::Ground(&callable.sig.params)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
+        };
+        self.record_scheme_call_argument_checks(&arguments, lowered_types);
+        let call = if let Some(relationship) = relationship {
+            let call = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee: value, args: arguments, span });
+            let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(callee))?.clone();
+            let mut scratch = self.scratch.borrow_mut();
+            if !scratch.record_call_instantiation(call, instantiation) || scratch.scheme_callable_calls.insert(call.index(), relationship).is_some() { return None; }
+            call
+        } else {
+            let signature = signature?;
+            let Type::Callable(callable) = &signature else { return None; };
+            let kind = callable.kind;
+            let signature = self.canonicalize_checked_type(signature);
+            push_build_row!(self, expr, BuildExprRow::TypedCall { callee: value, kind, signature, args: arguments, span })
+        };
+        Some(call)
+    }
+
+    pub(super) fn checked_record_construction(&self, id: ExprId) -> Option<CheckedRecordConstruction> {
+        let instance = self.bodies.resolved_type_expressions.instantiations.get(&id)?;
+        let definition = instance.instance.definition;
+        let schema = self.declarations.record_constructors.instantiate_checked(
+            &self.program.arena, definition, &instance.instance.arguments,
+        ).ok()?;
+        if self.bodies.expr_types.get(&id) != Some(&schema) || !matches!(schema.unvalidated(), Type::Record(_)) { return None; }
+        self.record_construction_parts(id, definition, schema)
+    }
+
+    pub(super) fn checked_scheme_record_construction(&self, id: ExprId, facts: &crate::sema::schemes::SchemeBodyFacts) -> Option<CheckedRecordConstruction<crate::sema::schemes::SchemeType>> {
+        let constructor = facts.constructor_instances().get(&id)?;
+        if facts.expression_types().get(&id) != Some(&constructor.ty) { return None; }
+        if self.program.arena.names(self.program.arena.type_def(constructor.instance.definition).type_parameters).count() != constructor.instance.arguments.len() { return None; }
+        self.record_construction_parts(id, constructor.instance.definition, constructor.ty.clone())
+    }
+
+    fn record_construction_parts<T>(&self, id: ExprId, definition: crate::syntax::arena::TypeDefId, schema: T) -> Option<CheckedRecordConstruction<T>> {
+        let ArenaExprKind::Call { callee, .. } = self.program.arena.expr(id).kind else { return None; };
+        if self.declarations.record_constructors.constructor_definition(&self.program.arena, callee, self.current_namespace) != Some(definition) { return None; }
+        let schema_definition = match self.program.arena.type_def(definition).body {
+            crate::syntax::arena::ArenaTypeDefBody::RecordSchema(_) => definition,
+            crate::syntax::arena::ArenaTypeDefBody::Alias(ty) => self.declarations.record_constructors.resolve_annotation(
+                &self.program.arena, ty, self.declarations.record_constructors.namespace(definition),
+            )?,
+            crate::syntax::arena::ArenaTypeDefBody::ModuleContract { .. }
+            | crate::syntax::arena::ArenaTypeDefBody::TagUnion(_) => return None,
+        };
+        let name = match self.program.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => name.to_string(),
+            ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind {
+                ArenaExprKind::Ident(namespace) => format!("{namespace}.{name}"),
+                _ => return None,
+            },
+            _ => return None,
+        }.into();
+        Some(CheckedRecordConstruction {
+            schema,
+            defaults: self.declarations.record_constructors.defaults(schema_definition).cloned().unwrap_or_default(),
+            positional_fields: self.bodies.record_constructor_fields.get(&id).cloned().unwrap_or_default(),
+            name,
+        })
+    }
+
+    pub(super) fn lower_range_values(&mut self, start: Option<BuildExprId>, end: BuildExprId, span: Span) -> (BuildExprId, Option<BuildExprId>) {
+        let (start, implicit_start) = match start {
+            Some(start) => (start, None),
+            None => { let start = push_build_row!(self, expr, BuildExprRow::Int(0)); (start, Some(start)) }
+        };
+        (push_build_row!(self, expr, BuildExprRow::Range { start, end, span }), implicit_start)
+    }
+
     fn lower_checked_function_call(
         &mut self,
         id: ExprId,
@@ -22,50 +150,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let function = self.function_index().checked_target_key(target)?;
-        let params = self
-            .compact_function_sig_for_key(function)
-            .map(|signature| signature.params.clone());
         let span = self.program.arena.expr(id).span;
-        let scheme = self.checked_function_scheme(function).filter(|scheme| {
-            !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()
-        });
-        if args.iter().any(|argument| argument.splice)
-            && (scheme.is_some() || self.bodies.call_instantiations.contains_key(&id))
-        {
-            let Some(rest_slot) = scheme.and_then(Self::final_rest_slot) else {
-                let splice_span = args
-                    .iter()
-                    .find(|argument| argument.splice)
-                    .map_or(span, |argument| argument.span);
-                self.last_blocker_detail = Some((
-                    splice_span,
-                    "generic positional splice must target the final rest parameter".to_string(),
-                ));
-                return None;
-            };
-            self.validate_generic_rest_splices(id, args, rest_slot)?;
-        }
-        let lowered_args = self.lower_function_call_args(
-            args,
-            params.as_deref(),
-            self.call_argument_slots(id),
-            Some((function, 0)),
-            slots,
-            current_function,
-            item_slot,
-        )?;
+        let lowered_args = self.lower_checked_function_arguments(id, args, function, slots, current_function, item_slot, |ty| Some(ty.clone()))?;
         let lowered = self.lower_checked_function_call_values(
             function,
             lowered_args,
             span,
             current_function,
         )?;
-        if let Some(instantiation) = self.bodies.call_instantiations.get(&id)
+        if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id))
             && (!instantiation.type_arguments().is_empty()
                 || !instantiation.row_arguments().is_empty())
         {
-            let Some(ty) = self.bodies.expr_types.get(&id).cloned().filter(|ty| {
-                !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
+            let Some(ty) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)).copied().map(Type::SchemeCallable).or_else(|| self.bodies.expr_types.get(&id).cloned()).filter(|ty| {
+                !ty.contains_inference() && !ty.contains_recovery()
             }) else {
                 self.last_blocker_detail = Some((
                     span,
@@ -93,15 +191,125 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
-    fn checked_function_scheme(
+    pub(super) fn lower_checked_function_arguments<T: Clone>(
+        &mut self, id: ExprId, args: &[CallArgument<T>], function: LoweredFunctionKey,
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+        closed_argument_type: impl Fn(&T) -> Option<Type>,
+    ) -> Option<Vec<LoweredCallArg>> {
+        let span = self.program.arena.expr(id).span;
+        let params = self
+            .compact_function_sig_for_key(function)
+            .map(|signature| signature.params.clone());
+        let scheme = self.checked_function_scheme(function);
+        let rest_slot = scheme
+            .as_deref()
+            .and_then(Self::final_rest_slot)
+            .or_else(|| {
+                params
+                    .as_ref()
+                    .and_then(|params| params.iter().position(|param| param.rest))
+            });
+        if args.iter().any(|argument| argument.splice)
+            && (scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()) || self.bodies.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(id)))
+        {
+            let Some(rest_slot) = rest_slot else {
+                let splice_span = args
+                    .iter()
+                    .find(|argument| argument.splice)
+                    .map_or(span, |argument| argument.span);
+                self.last_blocker_detail = Some((
+                    splice_span,
+                    "generic positional splice must target the final rest parameter".to_string(),
+                ));
+                return None;
+            };
+            self.validate_generic_rest_splices(id, args, rest_slot)?;
+        }
+        let fixed_slots = rest_slot.or_else(|| scheme.as_ref().map(|scheme| scheme.params().len()))
+            .or_else(|| params.as_ref().map(Vec::len));
+        let mut expanded_args = match fixed_slots {
+            Some(fixed_slots) if args.iter().any(|argument| argument.splice) => {
+                self.expand_static_positional_splices(args, fixed_slots)?
+            }
+            _ => args.to_vec(),
+        };
+        if let Some(scheme) = &scheme {
+            expanded_args = self.lower_function_call_argument_elaborations(id, expanded_args, scheme.params(), slots, current_function, item_slot, closed_argument_type)?;
+        }
+        self.lower_function_call_args(
+            &expanded_args,
+            scheme.as_deref().map(|scheme| CheckedCallParameters::Scheme(scheme.params())).or_else(|| params.as_deref().map(CheckedCallParameters::Ground)),
+            self.call_argument_slots(id),
+            Some((function, 0)),
+            slots,
+            current_function,
+            item_slot,
+        )
+    }
+
+    pub(super) fn lower_function_call_argument_elaborations<T: Clone>(
+        &mut self, id: ExprId, mut args: Vec<CallArgument<T>>, parameters: &[crate::sema::schemes::SchemeParameter],
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+        closed_argument_type: impl Fn(&T) -> Option<Type>,
+    ) -> Option<Vec<CallArgument<T>>> {
+        if let Some(instance) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id)).cloned() {
+            let rest_slot = parameters.iter().position(|parameter| parameter.rest);
+            let named = args.iter().any(|argument| argument.name.is_some());
+            let argument_slots = self.call_argument_slots(id).map(<[usize]>::to_vec);
+            for (index, argument) in args.iter_mut().enumerate() {
+                if argument.splice { continue; }
+                if let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.source
+                    && matches!(self.program.arena.expr(expression).kind, ArenaExprKind::List(_))
+                    && let Some(actual) = closed_argument_type(&argument.ty)
+                        .filter(|ty| !ty.contains_inference() && !ty.contains_recovery())
+                        .or_else(|| self.bodies.expr_types.get(&expression)
+                            .filter(|ty| !ty.contains_inference() && !ty.contains_recovery()).cloned())
+                    && matches!(actual, Type::List(_))
+                {
+                    let value = self.lower_call_argument(argument, slots, current_function, item_slot)?;
+                    let actual = self.canonicalize_checked_type(actual);
+                    if !self.scratch.borrow_mut().record_producer_context(value, actual) { return None; }
+                    argument.lowered = Some(value);
+                }
+                let slot = if named { *argument_slots.as_ref()?.get(index)? } else { index.min(rest_slot.unwrap_or(index)) };
+                let Some(parameter) = parameters.get(slot) else { continue; };
+                let parameter_type = match &parameter.ty {
+                    crate::sema::schemes::SchemeType::List(item) if parameter.rest => item.as_ref(),
+                    ty => ty,
+                };
+                let crate::sema::schemes::SchemeType::Parameter(parameter) = parameter_type else { continue; };
+                let Some(expected) = instance.type_arguments().get(parameter).and_then(crate::sema::schemes::SchemeType::closed_ground_type) else { continue; };
+                if !matches!(expected, Type::Any | Type::Optional(_)) { continue; }
+                let closed = |ty: &Type| !ty.contains_inference() && !ty.contains_recovery();
+                let actual = closed_argument_type(&argument.ty).filter(&closed).or_else(|| {
+                    let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.source else { return None; };
+                    self.bodies.expr_types.get(&expression).filter(|ty| closed(ty)).cloned()
+                });
+                let Some(actual) = actual else { continue; };
+                if actual == expected { continue; }
+                if let Type::Optional(payload) = &expected {
+                    if actual.contains_any() || matches!(actual, Type::Optional(_) | Type::Result(_, _)) { continue; }
+                    if actual != Type::Null && !actual.matches_stored(payload) { return None; }
+                }
+                let value = self.lower_call_argument(argument, slots, current_function, item_slot)?;
+                let expected = self.canonicalize_checked_type(expected);
+                let check = LoweredTypeCheck { name: Arc::from(expected.to_string()), ty: expected.clone(), schema: None };
+                let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span: argument.span });
+                argument.lowered = Some(checked);
+            }
+        }
+        Some(args)
+    }
+
+    pub(super) fn checked_function_scheme(
         &self,
         function: LoweredFunctionKey,
-    ) -> Option<&crate::sema::schemes::TypeScheme> {
+    ) -> Option<Arc<crate::sema::schemes::TypeScheme>> {
         match function {
             LoweredFunctionKey::Qualified(name) => self
                 .qualified_schemes
                 .get(&name)
-                .map(|scheme| scheme.as_ref()),
+                .cloned(),
             LoweredFunctionKey::Name(_) => None,
         }
         .or_else(|| {
@@ -114,7 +322,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self.declarations
                 .scheme_bodies
                 .get(&body_span)
-                .map(|facts| facts.scheme().as_ref())
+                .map(|facts| Arc::clone(facts.scheme()))
         })
     }
 
@@ -182,26 +390,32 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(callee).span;
         let args = vec![LoweredCallArg::Single(item)];
-        if let Some(alias) = self.declarations.static_callable_aliases.get(&span) {
+        if let Some(alias) = self.declarations.static_callable_aliases.get(&span).cloned() {
             let callee = match self.program.arena.expr(callee).kind {
                 ArenaExprKind::Field { base, .. } if alias.method_call => base,
                 _ => callee,
             };
-            let callee = self.lower_expr(callee, slots, current_function, None)?;
+            let callee = self.lower_expr_untyped(callee, slots, current_function, None)?;
+            let signature = self.canonical_alias_signature(alias.signature, alias.kind);
             return Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::DynamicCall { callee, args, span }
+                BuildExprRow::TypedCall { callee, kind: alias.kind, signature, args, span }
             ));
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
             let function = self.function_index().checked_target_key(target)?;
-            return self.lower_checked_function_call_values(
-                function,
-                args,
-                span,
-                current_function,
-            );
+            let value = self.lower_checked_function_call_values(function, args, span, current_function)?;
+            if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(callee)).cloned() {
+                let actual = self.bodies.expr_types.get(&callee)?.clone();
+                if actual.contains_inference() || actual.contains_recovery() { return None; }
+                let actual = self.canonicalize_checked_type(actual);
+                let mut scratch = self.scratch.borrow_mut();
+                if !scratch.record_call_instantiation(value, instantiation)
+                    || !scratch.record_checked_call_result_type(value, actual)
+                { return None; }
+            }
+            return Some(value);
         }
         if let Some(plan) = self.module_call_plan(callee) {
             if let Some(script) = plan.sig.script_impl() {
@@ -345,7 +559,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered.extend(
             self.lower_function_call_args(
                 args,
-                params.as_deref(),
+                params.as_deref().map(CheckedCallParameters::Ground),
                 self.bodies
                     .api_calls
                     .get(&call)
@@ -464,7 +678,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let args = self
             .lower_function_call_args(
                 args,
-                params.as_deref(),
+                params.as_deref().map(CheckedCallParameters::Ground),
                 self.module_call_plan(call)
                     .and_then(|plan| script_argument_slots(plan, params.as_deref()?)),
                 Some((LoweredFunctionKey::Qualified(qualified), 0)),
@@ -571,6 +785,51 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(arguments) => std::borrow::Cow::Borrowed(arguments),
             None => std::borrow::Cow::Owned(self.source_call_arguments(source_args)?),
         };
+        if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(id)) {
+            let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+            let adapted = self.lower_function_call_argument_elaborations(id, args_vec.to_vec(), contract.canonical().scheme().params(), slots, current_function, item_slot, |ty| Some(ty.clone()))?;
+            let args = self.lower_function_call_args(&adapted,
+                Some(CheckedCallParameters::Scheme(contract.canonical().scheme().params())),
+                self.call_argument_slots(id), None, slots, current_function, item_slot)?;
+            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
+            let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span });
+            let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id))?.clone();
+            let mut scratch = self.scratch.borrow_mut();
+            let result_type = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)).copied().map(Type::SchemeCallable).or_else(|| self.bodies.expr_types.get(&id).cloned())?;
+            if !scratch.record_call_instantiation(lowered, instantiation) || !scratch.record_checked_call_result_type(lowered, result_type) || scratch.scheme_callable_calls.insert(lowered.index(), relationship).is_some() { return None; }
+            return Some(lowered);
+        }
+        if let Some(alias) = self
+            .declarations
+            .static_callable_aliases
+            .get(&self.program.arena.expr(callee).span)
+            .cloned()
+        {
+            let fixed_slots = alias.signature.params.iter().position(|parameter| parameter.rest).unwrap_or(alias.signature.params.len());
+            let expanded = if args_vec.iter().any(|argument| argument.splice) {
+                std::borrow::Cow::Owned(self.expand_static_positional_splices(&args_vec, fixed_slots)?)
+            } else { std::borrow::Cow::Borrowed(args_vec.as_ref()) };
+            let args = self.lower_function_call_args(
+                &expanded,
+                Some(CheckedCallParameters::Ground(&alias.signature.params)),
+                self.call_argument_slots(id),
+                None,
+                slots,
+                current_function,
+                item_slot,
+            )?;
+            let callee = match self.program.arena.expr(callee).kind {
+                ArenaExprKind::Field { base, .. } if alias.method_call => base,
+                _ => callee,
+            };
+            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
+            let signature = self.canonical_alias_signature(alias.signature, alias.kind);
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::TypedCall { callee, kind: alias.kind, signature, args, span }
+            ));
+        }
         if let Some(target) = self.bodies.selected_function_calls.get(&id).copied() {
             return self.lower_checked_function_call(
                 id,
@@ -596,7 +855,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             let args = self.lower_function_call_args(
                 &args_vec,
-                Some(&callable.sig.params),
+                Some(CheckedCallParameters::Ground(&callable.sig.params)),
                 self.call_argument_slots(id),
                 None,
                 slots,
@@ -610,39 +869,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::TypedCall {
                     callee,
-                    pure: callable.pure,
+                    kind: callable.kind,
                     signature: Type::Callable(callable),
                     args,
                     span,
                 }
             );
             return Some(typed_call);
-        }
-        if let Some(alias) = self
-            .declarations
-            .static_callable_aliases
-            .get(&self.program.arena.expr(callee).span)
-            .cloned()
-        {
-            let args = self.lower_function_call_args(
-                &args_vec,
-                Some(&alias.signature.params),
-                self.call_argument_slots(id),
-                None,
-                slots,
-                current_function,
-                item_slot,
-            )?;
-            let callee = match self.program.arena.expr(callee).kind {
-                ArenaExprKind::Field { base, .. } if alias.method_call => base,
-                _ => callee,
-            };
-            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
-            return Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::DynamicCall { callee, args, span }
-            ));
         }
         if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr(callee).kind
             && self.checked_expr_type(base)
@@ -674,42 +907,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.sig.op, args: arguments, span });
             return Some(self.wrap_argument_bindings(call, bindings, span));
         }
-        if let Some(instance) = self
-            .bodies
-            .resolved_type_expressions
-            .instantiations
-            .get(&id)
-        {
-            let definition = instance.instance.definition;
-            let schema_definition = match self.program.arena.type_def(definition).body {
-                crate::syntax::arena::ArenaTypeDefBody::RecordSchema(_) => definition,
-                crate::syntax::arena::ArenaTypeDefBody::Alias(ty) => self
-                    .declarations
-                    .record_constructors
-                    .resolve_annotation(
-                        &self.program.arena,
-                        ty,
-                        self.declarations.record_constructors.namespace(definition),
-                    )?,
-                crate::syntax::arena::ArenaTypeDefBody::ModuleContract { .. }
-                | crate::syntax::arena::ArenaTypeDefBody::TagUnion(_) => return None,
-            };
-            let defaults = self
-                .declarations
-                .record_constructors
-                .defaults(schema_definition)
-                .cloned()
-                .unwrap_or_default();
-            let schema = self.bodies.expr_types.get(&id).cloned()?;
+        if self.bodies.resolved_type_expressions.instantiations.contains_key(&id) {
+            let construction = self.checked_record_construction(id)?;
+            let schema = construction.schema;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
             for (index, arg) in args_vec.iter().enumerate() {
                 if arg.splice {
                     return None;
                 }
-                let name = arg.name.or_else(|| {
-                    self.bodies.record_constructor_fields.get(&id)?.get(index).copied()
-                })?;
+                let name = arg.name.or_else(|| construction.positional_fields.get(index).copied())?;
                 supplied.insert(name);
                 let literal = match arg.source {
                     crate::sema::arguments::ArgumentValueSource::Expression(value) => {
@@ -726,7 +933,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let lowered =
                     if let (Some(literal), Type::Record(schema_fields)) = (literal, &schema) {
                         let contextual = literal.clone().in_type(schema_fields.get(&name)?);
-                        if contextual != literal {
+                        if contextual != literal && arg.lowered.is_none() {
                             self.lower_record_default(&contextual)?
                         } else {
                             self.lower_call_argument(arg, slots, current_function, item_slot)?
@@ -736,7 +943,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                 fields.push(LoweredRecordEntry::Field(name, lowered));
             }
-            for (name, value) in &defaults {
+            for (name, value) in &construction.defaults {
                 if !supplied.contains(name) {
                     fields.push(LoweredRecordEntry::Field(
                         *name,
@@ -751,26 +958,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let check = LoweredTypeCheck {
                 schema: None,
                 ty: schema,
-                name: match self.program.arena.expr(callee).kind {
-                    ArenaExprKind::Ident(name) => name.to_string(),
-                    ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind
-                    {
-                        ArenaExprKind::Ident(namespace) => format!("{namespace}.{name}"),
-                        _ => return None,
-                    },
-                    _ => return None,
-                }
-                .into(),
+                name: construction.name,
             };
-            let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
-            return Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::Try {
-                    value: checked,
-                    span
-                }
-            ));
+            return Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }));
         }
         if let Some((error, bindings)) =
             self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)
@@ -797,13 +987,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if runtime_module
                     && let Some(Type::Module(exports)) = self.checked_expr_type(base)
                     && let Some(
-                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. },
+                        ModuleExportType::Callable { sig, .. },
                     ) = exports.get(&name)
                 {
                     let params = sig.params.clone();
                     let args = self.lower_function_call_args(
                         &args_vec,
-                        Some(&params),
+                        Some(CheckedCallParameters::Ground(&params)),
                         self.call_argument_slots(id),
                         None,
                         slots,
@@ -831,7 +1021,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     );
                     // The checker typed `.call` on a dynamic proc handle as
                     // a Result without knowing what the proc returns.
-                    if self.checked_expr_type(base) == Some(Type::Proc) {
+                    if self.checked_expr_type(base) == Some(Type::Function(crate::sema::types::CallableKind::Proc)) {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -1106,20 +1296,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             &self.checked_api_arguments(id, &args_vec)?,
                         )?;
                         let command = LoweredProcessCommandArgv {
-                            target: self.lower_call_argument(
+                            target: self.lower_producer_call_argument(
                                 &options.target,
                                 slots,
                                 current_function,
                                 item_slot,
                             )?,
-                            argv: self.lower_call_argument(
+                            argv: self.lower_producer_call_argument(
                                 &options.argv,
                                 slots,
                                 current_function,
                                 item_slot,
                             )?,
                             cwd: match options.cwd {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1128,7 +1318,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             env: match options.env {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1137,7 +1327,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stdin: match options.stdin {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1146,7 +1336,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stdout: match options.stdout {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1155,7 +1345,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stderr: match options.stderr {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1164,7 +1354,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stdout_append: match options.stdout_append {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1173,7 +1363,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stderr_append: match options.stderr_append {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1182,7 +1372,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             timeout: match options.timeout {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1191,7 +1381,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             detach: match options.detach {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1200,7 +1390,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             new_session: match options.new_session {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1209,7 +1399,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             ignore_hup: match options.ignore_hup {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1218,7 +1408,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             cpu_max: match options.cpu_max {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1227,7 +1417,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             accept: match options.accept {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1236,7 +1426,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             same_group: match options.same_group {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -2314,7 +2504,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     );
                     return Some(self.wrap_argument_bindings(value, bindings, span));
                 }
-                if name == "Err" {
+                if self.bodies.checked_control_flow.result_constructors.get(&span) == Some(&crate::sema::check::CheckedResultConstructor::Err) {
                     let argument_slots = self.call_argument_slots(id)?;
                     if args_vec.len() == 1 && args_vec[0].name.is_none() && !args_vec[0].splice {
                         let value = self.lower_call_argument(
@@ -2354,11 +2544,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     );
                     return Some(result);
                 }
-                if name == "Ok"
+                if self.bodies.checked_control_flow.result_constructors.get(&span) == Some(&crate::sema::check::CheckedResultConstructor::Ok)
                     && let Some(positional) = positional.as_ref()
                 {
                     let value = match positional.as_slice() {
-                        [] if name == "Ok" => push_build_row!(self, expr, BuildExprRow::Unit),
+                        [] => push_build_row!(self, expr, BuildExprRow::Unit),
                         [value] => self.lower_call_argument(value, slots, current_function, item_slot)?,
                         _ => return None,
                     };
@@ -2368,8 +2558,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     && self
                         .bodies
                         .checked_control_flow
-                        .builtin_range_calls
-                        .contains(&span)
+                        .builtin_calls
+                        .get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Range)
                     && let Some(positional) = positional.as_ref()
                 {
                     let (start, end) = match positional.as_slice() {
@@ -2377,22 +2567,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         [start, end] => (Some(start), end),
                         _ => return None,
                     };
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Range {
-                            start: match start {
-                                Some(start) => {
-                                    self.lower_call_argument(start, slots, current_function, item_slot)?
-                                }
-                                None => push_build_row!(self, expr, BuildExprRow::Int(0)),
-                            },
-                            end: self.lower_call_argument(end, slots, current_function, item_slot)?,
-                            span,
-                        }
-                    ));
+                    let start = match start {
+                        Some(start) => Some(self.lower_call_argument(start, slots, current_function, item_slot)?),
+                        None => None,
+                    };
+                    let end = self.lower_call_argument(end, slots, current_function, item_slot)?;
+                    return Some(self.lower_range_values(start, end, span).0);
                 }
                 if name == "Path"
+                    && self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Path)
                     && let Some(positional) = positional.as_ref()
                 {
                     let [value] = positional.as_slice() else {
@@ -2408,6 +2591,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "env"
+                    && self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Environment)
                     && let Some(positional) = positional.as_ref()
                 {
                     let [value] = positional.as_slice() else {

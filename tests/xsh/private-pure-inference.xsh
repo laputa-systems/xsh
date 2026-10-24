@@ -83,11 +83,6 @@ let prefix = "later"
 """,
     """pure dynamic(value: Any) { value }
 """,
-    """pure recursive(value: Int) { recursive(value) }
-""",
-    """pure first(value: Int) { second(value) }
-pure second(value: Int) { first(value) }
-""",
     """pure parsed(value: Str) { value.parse_int()? }
 """,
     """pure mixed(value: Bool) { if value { return 1 } }
@@ -223,12 +218,8 @@ print inferred_tags.enabled()
 """
 }
 
-test test_private_pure_inference_requires_annotations_for_recursive_and_contextual_returns { |ctx|
+test test_private_pure_inference_requires_annotations_for_contextual_returns { |ctx|
   for {source, code} in [
-    {
-      source: "pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n",
-      code: "check.required-return",
-    },
     {
       source: "pure value() { [] }\n",
       code: "check.infer-return",
@@ -287,10 +278,16 @@ test test_private_pure_inference_pattern_captures_do_not_create_recursive_depend
     assert accepted.stderr == "", f"{source}: {accepted.stderr}"
   }
 
-  for source in [
+  test.expect(
+    ctx,
     "pure selected(outcome: Result[Int]) { if let Ok(selected) = selected(outcome) { selected } else { 0 } }\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+  let recursive = test.expect(
+    ctx,
     "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n",
-  ] {
-    test.expect(ctx, source, status: 2, stderr: ["[check.required-return]"])?
-  }
+    status: 0,
+  )?
+  assert recursive.stderr == "", recursive.stderr
 }

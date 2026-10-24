@@ -23,10 +23,10 @@ pub(super) fn propagation_allowed(
     let body = arena.span(arena.block(arena.function_def(definition).body).span);
     pure || effects.iter().any(|(id, fact)| {
         id.body == body
-            && match &fact.effective {
-                Some(effective) => effective.contains(&Effect::Error),
-                None => !fact.inferred,
-            }
+            && fact
+                .effective
+                .concrete()
+                .is_ok_and(|effects| effects.is_some_and(|effects| effects.contains(&Effect::Error)))
     })
 }
 
@@ -211,6 +211,8 @@ mod tests {
         apply, checked, lint_checked, lint_rule,
     };
     use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
+    use xsh::frontend::check::CheckedEffects;
+    use xsh::frontend::syntax::arena::ArenaStmtKind;
 
     fn lint(source: &str) -> Vec<Diagnostic> {
         lint_rule(source, DiagnosticCode::LintPreferPropagation)
@@ -337,6 +339,78 @@ mod tests {
         reported_without_fix(
             "proc work() [fs] -> Result[Int, E] {\n  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }\n  1\n}\n",
         );
+    }
+
+    #[test]
+    fn unknown_and_known_empty_effects_do_not_authorize_propagation() {
+        let source = format!(
+            "{PRELUDE}proc work() [error] -> Result[Int, E] {{\n  match step(false) {{\n    Ok(_) => {{}}\n    Err(problem) => return Err(problem)\n  }}\n  1\n}}\n"
+        );
+        for effects in [CheckedEffects::unknown(), CheckedEffects::finite([])] {
+            let (program, mut checked) = checked(&source);
+            let body = program
+                .arena
+                .stmt_ids(program.statements)
+                .find_map(|statement| match program.arena.stmt(statement).kind {
+                    ArenaStmtKind::ProcDef(definition)
+                        if program.arena.function_def(definition).name.as_str() == "work" =>
+                    {
+                        let body = program.arena.function_def(definition).body;
+                        Some(program.arena.span(program.arena.block(body).span))
+                    }
+                    _ => None,
+                })
+                .expect("work declaration exists");
+            let fact = checked
+                .function_effect_facts
+                .iter_mut()
+                .find_map(|(id, fact)| (id.body == body).then_some(fact))
+                .expect("work effect fact exists");
+            fact.effective = effects;
+
+            let diagnostics = lint_checked(
+                &program,
+                &source,
+                checked,
+                DiagnosticCode::LintPreferPropagation,
+            );
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert!(diagnostics[0].fix_hints.is_empty(), "{diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn symbolic_callback_effects_do_not_authorize_propagation() {
+        let source = "pure value_result(payload: Int) -> Result[Int] { Ok(payload) }\nproc relay(action, value) {\n  let _ = action(value)\n  match value_result(value) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }\n  1\n}\nproc fallible(payload: Int) [env, error] -> Int {\n  let _ = env.get(\"XSH_INFERRED_CALLBACK\")\n  assert payload > 0\n  payload\n}\nproc caller() [env, error] -> Result[Int] { relay(fallible, 7)? }\n";
+        let (program, checked) = checked(source);
+        let relay_body = program
+            .arena
+            .stmt_ids(program.statements)
+            .find_map(|statement| match program.arena.stmt(statement).kind {
+                ArenaStmtKind::ProcDef(definition)
+                    if program.arena.function_def(definition).name.as_str() == "relay" =>
+                {
+                    let body = program.arena.function_def(definition).body;
+                    Some(program.arena.span(program.arena.block(body).span))
+                }
+                _ => None,
+            })
+            .expect("relay declaration exists");
+        let fact = checked
+            .function_effect_facts
+            .iter()
+            .find_map(|(id, fact)| (id.body == relay_body).then_some(fact))
+            .expect("relay effect fact exists");
+        assert!(fact.effective.is_symbolic(), "{:?}", fact.effective);
+
+        let diagnostics = lint_checked(
+            &program,
+            source,
+            checked,
+            DiagnosticCode::LintPreferPropagation,
+        );
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].fix_hints.is_empty(), "{diagnostics:?}");
     }
 
     #[test]

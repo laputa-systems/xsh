@@ -23,6 +23,7 @@ impl Checker {
         input: ExprId,
         stages: crate::syntax::arena::ArenaRange,
     ) -> Type {
+        let pipeline_input = input;
         let input_ty = self.check_expr_arena(arena, source, input, None);
         let Some((first, rest)) = arena.arena.stream_stages(stages).split_first() else {
             return input_ty;
@@ -38,13 +39,13 @@ impl Checker {
             );
             output
         } else {
-            match stream_type_from_input(input_ty) {
+            match self.check_pipeline_input_type(input_ty, arena.arena.expr(input).span) {
                 Err(Type::Any) => {
                     self.reject_dynamic_use("a pipeline source", None, arena.arena.expr(input).span);
                     Type::Stream(Box::new(Type::Unknown))
                 }
                 Ok(ty) => {
-                    let output = self.check_stream_stage_arena(arena, source, first, ty.clone());
+                    let output = self.check_stream_stage_arena(arena, source, first, ty.clone(), false);
                     self.stream_stage_types.insert(
                         (self.current_namespace, arena.arena.span(first.span)),
                         super::CheckedStreamStage {
@@ -65,9 +66,30 @@ impl Checker {
             }
         };
 
-        for stage in rest {
+        let mut previous_stage = first;
+
+        for (index, stage) in rest.iter().enumerate() {
             let input = current;
-            current = self.check_stream_stage_arena(arena, source, stage, input.clone());
+            let sort_input_has_no_items = stage.kind == StreamStageKind::Sort
+                && matches!(&input, Type::Stream(item) if item.as_ref() == &Type::Unknown)
+                && previous_stage.kind == StreamStageKind::Map
+                && previous_stage.block.is_some_and(|block| {
+                    !self.stream_block_may_complete(arena, block)
+                        && self.stream_pipeline_callback_is_required_arena(
+                            arena,
+                            pipeline_input,
+                            stages,
+                            index,
+                        )
+                });
+            current = self.check_stream_stage_arena(
+                arena,
+                source,
+                stage,
+                input.clone(),
+                sort_input_has_no_items,
+            );
+            previous_stage = stage;
             self.stream_stage_types.insert(
                 (self.current_namespace, arena.arena.span(stage.span)),
                 super::CheckedStreamStage {
@@ -82,12 +104,38 @@ impl Checker {
         }
     }
 
+    fn check_pipeline_input_type(&mut self, ty: Type, span: Span) -> Result<Type, Type> {
+        let ty = match self.type_constraints.resolve(&ty) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.error(span, &format!("pipeline source type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return Err(Type::Invalid);
+            }
+        };
+        let source = match ty.unvalidated() { Type::Result(ok, _) => ok.unvalidated(), source => source };
+        if !matches!(source, Type::Inference(_)) { return stream_type_from_input(ty); }
+        let item = self.type_constraints.fresh_at_level(span, self.callable_solver_level());
+        let required = crate::sema::schemes::IterationRequirement {
+            item: item.clone(),
+            policy: crate::sema::schemes::IterationPolicy::PipelineTransport,
+            source_kind: crate::sema::schemes::IterationSourceKind::DirectOrResult,
+        };
+        match self.type_constraints.require_iteration(&ty, &required, span) {
+            Ok(()) => Ok(Type::Stream(Box::new(item))),
+            Err(conflict) => {
+                self.report_inferred_type_conflict(conflict);
+                Err(Type::Invalid)
+            }
+        }
+    }
+
     fn check_stream_stage_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         stage: &ArenaStreamStage,
         current: Type,
+        input_cannot_emit_items: bool,
     ) -> Type {
         let stage_span = arena.arena.span(stage.span);
         let Type::Stream(item_ty) = current else {
@@ -300,20 +348,10 @@ impl Checker {
                         DiagnosticCode::CheckStreamStageBlock,
                     );
                 }
-                if matches!(
-                    item_ty.unvalidated(),
-                    Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
-                ) || is_sortable_record_key_type(&item_ty)
-                {
-                    Type::Stream(Box::new(item_ty))
-                } else {
-                    self.error(
-                        stage_span,
-                        "sort items must be Int, Str, Bool, Path, or a record of supported items",
-                        DiagnosticCode::CheckStreamSort,
-                    );
-                    Type::Stream(Box::new(item_ty))
+                if !input_cannot_emit_items {
+                    self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::SortKey, &item_ty, stage_span);
                 }
+                Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
@@ -386,7 +424,7 @@ impl Checker {
                     .and_then(Option::as_ref)
                     .map(|argument| argument.ty.clone())
                     .unwrap_or(Type::Unknown);
-                let other_item = match stream_type_from_input(other_ty) {
+                let other_item = match self.check_pipeline_input_type(other_ty, stage_span) {
                     Ok(Type::Stream(item)) => *item,
                     Err(Type::Any) => {
                         self.reject_dynamic_use("a zip source", None, arguments.first().and_then(Option::as_ref).map(|argument| argument.span).unwrap_or(stage_span));
@@ -466,9 +504,7 @@ impl Checker {
                         DiagnosticCode::CheckArity,
                     );
                 }
-                if item_ty == Type::Any {
-                    self.reject_dynamic_use("an ordering operand", None, stage_span);
-                }
+                self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::MinMaxItem, &item_ty, stage_span);
                 Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
             StreamStageKind::GroupBy => {
@@ -570,23 +606,7 @@ impl Checker {
                 if stage.block.is_some() {
                     let key_ty =
                         self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                    if key_ty == Type::Any {
-                        self.reject_dynamic_use("a count key", None, stage_span);
-                    } else if !matches!(
-                        key_ty.unvalidated(),
-                        Type::Str
-                            | Type::Int
-                            | Type::UInt
-                            | Type::Bool
-                            | Type::Unknown
-                            | Type::Invalid
-                    ) {
-                        self.error(
-                            stage_span,
-                            "count keys must be Str, Int, or Bool",
-                            DiagnosticCode::CheckStreamCountKey,
-                        );
-                    }
+                    self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::CountKey, &key_ty, stage_span);
                     Type::Map(Box::new(Type::Str), Box::new(Type::Int))
                 } else {
                     Type::Int
@@ -606,17 +626,32 @@ impl Checker {
                 self.check_stage_no_args_arena(arena, stage);
                 let block_ty =
                     self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let expected = Type::Record(btree_map(vec![
-                    ("key".to_string(), Type::Any),
-                    ("value".to_string(), Type::Any),
-                ]).into());
-                self.expect_type(&expected, &block_ty, stage_span);
-                let value_ty = match &block_ty {
-                    Type::Record(fields) => fields
-                        .get(&Name::intern("value"))
-                        .cloned()
-                        .unwrap_or(Type::Unknown),
-                    _ => Type::Unknown,
+                let block_ty = match self.type_constraints.resolve(&block_ty) {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        self.error(stage_span, &format!("reduction callback type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                };
+                let value_ty = match block_ty.unvalidated() {
+                    Type::Record(fields) if fields.contains_key(&Name::intern("key")) && fields.contains_key(&Name::intern("value")) => fields[&Name::intern("value")].clone(),
+                    Type::Inference(_) => {
+                        if let Err(conflict) = self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("key"), self.callable_solver_level(), stage_span) {
+                            self.report_inferred_type_conflict(conflict);
+                            return Type::Invalid;
+                        }
+                        match self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("value"), self.callable_solver_level(), stage_span) {
+                            Ok(ty) => ty,
+                            Err(conflict) => {
+                                self.report_inferred_type_conflict(conflict);
+                                return Type::Invalid;
+                            }
+                        }
+                    }
+                    _ => {
+                        self.error(stage_span, "reduce-by requires a record with key and value fields", DiagnosticCode::CheckTypeMismatch);
+                        return Type::Invalid;
+                    }
                 };
                 Type::Map(Box::new(Type::Str), Box::new(value_ty))
             }
@@ -675,15 +710,7 @@ impl Checker {
                 Type::Stream(Box::new(item_ty.clone()))
             }
             StreamStageKind::SortBy => {
-                if callback_ty.contains_any() {
-                    self.reject_dynamic_use("a sort key", None, stage_span);
-                } else if !is_sortable_key_type(&callback_ty) {
-                    self.error(
-                        stage_span,
-                        "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
-                        DiagnosticCode::CheckStreamSort,
-                    );
-                }
+                self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::SortKey, &callback_ty, stage_span);
                 Type::Stream(Box::new(item_ty.clone()))
             }
             StreamStageKind::GroupBy => Type::Stream(Box::new(Type::Record(btree_map(vec![
@@ -695,6 +722,32 @@ impl Checker {
                 Type::Bool
             }
             _ => unreachable!("only unary callback stages have named callable descriptors"),
+        }
+    }
+
+    fn require_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
+        if !self.defer_pipeline_key_domain(domain, key, span) { self.validate_pipeline_key_domain(domain, key, span); }
+    }
+
+    pub(super) fn validate_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
+        let key = match self.type_constraints.resolve(key) {
+            Ok(key) => key,
+            Err(error) => { self.error(span, &format!("pipeline key cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference); return; }
+        };
+        let code = match domain { crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort, crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey, crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream, crate::sema::sealed_operation::TypeDomain::MinMaxItem => DiagnosticCode::CheckDynamicBoundary };
+        let unchecked = if domain == crate::sema::sealed_operation::TypeDomain::MinMaxItem { key == Type::Any } else { key.contains_any() };
+        if unchecked {
+            self.reject_dynamic_use(match domain { crate::sema::sealed_operation::TypeDomain::SortKey => "a sort key", crate::sema::sealed_operation::TypeDomain::CountKey => "a count key", crate::sema::sealed_operation::TypeDomain::CollectItem => "a collected item", crate::sema::sealed_operation::TypeDomain::MinMaxItem => "an ordering operand" }, None, span);
+            return;
+        }
+        if !domain.may_accept(&key) {
+            self.error(span, &format!("{domain:?} does not support {key}"), code);
+            return;
+        }
+        if !key.contains_inference() { return; }
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        if let Err(error) = self.type_constraints.require_type_predicate(owner, domain, &key, span) {
+            self.error(span, &error.to_string(), code);
         }
     }
 
@@ -777,7 +830,7 @@ impl Checker {
                     ) && matches!(namespace_binding,
                         super::ValueBindingLookup::Found(binding)
                             if matches!(&binding.ty, Type::Module(exports)
-                                if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. }))))
+                                if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Callable { .. }))))
                     || matches!(namespace_binding, super::ValueBindingLookup::NoSite)
                         && super::api_spec()
                             .module(&namespace.as_str())
@@ -1116,7 +1169,7 @@ impl Checker {
             }
             if *item_ty == Type::Any {
                 self.reject_dynamic_use("a byte-bounded batch item", None, argument.span);
-            } else if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
+            } else if !self.require_value_conversion(item_ty, crate::sema::schemes::ValueConversion::Argv, argument.span) {
                 self.error(
                     argument.span,
                     "byte-bounded batches require argv-compatible items",
@@ -1141,7 +1194,18 @@ impl Checker {
                 DiagnosticCode::CheckStreamStageBlock,
             );
         }
-        if !matches!(item_ty, Type::Record(_) | Type::Unknown) {
+        let item_ty = match self.type_constraints.resolve(item_ty) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.error(stage_span, &format!("table row type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
+        if matches!(item_ty.unvalidated(), Type::Inference(_)) {
+            if let Err(conflict) = self.type_constraints.require_record_head(item_ty.unvalidated(), self.callable_solver_level(), stage_span) {
+                self.report_inferred_type_conflict(conflict);
+            }
+        } else if !matches!(item_ty.unvalidated(), Type::Record(_) | Type::Unknown) {
             self.error(
                 stage_span,
                 "table.print requires record stream items",
@@ -1214,25 +1278,256 @@ impl Checker {
 }
 
 fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
-    match ty.into_unvalidated() {
-        ty @ Type::Stream(_) => Ok(ty),
-        Type::List(item) | Type::Set(item) => Ok(Type::Stream(item)),
-        Type::Result(ok, _) => stream_type_from_input(*ok),
+    let ty = ty.into_unvalidated();
+    let source = match &ty { Type::Result(ok, _) => ok.unvalidated(), source => source };
+    match source {
         Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
-        other => Err(other),
+        Type::Any => Err(Type::Any),
+        Type::List(_) | Type::Set(_) | Type::Stream(_) => ty.iteration_item_type()
+            .map(|item| Type::Stream(Box::new(item))).ok_or(ty),
+        _ => Err(ty),
     }
 }
 
-fn is_sortable_key_type(ty: &Type) -> bool {
-    match ty.unvalidated() {
-        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
-        Type::Record(fields) => fields.values().all(is_sortable_key_type),
-        _ => false,
-    }
-}
+#[cfg(test)]
+mod inferred_sort_key_tests {
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
 
-fn is_sortable_record_key_type(ty: &Type) -> bool {
-    matches!(ty, Type::Record(fields) if fields.values().all(is_sortable_key_type))
+    #[test]
+    fn accumulated_nullable_record_fields_preserve_sortable_names() {
+        for annotation in [": List[Row]", ""] {
+            let source = format!("type Row = {{name: Str, revision: Str?}}\nproc ordered() -> Result[List[Row], Error] {{ var rows{annotation} = []; for name in [\"b\", \"a\"] {{ rows += [{{name, revision: null}}] }}; rows |> sort-by .name }}\nlet rows = ordered()?\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert!(errors.is_empty(), "{source}\n{errors:?}");
+            let start = source.find("sort-by .name").unwrap() + 8;
+            assert_eq!(checked.expr_types.get(&crate::source::Span::new(SourceId::new(0), start, start + 5)), Some(&super::Type::Str));
+        }
+    }
+
+    #[test]
+    fn sort_accepts_unknown_only_after_a_noncompleting_map_block() {
+        let positive = "pure sort_materializes() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }\npure typed_sort(items: List[Int]) -> List[Int] { items |> sort }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), positive);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, positive);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+
+        for source in [
+            "pure unsupported() { [1] |> map { |item| 1.5 } |> sort }\n",
+            "pure unresolved() { [] |> sort }\n",
+            "pure empty_source() -> Int { let ignored = [] |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+            "pure maybe_source(items: List[Int]) -> Int { let ignored = items |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+            "pure dynamic(key: Any) -> List[Any] { [key] |> sort }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            let expected_code = if source.contains("Any") { DiagnosticCode::CheckDynamicBoundary } else { DiagnosticCode::CheckStreamSort };
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(expected_code)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn noncompleting_map_sort_prepares_and_runs_in_both_evaluator_routes() {
+        let source = r#"pure sort_materializes() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }
+pure captured_sort(value: Int) -> Int { let ignored = [value] |> map { |item| if item == value { return value } else { return value } } |> sort |> take(0) }
+pure typed_sort(items: List[Int]) -> List[Int] { items |> sort }
+test noncompleting_map_sort_preserves_pipeline_demand {
+  assert sort_materializes() == 1
+  assert captured_sort(7) == 7
+  assert typed_sort([2, 1]) == [1, 2]
+}
+"#;
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "noncompleting-map-sort.xsh",
+            crate::loader::entry_source_from_text("noncompleting-map-sort.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test(
+                "noncompleting_map_sort_preserves_pipeline_demand",
+                crate::runtime::value::Value::Unit,
+                false,
+                force_frames,
+                Vec::new(),
+                crate::runtime::eval::TestCancellation::default(),
+            );
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn inferred_sort_key_native_behavior_runs_in_both_evaluator_routes() {
+        let source = include_str!("../../../tests/xsh/inferred-sort-keys.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "inferred-sort-keys.xsh",
+            crate::loader::entry_source_from_text("inferred-sort-keys.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("inferred_sort_keys_wait_for_the_body_result_context", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
+                || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn deferred_sort_key_domains_reject_unsupported_and_dynamic_siblings() {
+        for (key_type, key_value, expected) in [
+            ("Float", "1.5", DiagnosticCode::CheckStreamSort),
+            ("List[Str]", "[\"a\"]", DiagnosticCode::CheckStreamSort),
+            ("Str?", "null", DiagnosticCode::CheckStreamSort),
+            ("Any", "key", DiagnosticCode::CheckDynamicBoundary),
+        ] {
+            let source = format!("type ValidRow = {{name: Str, revision: Str?}}\nproc valid() -> Result[List[ValidRow], Error] {{ var rows = []; rows += [{{name: \"a\", revision: null}}]; rows |> sort-by .name }}\ntype InvalidRow = {{name: {key_type}, revision: Str?}}\npure invalid(key: Any) -> List[InvalidRow] {{ var rows = []; rows += [{{name: {key_value}, revision: null}}]; rows |> sort-by .name }}\nlet rows = valid()?\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(expected), "{source}\n{errors:?}");
+            assert!(errors[0].labels.iter().all(|label| label.span.start() > source.find("pure invalid").unwrap()), "{errors:?}");
+        }
+    }
+
+    #[test]
+    fn generic_sort_keys_preserve_independent_supported_domains() {
+        let source = "pure ordered(item) { [item] |> sort-by . }\nlet numbers = ordered(7)\nlet words = ordered(\"kept\")\nlet flags = ordered(true)\nlet paths = ordered(p\"kept\")\nlet records = ordered({name: \"kept\", nested: {flag: true}})\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_key_predicates_reject_distinct_invalid_domains_and_row_tails() {
+        for (body, rejected) in [
+            ("[value] |> sort", "Float"),
+            ("[value] |> sort", "UInt"),
+            ("[value] |> sort", "Bytes"),
+            ("[value] |> sort", "List[Int]"),
+            ("[value] |> sort", "Int?"),
+            ("[value] |> sort", "Any"),
+            ("[value] |> sort", "Action"),
+            ("[value] |> sort", "FsLock"),
+            ("[value] |> count { |item| item }", "Path"),
+            ("[value] |> count { |item| item }", "RecordKey"),
+            ("[value] |> count { |item| item }", "Any"),
+            ("[value] |> count { |item| item }", "Action"),
+            ("[value] |> count { |item| item }", "FsLock"),
+        ] {
+            let source = format!("type Action = pure(value: Int) -> Int\ntype RecordKey = {{name: Str}}\npure keyed(value) {{ {body} }}\npure rejected(value: {rejected}) {{ keyed(value) }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+        for extra in ["List[Int]", "Any", "FsLock", "Action"] {
+            let source = format!("type Action = pure(value: Int) -> Int\ntype Row = {{name: Str, extra: {extra}}}\npure ordered(row) {{ let _ = row.name; [row] |> sort }}\npure rejected(row: Row) {{ ordered(row) }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn generic_key_domain_intersections_preserve_all_caller_requirements() {
+        for (value_type, valid) in [("Int", true), ("Str", true), ("Bool", true), ("UInt", false), ("Path", false), ("RecordKey", false)] {
+            let source = format!("type RecordKey = {{name: Str}}\npure both(value) {{ let counts = [value] |> count {{ |item| item }}; let ordered = [value] |> sort; {{counts, ordered}} }}\npure observed(value: {value_type}) {{ both(value) }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert_eq!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), valid, "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn generic_key_predicates_intersect_with_the_existing_map_key_bound() {
+        use crate::sema::sealed_operation::TypeDomain;
+        use crate::sema::types::Type;
+        for (domain, actual, valid) in [
+            (TypeDomain::SortKey, Type::Path, true),
+            (TypeDomain::SortKey, Type::Bool, true),
+            (TypeDomain::SortKey, Type::UInt, false),
+            (TypeDomain::SortKey, Type::Bytes, false),
+            (TypeDomain::SortKey, Type::Duration, false),
+            (TypeDomain::CountKey, Type::UInt, true),
+            (TypeDomain::CountKey, Type::Bool, true),
+            (TypeDomain::CountKey, Type::Path, false),
+            (TypeDomain::CountKey, Type::Bytes, false),
+            (TypeDomain::CountKey, Type::Duration, false),
+        ] {
+            let mut constraints = crate::sema::constraints::TypeConstraints::default();
+            let span = crate::source::Span::at(SourceId::new(0), 0);
+            let key = constraints.fresh(span);
+            constraints.require_map_key(&key, span).unwrap();
+            constraints.require_type_predicate(crate::sema::constraints::CallableApplicationScope::Invocation, domain, &key, span).unwrap();
+            let accepted = constraints.constrain(&key, &actual, span).is_ok() && constraints.solve_sealed_operations().is_ok();
+            assert_eq!(accepted, valid, "{domain:?} and MapKey with {actual}");
+        }
+    }
+
+    #[test]
+    fn generic_key_predicates_reject_impossible_known_shapes_before_calls() {
+        for body in [
+            "[value] |> sort-by { |item| {bad: [item]} }",
+            "[value] |> count { |item| [item] }",
+            "[value] |> count { |item| {key: item} }",
+        ] {
+            let source = format!("pure rejected(value) {{ {body} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_key_domains_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-key-domains.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-key-domains.xsh", crate::loader::entry_source_from_text("generic-pipeline-key-domains.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_key_domains", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1277,7 +1572,7 @@ mod static_namespace_identity_tests {
         Arc::make_mut(&mut checker.qualified_pures).insert(
             QualifiedName::new(namespace, Name::intern("stage")),
             super::super::FunctionSig::ground(
-                crate::sema::schemes::SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 None,
                 false,
                 None,
@@ -1342,5 +1637,148 @@ mod static_namespace_identity_tests {
 
             assert!(!checker.stage_callable_is_static(program, field));
         });
+    }
+}
+
+#[cfg(test)]
+mod pipeline_input_inference_tests {
+    fn accepts_collect(definition: &str, argument: &str) {
+        let source = format!("{definition}\nlet observed: List[Int] = collect_values({argument})\nassert observed == [1, 2]\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_list_pipeline_input_preserves_collected_items() {
+        accepts_collect("pure collect_values(values: List[Int]) -> List[Int] { values |> collect }", "[1, 2]");
+    }
+
+    #[test]
+    fn inferred_pipeline_input_preserves_collected_items() {
+        accepts_collect("pure collect_values(values) { values |> collect }", "[1, 2]");
+    }
+
+    #[test]
+    fn known_typed_list_pipeline_source_preserves_record_items() {
+        let source = r#"pure shorthand(value: Int) -> List[Int] { [{payload: value}] |> map .payload }
+let integers: List[Int] = shorthand(7)
+assert integers == [7]
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn known_list_pipeline_source_preserves_record_item_binders() {
+        let source = r#"pure shorthand(value) { [{payload: value}] |> map .payload }
+let integers: List[Int] = shorthand(7)
+let words: List[Str] = shorthand("kept")
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn reduce_by_preserves_nested_record_payloads_with_dynamic_fields() {
+        let source = r#"type Stats = {count: Int, blobs: Map[Any]}
+type Summary = {count: Int, reports: List[Stats]}
+pure summarize(rows: List[Stats]) -> Map[Summary] {
+    rows |> reduce-by(sum: true) { |row|
+        {key: "bucket", value: {count: row.count, reports: [row]}}
+    }
+}
+let rows: List[Stats] = [{count: 2, blobs: {}}]
+let groups = summarize(rows)
+let result = groups.get("bucket") ?? {count: 0, reports: []}
+assert result.count == 2
+assert result.reports.len() == 1
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn reduce_by_rejects_missing_fields_and_dynamic_record_heads() {
+        for expression in ["{key: \"bucket\"}", "{value: item}", "7", "item"] {
+            let source = format!("pure invalid(item: Any) -> Map[Any] {{ [1] |> reduce-by(min: true) {{ |ignored| {expression} }} }}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn inferred_pipeline_input_rejects_non_pipeline_iteration_domains() {
+        for source_type in ["Map[Str, Int]", "Str", "Bytes", "Any"] {
+            let source = format!("pure collect_values(values) {{ values |> collect }}\npure rejected(values: {source_type}) {{ collect_values(values) }}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}");
+        }
+    }
+
+    #[test]
+    fn inferred_pipeline_input_preserves_result_error_payload_domains() {
+        accepts_collect("pure collect_values(values) { values |> collect }\npure source_values() -> Result[List[Int], Str] { Ok([1, 2]) }", "source_values()");
+    }
+
+    #[test]
+    fn typed_pipeline_input_rejects_nested_result_source_views() {
+        for payload in ["List[Int]", "Stream[Int]"] {
+            let source = format!(r#"pure collect_values(values: Result[Result[{payload}]]) -> List[Int] {{ values |> collect }}
+"#);
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckStreamInput)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn typed_pipeline_input_keeps_result_items_opaque_after_one_source_view() {
+        let source = r#"pure collect_values(values: Result[List[Result[Int, Str]]]) -> List[Result[Int, Str]] { values |> collect }
+let values: Result[List[Result[Int, Str]]] = Ok([Err("data")])
+let observed: List[Result[Int, Str]] = collect_values(values)
+assert match observed[0] { Ok(_) => false, Err(message) => message == "data" }
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_set_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("pure collect_values(values: Set[Int]) -> List[Int] { values |> collect }", "{1, 2}");
+    }
+
+    #[test]
+    fn typed_result_list_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("pure collect_values(values: Result[List[Int]]) -> List[Int] { values |> collect }", "Ok([1, 2])");
+    }
+
+    #[test]
+    fn typed_stream_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("stream source_values() [] -> Stream[Int] { yield 1; yield 2 }\npure collect_values(values: Stream[Int]) -> List[Int] { values |> collect }", "source_values()");
+    }
+
+    #[test]
+    fn typed_result_stream_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("stream source_values() [] -> Stream[Int] { yield 1; yield 2 }\npure collect_values(values: Result[Stream[Int]]) -> List[Int] { values |> collect }", "Ok(source_values())");
     }
 }

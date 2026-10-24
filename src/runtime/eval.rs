@@ -19,7 +19,7 @@ use crate::runtime::signal::{
 use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
-    FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
+    CallableValue, EnvPathListSnapshot, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
 use crate::sema::check::{BindingId, CheckBundleView, Checker, CompactDeclOutput};
@@ -49,6 +49,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
+mod body_contract;
+pub use body_contract::{CheckedBodyContract, CheckedBodyContractError, checked_body_contracts};
 mod call_plan;
 use call_plan::ModuleCallPlan;
 mod indexed;
@@ -677,7 +679,7 @@ struct RegisteredIndexedSignalBody {
 struct DynamicFunction {
     program: Arc<FullProgram>,
     function: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
 }
 
 #[derive(Clone)]
@@ -786,6 +788,13 @@ build_id!(BuildBoolId);
 build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
+struct SchemeGuardBuildFacts {
+    expressions: BTreeMap<usize, crate::sema::guarded_requirements::GuardScopeId>,
+    statements: BTreeMap<usize, crate::sema::guarded_requirements::GuardScopeId>,
+    sites: BTreeMap<usize, Vec<crate::sema::guarded_requirements::GuardBodySite>>,
+}
+
+#[derive(Clone, Debug, Default)]
 struct BuildScratch {
     producer_demand: Option<ProducerDemand>,
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
@@ -796,6 +805,16 @@ struct BuildScratch {
     /// expressions until instruction encoding.
     checked_call_targets: Vec<Option<CheckedCallTarget>>,
     call_instantiations: Vec<Option<CallInstantiation>>,
+    scheme_callable_calls: BTreeMap<usize, crate::sema::types::SchemeCallableId>,
+    scheme_application_calls: Vec<Option<u32>>,
+    scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
+    scheme_completion_sources: BTreeMap<usize, SchemeCompletionSource>,
+    scheme_noncompleting: std::collections::BTreeSet<usize>,
+    scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
+    scheme_operations: BTreeMap<usize, u32>,
+    scheme_methods: BTreeMap<usize, u32>,
+    scheme_wrappers: BTreeMap<usize, u32>,
+    scheme_guards: SchemeGuardBuildFacts,
     checked_call_result_types: Vec<Option<Type>>,
     registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
@@ -812,6 +831,20 @@ struct BuildScratch {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SchemeCompletionSourceForm {
+    LiftedValue,
+    ReturnedResult,
+    AuthoredOk,
+    AuthoredErr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SchemeCompletionSource {
+    producer: BuildExprId,
+    form: SchemeCompletionSourceForm,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CheckedCallTarget {
     function: LoweredFunctionKey,
 }
@@ -825,10 +858,11 @@ struct CheckedExprType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CheckedExprPurpose {
     CheckedContract {
-        function_ref: Option<(FunctionName, bool)>,
+        function_ref: Option<(FunctionName, CallableKind)>,
         with_error_source: bool,
     },
     ProducerContext,
+    CapturedErrorContract,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -839,12 +873,147 @@ enum ProducerDemand {
 }
 
 impl ProducerDemand {
-    fn for_declarations(declarations: &crate::sema::check::CompactDeclOutput) -> Self {
-        if declarations.scheme_bodies.values().any(|facts| !facts.registered_calls().is_empty()) {
+    fn for_scheme_body(facts: &crate::sema::schemes::SchemeBodyFacts) -> Self {
+        if facts.scheme().kind() == CallableKind::Stream || !facts.registered_calls().is_empty() || !facts.noncompleting_expressions().is_empty() {
+            Self::Needed
+        } else { Self::Absent }
+    }
+
+    fn for_declarations(
+        program: &crate::syntax::arena::ArenaProgram,
+        declarations: &crate::sema::check::CompactDeclOutput,
+    ) -> Self {
+        if declarations.scheme_bodies.values().any(|facts| Self::for_scheme_body(facts) == Self::Needed)
+            || Self::checked_result_constructors(program, declarations).next().is_some()
+            || Self::native_producer_calls(program, declarations).next().is_some()
+            || Self::erased_callable_calls(program, declarations).next().is_some()
+            || Self::typed_callable_calls(program, declarations).next().is_some()
+            || Self::instantiated_calls(program, declarations).next().is_some()
+            || Self::condition_operations(program, declarations).next().is_some()
+            || Self::body_producer_operations(program, declarations).next().is_some()
+            || Self::environment_path_operations(program, declarations).next().is_some()
+            || Self::process_operations(program, declarations).next().is_some()
+        {
             Self::Needed
         } else {
             Self::Absent
         }
+    }
+
+    fn body_producer_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
+            let expression = program.arena.expr(*expression);
+            (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Capture(_) | crate::syntax::arena::ArenaExprKind::Retry { .. })
+                || (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Collect { .. }) && ty.has_unsigned_constraint())
+                || (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::ErrorContext { .. })
+                    && stream_return_item(ty).is_some())).then_some(expression.span)
+        })
+    }
+
+    fn environment_path_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(id, ty)| {
+            if ty != &Type::EnvPathList { return None; }
+            let expression = program.arena.expr(*id);
+            let path_view = match expression.kind {
+                crate::syntax::arena::ArenaExprKind::EnvPathList => true,
+                crate::syntax::arena::ArenaExprKind::Field { base, name } => name == "PATH"
+                    && matches!(program.arena.expr(base).kind, crate::syntax::arena::ArenaExprKind::Ident(name) if name == "env"),
+                _ => false,
+            };
+            path_view.then_some(expression.span)
+        })
+    }
+
+    fn process_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
+            let expression = program.arena.expr(*expression);
+            (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Spawn(_) | crate::syntax::arena::ArenaExprKind::Wait(_))
+                || (*ty == Type::Command && matches!(expression.kind, crate::syntax::arena::ArenaExprKind::BuilderCall { .. }))).then_some(expression.span)
+        })
+    }
+
+    fn native_producer_calls<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.api_calls.iter()
+            .filter(|(_, call)| crate::modules::signature::native_call_requires_producer_proof(call.receiver, call.sig))
+            .map(move |(expression, _)| program.arena.expr(*expression).span)
+    }
+
+    fn erased_callable_calls<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.keys().filter_map(move |expression| {
+            let expression = program.arena.expr(*expression);
+            let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = expression.kind else { return None };
+            let crate::syntax::arena::ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else { return None };
+            (name.as_str().as_str() == "call" && matches!(declarations.bodies.expr_types.get(&base), Some(Type::Function(_)))).then_some(expression.span)
+        })
+    }
+
+    fn typed_callable_calls<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.keys().filter_map(move |expression| {
+            let expression = program.arena.expr(*expression);
+            let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = expression.kind else { return None };
+            matches!(declarations.bodies.expr_types.get(&callee), Some(Type::Callable(_))).then_some(expression.span)
+        })
+    }
+
+    fn instantiated_calls<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.call_instantiations.keys().filter_map(move |site| {
+            if site.role != crate::sema::schemes::InstantiationRole::Call { return None; }
+            let expression = program.arena.expr(site.source);
+            matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Call { .. }).then_some(expression.span)
+        })
+    }
+
+    fn condition_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        use crate::syntax::arena::{ArenaExprKind as E, ArenaStmtKind as S, StmtId};
+        let statements = (0..program.arena.stmt_tags.len()).filter_map(move |index| {
+            let statement = program.arena.stmt(StmtId::from_index(index));
+            matches!(statement.kind, S::If { .. } | S::While { .. } | S::Match { .. } | S::Assert { .. }).then_some(statement.span)
+        });
+        statements.chain(declarations.bodies.expr_types.keys().filter_map(move |expression| {
+            let expression = program.arena.expr(*expression);
+            matches!(expression.kind, E::If { .. } | E::Match { .. } | E::PatternTest { .. }
+                | E::ListComp { .. } | E::MapComp { .. } | E::SetComp { .. }
+                | E::Pipeline { .. } | E::StructuredPipeline { .. }).then_some(expression.span)
+        }))
+    }
+
+    fn checked_result_constructors<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
+            if !matches!(ty, Type::Result(_, _)) || ty.contains_typed_callable()
+                || ty.contains_inference() || ty.contains_recovery() || ty.contains_any()
+            {
+                return None;
+            }
+            let span = program.arena.expr(*expression).span;
+            declarations.bodies.checked_control_flow.result_constructors.contains_key(&span).then_some(span)
+        })
     }
 }
 
@@ -874,6 +1043,7 @@ impl BuildScratch {
         self.checked_expr_types.push(None);
         self.checked_call_targets.push(None);
         self.call_instantiations.push(None);
+        self.scheme_application_calls.push(None);
         self.checked_call_result_types.push(None);
         self.registered_calls.push(None);
         id
@@ -894,6 +1064,14 @@ impl BuildScratch {
                 *target = Some(checked);
                 true
             }
+        }
+    }
+
+    fn record_scheme_application_call(&mut self, id: BuildExprId, ordinal: u32) -> bool {
+        let Some(fact) = self.scheme_application_calls.get_mut(id.index()) else { return false; };
+        match fact {
+            Some(previous) => *previous == ordinal,
+            None => { *fact = Some(ordinal); true }
         }
     }
 
@@ -937,7 +1115,7 @@ impl BuildScratch {
             return false;
         };
         let function_ref = match self.expressions.get(id.index()) {
-            Some(BuildExprRow::FunctionRef { function, pure }) => Some((*function, *pure)),
+            Some(BuildExprRow::FunctionRef { function, kind }) => Some((*function, *kind)),
             _ => None,
         };
         let checked = CheckedExprType {
@@ -965,6 +1143,15 @@ impl BuildScratch {
                 *fact = Some(CheckedExprType { ty, purpose: CheckedExprPurpose::ProducerContext });
                 true
             }
+        }
+    }
+
+    fn record_captured_error_contract(&mut self, id: BuildExprId, ty: Type) -> bool {
+        let Some(fact) = self.checked_expr_types.get_mut(id.index()) else { return false };
+        let checked = CheckedExprType { ty, purpose: CheckedExprPurpose::CapturedErrorContract };
+        match fact {
+            Some(existing) => *existing == checked,
+            None => { *fact = Some(checked); true }
         }
     }
 
@@ -1018,8 +1205,18 @@ impl BuildScratch {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SchemeLocalMutability { Immutable, Mutable }
+
+#[derive(Clone, Debug)]
+struct SchemeLocalDeclaration {
+    ty: SchemeType,
+    mutability: SchemeLocalMutability,
+}
+
 #[derive(Clone, Debug)]
 struct FunctionBuild {
+    callable_kind: crate::sema::types::CallableKind,
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -1030,6 +1227,8 @@ struct FunctionBuild {
     return_check: Option<LoweredTypeCheck>,
     /// Exact checker return type used to verify calls through produced values.
     checked_return_type: Option<Type>,
+    checked_return_schema: Option<crate::sema::constants::SchemaExpectation>,
+    defaulted_proc_return: bool,
     /// Full checker signature used to correlate function-reference values with their targets.
     checked_function_signature: Option<crate::sema::types::CallableType>,
     slot_count: usize,
@@ -1039,6 +1238,7 @@ struct FunctionBuild {
     scheme: Option<Arc<TypeScheme>>,
     scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
     scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
+    scheme_local_declarations: BTreeMap<BuildStmtId, SchemeLocalDeclaration>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 
@@ -1099,11 +1299,7 @@ impl LoweredFunctionKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum LoweredFunctionKind {
-    Pure,
-    Proc,
-}
+pub use crate::sema::types::CallableKind;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoweredFunctionBlocker {
@@ -1142,7 +1338,7 @@ impl LoweredFunctionBlocker {
 #[derive(Clone, Debug)]
 pub struct LoweredFunctionUnit {
     key: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
     source_span: Span,
     definition_span: Span,
     owner: Option<Name>,
@@ -1163,7 +1359,7 @@ impl LoweredFunctionUnit {
         self.key
     }
 
-    pub fn kind(&self) -> LoweredFunctionKind {
+    pub fn kind(&self) -> CallableKind {
         self.kind
     }
 
@@ -1235,13 +1431,10 @@ impl LoweredFunctionUnit {
 struct LowerableFunctions<'a> {
     pures: Option<&'a FxHashSet<Name>>,
     procs: Option<&'a FxHashSet<Name>>,
+    streams: Option<&'a FxHashSet<Name>>,
     qualified_pures: Option<&'a FxHashSet<QualifiedName>>,
     qualified_procs: Option<&'a FxHashSet<QualifiedName>>,
-    // In-flight candidates not yet committed to the lowered sets. A single key
-    // for self-recursion, or a whole strongly-connected component for
-    // mutually-recursive co-lowering. Membership only — function-body call
-    // lowering needs `contains`, not the callee's return kind (which is resolved
-    // from the indexed function headers).
+    qualified_streams: Option<&'a FxHashSet<QualifiedName>>,
     candidates: &'a [LoweredFunctionKey],
 }
 
@@ -1249,15 +1442,19 @@ impl<'a> LowerableFunctions<'a> {
     fn all_with_candidates(
         pures: &'a FxHashSet<Name>,
         procs: &'a FxHashSet<Name>,
+        streams: &'a FxHashSet<Name>,
         qualified_pures: &'a FxHashSet<QualifiedName>,
         qualified_procs: &'a FxHashSet<QualifiedName>,
+        qualified_streams: &'a FxHashSet<QualifiedName>,
         candidates: &'a [LoweredFunctionKey],
     ) -> Self {
         Self {
             pures: Some(pures),
             procs: Some(procs),
+            streams: Some(streams),
             qualified_pures: Some(qualified_pures),
             qualified_procs: Some(qualified_procs),
+            qualified_streams: Some(qualified_streams),
             candidates,
         }
     }
@@ -1265,14 +1462,18 @@ impl<'a> LowerableFunctions<'a> {
     fn all(
         pures: &'a FxHashSet<Name>,
         procs: &'a FxHashSet<Name>,
+        streams: &'a FxHashSet<Name>,
         qualified_pures: &'a FxHashSet<QualifiedName>,
         qualified_procs: &'a FxHashSet<QualifiedName>,
+        qualified_streams: &'a FxHashSet<QualifiedName>,
     ) -> Self {
         Self {
             pures: Some(pures),
             procs: Some(procs),
+            streams: Some(streams),
             qualified_pures: Some(qualified_pures),
             qualified_procs: Some(qualified_procs),
+            qualified_streams: Some(qualified_streams),
             candidates: &[],
         }
     }
@@ -1283,6 +1484,7 @@ impl<'a> LowerableFunctions<'a> {
                 LoweredFunctionKey::Name(name) => {
                     self.pures.is_some_and(|pures| pures.contains(&name))
                         || self.procs.is_some_and(|procs| procs.contains(&name))
+                        || self.streams.is_some_and(|streams| streams.contains(&name))
                 }
                 LoweredFunctionKey::Qualified(name) => {
                     self.qualified_pures
@@ -1290,21 +1492,12 @@ impl<'a> LowerableFunctions<'a> {
                         || self
                             .qualified_procs
                             .is_some_and(|procs| procs.contains(&name))
+                        || self.qualified_streams.is_some_and(|streams| streams.contains(&name))
                 }
             }
     }
 
-    fn pure_contains(&self, key: LoweredFunctionKey) -> bool {
-        self.candidates.contains(&key)
-            || match key {
-                LoweredFunctionKey::Name(name) => {
-                    self.pures.is_some_and(|pures| pures.contains(&name))
-                }
-                LoweredFunctionKey::Qualified(name) => self
-                    .qualified_pures
-                    .is_some_and(|pures| pures.contains(&name)),
-            }
-    }
+
 }
 
 #[derive(Clone, Debug)]
@@ -1390,15 +1583,13 @@ enum LoweredModuleExport {
         name: Name,
         binding: LoweredModuleExportBinding,
     },
-    Pure {
+    Callable {
+        kind: crate::sema::types::CallableKind,
         name: Name,
         function_namespace: Name,
     },
-    GenericPure {
-        name: Name,
-        function_namespace: Name,
-    },
-    Proc {
+    GenericCallable {
+        kind: crate::sema::types::CallableKind,
         name: Name,
         function_namespace: Name,
     },
@@ -1442,11 +1633,61 @@ struct LoweredTopLevelBinding {
     slot: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct LoweredTypeCheck {
     schema: Option<Arc<require::PreparedSchema>>,
     ty: Type,
     name: Arc<str>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct LoweredRecordConstructorTemplate {
+    schema: Arc<crate::sema::constants::RecordConstructorTemplate>,
+    defaults: BTreeMap<Name, LoweredValue>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct LoweredRecordConstructor {
+    schema: crate::sema::constants::SchemaExpectation<crate::sema::schemes::SchemeType>,
+    template: Arc<LoweredRecordConstructorTemplate>,
+    defaults: Arc<[Name]>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum LoweredValueCheck {
+    MembershipKey(u32),
+    Ground(LoweredTypeCheck),
+    RecordConstructor(Arc<LoweredRecordConstructor>),
+    Materialization(Arc<crate::sema::value_materialization::ValueMaterialization<
+        crate::sema::schemes::SchemeType,
+        crate::sema::schemes::CallInstantiation,
+    >>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum DeferKind {
+    Always,
+    OnError,
+    ManagedRelease,
+}
+
+impl DeferKind {
+    const INDEX_BITS: u32 = 30;
+    const INDEX_LIMIT: u32 = 1 << Self::INDEX_BITS;
+
+    fn from_encoded(raw: u32) -> Option<Self> {
+        match raw {
+            0 => Some(Self::Always),
+            1 => Some(Self::OnError),
+            2 => Some(Self::ManagedRelease),
+            _ => None,
+        }
+    }
+
+    fn for_error(on_error: bool) -> Self {
+        if on_error { Self::OnError } else { Self::Always }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1457,6 +1698,7 @@ enum LoweredReturnKind {
     /// an `Err` as the value it is. An `Err` here is data the caller asked
     /// for, not a failure of the call.
     OptionalResult,
+    QuantifiedResult,
     Erased,
 }
 
@@ -1486,8 +1728,8 @@ enum LoweredType {
     FsRoot,
     FsLock,
     Stream,
-    Pure,
-    Proc,
+    Function(CallableKind),
+    SchemeCallable,
     Error,
     Record,
     Module,
@@ -1502,6 +1744,7 @@ pub(in crate::runtime::eval) fn driver_annotation_requires_validation(
     runtime_type: LoweredType,
     annotation: &Type,
 ) -> bool {
+    if *annotation == Type::Any { return false; }
     matches!(
         runtime_type,
         LoweredType::Error
@@ -1645,6 +1888,18 @@ enum StmtFlow {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct EndDistance(std::num::NonZeroU32);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexOperand<I> {
+    Ordinary(I),
+    NegativeLiteral(EndDistance),
+}
+
+impl<I> IndexOperand<I> {
+    fn ordinary(self) -> Option<I> {
+        match self { Self::Ordinary(value) => Some(value), Self::NegativeLiteral(_) => None }
+    }
+}
+
 impl EndDistance {
     fn new(distance: u32) -> Option<Self> {
         std::num::NonZeroU32::new(distance).map(Self)
@@ -1738,6 +1993,12 @@ enum ReduceByOp {
 enum LoweredStrPredicate {
     StartsWith,
     EndsWith,
+}
+
+impl LoweredStrPredicate {
+    fn method_name(self) -> &'static str {
+        match self { Self::StartsWith => "starts_with", Self::EndsWith => "ends_with" }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1918,6 +2179,73 @@ pub(in crate::runtime::eval) fn visit_retained_lowered_values<'value>(
     }
 }
 
+fn stream_return_item(mut ty: &Type) -> Option<&Type> {
+    loop {
+        match ty {
+            Type::Stream(item) => return Some(item),
+            Type::Result(ok, _) | Type::Optional(ok) => ty = ok,
+            _ => return None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PreparedStreamOrigin {
+    Function(usize),
+    Expression { owner: u32, instruction: u32 },
+}
+
+pub(super) struct PreparedStreamContract {
+    program: Arc<FullProgram>,
+    origin: PreparedStreamOrigin,
+    invocation: indexed::full::PreparedInvocationBindings,
+}
+
+impl std::fmt::Debug for PreparedStreamContract {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_tuple("PreparedStreamContract").field(&self.origin).finish()
+    }
+}
+
+impl PreparedStreamContract {
+    fn matches(&self, expected: &Type) -> Result<bool, indexed::IrVerifyError> {
+        let item = self.program.stream_origin_item_type(self.origin, &self.invocation)?;
+        Ok(!item.any_flows_to_concrete(expected) && item.matches_stored(expected))
+    }
+
+    fn attach(self: &Arc<Self>, value: &mut LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        match value {
+            LoweredValue::Stream(stream) => {
+                let expected = self.program.stream_origin_item_type(self.origin, &self.invocation)
+                    .map_err(|error| lowered_run::indexed_run::indexed_error(error, span))?;
+                if let Some(actual) = &stream.contract {
+                    if !actual.matches(&expected).map_err(|error| lowered_run::indexed_run::indexed_error(error, span))? {
+                        return Err(RuntimeError::new("indexed-ir", "stream factory return disagrees with its actual producer").with_span(span));
+                    }
+                } else { stream.contract = Some(Arc::clone(self)); }
+                Ok(())
+            }
+            LoweredValue::ResultOk(value) => self.attach(value, span),
+            LoweredValue::ResultErr(_) | LoweredValue::Null => Ok(()),
+            _ => Err(RuntimeError::new("indexed-ir", "stream factory did not return its checked stream envelope").with_span(span)),
+        }
+    }
+}
+
+pub(super) struct PreparedCallable {
+    program: Arc<FullProgram>,
+    function: LoweredFunctionKey,
+    kind: CallableKind,
+    state: PreparedCallableState,
+}
+
+enum PreparedCallableState { Instance(indexed::full::PreparedInvocationBindings), SchemeValue(u32) }
+
+impl PreparedCallable {
+    pub(in crate::runtime) fn kind(&self) -> CallableKind { self.kind }
+    fn applications(&self) -> Option<&indexed::full::PreparedInvocationBindings> { match &self.state { PreparedCallableState::Instance(bindings) => Some(bindings), PreparedCallableState::SchemeValue(_) => None } }
+}
+
 #[derive(Clone, Debug)]
 enum LoweredValue {
     // This private marker survives argument binding only until callee entry.
@@ -1936,6 +2264,7 @@ enum LoweredValue {
     Regex(Box<RegexValue>),
     Status(Box<ProcessStatus>),
     Path(PathValue),
+    EnvPathList(EnvPathListSnapshot),
     FsEntry(crate::runtime::value::FsEntryValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
@@ -1943,8 +2272,7 @@ enum LoweredValue {
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
     Stream(Box<StreamValue>),
-    Pure(FunctionName),
-    Proc(FunctionName),
+    Callable(CallableValue),
     Error(Box<Value>),
     // Container payloads are shareable: reading a slot is a pointer bump
     // rather than a copy of every entry, and a mutation copies only when the
@@ -2280,6 +2608,7 @@ impl PartialEq for LoweredValue {
             (Self::Regex(left), Self::Regex(right)) => left == right,
             (Self::Status(left), Self::Status(right)) => left == right,
             (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::EnvPathList(left), Self::EnvPathList(right)) => left == right,
             (Self::FsEntry(left), Self::FsEntry(right)) => left == right,
             (Self::Command(left), Self::Command(right)) => left == right,
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
@@ -2287,8 +2616,7 @@ impl PartialEq for LoweredValue {
             (Self::FsRoot(left), Self::FsRoot(right)) => left == right,
             (Self::FsLock(left), Self::FsLock(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
-            (Self::Pure(left), Self::Pure(right)) => left == right,
-            (Self::Proc(left), Self::Proc(right)) => left == right,
+            (Self::Callable(left), Self::Callable(right)) => left == right,
             (Self::Error(left), Self::Error(right)) => left == right,
             (Self::Record(left), Self::Record(right)) => left == right,
             (Self::RecordVec(left), Self::RecordVec(right)) => left == right,
@@ -2345,6 +2673,12 @@ pub(in crate::runtime::eval) fn lowered_values_semantically_equal(
     right: &LoweredValue,
 ) -> bool {
     match (left, right) {
+        (LoweredValue::EnvPathList(paths), LoweredValue::List(items)) | (LoweredValue::List(items), LoweredValue::EnvPathList(paths)) => {
+            paths.entries().len() == items.len() && paths.entries().iter().zip(items).all(|(path, item)| matches!(item, LoweredValue::Path(item) if path == item))
+        }
+        (LoweredValue::EnvPathList(paths), LoweredValue::SharedList(items)) | (LoweredValue::SharedList(items), LoweredValue::EnvPathList(paths)) => {
+            paths.entries().len() == items.len() && paths.entries().iter().zip(items.iter()).all(|(path, item)| matches!(item, LoweredValue::Path(item) if path == item))
+        }
         (LoweredValue::Float(left), LoweredValue::Float(right)) => left.0 == right.0,
         (LoweredValue::Record(left), LoweredValue::Record(right))
         | (LoweredValue::Module(left), LoweredValue::Module(right)) => {
@@ -2436,6 +2770,9 @@ fn lowered_semantic_map_eq<K: Ord>(
 
 fn runtime_values_semantically_equal(left: &Value, right: &Value) -> bool {
     match (left, right) {
+        (Value::EnvPathList(paths), Value::List(items)) | (Value::List(items), Value::EnvPathList(paths)) => {
+            paths.entries().len() == items.len() && paths.entries().iter().zip(items).all(|(path, item)| matches!(item, Value::Path(item) if path == item))
+        }
         (Value::Float(left), Value::Float(right)) => left.0 == right.0,
         (Value::List(left), Value::List(right)) => {
             left.len() == right.len()
@@ -2534,6 +2871,17 @@ mod semantic_float_equality_tests {
 }
 
 impl LoweredValue {
+    fn materialize_validated_list(self, ty: &Type) -> Self {
+        if matches!(ty.unvalidated(), Type::List(_)) { self.materialize_list() } else { self }
+    }
+
+    fn materialize_list(self) -> Self {
+        match self {
+            Self::EnvPathList(paths) => Self::List(paths.entries().iter().cloned().map(Self::Path).collect()),
+            value => value,
+        }
+    }
+
     fn into_value(self) -> Value {
         match self {
             Self::OmittedArgument => unreachable!("omitted argument escaped callee entry"),
@@ -2551,6 +2899,7 @@ impl LoweredValue {
             Self::Regex(value) => Value::Regex(*value),
             Self::Status(value) => Value::Status(*value),
             Self::Path(value) => Value::Path(value),
+            Self::EnvPathList(value) => Value::EnvPathList(value),
             Self::FsEntry(value) => Value::FsEntry(value),
             Self::Command(value) => Value::Command(value),
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
@@ -2558,8 +2907,7 @@ impl LoweredValue {
             Self::FsRoot(value) => Value::FsRoot(value),
             Self::FsLock(value) => Value::FsLock(value),
             Self::Stream(value) => Value::Stream(value),
-            Self::Pure(value) => Value::Pure(value),
-            Self::Proc(value) => Value::Proc(value),
+            Self::Callable(value) => Value::Callable(value),
             Self::Error(value) => *value,
             Self::Record(value) => Value::Record(RecordMap::from_name_values(
                 crate::runtime::eval::lower::take_shared(value)
@@ -2842,7 +3190,7 @@ impl RuntimeEnv {
 /// `export proc`/`export pure` contract fields.
 #[derive(Clone, Debug)]
 pub(super) struct ModuleExportSignature {
-    pub(super) pure: bool,
+    pub(super) kind: CallableKind,
     pub(super) sig: CallableType,
 }
 
@@ -2908,7 +3256,7 @@ pub struct Evaluator {
     net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
-    utils_cache: FxHashMap<String, Value>,
+    utils_cache: FxHashMap<lowered_run::UtilsCacheKey, Value>,
     signal_hooks: FxHashMap<String, RegisteredSignalHook>,
     signal_handler_guards: Vec<SignalHandlerGuard>,
     active_process_groups: Vec<ActiveProcessGroup>,
@@ -4364,14 +4712,15 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map(|_| ())
-        .map_err(|error| match error.span {
-            Some(span) => format!(
-                "{} at bytes {}..{}",
-                error.construct,
-                span.start(),
-                span.end()
-            ),
-            None => error.construct.to_string(),
+        .map_err(|error| {
+            let message = match error.span {
+                Some(span) => format!("{} at bytes {}..{}", error.construct, span.start(), span.end()),
+                None => error.construct.to_string(),
+            };
+            match error.detail {
+                Some(detail) => format!("{message}: {detail}"),
+                None => message,
+            }
         })
     }
 
@@ -4392,7 +4741,7 @@ impl Evaluator {
     pub(crate) fn probe_embedded_call(
         identity: &str,
         function: &str,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
         // The interpreter recurses per statement and expression, so the probe
@@ -4414,7 +4763,7 @@ impl Evaluator {
     fn probe_embedded_call_on_this_stack(
         identity: &str,
         function: &str,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
         let module = crate::stdlib::find(identity)
@@ -4478,7 +4827,7 @@ impl Evaluator {
         function: &str,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
-        Self::probe_embedded_call(identity, function, LoweredFunctionKind::Pure, args)
+        Self::probe_embedded_call(identity, function, CallableKind::Pure, args)
     }
 
     pub(crate) fn prepare_compact_indexed_only(
@@ -4774,7 +5123,7 @@ impl Evaluator {
         if auto_main_required
             && !entry_functions.iter().all(|name| {
                 indexed
-                    .contains_function(LoweredFunctionKey::Name(*name), LoweredFunctionKind::Proc)
+                    .contains_function(LoweredFunctionKey::Name(*name), CallableKind::Proc)
             })
         {
             let span = root
@@ -5258,7 +5607,7 @@ impl Evaluator {
             let zero = zero_span();
             let call_result = self.call_indexed_direct_omitting(
                 LoweredFunctionKey::Name(main_function),
-                LoweredFunctionKind::Proc,
+                CallableKind::Proc,
                 &main_arguments,
                 &main_omitted,
                 zero,
@@ -5520,7 +5869,7 @@ impl Evaluator {
             program
                 .function_param_kinds(
                     LoweredFunctionKey::Name(main_name),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                 )
                 .ok()
                 .flatten()
@@ -5816,7 +6165,7 @@ impl Evaluator {
             .as_ref()
             .and_then(|program| {
                 program
-                    .function_view(key, LoweredFunctionKind::Proc)
+                    .function_view(key, CallableKind::Proc)
                     .ok()
                     .flatten()
             })
@@ -5826,7 +6175,7 @@ impl Evaluator {
             Some(_) => vec![ctx],
             None => Vec::new(),
         };
-        match self.call_indexed_direct(key, LoweredFunctionKind::Proc, &args, script_span) {
+        match self.call_indexed_direct(key, CallableKind::Proc, &args, script_span) {
             Some(Ok(value)) => Ok(Some(value)),
             Some(Err(error)) => {
                 let span = error.span.unwrap_or(script_span);
@@ -7318,16 +7667,16 @@ impl Evaluator {
     pub(super) fn record_module_export_signature(
         &mut self,
         function: crate::runtime::value::FunctionName,
-        pure: bool,
+        kind: CallableKind,
         sig: &crate::sema::check::CompactFunctionSig,
     ) {
         let sig = CallableType {
             params: sig.params.clone(),
             return_ty: Box::new(sig.return_ty.clone()),
-            effects: sig.effects.clone(),
+            effects: crate::sema::types::CallableEffects::from_clause(sig.effects.clone()),
         };
         Arc::make_mut(&mut self.module_export_signatures)
-            .insert(function, ModuleExportSignature { pure, sig });
+            .insert(function, ModuleExportSignature { kind, sig });
     }
 
     /// Resolve a `PathValue` to the path handed to the kernel. A relative
@@ -8666,27 +9015,14 @@ mod capture_transfer_tests {
         span: Span,
         drops: &Arc<std::sync::atomic::AtomicUsize>,
     ) -> (StreamValue, ScriptStreamState) {
-        // The captured stream points back to its producer through this test cell.
         let captured = Arc::new(std::sync::Mutex::new(None));
         let source = StreamValue::from_script(ScriptStreamState::new(DropProbeStream {
             drops: Arc::clone(drops),
             captured: Arc::clone(&captured),
         }));
         let args = [Value::Stream(Box::new(source))];
-        let kind = [LoweredFunctionKind::Proc, LoweredFunctionKind::Pure]
-            .into_iter()
-            .find(|kind| {
-                evaluator
-                    .indexed_program
-                    .as_ref()
-                    .unwrap()
-                    .function_view(function, *kind)
-                    .unwrap()
-                    .is_some()
-            })
-            .expect("prepared stream function identity");
         let value = evaluator
-            .call_indexed_direct(function, kind, &args, span)
+            .call_indexed_direct(function, CallableKind::Stream, &args, span)
             .expect("prepared stream function")
             .expect("stream producer call succeeds");
         drop(args);

@@ -6,6 +6,7 @@ use super::{
     TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+use crate::sema::types::CallableKind;
 use crate::sema::check::{
     Binding, ContractParam, FunctionDeclarationId, FunctionParamSig, ModuleContractEntry,
     ModuleContractEntryKind, PendingCallable, PendingCallableShape, PendingFunctionParamSig,
@@ -13,12 +14,12 @@ use crate::sema::check::{
     standard_record_type,
 };
 use crate::sema::schemes::{
-    CallableScheme, SchemeCallableKind, SchemeParameter, TypeScheme,
+    CallableScheme, SchemeParameter, TypeScheme,
 };
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaChild, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange,
-    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, BlockId, ErrorDefId, ExprId,
-    FunctionDefId, StmtId, SugarView, TypeDefId, TypeExprId,
+    ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaModuleContractEntryKind,
+    ArenaProgram, ArenaRange, ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule,
+    BlockId, ErrorDefId, ExprId, FunctionDefId, StmtId, SugarView, TypeDefId, TypeExprId,
 };
 use std::sync::Arc;
 
@@ -31,19 +32,26 @@ fn collect_body_type_facts(
     program: &ArenaProgram,
     body: BlockId,
     checked: &BTreeMap<Span, Type>,
+    prepared: &crate::sema::constants::PreparedConstants,
     bindings: &super::ResolvedBindings,
-    selected_calls: &BTreeMap<Span, super::CheckedFunctionTarget>,
+    selected_callee: impl Fn(ExprId) -> bool,
+    selected_nullary: impl Fn(ExprId) -> bool,
+    command_sites: &BTreeMap<(Span, Name), super::BindingId>,
+    defaults: &[ExprId],
 ) -> (
     BTreeMap<ExprId, Type>,
     BTreeMap<StmtId, Type>,
     std::collections::BTreeSet<Span>,
     std::collections::BTreeSet<super::BindingId>,
+    std::collections::BTreeSet<StmtId>,
+    FxHashSet<ExprId>,
 ) {
     #[derive(Clone, Copy, Eq, Hash, PartialEq)]
     enum BodyFactUse { Executable, SelectedCallee }
 
     let arena = &program.arena;
     let mut pending = vec![(ArenaChild::Block(body), BodyFactUse::Executable)];
+    pending.extend(defaults.iter().map(|&value| (ArenaChild::Expr(value), BodyFactUse::Executable)));
     let mut expressions = FxHashSet::default();
     let mut statements = FxHashSet::default();
     let mut blocks = FxHashSet::default();
@@ -52,6 +60,7 @@ fn collect_body_type_facts(
     let mut assign_targets = FxHashSet::default();
     let mut builder_blocks = FxHashSet::default();
     let mut expression_spans = std::collections::BTreeSet::new();
+    let mut failure_only_completion_expressions = FxHashSet::default();
     let mut types = BTreeMap::new();
     let mut tail_types = BTreeMap::new();
     while let Some((child, usage)) = pending.pop() {
@@ -61,8 +70,9 @@ fn collect_body_type_facts(
                 if let Some(ty) = checked.get(&arena.expr(id).span) {
                     types.insert(id, ty.clone());
                 }
+                if prepared.values.contains_key(&id) || selected_nullary(id) { continue; }
                 if let crate::syntax::arena::ArenaExprKind::Call { callee, args } = arena.expr(id).kind
-                    && selected_calls.contains_key(&arena.expr(id).span)
+                    && selected_callee(id)
                 {
                     pending.push((ArenaChild::Expr(callee), BodyFactUse::SelectedCallee));
                     for argument in arena.call_args(args) {
@@ -74,7 +84,12 @@ fn collect_body_type_facts(
             }
             ArenaChild::Stmt(id) if statements.insert((id, usage)) => {
                 let statement = arena.stmt(id);
-                if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_))
+                if let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) = statement.kind
+                    && is_direct_err_constructor(arena, expression)
+                {
+                    failure_only_completion_expressions.insert(expression);
+                }
+                if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
                     && let Some(ty) = checked.get(&statement.span)
                 {
                     tail_types.insert(id, ty.clone());
@@ -91,6 +106,13 @@ fn collect_body_type_facts(
                 }
             }
             ArenaChild::Block(id) if blocks.insert((id, usage)) => {
+                if id == body
+                    && let Some(tail) = arena.stmt_ids(arena.block(id).statements).last()
+                    && let ArenaStmtKind::Expr(expression) = arena.stmt(arena.core_stmt_id(tail)).kind
+                    && is_direct_err_constructor(arena, expression)
+                {
+                    failure_only_completion_expressions.insert(expression);
+                }
                 arena.for_each_block_child(id, |child| pending.push((child, usage)));
             }
             ArenaChild::Pattern(id) if patterns.insert((id, usage)) => {
@@ -115,24 +137,146 @@ fn collect_body_type_facts(
             | ArenaChild::BuilderBlock(_) => {}
         }
     }
-    let reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect();
-    (types, tail_types, expression_spans, reads)
+    let mut reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect::<std::collections::BTreeSet<_>>();
+    for &(expression, usage) in &expressions {
+        if usage == BodyFactUse::Executable && let crate::syntax::arena::ArenaExprKind::Record(fields) = arena.expr(expression).kind {
+            for field in arena.record_fields(fields) {
+                if let crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, span } = field.kind
+                    && let Some(binding) = bindings.value_sites.get(&(arena.span(span), name))
+                { reads.insert(*binding); }
+            }
+        }
+    }
+    for &(statement, usage) in &statements {
+        if usage != BodyFactUse::Executable { continue; }
+        let statement = arena.stmt(arena.core_stmt_id(statement));
+        if let ArenaStmtKind::Assign { target, .. } = statement.kind
+            && let Some(name) = super::assignment_target_root_name(program, target)
+            && let Some(binding) = bindings.value_sites.get(&(statement.span, name))
+        { reads.insert(*binding); }
+    }
+    for &(statement, usage) in &statements {
+        if usage != BodyFactUse::Executable || !matches!(arena.stmt(statement).kind, ArenaStmtKind::Command(_)) { continue; }
+        let span = arena.stmt(statement).span;
+        let start = (Span::at(span.source_id, span.start()), Name::UNKNOWN);
+        let end = (Span::at(span.source_id, span.end()), Name::UNKNOWN);
+        reads.extend(command_sites.range(start..end).filter_map(|(&(site, _), &binding)| (site.end() <= span.end()).then_some(binding)));
+        expression_spans.insert(span);
+    }
+    let local_statements = statements.into_iter().filter_map(|(statement, usage)| (usage == BodyFactUse::Executable).then_some(statement)).collect();
+    (types, tail_types, expression_spans, reads, local_statements, failure_only_completion_expressions)
+}
+
+fn is_direct_err_constructor(arena: &crate::syntax::arena::AstArena, expression: ExprId) -> bool {
+    matches!(arena.expr(expression).kind,
+        ArenaExprKind::Call { callee, .. }
+            if matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err"))
+}
+
+pub(super) struct PreparedFunctionGeneralization {
+    pub(super) definition: FunctionDefId,
+    pub(super) callable: Arc<CallableScheme>,
+    pub(super) scope: crate::sema::constraints::CallableGeneralizationScope,
+    pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
+    noncompleting_expressions: std::collections::BTreeSet<ExprId>,
+    guard_scopes: crate::sema::guarded_requirements::GuardBodyScopes,
+    constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
+    constructor_instances: BTreeMap<ExprId, crate::sema::constants::CheckedRecordConstructor<crate::sema::schemes::SchemeType>>,
+    pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
+    pub(super) calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::CheckedInstantiation>,
+    registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
+    read_bindings: std::collections::BTreeSet<super::BindingId>,
+    local_statements: std::collections::BTreeSet<StmtId>,
+    pub(super) expression_spans: std::collections::BTreeSet<Span>,
+}
+
+struct PreparedCheckedFunction {
+    definition: FunctionDefId,
+    declaration: FunctionDeclarationId,
+    kind: crate::sema::types::CallableKind,
+    exported: bool,
+    signature: FunctionSig,
+    body_facts: Option<crate::sema::schemes::SchemeBodyFacts>,
 }
 
 impl Checker {
+    fn checked_nullary_tag_producer_span(&self, program: &ArenaProgram, expression: ExprId, ty: &Type) -> Option<Span> {
+        let node = program.arena.expr(expression);
+        let family = match node.kind {
+            ArenaExprKind::Ident(name) if matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite) => {
+                let variant = self.tag_variants.get(&name)?;
+                (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
+            }
+            ArenaExprKind::Field { base, name } => match program.arena.expr(base).kind {
+                ArenaExprKind::Item => {
+                    let super::InferredVariant::Tag { type_name, variant, field_types } = self.inferred_variants.get(&node.span)? else { return None; };
+                    (name == *variant && field_types.is_empty()).then_some(*type_name)?
+                }
+                ArenaExprKind::Ident(_) => {
+                    let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(program, base) else { return None; };
+                    if !binding.static_namespace { return None; }
+                    let id = self.resolved_bindings.expressions.get(&base)?;
+                    let super::BindingKind::Module(owner) = self.resolved_bindings.declarations.get(id)?.kind else { return None; };
+                    let variant = self.user_modules.get(owner.as_str().as_str())?.tag_variants.get(&name)?;
+                    (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        (*ty == Type::Tag(family)).then_some(node.span)
+    }
+
     pub(super) fn generalize_pending_function(
         &mut self,
         program: &ArenaProgram,
         def_id: FunctionDefId,
     ) -> Option<()> {
         let def = program.arena.function_def(def_id);
+        let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+        if self.declaration_inference.pending(declaration)?.generalized().is_some() {
+            return Some(());
+        }
+        let prepared = self.prepare_function_generalization(program, def_id, &std::collections::BTreeSet::from([declaration.effect_declaration()]))?;
+        self.publish_function_generalization(program, prepared);
+        Some(())
+    }
+
+    pub(super) fn retain_function_environment_monotypes(
+        &mut self,
+        program: &ArenaProgram,
+        definitions: &[FunctionDefId],
+    ) -> Result<(), crate::sema::constraints::ConstraintResolutionError> {
+        let mut captures = std::collections::BTreeSet::new();
+        for &definition in definitions {
+            let def = program.arena.function_def(definition);
+            let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
+            let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span)
+                    || self.declaration_inference.pending(FunctionDeclarationId::new(self.effect_declaration_id(program, def.body))).is_some_and(|pending| pending.constructor_instances.contains_key(&span)) },
+                |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                &self.resolved_command_sites, &defaults);
+            captures.extend(reads);
+        }
+        let types = captures.into_iter().filter_map(|id| {
+            let declaration = self.resolved_bindings.declarations.get(&id)?;
+            self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
+                .map(|binding| binding.ty.clone())
+        }).collect::<Vec<_>>();
+        self.type_constraints.retain_environment_monotypes(&types)
+    }
+
+    pub(super) fn prepare_function_generalization(
+        &mut self,
+        program: &ArenaProgram,
+        def_id: FunctionDefId,
+        component: &std::collections::BTreeSet<super::EffectDeclarationId>,
+    ) -> Option<PreparedFunctionGeneralization> {
+        let def = program.arena.function_def(def_id);
         let declaration = FunctionDeclarationId::new(
             self.effect_declaration_id(program, def.body),
         );
         let pending = self.declaration_inference.pending(declaration)?.clone();
-        if pending.generalized().is_some() {
-            return Some(());
-        }
         let shape = pending.provisional()?;
         let params = program.arena.params(def.params);
         let mut types = Vec::with_capacity(shape.params().len() + 1);
@@ -146,27 +290,121 @@ impl Checker {
             );
         }
         let body_span = program.arena.span(program.arena.block(def.body).span);
+        let rejected_annotation = |annotation| {
+            let span = program.arena.type_expr_span(annotation);
+            self.diagnostics.iter().any(|diagnostic| {
+                diagnostic.severity == crate::diagnostic::Severity::Error
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == crate::diagnostic::LabelStyle::Primary
+                            && label.span.source_id == span.source_id
+                            && label.span.start() >= span.start() && label.span.end() <= span.end()
+                    })
+            })
+        };
+        let rejected_interface = params.iter().zip(&types).any(|(parameter, ty)| {
+            ty.contains_recovery() && parameter.annotation.is_some_and(rejected_annotation)
+        }) || !def.return_ty_defaulted && shape.return_ty().contains_recovery() && rejected_annotation(def.return_ty)
+            || matches!(self.function_return_types.get(&body_span), Some(Type::Invalid));
+        if rejected_interface {
+            self.declaration_inference.pending_mut(declaration)
+                .expect("a provisional function retains its declaration")
+                .reject_generalization();
+            return None;
+        }
+        if self.has_diagnosed_rejected_effect_invocation(declaration.effect_declaration()) { return None; }
+        if let Err(error) = self.type_constraints.solve_callable_applications() {
+            self.error(body_span, &format!("callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
+            return None;
+        }
+        let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
+        let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
+                |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                &self.resolved_command_sites, &defaults);
+        let noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
+            matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. })
+                && !self.stream_expr_may_complete(program, expression)
+        }).collect::<std::collections::BTreeSet<_>>();
+        for expression in &noncompleting_expressions { body_types.remove(expression); }
+        let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
+            Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
+            _ => None,
+        });
+        if let Some(inferred_success) = inferred_success {
+            for expression in failure_only_completion_expressions {
+                if self.result_constructors.get(&program.arena.expr(expression).span) != Some(&super::CheckedResultConstructor::Err) { continue; }
+                if let Some(Type::Result(success, error)) = body_types.get_mut(&expression)
+                    && **success == Type::Unknown
+                    && !error.contains_recovery()
+                {
+                    **success = inferred_success.clone();
+                }
+            }
+        }
+        let constructor_owner = crate::sema::constraints::CallableApplicationScope::Declaration(declaration.effect_declaration());
+        if self.type_constraints.has_constructor_error_defaults(constructor_owner) {
+            let mut inputs = types.clone();
+            for &owner in component {
+                if owner == declaration.effect_declaration() { continue; }
+                if let Some(shape) = self.declaration_inference.pending(FunctionDeclarationId::new(owner)).and_then(super::PendingFunctionSig::provisional) {
+                    inputs.extend(shape.params().iter().map(|parameter| parameter.signature.ty.clone()));
+                }
+            }
+            inputs.extend(read_bindings.iter().filter_map(|&id| {
+                let declaration = self.resolved_bindings.declarations.get(&id)?;
+                self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
+                    .map(|binding| binding.ty.clone())
+            }));
+            if let Err(error) = self.type_constraints.complete_constructor_error_defaults(constructor_owner, component, &inputs) {
+                self.error(body_span, &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        }
+        if !self.validate_local_inference(declaration.effect_declaration(), component, &types) {
+            return None;
+        }
         types.push(
             self.function_return_types
                 .get(&body_span)
                 .cloned()
                 .unwrap_or_else(|| shape.return_ty().clone()),
         );
-        let (body_types, tail_types, expression_spans, read_bindings) =
-            collect_body_type_facts(program, def.body, &self.expr_types, &self.resolved_bindings, &self.selected_function_calls);
-        let calls = expression_spans.iter().filter_map(|&span| {
-            self.pending_call_instantiations.get(&span).map(|(callable, instantiated)| {
-                (span, (Arc::clone(callable), instantiated.clone()))
-            })
-        }).collect::<BTreeMap<_, _>>();
-        let (generalized, generalized_body_types, generalized_tail_types, generalized_calls) =
-            match self.type_constraints.generalize_callable_body_with_calls(
-                &types,
-                &body_types,
-                &tail_types,
-                &calls,
-                0,
-            )
+        let mut constructor_producers = BTreeMap::new();
+        for (&expression, &kind) in self.nonmaterial_constructor_producers() {
+            if !expression_spans.contains(&program.arena.expr(expression).span) { continue; }
+            if !super::scheme_body::matches_constructor_producer(program, expression, kind) {
+                self.error(program.arena.expr(expression).span, "nonmaterial constructor evidence does not match its source expression", DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+            if kind == crate::sema::schemes::NonmaterialConstructor::Record && !matches!(body_types.get(&expression), Some(Type::Record(_))) {
+                self.error(program.arena.expr(expression).span, "nonmaterial record producer has no checked closed record shape", DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+            if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                let authenticated = self.is_checked_empty_map_constructor(program, expression);
+                if !authenticated {
+                    self.error(program.arena.expr(expression).span, "nonmaterial map constructor has no checked empty operation", DiagnosticCode::CheckLocalInference);
+                    return None;
+                }
+            }
+            if body_types.get(&expression).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference()) {
+                body_types.remove(&expression);
+                constructor_producers.insert(expression, kind);
+                if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                    let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
+                    let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
+                    body_types.remove(&callee);
+                    body_types.remove(&base);
+                }
+            }
+        }
+        let calls = self.pending_call_instantiations.iter().filter(|(site, _)| expression_spans.contains(&site.source)).map(|(&site, evidence)| (site, evidence.clone())).collect::<BTreeMap<_, _>>();
+        let generalized = self.type_constraints.generalize_callable_body_with_calls_in_component(
+            &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(), component,
+            &|site: crate::sema::schemes::InstantiationSite<Span>| self.constraint_scope_at(declaration.effect_declaration(), site.source),
+        );
+        let (generalized, generalized_body_types, generalized_tail_types, generalized_calls) = match generalized
         {
             Ok(generalized) => generalized,
             Err(crate::sema::constraints::SchemeOperationError::Build(
@@ -179,26 +417,94 @@ impl Checker {
                 );
                 return None;
             }
-            Err(_) => return None,
+            Err(crate::sema::constraints::SchemeOperationError::Build(
+                crate::sema::schemes::SchemeBuildError::RecoveryType,
+            )) if body_types.iter().any(|(&expression, ty)| {
+                if !ty.contains_recovery() {
+                    return false;
+                }
+                let span = program.arena.expr(expression).span;
+                self.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.severity == crate::diagnostic::Severity::Error
+                        && diagnostic.labels.iter().any(|label| {
+                            label.style == crate::diagnostic::LabelStyle::Primary && label.span == span
+                        })
+                })
+            }) => return None,
+            Err(error) => {
+                if matches!(error, crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::RecoveryType)) {
+                    let mut actual = types.last().expect("a callable body retains its actual return contract").clone();
+                    match self.type_constraints.unresolved_local_holes_are_input_bound(declaration.effect_declaration(), component, std::slice::from_ref(&actual), &types[..types.len() - 1]) {
+                        Ok(false) => {
+                            let before = self.diagnostics.len();
+                            super::local_inference::finalize_type(&self.type_constraints, &mut actual, body_span, &mut std::collections::BTreeSet::new(), &mut self.diagnostics);
+                            if self.diagnostics.len() != before { return None; }
+                        }
+                        Ok(true) => {},
+                        Err(resolution) => {
+                            self.error(body_span, &format!("inferred return contract cannot be resolved: {resolution:?}"), DiagnosticCode::CheckLocalInference);
+                            return None;
+                        }
+                    }
+                }
+                self.error(body_span, &format!("callable generalization failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return None;
+            }
         };
-        if !pending.generalizable()
-            && (!generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty())
-        {
-            return None;
-        }
-        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty();
+        let constructor_instances = body_types.iter().filter_map(|(&expression, ty)| {
+            let span = program.arena.expr(expression).span;
+            pending.constructor_instances.get(&span).map(|constructor| (expression, ty, constructor))
+        }).map(|(expression, ty, constructor)| {
+            let canonical = self.record_constructors.instantiate_checked(&program.arena, constructor.instance.definition, &constructor.instance.arguments)
+                .map_err(|_| crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSchema))?;
+            if &canonical != ty || canonical != constructor.ty {
+                return Err(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSchema));
+            }
+            let constructor = self.type_constraints.generalize_scoped_constructor(constructor, &generalized)?;
+            if generalized_body_types.get(&expression) != Some(&constructor.ty) {
+                return Err(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSchema));
+            }
+            Ok((expression, constructor))
+        }).collect::<Result<BTreeMap<_, _>, _>>();
+        let constructor_instances = match constructor_instances {
+            Ok(instances) if instances.len() == pending.constructor_instances.len() => instances,
+            result => {
+                self.error(body_span, &format!("constructor instances are outside their callable body: {result:?}"), DiagnosticCode::CheckConstructorInference);
+                return None;
+            }
+        };
+        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty();
+        let named_stage_callbacks = body_types.keys().filter_map(|&expression| match program.arena.expr(expression).kind {
+            crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
+            _ => None,
+        }).flat_map(|stages| program.arena.stream_stages(stages)).filter_map(|stage| {
+            let entry = self.argument_bindings.get(&program.arena.span(stage.span))?.callable_entry?;
+            match program.arena.call_args(stage.args).get(entry)?.kind {
+                crate::syntax::arena::ArenaCallArgKind::Positional(callee) | crate::syntax::arena::ArenaCallArgKind::Named { value: callee, .. } => Some(callee),
+                _ => None,
+            }
+        }).collect::<std::collections::BTreeSet<_>>();
         let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
             let span = program.arena.expr(expression).span;
             let call = self.api_calls.get(&span)?;
-            let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None };
+            let callee = match program.arena.expr(expression).kind {
+                crate::syntax::arena::ArenaExprKind::Call { callee, .. } => callee,
+                _ if named_stage_callbacks.contains(&expression) => expression,
+                _ => return None,
+            };
             let name = match program.arena.expr(callee).kind {
                 crate::syntax::arena::ArenaExprKind::Field { name, .. }
+                | crate::syntax::arena::ArenaExprKind::NullSafeField { name, .. }
                 | crate::syntax::arena::ArenaExprKind::Ident(name) => Arc::from(name.as_str().as_ref()),
                 _ => return None,
             };
             let receiver = if call.receiver.is_some() {
-                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { return None };
-                generalized_body_types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type)
+                let (crate::syntax::arena::ArenaExprKind::Field { base, .. } | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. }) = program.arena.expr(callee).kind else { return None };
+                generalized_body_types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type).map(|receiver| {
+                    if matches!(program.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::NullSafeField { .. }) {
+                        match receiver { Type::Optional(inner) | Type::Result(inner, _) => *inner, receiver => receiver }
+                    } else { receiver }
+                })
             } else { None };
             let argument_checks = call.params.iter().enumerate().map(|(slot, parameter)| crate::sema::builtin_templates::registered_argument_check(receiver.as_ref(), slot, parameter)).collect::<Vec<_>>();
             let plan = crate::sema::schemes::RegisteredCallPlan {
@@ -210,7 +516,7 @@ impl Checker {
             };
             crate::sema::builtin_templates::registered_call_is_executable(&plan).then(|| (expression, Arc::new(plan)))
         }).collect::<BTreeMap<_, _>>();
-        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() {
+        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() {
             let parameter_bindings = params
                 .iter()
                 .filter_map(|parameter| {
@@ -220,47 +526,184 @@ impl Checker {
                         .copied()
                 })
                 .collect::<super::FxHashSet<_>>();
-            let pure_calls = generalized_body_types.keys().filter_map(|&expression| {
+            let mut checked_operations = generalized_body_types.keys().filter_map(|&expression| {
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) && !named_stage_callbacks.contains(&expression) { return None; }
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
-                if program.arena.params(definition.params).iter().any(|parameter| parameter.rest || parameter.default.is_some()) { return None; }
                 let id = FunctionDeclarationId::new(super::EffectDeclarationId {
                     namespace: target.namespace,
                     body: program.arena.span(program.arena.block(definition.body).span),
                 });
                 let pure = self.checked_declarations.functions.get(&target.definition)
                     .is_some_and(|declaration| declaration.kind == CheckedFunctionKind::Pure)
-                    || self.declaration_inference.pending(id).is_some_and(|signature| signature.kind() == SchemeCallableKind::Pure)
-                    || self.declaration_inference.checked(id).is_some_and(|signature| signature.scheme.kind() == SchemeCallableKind::Pure)
+                    || self.declaration_inference.pending(id).is_some_and(|signature| signature.kind() == crate::sema::types::CallableKind::Pure)
+                    || self.declaration_inference.checked(id).is_some_and(|signature| signature.scheme.kind() == crate::sema::types::CallableKind::Pure)
                     || self.qualified_pures.values()
                         .any(|signature| signature.definition_target() == Some(*target)
-                            && signature.scheme().kind() == SchemeCallableKind::Pure);
-                pure.then_some(span)
+                            && signature.scheme().kind() == crate::sema::types::CallableKind::Pure);
+                let checked_proc = matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)
+                    && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
+                (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
-            let captures = generalized_body_types.keys()
-                .filter_map(|expression| self.resolved_bindings.expressions.get(expression))
-                .chain(generalized_tail_types.keys().filter_map(|statement| self.resolved_bindings.tails.get(statement)))
-                .filter_map(|&id| {
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                ty.closed_ground_type().and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, &ty))
+            }));
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Ident(_))
+                    || self.resolved_bindings.expressions.contains_key(&expression)
+                { return None; }
+                let span = program.arena.expr(expression).span;
+                if !self.selected_function_value_references.contains(&span) { return None; }
+                let target = self.selected_function_calls.get(&span)?;
+                let instantiated = generalized_calls.get(&crate::sema::schemes::InstantiationSite::value(span)).and_then(|instance| instance.invocation()).is_some();
+                let (kind, known_effects) = match ty {
+                    crate::sema::schemes::SchemeType::Callable { kind, effects, .. } => (*kind, matches!(effects, crate::sema::effects::EffectContract::Known(_))),
+                    crate::sema::schemes::SchemeType::Ground(Type::Callable(callable)) => (callable.kind, matches!(callable.sig.effects.contract(), crate::sema::effects::EffectContract::Known(_))),
+                    _ => return None,
+                };
+                let definition = program.arena.function_def(target.definition);
+                let owner = FunctionDeclarationId::new(super::EffectDeclarationId {
+                    namespace: target.namespace,
+                    body: program.arena.span(program.arena.block(definition.body).span),
+                });
+                let signature = self.local_function_signature(owner)?;
+                let mut ground_signature = callable_type_from_function_signature(&signature);
+                if let Some(signature) = &mut ground_signature {
+                    signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(kind));
+                }
+                let exact_ground = !signature.scheme().callable().is_quantified()
+                    && ground_signature.is_some_and(|sig| ty.closed_ground_type() == Some(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind, sig }))));
+                (signature.definition_target() == Some(*target) && signature.scheme().kind() == kind && known_effects && (instantiated || exact_ground)).then_some(span)
+            }));
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+                let span = program.arena.expr(expression).span;
+                let site = crate::sema::schemes::InstantiationSite::call(span);
+                let relationship = self.scheme_callable_calls.get(&site)?;
+                let Type::SchemeCallable(callee_relationship) = generalized_body_types.get(&callee)?.closed_ground_type()? else { return None; };
+                if callee_relationship != *relationship { return None; }
+                generalized_calls.get(&site)?.invocation()?;
+                let relationship = self.scheme_callable_relationship(*relationship).ok()?;
+                let scheme = relationship.canonical().scheme();
+                let permitted = scheme.kind() == crate::sema::types::CallableKind::Pure
+                    || matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)
+                        && (self.collecting_effects || scheme.effects().is_known());
+                permitted.then_some(span)
+            }));
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                let Type::SchemeCallable(relationship) = ty.closed_ground_type()? else { return None; };
+                let span = program.arena.expr(expression).span;
+                let target = self.selected_function_calls.get(&span)?;
+                let relationship = self.scheme_callable_relationship(relationship).ok()?;
+                (relationship.targets().len() == 1 && relationship.targets()[0].target() == *target).then_some(span)
+            }));
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+                let span = program.arena.expr(expression).span;
+                if !matches!(program.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::Field { .. }) { return None; }
+                let checked = self.typed_callable_calls.get(&span)?;
+                let checked = self.type_constraints.resolve(&Type::Callable(Arc::clone(checked))).ok()?;
+                let actual = generalized_body_types.get(&callee)?.closed_ground_type()?;
+                let Type::Callable(callable) = &actual else { return None; };
+                if checked != actual || pending.kind() == crate::sema::types::CallableKind::Pure && callable.kind != crate::sema::types::CallableKind::Pure {
+                    return None;
+                }
+                matches!(callable.sig.effects.contract().clone().for_invocation(callable.kind).concrete(), Ok(Some(_))).then_some(span)
+            }));
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let span = program.arena.expr(expression).span;
+                self.type_constraints.source_callable_application(
+                    self.constraint_scope_at(declaration.effect_declaration(), span), span,
+                ).map(|_| span)
+            }));
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let span = program.arena.expr(expression).span;
+                self.type_constraints.source_method_family(
+                    self.constraint_scope_at(declaration.effect_declaration(), span), span,
+                ).map(|_| span)
+            }));
+            checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(constructor_instances.keys().map(|&expression| program.arena.expr(expression).span));
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) { return None; }
+                let span = program.arena.expr(expression).span;
+                let constructor = self.record_constructor_instances.get(&span)?;
+                (ty.closed_ground_type().as_ref() == Some(&constructor.ty)).then_some(span)
+            }));
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                let span = program.arena.expr(expression).span;
+                (self.error_constructors.contains_key(&span)
+                    && matches!(ty.closed_ground_type(), Some(Type::ErrorVariant { .. }))).then_some(span)
+            }));
+            checked_operations.extend(self.conversions.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(self.requirement_targets.keys().filter(|span| expression_spans.contains(span)).copied());
+            if matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream) {
+                checked_operations.extend(local_statements.iter().filter_map(|&statement| {
+                    let node = program.arena.stmt(statement);
+                    let ArenaStmtKind::Command(command) = node.kind else { return None; };
+                    match program.arena.command_stmt(command).command {
+                        crate::syntax::arena::ArenaCommand::Proc { .. } if !self.module_commands.contains_key(&node.span) => None,
+                        _ => Some(node.span),
+                    }
+                }));
+            }
+            let reference_start = Span::at(body_span.source_id, body_span.start());
+            let reference_end = Span::at(body_span.source_id, body_span.end());
+            checked_operations.extend(self.selected_function_calls.range(reference_start..reference_end).filter_map(|(&span, target)| {
+                if span.source_id != body_span.source_id || span.start() < body_span.start() || span.end() > body_span.end()
+                    || !matches!(self.expr_types.get(&span), Some(Type::Function(crate::sema::types::CallableKind::Pure | crate::sema::types::CallableKind::Proc)))
+                { return None; }
+                let definition = program.arena.function_def(target.definition);
+                let owner = FunctionDeclarationId::new(super::EffectDeclarationId {
+                    namespace: target.namespace,
+                    body: program.arena.span(program.arena.block(definition.body).span),
+                });
+                self.local_function_signature(owner).filter(|signature| !signature.scheme().callable().is_quantified()).map(|_| span)
+            }));
+            let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
-                    if declaration.kind != super::BindingKind::Runtime { return None; }
+                    if !matches!(declaration.kind, super::BindingKind::Runtime | super::BindingKind::Module(_)) { return None; }
                     self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
-                        .filter(|binding| !binding.mutable && !binding.ty.contains_inference() && !binding.ty.may_hold_resource())
-                        .map(|_| id)
-                }).collect::<super::FxHashSet<_>>();
+                        .and_then(|binding| {
+                            if binding.ty.contains_inference() { return None; }
+                            let access = if matches!(declaration.kind, super::BindingKind::Module(_)) && binding.static_namespace && !binding.mutable
+                                && matches!(&binding.ty, Type::Module(module) if module.exact)
+                            {
+                                super::scheme_body::CapturedBindingAccess::StaticCallableNamespace
+                            } else if !binding.ty.may_hold_resource() {
+                                if binding.mutable { super::scheme_body::CapturedBindingAccess::Writable } else { super::scheme_body::CapturedBindingAccess::ReadOnly }
+                            } else if matches!(&binding.ty, Type::Record(_)) && self.has_literal_capture_payload(program, binding) {
+                                super::scheme_body::CapturedBindingAccess::ReadOnlyLiteral
+                            } else { return None; };
+                            Some((id, access))
+                        })
+                }).collect::<super::scheme_body::CapturedBindings>();
             if !super::scheme_body::supports_generalized_body(
                 program,
+                pending.kind(),
+                &self.prepared_constants,
+                &self.resolved_command_sites,
                 def.body,
                 &self.resolved_bindings,
                 &parameter_bindings,
                 &captures,
                 &generalized_tail_types,
                 &self.statement_positions,
-                &pure_calls,
+                &checked_operations,
                 &registered_calls,
                 &generalized_body_types,
-            ) {
-                let message = "generic pure body requires immutable bindings and a terminal value composed from checked reads, required fields, and selected pure calls";
+                &constructor_producers,
+                &noncompleting_expressions,
+                &self.result_constructors,
+                &self.collect_yields,
+                match pending.kind() { crate::sema::types::CallableKind::Stream => super::scheme_body::BodyCompletion::Producer, crate::sema::types::CallableKind::Proc => super::scheme_body::BodyCompletion::Procedure, crate::sema::types::CallableKind::Pure => super::scheme_body::BodyCompletion::Function },
+            ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
+                program, pending.kind(), &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
+                &generalized_tail_types, &self.statement_positions, &checked_operations, &registered_calls,
+                &generalized_body_types, &constructor_producers, &noncompleting_expressions, &self.result_constructors, &self.collect_yields, value,
+            )) {
+                let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
                 let reported = self.diagnostics.iter().any(|diagnostic| {
                     diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
                         && diagnostic.message == message
@@ -275,6 +718,20 @@ impl Checker {
                 return None;
             }
         }
+        let schema_contracts = (|| {
+            let parameters = shape.params().iter().map(|parameter| parameter.signature.schema_expectation.as_ref()
+                .map(|schema| self.type_constraints.generalize_scoped_schema(schema, &generalized)).transpose())
+                .collect::<Result<Vec<_>, _>>()?;
+            let result = shape.return_schema.as_ref().map(|schema| self.type_constraints.generalize_scoped_schema(schema, &generalized)).transpose()?;
+            Ok::<_, crate::sema::constraints::SchemeOperationError>((parameters, result))
+        })();
+        let (parameter_schemas, return_schema) = match schema_contracts {
+            Ok(schemas) => schemas,
+            Err(error) => {
+                self.error(body_span, &format!("constructor schema is outside its callable scope: {error:?}"), DiagnosticCode::CheckConstructorInference);
+                return None;
+            }
+        };
         let mut generalized_types = generalized.types;
         let return_type = generalized_types.pop()?;
         if pending.return_authority != TypeAuthority::Inferred
@@ -286,12 +743,13 @@ impl Checker {
             .params()
             .iter()
             .zip(generalized_types)
-            .map(|(parameter, ty)| {
+            .zip(parameter_schemas)
+            .map(|((parameter, ty), schema_expectation)| {
                 (parameter.authority == TypeAuthority::Inferred || !ty.contains_parameter())
-                    .then(|| SchemeParameter {
+                    .then_some(SchemeParameter {
                         name: parameter.signature.name,
                         ty,
-                        schema_expectation: parameter.signature.schema_expectation.clone(),
+                        schema_expectation,
                         defaulted: parameter.signature.defaulted,
                         rest: parameter.signature.rest,
                     })
@@ -303,11 +761,82 @@ impl Checker {
                 generalized.row_parameters,
                 params,
                 return_type,
-                shape.return_schema.clone(),
+                return_schema,
                 shape.explicit_return,
+                generalized.requirements,
             )
             .ok()?,
         );
+        let guard_scopes = (|| {
+            let expressions = generalized_body_types.keys().chain(&noncompleting_expressions).filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr(expression).span).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
+            let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt(statement).span).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
+            let by_span = generalized_body_types.keys().chain(&noncompleting_expressions).map(|&expression| (program.arena.expr(expression).span, expression)).collect::<BTreeMap<_, _>>();
+            let statements_by_span = generalized_tail_types.keys().map(|&statement| (program.arena.stmt(statement).span, statement)).collect::<BTreeMap<_, _>>();
+            let mut statement_sites = BTreeMap::<crate::syntax::arena::StmtId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
+            let mut sites = BTreeMap::<ExprId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
+            let mut pending = callable.requirements().guards.iter().rev().collect::<Vec<_>>();
+            while let Some(guard) = pending.pop() {
+                let mut record = |span, site| {
+                    let expression = by_span.get(&span).copied().ok_or(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                    sites.entry(expression).or_default().push(site);
+                    Ok::<_, crate::sema::constraints::SchemeOperationError>(())
+                };
+                record(guard.subject, crate::sema::guarded_requirements::GuardBodySite::Source(guard.scope))?;
+                record(guard.comparison, crate::sema::guarded_requirements::GuardBodySite::Comparison(guard.scope))?;
+                for (ordinal, read) in guard.reads.iter().enumerate() {
+                    let ordinal = u32::try_from(ordinal).map_err(|_| crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                    record(read.subject, crate::sema::guarded_requirements::GuardBodySite::Read { scope: guard.scope, ordinal })?;
+                }
+                if let Some(output) = &guard.output {
+                    let site = crate::sema::guarded_requirements::GuardBodySite::Output(guard.scope);
+                    match output.site {
+                        crate::sema::guarded_requirements::GuardOutputSite::Expression(span) => record(span, site)?,
+                        crate::sema::guarded_requirements::GuardOutputSite::Statement(span) => {
+                            let statement = statements_by_span.get(&span).copied().ok_or(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                            statement_sites.entry(statement).or_default().push(site);
+                        }
+                    }
+                }
+                pending.extend(guard.requirements.guards.iter().rev());
+            }
+            Ok::<_, crate::sema::constraints::SchemeOperationError>(crate::sema::guarded_requirements::GuardBodyScopes { expressions, statements, sites, statement_sites })
+        })();
+        let guard_scopes = match guard_scopes {
+            Ok(scopes) => scopes,
+            Err(error) => { self.error(body_span, &format!("body guard scope is not owned by its callable: {error:?}"), DiagnosticCode::CheckLocalInference); return None; }
+        };
+        Some(PreparedFunctionGeneralization {
+            definition: def_id,
+            callable,
+            scope: generalized.generalization_scope,
+            body_types: generalized_body_types,
+            noncompleting_expressions,
+            guard_scopes,
+            constructor_producers,
+            constructor_instances,
+            tail_types: generalized_tail_types,
+            calls: generalized_calls,
+            registered_calls,
+            read_bindings,
+            local_statements,
+            expression_spans,
+        })
+    }
+
+    pub(super) fn publish_function_generalization(
+        &mut self,
+        program: &ArenaProgram,
+        prepared: PreparedFunctionGeneralization,
+    ) {
+        let PreparedFunctionGeneralization {
+            definition, callable, scope, body_types: generalized_body_types,
+            noncompleting_expressions, guard_scopes, constructor_producers, constructor_instances,
+            tail_types: generalized_tail_types, calls: generalized_calls,
+            registered_calls, read_bindings, local_statements, expression_spans: _,
+        } = prepared;
+        let def = program.arena.function_def(definition);
+        let body_span = program.arena.span(program.arena.block(def.body).span);
+        let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
         for (parameter, scheme_parameter) in
             program.arena.params(def.params).iter().zip(callable.params())
         {
@@ -326,38 +855,65 @@ impl Checker {
                 )
             });
         }
+        let quantified = callable.is_quantified();
         let generalized_body_spans = generalized_body_types
             .iter()
             .filter_map(|(&expression, ty)| {
                 ty.contains_parameter()
                     .then_some(program.arena.expr(expression).span)
             })
+            .chain(noncompleting_expressions.iter().filter(|_| quantified).map(|&expression| program.arena.expr(expression).span))
             .chain(generalized_tail_types.iter().filter_map(|(&statement, ty)| {
                 ty.contains_parameter()
                     .then_some(program.arena.stmt(statement).span)
             }))
             .collect::<std::collections::BTreeSet<_>>();
-        let generalized_bindings = program.arena.stmt_ids(program.arena.block(def.body).statements)
+        let generalized_bindings = local_statements.into_iter()
             .filter_map(|statement| match program.arena.stmt(statement).kind {
                 ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
-                    if generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter())
+                | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
+                    if (quantified && noncompleting_expressions.contains(&value) || generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter()))
                         && self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span).is_some_and(Type::contains_inference) => Some(program.arena.stmt(statement).span),
                 _ => None,
             }).collect::<std::collections::BTreeSet<_>>();
         self.local_inference.checked_bindings.retain(|span, _| !generalized_bindings.contains(span));
         self.annotation_facts.retain(|fact| !matches!(fact.kind, super::AnnotationFactKind::Binding { span, .. } if generalized_bindings.contains(&span)));
         for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
+        for (&expression, &kind) in &constructor_producers {
+            let span = program.arena.expr(expression).span;
+            self.expr_types.remove(&span);
+            self.projections.remove(&span);
+            if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
+                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
+                self.expr_types.remove(&program.arena.expr(callee).span);
+                self.expr_types.remove(&program.arena.expr(base).span);
+            }
+        }
+        let generalized_pipeline_stages = generalized_body_types.keys().chain(noncompleting_expressions.iter()).filter_map(|&expression| {
+            match program.arena.expr(expression).kind {
+                crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
+                _ => None,
+            }
+        }).flat_map(|stages| program.arena.stream_stages(stages).iter().map(|stage| program.arena.span(stage.span)))
+            .collect::<std::collections::BTreeSet<_>>();
         self.declaration_inference
-            .pending_mut(declaration)?
-            .generalize(callable, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
+            .pending_mut(declaration)
+            .expect("a prepared function retains its provisional declaration")
+            .generalize(callable, scope, generalized_body_types, noncompleting_expressions, constructor_producers, constructor_instances, generalized_tail_types, registered_calls, read_bindings, guard_scopes);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
         }
+        self.stream_stage_types.retain(|(namespace, span), stage| {
+            *namespace != self.current_namespace || !generalized_pipeline_stages.contains(span)
+                || !(self.type_constraints.resolve(&stage.input).is_ok_and(|ty| ty.contains_inference())
+                    || self.type_constraints.resolve(&stage.output).is_ok_and(|ty| ty.contains_inference()))
+        });
         for span in generalized_body_spans {
             self.expr_types.remove(&span);
+            self.projections.remove(&span);
         }
-        Some(())
     }
 
     pub(super) fn local_function_target(
@@ -379,13 +935,13 @@ impl Checker {
         declaration: FunctionDeclarationId,
     ) -> Option<super::super::constants::SchemaExpectation> {
         if let Some(signature) = self.declaration_inference.checked(declaration) {
-            return signature.scheme().return_schema().cloned();
+            return signature.scheme().return_schema().and_then(crate::sema::constants::SchemaExpectation::closed_ground);
         }
         let pending = self.declaration_inference.pending(declaration)?;
         if let Some(shape) = pending.provisional() {
             return shape.return_schema.clone();
         }
-        pending.generalized()?.return_schema().cloned()
+        pending.generalized()?.return_schema().and_then(crate::sema::constants::SchemaExpectation::closed_ground)
     }
 
     pub(super) fn local_function_signature(
@@ -396,7 +952,7 @@ impl Checker {
             return Some(signature.clone());
         }
         let pending = self.declaration_inference.pending(declaration)?;
-        let effects = self.declaration_effects(pending.effect_declaration());
+        let effects = self.signature_declaration_effects(pending.effect_declaration()).into_checked()?;
         let inferred_effects = pending
             .effect_declaration()
             .is_some_and(|id| self.effect_graph.is_inferred(id));
@@ -439,7 +995,7 @@ impl Checker {
             params,
             return_ty,
             return_schema,
-            effects,
+            effects.concrete().ok()?,
             inferred_effects,
             explicit_return,
         )
@@ -454,6 +1010,9 @@ impl Checker {
         let declaration = FunctionDeclarationId::new(
             self.effect_declaration_id(program, def.body),
         );
+        if let Err(error) = self.type_constraints.constrain_wrapper_returns(declaration.effect_declaration(), &ty, declaration.effect_declaration().body) {
+            self.error(declaration.effect_declaration().body, &error.to_string(), DiagnosticCode::CheckTryContext);
+        }
         if let Some(signature) = self.declaration_inference.pending_mut(declaration)
             && let Some(shape) = signature.provisional_mut()
         {
@@ -461,39 +1020,140 @@ impl Checker {
         }
     }
 
-    pub(super) fn checked_function_sig_arena(
+    pub(super) fn update_pending_return_schema(
+        &mut self,
+        program: &ArenaProgram,
+        def: &crate::syntax::arena::ArenaFunctionDef,
+        schema: Option<crate::sema::constants::SchemaExpectation>,
+    ) {
+        let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+        if def.return_ty_defaulted
+            && let Some(signature) = self.declaration_inference.pending_mut(declaration)
+            && let Some(shape) = signature.provisional_mut()
+        {
+            shape.return_schema = schema;
+        }
+    }
+
+    fn prepare_checked_function_sig_arena(
         &mut self,
         program: &ArenaProgram,
         def_id: FunctionDefId,
         effect_fact: Option<&super::FunctionEffectFact>,
-    ) -> Option<super::FunctionSig> {
+    ) -> Option<PreparedCheckedFunction> {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         let declaration = FunctionDeclarationId::new(effect_declaration);
+        if self.recursive_component_has_errors(program, &[def_id]) {
+            self.reject_recursive_component(program, &[def_id]);
+            return None;
+        }
         self.generalize_pending_function(program, def_id)?;
         let pending = self.declaration_inference.pending(declaration)?.clone();
         let callable = Arc::clone(pending.generalized()?);
-        let effects = effect_fact.and_then(|fact| fact.effective.clone());
+        let effects = match (pending.kind, effect_fact) {
+            (_, Some(fact)) => fact.effective.clone(),
+            (crate::sema::types::CallableKind::Pure, None) => super::CheckedEffects::unknown(),
+            (_, None) => {
+                self.error(program.arena.span(program.arena.block(def.body).span), "function has no checked effect contract", DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        };
         let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
-        let scheme = Arc::new(
-            TypeScheme::with_callable(
-                pending.kind,
-                Arc::clone(&callable),
-                effects,
-                inferred_effects,
-            )
-            .ok()?,
-        );
-        let scheme_body_facts = if callable.type_parameters().is_empty()
-            && callable.row_parameters().is_empty()
+        if matches!(pending.kind, crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)
+            && (callable.is_quantified())
+            && !effects.is_known()
+        {
+            self.error(program.arena.span(program.arena.block(def.body).span),
+                "generic effectful callable requires a known checked effect contract", DiagnosticCode::CheckLocalInference);
+            return None;
+        }
+        let scheme = match TypeScheme::with_callable(pending.kind, Arc::clone(&callable), effects, inferred_effects) {
+            Ok(scheme) => Arc::new(scheme),
+            Err(error) => {
+                self.error(effect_declaration.body, &format!("checked callable contract cannot be published: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        };
+        let mut operation_sites = BTreeMap::new();
+        let mut method_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            let operation = self.binary_operators.get(&expression).and_then(|operator| operator.operation).or_else(|| {
+                matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Index { .. } | crate::syntax::arena::ArenaExprKind::Slice { .. } | crate::syntax::arena::ArenaExprKind::Record(_)).then(|| self.type_constraints.sealed_operation_at(self.constraint_scope_at(effect_declaration, program.arena.expr(expression).span), program.arena.expr(expression).span)).flatten()
+            });
+            if let Some(operation) = operation {
+                match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { operation_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(program.arena.expr(expression).span, &format!("sealed operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+            let span = program.arena.expr(expression).span;
+            if let Some(method) = self.type_constraints.source_method_family(
+                self.constraint_scope_at(effect_declaration, span), span,
+            ) {
+                match self.type_constraints.generalized_method_ordinal(method, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { method_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(span, &format!("method family has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
+        let mut wrapper_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            let checked = program.arena.expr(expression);
+            let span = match checked.kind {
+                crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right } => Span::new(checked.span.source_id, program.arena.expr(left).span.start(), program.arena.expr(right).span.end()),
+                _ => checked.span,
+            };
+            if let Some(wrapper) = self.type_constraints.wrapper_at(self.constraint_scope_at(effect_declaration, span), span) {
+                match self.type_constraints.generalized_wrapper_ordinal(wrapper, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { wrapper_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(span, &format!("wrapper operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
+        let mut proc_return_sites = BTreeMap::new();
+        for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
+            let mut representative = None;
+            for site in sites {
+                let application = match self.type_constraints.generalized_application_ordinal(site.application, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(application)) => application,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        self.error(span, &format!("proc return application has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                };
+                let candidate = super::super::schemes::SchemeProcReturnSite { application, envelope: site.envelope };
+                if representative.is_none_or(|previous: super::super::schemes::SchemeProcReturnSite| previous.application > application) { representative = Some(candidate); }
+            }
+            if let Some(representative) = representative { proc_return_sites.insert(span, representative); }
+        }
+        let scheme_body_facts = if !callable.is_quantified()
         {
             None
         } else {
-            match super::super::schemes::SchemeBodyFacts::new(
+            let constructor_instances = pending.generalized_constructor_instances()?.clone();
+            let constructor_producers = pending.generalized_constructor_producers()?.clone();
+            let noncompleting_expressions = pending.generalized_noncompleting_expressions()?.clone();
+            match super::super::schemes::SchemeBodyFacts::new_scoped(
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ) {
+                pending.generalized_guard_scopes()?.clone(),
+                noncompleting_expressions,
+            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";
@@ -513,15 +1173,20 @@ impl Checker {
             definition_target: pending.definition_target,
             scheme,
         };
-        self.declaration_inference
-            .mark_checked(declaration, signature.clone())
-            .ok()?;
-        self.publish_function_declaration(program, def_id, match pending.kind {
-            SchemeCallableKind::Pure => CheckedFunctionKind::Pure,
-            SchemeCallableKind::Proc => CheckedFunctionKind::Proc,
-            SchemeCallableKind::Stream => CheckedFunctionKind::Stream,
-        }, pending.exported, Some(&signature), scheme_body_facts);
-        Some(signature)
+        Some(PreparedCheckedFunction {
+            definition: def_id, declaration, kind: pending.kind, exported: pending.exported,
+            signature, body_facts: scheme_body_facts,
+        })
+    }
+
+    fn publish_checked_function(&mut self, program: &ArenaProgram, prepared: PreparedCheckedFunction) {
+        self.declaration_inference.mark_checked(prepared.declaration, prepared.signature.clone())
+            .expect("a prepared function signature is published once");
+        self.publish_function_declaration(program, prepared.definition, match prepared.kind {
+            crate::sema::types::CallableKind::Pure => CheckedFunctionKind::Pure,
+            crate::sema::types::CallableKind::Proc => CheckedFunctionKind::Proc,
+            crate::sema::types::CallableKind::Stream => CheckedFunctionKind::Stream,
+        }, prepared.exported, Some(&prepared.signature), prepared.body_facts);
     }
 
     pub(super) fn finalize_function_declarations(
@@ -537,9 +1202,44 @@ impl Checker {
                 Some((target.definition, pending.effect_declaration()))
             })
             .collect::<Vec<_>>();
+        for &(definition, _) in &declarations {
+            self.generalize_pending_function(program, definition);
+        }
+        if let Err((owner, _)) = self.normalize_stream_origin_applications() {
+            self.report_stream_origin_boundary(owner.body);
+            let definitions = declarations.iter().filter_map(|&(definition, declaration)| {
+                (declaration == Some(owner)).then_some(definition)
+            }).collect::<Vec<_>>();
+            self.reject_recursive_component(program, &definitions);
+        }
+        let components = std::mem::take(&mut self.recursive_function_components);
+        let recursive_definitions = components.iter().flatten().copied().collect::<std::collections::BTreeSet<_>>();
+        for definitions in components {
+            if self.recursive_component_has_errors(program, &definitions) {
+                self.reject_recursive_component(program, &definitions);
+                continue;
+            }
+            let mut prepared = Vec::new();
+            for &definition in &definitions {
+                let def = program.arena.function_def(definition);
+                let owner = self.effect_declaration_id(program, def.body);
+                let Some(member) = self.prepare_checked_function_sig_arena(program, definition, facts.get(&owner)) else {
+                    break;
+                };
+                prepared.push(member);
+            }
+            if prepared.len() != definitions.len() {
+                self.reject_recursive_component(program, &definitions);
+                continue;
+            }
+            for member in prepared { self.publish_checked_function(program, member); }
+        }
         for (def_id, effect_declaration) in declarations {
+            if recursive_definitions.contains(&def_id) { continue; }
             let effect_fact = effect_declaration.and_then(|id| facts.get(&id));
-            self.checked_function_sig_arena(program, def_id, effect_fact);
+            if let Some(prepared) = self.prepare_checked_function_sig_arena(program, def_id, effect_fact) {
+                self.publish_checked_function(program, prepared);
+            }
         }
     }
 
@@ -549,6 +1249,16 @@ impl Checker {
         module: &ArenaUserModule,
         signature: &mut UserModuleSig,
     ) {
+        for functions in [&mut signature.pures, &mut signature.procs, &mut signature.streams] {
+            functions.retain(|_, function| {
+                let Some(target) = function.definition_target() else { return true; };
+                let def = program.arena.function_def(target.definition);
+                let declaration = FunctionDeclarationId::new(super::EffectDeclarationId {
+                    namespace: target.namespace, body: program.arena.span(program.arena.block(def.body).span),
+                });
+                self.declaration_inference.pending(declaration).is_none()
+            });
+        }
         for statement in program.arena.stmt_ids(module.statements) {
             let ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else {
                 continue;
@@ -1134,10 +1844,10 @@ impl Checker {
                                 && let Some(binding) = self.lookup(name)
                             {
                                 if let Some(alias) = &binding.callable_alias {
-                                    if alias.pure {
-                                        exports.pures.insert(name, alias.signature.clone());
-                                    } else {
-                                        exports.procs.insert(name, alias.signature.clone());
+                                    match alias.kind {
+                                        CallableKind::Pure => { exports.pures.insert(name, alias.signature.clone()); }
+                                        CallableKind::Proc => { exports.procs.insert(name, alias.signature.clone()); }
+                                        CallableKind::Stream => { exports.streams.insert(name, alias.signature.clone()); }
                                     }
                                 } else {
                                     exports.values.insert(name, binding.ty.clone());
@@ -1313,7 +2023,7 @@ impl Checker {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         let declaration = FunctionDeclarationId::new(effect_declaration);
-        if kind == CheckedFunctionKind::Pure {
+        if matches!(kind, CheckedFunctionKind::Pure | CheckedFunctionKind::Proc | CheckedFunctionKind::Stream) {
             for parameter in program.arena.params(def.params) {
                 let span = program.arena.span(parameter.span);
                 if parameter.annotation.is_none()
@@ -1321,15 +2031,23 @@ impl Checker {
                     && !self.parameter_types.contains_key(&span)
                 {
                     let ty = self.type_constraints.fresh_at_level(span, 1);
+                    let ty = if parameter.rest { Type::List(Box::new(ty)) } else { ty };
                     self.parameter_types.insert(span, ty);
                 }
             }
         }
+        if def.return_ty_defaulted && kind == CheckedFunctionKind::Stream {
+            let body = program.arena.span(program.arena.block(def.body).span);
+            if !self.function_return_types.contains_key(&body) {
+                let item = self.type_constraints.fresh_at_level(body, 1);
+                self.function_return_types.insert(body, Type::Stream(Box::new(item)));
+            }
+        }
         let signature = PendingFunctionSig {
             kind: match kind {
-                CheckedFunctionKind::Pure => SchemeCallableKind::Pure,
-                CheckedFunctionKind::Proc => SchemeCallableKind::Proc,
-                CheckedFunctionKind::Stream => SchemeCallableKind::Stream,
+                CheckedFunctionKind::Pure => crate::sema::types::CallableKind::Pure,
+                CheckedFunctionKind::Proc => crate::sema::types::CallableKind::Proc,
+                CheckedFunctionKind::Stream => crate::sema::types::CallableKind::Stream,
                 CheckedFunctionKind::CliMain => unreachable!(),
             },
             exported,
@@ -1342,13 +2060,13 @@ impl Checker {
                 name: def.name,
             }),
             solver_level: 1,
+            constructor_instances: BTreeMap::new(),
             return_authority: if def.return_ty_defaulted {
                 TypeAuthority::Inferred
             } else {
                 TypeAuthority::Explicit
             },
             body_checked: false,
-            generalizable: true,
             callable: PendingCallable::Provisional(PendingCallableShape {
                 params: program
                     .arena
@@ -1387,7 +2105,9 @@ impl Checker {
                         },
                     })
                     .collect(),
-                return_ty: if def.return_ty_defaulted && kind == CheckedFunctionKind::Pure {
+                return_ty: if def.return_ty_defaulted && kind == CheckedFunctionKind::Stream {
+                    self.function_return_types[&effect_declaration.body].clone()
+                } else if def.return_ty_defaulted && kind == CheckedFunctionKind::Pure {
                     Type::Unknown
                 } else if def.return_ty_defaulted
                     && kind == CheckedFunctionKind::Proc
@@ -1424,7 +2144,7 @@ pub(super) fn callable_type_from_function_signature(
     sig: &FunctionSig,
 ) -> Option<super::CallableType> {
     let scheme = sig.scheme();
-    if !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty() {
+    if scheme.callable().is_quantified() {
         return None;
     }
     let params = scheme
@@ -1442,7 +2162,7 @@ pub(super) fn callable_type_from_function_signature(
     Some(super::CallableType {
         params,
         return_ty: Box::new(scheme.return_type().closed_ground_type()?),
-        effects: scheme.effects().map(<[_]>::to_vec),
+        effects: crate::sema::types::CallableEffects::from_contract(scheme.effects().contract().substitute(|_| Err(())).ok()?),
     })
 }
 
@@ -1510,31 +2230,21 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
             },
         );
     }
-    for (name, sig) in &module.procs {
-        if let Some(sig) = callable_type_from_function_signature(sig) {
-            exports.insert(
-                *name,
-                super::ModuleExportType::Proc { sig, optional: false },
-            );
+    for (kind, signatures) in [
+        (crate::sema::types::CallableKind::Proc, &module.procs),
+        (crate::sema::types::CallableKind::Pure, &module.pures),
+        (crate::sema::types::CallableKind::Stream, &module.streams),
+    ] {
+        for (name, signature) in signatures {
+            let export = if let Some(sig) = callable_type_from_function_signature(signature) {
+                super::ModuleExportType::Callable { kind, sig, optional: false }
+            } else if signature.scheme().callable().is_quantified()
+            {
+                super::ModuleExportType::GenericCallable { kind, optional: false }
+            } else { continue };
+            exports.insert(*name, export);
         }
     }
-    for (name, sig) in &module.pures {
-        if let Some(sig) = callable_type_from_function_signature(sig) {
-            exports.insert(
-                *name,
-                super::ModuleExportType::Pure { sig, optional: false },
-            );
-        } else if !sig.scheme().type_parameters().is_empty()
-            || !sig.scheme().row_parameters().is_empty()
-        {
-            exports.insert(
-                *name,
-                super::ModuleExportType::GenericPure { optional: false },
-            );
-        }
-    }
-    // The checker has every export of a statically imported module, so its
-    // type is the module's whole surface.
     Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(
         exports,
     )))
@@ -1548,7 +2258,7 @@ impl Checker {
         path: &[Name],
         span: Span,
     ) {
-        let Some(module) = self.user_modules.get(key).cloned() else {
+        let Some(mut module) = self.user_modules.get(key).cloned() else {
             self.error(
                 span,
                 "unknown user module",
@@ -1564,6 +2274,11 @@ impl Checker {
             );
             return;
         };
+        let mut relationships = crate::sema::scheme_callable::SchemeCallableRebaser::new(Arc::clone(&self.scheme_callables));
+        if let Err(error) = super::scheme_values::rebase::module_signature(&mut module, &mut relationships) {
+            self.error(span, &format!("module callable relationship is not owned: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
+            return;
+        }
         let module = qualify_imported_error_types(module, namespace);
         self.import_user_module_types(key, Some(namespace), span, false);
         let mut binding = Binding::new(module_type_from_user_signature(&module), false);
@@ -2001,7 +2716,7 @@ impl Checker {
                 .template_field_types(&arena.arena, def, namespace)
             {
                 Ok(fields) => {
-                    if !self.collecting_effects && let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
+                    if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
                         for field in arena.arena.schema_fields(schema_fields) {
                             if let Some(ty) = fields.get(&field.name) {
                                 self.resolved_type_expressions.templates.insert((id, field.ty), ty.clone());
@@ -2242,7 +2957,7 @@ mod imported_pure_tests {
 
     fn checked_imported_call(globals: &str, prefix: &str, argument: &str) -> (Arc<ArenaProgram>, super::super::CheckOutput, BlockId, super::super::BindingId) {
         let entry_text = format!("use api\n{globals}\npure invoke(row) {{ {prefix}api.required({argument}) }}\n");
-        let module_text = "##! Required operation.\n## Returns the supplied integer.\nexport pure required(value: Int) -> Int { value }\n## An ordinary module value.\nexport let marker = 7\n";
+        let module_text = "##! Required operation.\n## Returns the supplied integer.\nexport pure required(value: Int) -> Int { value }\n## An ordinary module value.\nexport let marker = 7\n## A checked record constructor.\nexport type Row = {value: Int}\n";
         let mut sources = SourceMap::new();
         let entry_source = sources.add_file("entry.xsh", &entry_text);
         let module_source = sources.add_file("api.xsh", module_text);
@@ -2279,11 +2994,12 @@ mod imported_pure_tests {
         let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
-        let (types, _, spans, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls);
+        let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+            |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
         assert!(spans.contains(&program.arena.expr(callee).span));
         assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
-        let (unselected_types, _, _, unselected_reads) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &BTreeMap::new());
+        let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, |_| false, |_| false, &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
         let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
@@ -2291,18 +3007,55 @@ mod imported_pure_tests {
     }
 
     #[test]
+    fn checked_record_constructor_callees_do_not_capture_static_namespaces() {
+        for argument in ["api.Row(value: 7).value", "api.Row(value: row.value).value"] {
+            let (program, output, body, namespace) = checked_imported_call("", "", argument);
+            let _symbols = program.symbol_owner().enter();
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
+            assert!(!facts.read_bindings().contains(&namespace));
+            let bindings = super::super::ResolvedBindings::collect(&program);
+            let (_, _, _, missing_constructor_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+                |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
+            assert!(missing_constructor_reads.contains(&namespace));
+        }
+    }
+
+    #[test]
+    fn checked_record_constructor_roles_keep_real_namespace_and_alias_reads() {
+        for (prefix, argument) in [
+            ("let saved = api; ", "api.Row(value: 7).value"),
+            ("", "api.Row(value: api.marker).value"),
+            ("let saved = api; ", "saved.Row(value: 7).value"),
+        ] {
+            let (program, output, body, namespace) = checked_imported_call("", prefix, argument);
+            let _symbols = program.symbol_owner().enter();
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{prefix} {argument}: {:?}", output.diagnostics);
+            let bindings = super::super::ResolvedBindings::collect(&program);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+                |expression| { let span = program.arena.expr(expression).span; output.selected_function_calls.contains_key(&span) || output.record_constructor_instances.contains_key(&span) },
+                |_| false, &BTreeMap::new(), &[]);
+            assert!(reads.contains(&namespace), "{prefix} {argument}");
+        }
+    }
+
+    #[test]
     fn selected_imported_calls_retain_real_namespace_mutable_and_resource_reads() {
-        for (globals, prefix, argument) in [
-            ("", "let saved = api; ", "row.value"),
-            ("", "", "api.marker"),
-            ("var captured = 1", "let saved = captured; ", "row.value"),
-            ("let captured = fs.root(/)?", "let saved = captured; ", "row.value"),
+        for (globals, prefix, argument, expected) in [
+            ("", "let saved = api; ", "row.value", Some(DiagnosticCode::CheckLocalInference)),
+            ("", "", "api.marker", Some(DiagnosticCode::CheckLocalInference)),
+            ("var captured = 1", "let saved = captured; ", "row.value", None),
+            ("let captured = fs.root(/)?", "let saved = captured; ", "row.value", Some(DiagnosticCode::CheckLocalInference)),
         ] {
             let (program, output, body, namespace) = checked_imported_call(globals, prefix, argument);
             let _symbols = program.symbol_owner().enter();
-            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{globals} {prefix} {argument}: {:?}", output.diagnostics);
+            match expected {
+                Some(code) => assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
+                None => assert!(output.diagnostics.is_empty(), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
+            }
             let bindings = super::super::ResolvedBindings::collect(&program);
-            let (_, _, _, reads) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+                |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {

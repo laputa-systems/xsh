@@ -6,7 +6,7 @@ use super::{
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunOption, LoweredRunOperands, LoweredRunRedirection, LoweredRunTailOperand,
     LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp, SlotScope, Span,
-    StmtId, build_expr,
+    StmtId, build_expr, SchemeType, Type,
     parse_command_word_reference, print_flush_arg,
 };
 
@@ -19,8 +19,22 @@ pub(super) fn lower_command_word_reference(
     wire_enums: &crate::sema::wire_enums::PreparedWireEnums,
     bindings: &crate::sema::check::ResolvedBindings,
 ) -> Option<BuildExprId> {
+    lower_command_word_reference_in_domain(text, slots, span, scratch, constants, wire_enums, bindings, &mut CommandLoweringDomain::Ordinary)
+}
+
+pub(super) fn lower_command_word_reference_in_domain(
+    text: &str,
+    slots: &SlotScope,
+    span: Span,
+    scratch: &Rc<RefCell<BuildScratch>>,
+    constants: &crate::sema::constants::PreparedConstants,
+    wire_enums: &crate::sema::wire_enums::PreparedWireEnums,
+    bindings: &crate::sema::check::ResolvedBindings,
+    domain: &mut CommandLoweringDomain<'_>,
+) -> Option<BuildExprId> {
     let (root, segments) = parse_command_word_reference(text)?;
     let binding = bindings.at(span, Name::intern(root));
+    let mut current_type = None;
     let mut value = if let Some(initializer) = binding.and_then(|binding| constants.binding_values.get(&binding)) {
         let origin = constants
             .origins
@@ -39,36 +53,49 @@ pub(super) fn lower_command_word_reference(
                 .insert(origin, value.clone());
             value
         };
-        build_expr(
-            scratch,
-            BuildExprRow::PreparedConstant(value),
-        )
+        if matches!(domain, CommandLoweringDomain::Generalized { .. }) { current_type = Some(SchemeType::Ground(constants.types.get(initializer)?.clone())); }
+        build_expr(scratch, BuildExprRow::PreparedConstant(value))
     } else if let Some(binding) = binding {
+        if matches!(domain, CommandLoweringDomain::Generalized { .. }) { current_type = Some(slots.types.get(&binding)?.clone()); }
         build_expr(scratch, BuildExprRow::Param(slots.resolve_binding(binding)?))
     } else if root == "env" && !segments.is_empty() {
-        return lower_env_command_word_reference(&segments, span, scratch);
+        return lower_env_command_word_reference(&segments, span, scratch, domain);
     } else {
         return None;
     };
+    if let Some(ty) = &current_type { domain.record(value, ty.clone()); }
     for segment in segments {
         value = match segment {
-            CommandWordRefSegment::Field(name) => build_expr(
+            CommandWordRefSegment::Field(name) => {
+                if let Some(ty) = &current_type { current_type = Some(CompactLowerConstructProbe::scheme_record_field(ty, name)?); }
+                build_expr(
                 scratch,
                 BuildExprRow::Field {
                     base: value,
                     name: name.as_str(),
                     span,
                 },
-            ),
-            CommandWordRefSegment::Index(index) => build_expr(
+            ) },
+            CommandWordRefSegment::Index(index) => {
+                if let Some(ty) = &current_type {
+                    current_type = Some(match ty {
+                        SchemeType::List(item) => (**item).clone(),
+                        SchemeType::Ground(Type::List(item)) => SchemeType::Ground((**item).clone()),
+                        _ => return None,
+                    });
+                }
+                let key = build_expr(scratch, BuildExprRow::Int(index));
+                domain.record(key, SchemeType::Ground(Type::Int));
+                build_expr(
                 scratch,
                 BuildExprRow::Index {
                     base: value,
-                    index: build_expr(scratch, BuildExprRow::Int(index)),
+                    index: super::super::IndexOperand::Ordinary(key),
                     span,
                 },
-            ),
+            ) },
         };
+        if let Some(ty) = &current_type { domain.record(value, ty.clone()); }
     }
     Some(value)
 }
@@ -77,31 +104,46 @@ fn lower_env_command_word_reference(
     segments: &[CommandWordRefSegment],
     span: Span,
     scratch: &Rc<RefCell<BuildScratch>>,
+    domain: &mut CommandLoweringDomain<'_>,
 ) -> Option<BuildExprId> {
+    let mut expression = |row: BuildExprRow| -> Option<BuildExprId> {
+        if matches!(domain, CommandLoweringDomain::Ordinary) { return Some(build_expr(scratch, row)); }
+        let ty = match &row {
+            BuildExprRow::Str(_) => Type::Str,
+            BuildExprRow::ModuleCall { op, .. } => {
+                let mut signatures = crate::modules::signature::native_static_operation_signatures(*op);
+                let first = signatures.next()?;
+                if signatures.any(|signature| signature.return_ty != first.return_ty) { return None; }
+                first.return_ty.clone()
+            }
+            _ => return None,
+        };
+        let value = build_expr(scratch, row);
+        domain.record(value, SchemeType::Ground(ty));
+        Some(value)
+    };
     match segments {
         [CommandWordRefSegment::Field(name)] => {
             if *name == "PATH" {
-                let name = build_expr(scratch, BuildExprRow::Str(name.to_string().into()));
-                Some(build_expr(
-                    scratch,
+                let name = expression(BuildExprRow::Str(name.to_string().into()))?;
+                expression(
                     BuildExprRow::ModuleCall {
                         call_plan: None,
                         op: RuntimeOp::EnvPathList,
                         args: vec![Some(name)],
                         span,
                     },
-                ))
+                )
             } else {
-                let name = build_expr(scratch, BuildExprRow::Str(name.to_string().into()));
-                Some(build_expr(
-                    scratch,
+                let name = expression(BuildExprRow::Str(name.to_string().into()))?;
+                expression(
                     BuildExprRow::ModuleCall {
                         call_plan: None,
                         op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
                     },
-                ))
+                )
             }
         }
         [
@@ -113,16 +155,15 @@ fn lower_env_command_word_reference(
             } else {
                 RuntimeOp::EnvGet
             };
-            let name = build_expr(scratch, BuildExprRow::Str(var_name.to_string().into()));
-            Some(build_expr(
-                scratch,
+            let name = expression(BuildExprRow::Str(var_name.to_string().into()))?;
+            expression(
                 BuildExprRow::ModuleCall {
                     call_plan: None,
                     op,
                     args: vec![Some(name)],
                     span,
                 },
-            ))
+            )
         }
         _ => None,
     }
@@ -187,13 +228,88 @@ fn compact_run_command_asserts_success(
         )
 }
 
+pub(super) enum CommandLoweringDomain<'a> {
+    Ordinary,
+    Generalized {
+        facts: &'a crate::sema::schemes::SchemeBodyFacts,
+        visited: &'a mut super::FxHashSet<ExprId>,
+        types: &'a mut super::BTreeMap<BuildExprId, crate::sema::schemes::SchemeType>,
+    },
+}
+
+impl CommandLoweringDomain<'_> {
+    fn record(&mut self, value: BuildExprId, ty: SchemeType) {
+        if let Self::Generalized { types, .. } = self { types.insert(value, ty); }
+    }
+
+    fn record_alias(&mut self, value: BuildExprId, original: BuildExprId) -> Option<()> {
+        if let Self::Generalized { types, .. } = self {
+            let ty = types.get(&original)?.clone();
+            types.insert(value, ty);
+        }
+        Some(())
+    }
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    fn build_command_expression(&mut self, row: BuildExprRow, ty: Type, domain: &mut CommandLoweringDomain<'_>) -> BuildExprId {
+        let value = build_expr(&self.scratch, row);
+        domain.record(value, SchemeType::Ground(ty));
+        value
+    }
+
+    fn lower_command_expression(
+        &mut self, expression: ExprId, slots: &mut SlotScope,
+        current_function: Option<Name>, item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildExprId> {
+        match domain {
+            CommandLoweringDomain::Ordinary => self.lower_expr(expression, slots, current_function, item_slot),
+            CommandLoweringDomain::Generalized { facts, visited, types } => self.lower_scheme_lazy_expression(expression, slots, current_function?, facts, visited, types),
+        }
+    }
+
+    fn lower_command_block(
+        &mut self, block: crate::syntax::arena::BlockId, slots: &mut SlotScope,
+        current_function: Option<Name>, item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<Vec<BuildStmtId>> {
+        match domain {
+            CommandLoweringDomain::Ordinary => self.lower_block(block, slots, current_function, item_slot),
+            CommandLoweringDomain::Generalized { facts, visited, types } => self.lower_scheme_statement_block(block, slots, current_function?, facts, visited, types),
+        }
+    }
+
+    pub(super) fn lower_generalized_command(
+        &mut self, command: crate::syntax::arena::CommandStmtId, slots: &mut SlotScope,
+        current_function: Name, domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildStmtId> {
+        match self.program.arena.command_stmt(command).command {
+            ArenaCommand::Core { name: CoreCommand::Print | CoreCommand::Eprint, .. } => self.lower_print_stmt_in_domain(command, slots, Some(current_function), None, domain),
+            ArenaCommand::Core { name: CoreCommand::Cd, .. } => self.lower_cd_stmt_in_domain(command, slots, Some(current_function), None, domain),
+            ArenaCommand::Core { name: CoreCommand::Env, .. } => self.lower_env_stmt_in_domain(command, slots, Some(current_function), None, domain),
+            ArenaCommand::Run(_) => self.lower_run_stmt_in_domain(command, slots, Some(current_function), None, domain),
+            ArenaCommand::Proc { .. } => self.lower_proc_stmt_in_domain(command, slots, Some(current_function), None, domain),
+        }
+    }
+
     pub(super) fn lower_print_stmt(
         &mut self,
         id: crate::syntax::arena::CommandStmtId,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+    ) -> Option<BuildStmtId> {
+        self.lower_print_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_print_stmt_in_domain(
+        &mut self,
+        id: crate::syntax::arena::CommandStmtId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Core {
@@ -218,7 +334,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let print_args = if flush { &args[1..] } else { args.as_slice() };
         let mut lowered = Vec::with_capacity(print_args.len());
         for arg in print_args {
-            lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
+            lowered.push(self.lower_command_arg_in_domain(arg, slots, current_function, item_slot, domain)?);
         }
         Some(push_build_row!(
             self,
@@ -240,6 +356,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
+        self.lower_run_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_run_stmt_in_domain(
+        &mut self,
+        id: crate::syntax::arena::CommandStmtId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Run(run) = stmt.command else {
             return None;
@@ -250,13 +377,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self,
                 stmt,
                 BuildStmtRow::Run {
-                    value: self.lower_run_status_value(
+                    value: self.lower_run_status_value_in_domain(
                         run,
                         assert_success,
                         slots,
                         current_function,
-                        item_slot,
-                    )?,
+                        item_slot, domain)?,
                     propagate_result: assert_success,
                 }
             ));
@@ -265,7 +391,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self,
             stmt,
             BuildStmtRow::Run {
-                value: self.lower_run_binding_value(run, slots, current_function, item_slot)?,
+                value: self.lower_run_binding_value_in_domain(run, slots, current_function, item_slot, domain)?,
                 propagate_result: false,
             }
         ))
@@ -277,6 +403,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+    ) -> Option<BuildStmtId> {
+        self.lower_cd_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_cd_stmt_in_domain(
+        &mut self,
+        id: crate::syntax::arena::CommandStmtId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Core {
@@ -295,9 +432,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let [target] = args else {
             return None;
         };
-        let target = self.lower_command_arg(target, slots, current_function, item_slot)?;
+        let target = self.lower_command_arg_in_domain(target, slots, current_function, item_slot, domain)?;
         let body = match block {
-            Some(block) => self.lower_block(block, slots, current_function, item_slot)?,
+            Some(block) => self.lower_command_block(block, slots, current_function, item_slot, domain)?,
             None => Vec::new(),
         };
         Some(push_build_row!(
@@ -318,6 +455,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
+        self.lower_env_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_env_stmt_in_domain(
+        &mut self,
+        id: crate::syntax::arena::CommandStmtId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Core {
             name: CoreCommand::Env,
@@ -334,10 +482,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let assignments = self.program.arena.env_assignments(env).to_vec();
         let mut lowered_env = Vec::with_capacity(assignments.len());
         for assignment in &assignments {
-            lowered_env.push(self.lower_run_env(assignment, slots, current_function, item_slot)?);
+            lowered_env.push(self.lower_run_env_in_domain(assignment, slots, current_function, item_slot, domain)?);
         }
         let body = match block {
-            Some(block) => self.lower_block(block, slots, current_function, item_slot)?,
+            Some(block) => self.lower_command_block(block, slots, current_function, item_slot, domain)?,
             None => Vec::new(),
         };
         Some(push_build_row!(
@@ -357,6 +505,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
+        self.lower_proc_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_proc_stmt_in_domain(
+        &mut self,
+        id: crate::syntax::arena::CommandStmtId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Proc { args, .. } = stmt.command else {
             return None;
@@ -375,12 +534,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let arg_span = self.program.arena.span(arg.span);
             let value = if matches!(kind, crate::sema::check::CheckedCommandArgument::BooleanFlag) {
                 flags.push(slot);
-                push_build_row!(self, expr, BuildExprRow::Bool(true))
+                self.build_command_expression(BuildExprRow::Bool(true), Type::Bool, domain)
             } else {
-                let value = self.lower_command_arg(arg, slots, current_function, item_slot)?;
+                let value = self.lower_command_arg_in_domain(arg, slots, current_function, item_slot, domain)?;
                 let binding = slots.reserve("module command argument");
                 bindings.push((value, binding));
+                let original = value;
                 let value = push_build_row!(self, expr, BuildExprRow::Param(binding));
+                domain.record_alias(value, original)?;
                 match kind {
                     crate::sema::check::CheckedCommandArgument::Word(ty) => {
                         if let Some(scalar) = super::super::call_plan::command_word_scalar(ty) {
@@ -388,7 +549,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                         value
                     }
-                    _ => self.checked_unsigned_value(value, &checked.call.sig.params.get(slot)?.ty, arg_span),
+                    _ => {
+                        let expected = &checked.call.sig.params.get(slot)?.ty;
+                        let checked = self.checked_unsigned_value(value, expected, arg_span);
+                        if checked != value { domain.record(checked, SchemeType::Ground(expected.clone())); }
+                        checked
+                    },
                 }
             };
             if values.get_mut(slot)?.replace(value).is_some() { return None; }
@@ -405,27 +571,48 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             args: values,
             span,
         });
-        let call = self.wrap_argument_bindings(call, bindings, span);
+        domain.record(call, SchemeType::Ground(checked.call.sig.return_ty.clone()));
+        let mut call = call;
+        for (subject, slot) in bindings.into_iter().rev() {
+            let pattern = push_build_row!(self, pattern, super::BuildPatternRow::Bind { slot });
+            let wrapped = push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: vec![(pattern, None, call)], span });
+            domain.record_alias(wrapped, call)?;
+            call = wrapped;
+        }
         Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: call, span }))
     }
 
-    fn lower_command_arg(
+    fn lower_command_splice_name(
+        &self, name: Name, span: Span, slots: &SlotScope,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildExprId> {
+        match domain {
+            CommandLoweringDomain::Ordinary => self.lower_splice_name(name, span, slots),
+            CommandLoweringDomain::Generalized { .. } => lower_command_word_reference_in_domain(
+                name.as_str().as_str(), slots, span, &self.scratch, &self.declarations.prepared_constants,
+                &self.declarations.wire_enums, &self.bodies.resolved_bindings, domain,
+            ),
+        }
+    }
+
+    fn lower_command_arg_in_domain(
         &mut self,
         arg: &crate::syntax::arena::ArenaCommandArg,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildExprId> {
         match &arg.kind {
             ArenaCommandArgKind::Typed(expr) => {
-                self.lower_expr(*expr, slots, current_function, item_slot)
+                self.lower_command_expression(*expr, slots, current_function, item_slot, domain)
             }
             ArenaCommandArgKind::Word(parts) => {
                 let span = self.program.arena.span(arg.span);
                 let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
                 if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
                     let text = self.bare_text_value_in_span(text, span)?;
-                    if let Some(value) = lower_command_word_reference(
+                    let reference = lower_command_word_reference_in_domain(
                         text,
                         slots,
                         span,
@@ -433,14 +620,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         &self.declarations.prepared_constants,
                         &self.declarations.wire_enums,
                         &self.bodies.resolved_bindings,
-                    ) {
-                        return Some(value);
-                    }
+                        domain,
+                    );
+                    if parse_command_word_reference(text).is_some_and(|(root, _)| self.bodies.resolved_bindings.at(span, Name::intern(root)).is_some()) { return reference; }
+                    if reference.is_some() { return reference; }
                 }
                 if let [ArenaWordPart::Shorthand(expr) | ArenaWordPart::Interpolation(expr)] =
                     parts.as_slice()
                 {
-                    return self.lower_expr(*expr, slots, current_function, item_slot);
+                    return self.lower_command_expression(*expr, slots, current_function, item_slot, domain);
                 }
                 let mut lowered = Vec::with_capacity(parts.len());
                 for part in parts {
@@ -458,24 +646,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ArenaWordPart::Shorthand(expr) | ArenaWordPart::Interpolation(expr) => {
                             let span = self.program.arena.expr(expr).span;
                             lowered.push(LoweredFmtPart::Expr(
-                                self.lower_expr(expr, slots, current_function, item_slot)?,
+                                self.lower_command_expression(expr, slots, current_function, item_slot, domain)?,
                                 span,
                                 None,
                             ));
                         }
                     }
                 }
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::FmtString(lowered)
-                ))
+                Some(self.build_command_expression(BuildExprRow::FmtString(lowered), Type::Str, domain))
             }
             ArenaCommandArgKind::SpliceName(name) => {
-                self.lower_splice_name(*name, self.program.arena.span(arg.span), slots)
+                self.lower_command_splice_name(*name, self.program.arena.span(arg.span), slots, domain)
             }
             ArenaCommandArgKind::SpliceExpr(expr) => {
-                self.lower_expr(*expr, slots, current_function, item_slot)
+                self.lower_command_expression(*expr, slots, current_function, item_slot, domain)
             }
         }
     }
@@ -508,12 +692,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if !matches!(segment.kind, RunKind::Plain | RunKind::Status) || segment.grouped {
                     return None;
                 }
-                let operands = self.lower_run_operands(
+                let operands = self.lower_run_operands_in_domain(
                     segment,
                     slots,
                     current_function,
-                    item_slot,
-                )?;
+                    item_slot, &mut CommandLoweringDomain::Ordinary)?;
                 let run = LoweredSpawnRun {
                     operands,
                     span,
@@ -534,36 +717,46 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        self.lower_run_value_with_propagate(
+        self.lower_run_binding_value_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_run_binding_value_in_domain(
+        &mut self,
+        id: crate::syntax::arena::RunFormId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildExprId> {
+        self.lower_run_value_with_propagate_in_domain(
             id,
             slots,
             current_function,
             item_slot,
             true,
-            lowered_run_binding_type,
-        )
+            lowered_run_binding_type, domain)
     }
 
-    fn lower_run_status_value(
+    fn lower_run_status_value_in_domain(
         &mut self,
         id: crate::syntax::arena::RunFormId,
         assert_success: bool,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildExprId> {
-        self.lower_run_value_with_propagate_and_assert(
+        self.lower_run_value_with_propagate_and_assert_in_domain(
             id,
             slots,
             current_function,
             item_slot,
             true,
             assert_success,
-            lowered_run_status_type,
-        )
+            lowered_run_status_type, domain)
     }
 
-    fn lower_run_value_with_propagate(
+    fn lower_run_value_with_propagate_in_domain(
         &mut self,
         id: crate::syntax::arena::RunFormId,
         slots: &mut SlotScope,
@@ -571,19 +764,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
         allow_propagate: bool,
         allowed_type: fn(RunKind) -> Option<LoweredType>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildExprId> {
-        self.lower_run_value_with_propagate_and_assert(
+        self.lower_run_value_with_propagate_and_assert_in_domain(
             id,
             slots,
             current_function,
             item_slot,
             allow_propagate,
             false,
-            allowed_type,
-        )
+            allowed_type, domain)
     }
 
-    fn lower_run_value_with_propagate_and_assert(
+    fn lower_run_value_with_propagate_and_assert_in_domain(
         &mut self,
         id: crate::syntax::arena::RunFormId,
         slots: &mut SlotScope,
@@ -592,6 +785,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         allow_propagate: bool,
         assert_success: bool,
         allowed_type: fn(RunKind) -> Option<LoweredType>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildExprId> {
         let run = self.program.arena.run_form(id);
         if run.propagate && !allow_propagate {
@@ -604,12 +798,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if segments.len() == 1 {
             let segment = &segments[0];
             allowed_type(segment.kind)?;
-            let operands = self.lower_run_operands(
+            let operands = self.lower_run_operands_in_domain(
                 segment,
                 slots,
                 current_function,
-                item_slot,
-            )?;
+                item_slot, domain)?;
             let capture_kind = lowered_run_capture_type(segment.kind).is_some();
             let propagate_internally = run.propagate && !capture_kind;
             let capture = LoweredRunCapture {
@@ -619,16 +812,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 assert_success,
                 span: self.program.arena.span(run.span),
             };
-            let capture = push_build_row!(self, expr, BuildExprRow::RunCapture(Box::new(capture)));
+            let capture_type = Type::run_capture_output(segment.kind, assert_success)?;
+            let capture = self.build_command_expression(BuildExprRow::RunCapture(Box::new(capture)), capture_type.clone(), domain);
             if run.propagate && capture_kind {
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Try {
-                        value: capture,
-                        span: self.program.arena.span(run.span)
-                    }
-                ))
+                let success = match capture_type { Type::Result(success, _) => *success, other => other };
+                Some(self.build_command_expression(BuildExprRow::Try { value: capture, span: self.program.arena.span(run.span) }, success, domain))
             } else {
                 Some(capture)
             }
@@ -636,12 +824,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let mut lowered_segments = Vec::with_capacity(segments.len());
             for segment in &segments {
                 allowed_type(segment.kind)?;
-                let operands = self.lower_run_operands(
+                let operands = self.lower_run_operands_in_domain(
                     segment,
                     slots,
                     current_function,
-                    item_slot,
-                )?;
+                    item_slot, domain)?;
                 lowered_segments.push(LoweredRunPipelineSegment {
                     kind: segment.kind,
                     operands,
@@ -660,34 +847,31 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span: self.program.arena.span(run.span),
                 }
             );
+            let pipeline_type = Type::run_pipeline_output(segments[0].kind, !capture_kind && (run.propagate || assert_success))?;
+            domain.record(pipeline, SchemeType::Ground(pipeline_type.clone()));
             if run.propagate && (capture_kind || !assert_success) {
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Try {
-                        value: pipeline,
-                        span: self.program.arena.span(run.span)
-                    }
-                ))
+                let success = match pipeline_type { Type::Result(success, _) => *success, other => other };
+                Some(self.build_command_expression(BuildExprRow::Try { value: pipeline, span: self.program.arena.span(run.span) }, success, domain))
             } else {
                 Some(pipeline)
             }
         }
     }
 
-    fn lower_run_redirection(
+    fn lower_run_redirection_in_domain(
         &mut self,
         redirection: &crate::syntax::arena::ArenaRedirection,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<LoweredRunRedirection> {
         let target = match &redirection.target {
             crate::syntax::arena::ArenaRedirectionTarget::Path(target) => {
-                self.lower_run_redirection_path_target(target, slots, current_function, item_slot)?
+                self.lower_run_redirection_path_target_in_domain(target, slots, current_function, item_slot, domain)?
             }
             crate::syntax::arena::ArenaRedirectionTarget::Fd(target) => {
-                self.lower_run_arg(target, slots, current_function, item_slot)?
+                self.lower_run_arg_in_domain(target, slots, current_function, item_slot, domain)?
             }
         };
         Some(LoweredRunRedirection {
@@ -697,17 +881,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         })
     }
 
-    fn lower_run_operands(
+    fn lower_run_operands_in_domain(
         &mut self,
         segment: &crate::syntax::arena::ArenaRunSegment,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<LoweredRunOperands> {
         let mut options = Vec::with_capacity(3);
         let source_options = self.program.arena.run_options(segment.options).to_vec();
         for option in source_options {
-            let value = self.lower_expr(option.value, slots, current_function, item_slot)?;
+            let value = self.lower_command_expression(option.value, slots, current_function, item_slot, domain)?;
             options.push(match option.kind {
                 crate::syntax::grammar::RunOption::Timeout => LoweredRunOption::Timeout(value),
                 crate::syntax::grammar::RunOption::CpuMax => LoweredRunOption::CpuMax(value),
@@ -717,31 +902,29 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let source_env = self.program.arena.env_assignments(segment.env).to_vec();
         let mut env = Vec::with_capacity(source_env.len());
         for assignment in &source_env {
-            env.push(self.lower_run_env(assignment, slots, current_function, item_slot)?);
+            env.push(self.lower_run_env_in_domain(assignment, slots, current_function, item_slot, domain)?);
         }
         let source_target = segment.target.clone();
-        let target = self.lower_run_arg(&source_target, slots, current_function, item_slot)?;
+        let target = self.lower_run_arg_in_domain(&source_target, slots, current_function, item_slot, domain)?;
         let source_tail = self.program.arena.run_tail_operands(segment.tail).to_vec();
         let mut tail = Vec::with_capacity(source_tail.len());
         for operand in source_tail {
             tail.push(match operand {
                 crate::syntax::arena::ArenaRunTailOperand::Argument(arg) => {
                     let arg = self.program.arena.command_arg(arg).clone();
-                    LoweredRunTailOperand::Argument(self.lower_run_arg(
+                    LoweredRunTailOperand::Argument(self.lower_run_arg_in_domain(
                         &arg,
                         slots,
                         current_function,
-                        item_slot,
-                    )?)
+                        item_slot, domain)?)
                 }
                 crate::syntax::arena::ArenaRunTailOperand::Redirection(redirection) => {
                     let redirection = self.program.arena.redirection(redirection).clone();
-                    LoweredRunTailOperand::Redirection(self.lower_run_redirection(
+                    LoweredRunTailOperand::Redirection(self.lower_run_redirection_in_domain(
                         &redirection,
                         slots,
                         current_function,
-                        item_slot,
-                    )?)
+                        item_slot, domain)?)
                 }
             });
         }
@@ -753,41 +936,37 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         })
     }
 
-    fn lower_run_redirection_path_target(
+    fn lower_run_redirection_path_target_in_domain(
         &mut self,
         target: &crate::syntax::arena::ArenaCommandArg,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<LoweredRunArg> {
         if let ArenaCommandArgKind::Word(parts) = &target.kind {
             let span = self.program.arena.span(target.span);
             let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
             if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
                 let text = self.bare_text_value_in_span(text, span)?;
-                if let Some(slot) = self.bodies.resolved_bindings.at(span, Name::intern(text))
-                    .and_then(|binding| slots.resolve_binding(binding))
-                {
-                    return Some(LoweredRunArg {
-                        kind: LoweredRunArgKind::Single(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::Param(slot)
-                        )),
-                        span,
-                    });
+                if let Some(binding) = self.bodies.resolved_bindings.at(span, Name::intern(text)) {
+                    let slot = slots.resolve_binding(binding)?;
+                    let value = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                    if matches!(domain, CommandLoweringDomain::Generalized { .. }) { domain.record(value, slots.types.get(&binding)?.clone()); }
+                    return Some(LoweredRunArg { kind: LoweredRunArgKind::Single(value), span });
                 }
             }
         }
-        self.lower_run_arg(target, slots, current_function, item_slot)
+        self.lower_run_arg_in_domain(target, slots, current_function, item_slot, domain)
     }
 
-    fn lower_run_env(
+    fn lower_run_env_in_domain(
         &mut self,
         assignment: &crate::syntax::arena::ArenaEnvAssignment,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<LoweredRunEnv> {
         let value = match &assignment.value {
             crate::syntax::arena::ArenaEnvAssignmentValue::CommandArg(arg) => {
@@ -797,15 +976,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ) {
                     return None;
                 }
-                self.lower_run_arg(arg, slots, current_function, item_slot)?
+                self.lower_run_arg_in_domain(arg, slots, current_function, item_slot, domain)?
             }
             crate::syntax::arena::ArenaEnvAssignmentValue::Expr(expr) => LoweredRunArg {
-                kind: LoweredRunArgKind::Single(self.lower_expr(
+                kind: LoweredRunArgKind::Single(self.lower_command_expression(
                     *expr,
                     slots,
                     current_function,
-                    item_slot,
-                )?),
+                    item_slot, domain)?),
                 span: self.program.arena.expr(*expr).span,
             },
         };
@@ -815,33 +993,32 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         })
     }
 
-    fn lower_run_arg(
+    fn lower_run_arg_in_domain(
         &mut self,
         arg: &crate::syntax::arena::ArenaCommandArg,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<LoweredRunArg> {
         let span = self.program.arena.span(arg.span);
         let kind =
             match &arg.kind {
-                ArenaCommandArgKind::Typed(expr) => LoweredRunArgKind::Single(self.lower_expr(
+                ArenaCommandArgKind::Typed(expr) => LoweredRunArgKind::Single(self.lower_command_expression(
                     *expr,
                     slots,
                     current_function,
-                    item_slot,
-                )?),
+                    item_slot, domain)?),
                 ArenaCommandArgKind::Word(parts) => {
                     let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
                     if let [ArenaWordPart::Shorthand(expr) | ArenaWordPart::Interpolation(expr)] =
                         parts.as_slice()
                     {
-                        LoweredRunArgKind::SingleOrSplice(self.lower_expr(
+                        LoweredRunArgKind::SingleOrSplice(self.lower_command_expression(
                             *expr,
                             slots,
                             current_function,
-                            item_slot,
-                        )?)
+                            item_slot, domain)?)
                     } else {
                         let mut lowered = Vec::with_capacity(parts.len());
                         for part in parts {
@@ -859,28 +1036,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 ArenaWordPart::Shorthand(expr)
                                 | ArenaWordPart::Interpolation(expr) => {
                                     lowered.push(LoweredFmtPart::Expr(
-                                        self.lower_expr(expr, slots, current_function, item_slot)?,
+                                        self.lower_command_expression(expr, slots, current_function, item_slot, domain)?,
                                         self.program.arena.expr(expr).span,
                                         None,
                                     ));
                                 }
                             }
                         }
-                        LoweredRunArgKind::Single(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::PathFmtString {
-                                parts: lowered,
-                                span
-                            }
-                        ))
+                        LoweredRunArgKind::Single(self.build_command_expression(BuildExprRow::PathFmtString { parts: lowered, span }, Type::Path, domain))
                     }
                 }
                 ArenaCommandArgKind::SpliceName(name) => LoweredRunArgKind::Splice(
-                    self.lower_splice_name(*name, self.program.arena.span(arg.span), slots)?,
+                    self.lower_command_splice_name(*name, self.program.arena.span(arg.span), slots, domain)?,
                 ),
                 ArenaCommandArgKind::SpliceExpr(expr) => LoweredRunArgKind::Splice(
-                    self.lower_expr(*expr, slots, current_function, item_slot)?,
+                    self.lower_command_expression(*expr, slots, current_function, item_slot, domain)?,
                 ),
             };
         Some(LoweredRunArg { kind, span })
@@ -1036,12 +1206,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     {
                         return None;
                     }
-                    let operands = self.lower_run_operands(
+                    let operands = self.lower_run_operands_in_domain(
                         segment,
                         slots,
                         current_function,
-                        item_slot,
-                    )?;
+                        item_slot, &mut CommandLoweringDomain::Ordinary)?;
                     lowered.push(LoweredProcessCommandBuilderEntry::Run {
                         operands,
                         span: self.program.arena.span(command_stmt.span),

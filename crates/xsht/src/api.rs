@@ -845,8 +845,9 @@ fn render_type(ty: &Type) -> String {
         Type::ErrorVariant { family, variant } => format!("{family}.{variant}"),
         Type::ErrorFacet(name) => name.to_string(),
         Type::ProcessError => "ProcessError".to_string(),
-        Type::Pure => "Pure".to_string(),
-        Type::Proc => "Proc".to_string(),
+        Type::Function(xsh::frontend::check::CallableKind::Pure) => "Pure".to_string(),
+        Type::Function(xsh::frontend::check::CallableKind::Proc) => "Proc".to_string(),
+        Type::Function(xsh::frontend::check::CallableKind::Stream) => "stream producer".to_string(),
         Type::Command => "Command".to_string(),
         Type::ProcessHandle => "ProcessHandle".to_string(),
         Type::NetJob => "NetJob".to_string(),
@@ -856,6 +857,7 @@ fn render_type(ty: &Type) -> String {
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),
         Type::Callable(_) | Type::Validated(_) => ty.to_string(),
+        Type::SchemeCallable(_) => panic!("the static API catalog cannot contain an owned callable relationship"),
         Type::Union(members) => format!(
             "Union[{}]",
             members

@@ -98,16 +98,16 @@ let concrete: Int = identity(raw)
   )?
 }
 
-test test_typing_generic_module_pure_is_not_a_value { |ctx|
+test test_typing_generic_module_alias_preserves_independent_instances { |ctx|
   let module_dir = test.temp_dir(ctx, name: "typing-generic-pure-value")?
   fp"{module_dir}/model.xsh".write("##! Generic module callable.\n## Returns its input.\nexport pure identity(value) { value }\n")?
   let result = test.run_xsh(
     ctx,
-    "use model\nlet identity = model.identity\n",
+    "use model\nlet identity = model.identity\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\nassert !boolean\nprint $number\nprint $text\nprint $boolean\n",
     env: {XSH_MODULE_PATH: module_dir},
   )?
-  assert result.status == 2, result.stderr
-  assert "[check.module-member]" in result.stderr, result.stderr
+  assert result.success, result.stderr
+  assert result.stdout == "42\ndemo\nfalse\n"
 
   let null_safe = test.run_xsh(
     ctx,
@@ -119,19 +119,17 @@ test test_typing_generic_module_pure_is_not_a_value { |ctx|
 
   let projected = test.run_xsh(
     ctx,
-    "use model\nlet identity = model.get(\"identity\")?\n",
+    "use model\nlet identity = model.get(\"identity\")?\nassert identity(42) == 42\nassert identity(\"demo\") == \"demo\"\n",
     env: {XSH_MODULE_PATH: module_dir},
   )?
-  assert projected.status == 2, projected.stderr
-  assert "[check.module-member]" in projected.stderr, projected.stderr
+  assert projected.success, projected.stderr
 
   let indexed = test.run_xsh(
     ctx,
-    "use model\nlet identity = model[\"identity\"]\n",
+    "use model\nlet identity = model[\"identity\"]\nassert identity(42) == 42\nassert identity(\"demo\") == \"demo\"\n",
     env: {XSH_MODULE_PATH: module_dir},
   )?
-  assert indexed.status == 2, indexed.stderr
-  assert "[check.module-member]" in indexed.stderr, indexed.stderr
+  assert indexed.success, indexed.stderr
 }
 
 test test_typing_concrete_module_index_beside_generic_export { |ctx|
@@ -154,20 +152,22 @@ test test_typing_concrete_module_index_beside_generic_export { |ctx|
 }
 
 test test_typing_recursive_parameter_conflicts_in_both_orders { |ctx|
-  for source in [
-    "pure first(value) -> Int { second(\"wrong\") + value }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\n",
-    "pure second(value) -> Int { first(value) }\npure first(value) -> Int { second(\"wrong\") + value }\nlet answer = first(1)\n",
+  for case in [
+    {source: "pure first(value) -> Int { second(\"wrong\") + value }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\n", diagnostic: "[check.operator-type]"},
+    {source: "pure second(value) -> Int { first(value) }\npure first(value) -> Int { second(\"wrong\") + value }\nlet answer = first(1)\n", diagnostic: "[check.type-mismatch]"},
   ] {
-    test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
+    test.expect(ctx, case.source, status: 2, stderr: [case.diagnostic])?
   }
 }
 
-test test_typing_recursive_parameters_need_declaration_evidence { |ctx|
+test test_typing_recursive_parameters_generalize_without_caller_evidence { |ctx|
   for source in [
-    "pure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\n",
-    "let answer = first(1)\npure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\n",
+    "pure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\nlet text_answer = first(\"text\")\n",
+    "let answer = first(1)\nlet text_answer = first(\"text\")\npure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\n",
   ] {
-    test.expect(ctx, source, status: 2, stderr: ["[check.local-inference]"])?
+    let file = test.temp_file(ctx, name: "recursive-checked.xsh", contents: bytes.from_text(source))?
+    let checked = run.capture --text "xsht" check $file
+    assert checked.status.exited_with(0), checked.stderr
   }
 }
 

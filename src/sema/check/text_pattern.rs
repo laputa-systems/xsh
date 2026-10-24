@@ -237,13 +237,13 @@ impl Checker {
                         // The name is still a name of the arm, so the one
                         // error is the spec.
                         if let Some(name) = binding {
-                            self.define_pattern_binding(*name, Type::Unknown, part_span);
+                            self.define_pattern_binding(*name, Type::Unknown, part_span, &super::stream_origins::StreamOrigins::opaque());
                         }
                         after_hole = true;
                         continue;
                     };
                     if let Some(name) = binding {
-                        self.define_pattern_binding(*name, kind.ty(), part_span);
+                        self.define_pattern_binding(*name, kind.ty(), part_span, &super::stream_origins::StreamOrigins::unproven(&kind.ty()));
                     }
                     holes.push(kind);
                     segments.push(Arc::from(""));

@@ -189,7 +189,10 @@ zero-length phase. The report schema and callable boundaries live in
 ## Inference measurements
 
 `inference_workloads.py` generates annotated and reduced source maps for the
-eight fixed inference families at 64, 128, 256, and 512 units. Deep-record
+nine inference families at 64, 128, 256, and 512 units. The original eight
+families and 36 cases are unchanged. Named generic constructors add four shapes:
+independent binders, shared defaults, ground return carriers and explicitly
+anchored phantom contexts, for 52 cases in total. Deep-record
 constructors and projections keep each syntax expression shallow while the
 named record types retain the requested semantic depth. The 64, 128, and 256
 depth outcomes remain pending probes. The adapter records them as ordinary
@@ -256,7 +259,9 @@ before and after each distribution. The filesystem page cache stays warm; the
 adapter does not flush it. Samples include CPU time, wall time, peak process
 RSS, status, exact output hashes, effects, and first useful output time.
 Summaries use nearest-rank p95 and retain raw samples, ranges, and paired
-spread.
+spread. Check samples recognize only the canonical closing stage-timing line;
+actual diagnostics, malformed or extra lines still fail. Raw stderr bytes and
+hashes remain recorded. Runtime samples still require empty stderr.
 
 The adapter passes each generated `main.xsh` entry to the canonical
 `xsht frontend-stats --json` owner, which resolves its imported sources through
@@ -271,16 +276,20 @@ never enter the timing budgets. Candidate frontend stats must report these nonne
 `successful_generic_call_resolutions`, `worklist_wakeups`,
 `host_candidate_trials`, `host_obligation_requeues`, `rollbacks`,
 `rollback_changes`, `level_adjustments`, `effect_edge_visits`,
-`candidate_tests`, `diagnostic_work`, `output_type_nodes`, and `evidence_nodes`.
+`candidate_tests`, `diagnostic_work`, `output_type_nodes`, `evidence_nodes`,
+`generalization_type_visits`, `instantiation_type_visits`, `schema_argument_visits`,
+`constructor_generalizations`, `constructor_template_binding_visits`, and
+`generalization_binding_clones`.
 The entry record must also report `function_body_check_entries` and
 `semantic_retained_bytes`. The adapter reads allocation traffic from the
 existing `tokens`, `cst`, `ast_check`, `lower`, and `after_drop` stages. It
 requires allocation tracking to be active for candidate samples.
 
-The current `frontend-stats` report has no `inference_work` object. The adapter
-fails before timing and reports the missing canonical counters. It does not
-derive solver work from test-only counters, source length, or output-shape
-metadata. Output and evidence descriptions in the workload generator remain
+Candidate `frontend-stats` supplies invocation-local counters. Missing candidate
+fields are unavailable and fail before timing; they never default to zero.
+Older reference products may lack these counters. The reference reader uses
+retained typing and allocation data without inventing solver counts. The adapter
+does not derive solver work from source length or output-shape metadata. Output and evidence descriptions in the workload generator remain
 structural metadata.
 
 P4 qualification compares candidate annotated checks with the frozen
@@ -339,6 +348,51 @@ Common and demanding names do not assert a measured cost. The later accepted
 baseline must establish which substantial cases exceed 50 ms of CPU and qualify
 resource, allocation, syscall, and completed-work counts. Post-inference source
 and products remain the final measurement baseline.
+
+### Canonical inference work
+
+`xsht frontend-stats --json` reports an `inference_work` object with exactly
+these twenty nonnegative integer fields on each entry-root record. Solver counts
+cover parse, load, checker, imported-module, and speculative-probe work in one
+measurement invocation. Cloned constraint probes share that invocation's
+counters, so failed and rolled-back work contributes once. The collector is
+invocation-scoped; ordinary checks do not retain a global statistics record.
+
+| Field | Counted work or output |
+|---|---|
+| `fresh_variables` | Type, row, and effect inference cells created, including cells created by failed probes. |
+| `generated_constraints` | Submitted type and row constraints and effect predicates, including speculative work. |
+| `representative_hops` | Parent links traversed while finding type and row representatives. |
+| `compression_writes` | Type or row parent links changed by path compression. |
+| `unifications` | Type and row unification pairs processed. |
+| `occurs_visits` | Type nodes visited by occurs checks. |
+| `row_field_visits` | Record fields inspected while solving row constraints. |
+| `scheme_instantiations` | Callable schemes instantiated by the checker. |
+| `successful_generic_call_resolutions` | Generic user-call resolutions that completed successfully. |
+| `worklist_wakeups` | Type and row solve steps processed plus effect predicates and callable applications enqueued for solving. |
+| `host_candidate_trials` | Host overload candidates whose constraints were tested. |
+| `host_obligation_requeues` | Host method obligations requeued while receiver types remain unresolved. |
+| `rollbacks` | Constraint transactions and candidate probes whose journal was undone. |
+| `rollback_changes` | Journal entries undone by those rollbacks. |
+| `level_adjustments` | Type, row, or effect cell levels lowered during solving. |
+| `effect_edge_visits` | Effect dependency edges inspected during deduplication, binding, fixed-point solving, and contract walks. |
+| `candidate_tests` | Calls to the canonical constraint-trial operation, including failed probes. |
+| `diagnostic_work` | Diagnostic records constructed across the source invocation, including discarded checker probes and reveal types cleared before publication. |
+| `output_type_nodes` | Structural `Type` and `SchemeType` nodes in the final compact declaration and body outputs, including call-instantiation type and row arguments; shared `Arc` payloads count once. |
+| `evidence_nodes` | Final compact effect facts, static callable aliases, stream-stage plans, body evidence records, and nested call-instantiation evidence. |
+
+Each retained scheme-body expression fact, tail fact, registered-call plan,
+read binding, constructor role and Proc return site counts as one evidence node.
+Constructor roles and return-site IDs do not create output type nodes. Runtime-owned callable substitutions remain
+outside these frontend output counts.
+
+The same record reports `function_body_check_entries` separately. It counts
+actual Pure, Proc, Stream and signal-hook body entries across the root,
+imported modules and checker probes; repeated generic calls may increase `scheme_instantiations` without
+increasing source body checks. `output_type_nodes` and `evidence_nodes` are
+counted from the final merged compact output once, not reconstructed from
+solver counters or intermediate checker snapshots. `semantic_retained_bytes`
+remains a separate retained-typing measure.
 
 ### Fixture qualification scope
 

@@ -28,10 +28,11 @@ pub mod evaluator {
         crate::runtime::eval::route_witness::INVOCATION_OUTPUT_DIR_OVERLAY;
 
     pub use crate::runtime::eval::{
+        CheckedBodyContract, CheckedBodyContractError, checked_body_contracts,
         CompactLowerBodyProbeOutput, CompactLowerConstructProbeOutput,
         CompactRuntimeDeclProbeOutput, EvalFlow, EvalOutput, Evaluator, FrontendLoweredStats,
         InteractiveCommandContext, InteractiveCommandDispatcher, LoweredFunctionBlocker,
-        LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, Propagation, apply_question,
+        LoweredFunctionKey, CallableKind, LoweredFunctionUnit, Propagation, apply_question,
         probe_compact_lower_constructed_bodies, probe_compact_runtime_declarations,
     };
 

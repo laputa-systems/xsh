@@ -1,3 +1,4 @@
+use super::stream_origins::{StreamOrigins, StreamProjection};
 use super::{Binding, Checker, FxHashSet, Name, Span, Type, result_types};
 use super::{Diagnostic, Label};
 use crate::diagnostic::DiagnosticCode;
@@ -10,11 +11,27 @@ fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
     )
 }
 
-/// Arena-native mirror of `check_pattern` and its callees. Fully self-contained:
-/// `check_pattern` (unlike `check_match`, the statement-level match in
-/// stmt.rs) never calls `check_block` — only `check_expr`/type annotations on
-/// leaf sub-expressions, so no `Block` support is needed to port it.
 impl Checker {
+    pub(super) fn resolve_pattern_subject_type(&mut self, value: &Type, span: Span) -> Type {
+        match self.type_constraints.resolve(value) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                self.error(span, &format!("pattern subject resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                Type::Invalid
+            }
+        }
+    }
+
+    fn constrain_known_tag_pattern_subject(&mut self, value: &Type, family: Name, span: Span) -> Type {
+        let resolved = self.resolve_pattern_subject_type(value, span);
+        if matches!(resolved, Type::Inference(_)) {
+            self.expect_type(&Type::Tag(family), value, span);
+            self.resolve_pattern_subject_type(value, span)
+        } else {
+            resolved
+        }
+    }
+
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -24,7 +41,8 @@ impl Checker {
     ) {
         self.reject_pattern_test_bindings(arena, pattern, false);
         self.push_scope();
-        self.check_pattern_arena(arena, source, pattern, value_ty);
+        let projected_origin = StreamOrigins::opaque();
+        self.check_pattern_arena(arena, source, pattern, value_ty, &projected_origin);
         self.pop_scope();
     }
 
@@ -177,7 +195,7 @@ impl Checker {
         }
     }
 
-    pub(super) fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
+    pub(super) fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span, origin: &StreamOrigins) {
         if self.current_scope().contains_key(&name) {
             self.error(
                 span,
@@ -186,7 +204,9 @@ impl Checker {
             );
             return;
         }
-        self.define(name, Binding::new(ty, false), span);
+        let mut binding = Binding::new(ty, false);
+        binding.stream_origins = origin.clone();
+        self.define(name, binding, span);
     }
 
     fn check_error_facet_applicability(&mut self, facet: Name, value_ty: &Type, span: Span) {
@@ -348,11 +368,13 @@ impl Checker {
     ) {
         match kind {
             ArenaPatternKind::Constructor { arg: Some(arg), .. } => {
-                self.check_pattern_arena(arena, source, *arg, &Type::Unknown);
+                let projected_origin = StreamOrigins::opaque();
+                self.check_pattern_arena(arena, source, *arg, &Type::Unknown, &projected_origin);
             }
             ArenaPatternKind::ErrorVariant { fields, .. } => {
                 for field in arena.arena.pattern_fields(*fields) {
-                    self.check_pattern_arena(arena, source, field.pattern, &Type::Unknown);
+                    let projected_origin = StreamOrigins::opaque();
+                    self.check_pattern_arena(arena, source, field.pattern, &Type::Unknown, &projected_origin);
                 }
             }
             _ => {}
@@ -365,9 +387,26 @@ impl Checker {
         source: &str,
         pattern_id: PatternId,
         value_ty: &Type,
+        origin: &StreamOrigins,
     ) {
         let pattern = arena.arena.pattern(pattern_id);
         let span = arena.arena.span(pattern.span);
+        let result_constructor = match &pattern.kind {
+            ArenaPatternKind::Constructor { name, .. } | ArenaPatternKind::TestName { name, .. } =>
+                (*name == "Ok" || *name == "Err") && !self.tag_variants.contains_key(name)
+                    && !self.type_defs.contains_key(name) && !self.error_facets.contains(name),
+            _ => false,
+        };
+        let resolved_value = if result_constructor {
+            match self.type_constraints.constrain_result_pattern_subject(value_ty, span) {
+                Ok(resolved) => resolved,
+                Err(error) => {
+                    self.error(span, &format!("Result pattern subject constraint failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    Type::Invalid
+                }
+            }
+        } else { self.resolve_pattern_subject_type(value_ty, span) };
+        let value_ty = &resolved_value;
         // A `.Name` pattern is checked as the qualified pattern the matched
         // value's type selects.
         let qualified;
@@ -386,15 +425,15 @@ impl Checker {
         };
         match kind {
             ArenaPatternKind::Group(child) => {
-                self.check_pattern_arena(arena, source, *child, value_ty)
+                self.check_pattern_arena(arena, source, *child, value_ty, origin);
             }
             ArenaPatternKind::Alias {
                 pattern,
                 name,
                 name_span,
             } => {
-                self.check_pattern_arena(arena, source, *pattern, value_ty);
-                self.define_pattern_binding(*name, value_ty.clone(), arena.arena.span(*name_span));
+                self.check_pattern_arena(arena, source, *pattern, value_ty, origin);
+                self.define_pattern_binding(*name, value_ty.clone(), arena.arena.span(*name_span), origin);
             }
             ArenaPatternKind::Wildcard => {}
             ArenaPatternKind::TestName { name, ty } => {
@@ -490,6 +529,8 @@ impl Checker {
                         DiagnosticCode::CheckPatternTestAmbiguous,
                     );
                 } else if let Some(info) = constructor {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if info.field_count != 0 {
                         self.error(
                             span,
@@ -540,6 +581,8 @@ impl Checker {
                 if let Some(info) = self.tag_variants.get(name).cloned()
                     && info.field_count == 0
                 {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
@@ -570,7 +613,7 @@ impl Checker {
                     );
                     return;
                 }
-                self.define_pattern_binding(*name, value_ty.clone(), span);
+                self.define_pattern_binding(*name, value_ty.clone(), span, origin);
             }
             ArenaPatternKind::Type { binding, ty } => {
                 let narrowed_ty = self.type_from_arena(arena, *ty);
@@ -578,7 +621,7 @@ impl Checker {
                 self.pattern_test_types
                     .insert(pattern_id, narrowed_ty.clone());
                 if let Some(name) = binding {
-                    self.define_pattern_binding(*name, narrowed_ty, span);
+                    self.define_pattern_binding(*name, narrowed_ty, span, origin);
                 }
             }
             ArenaPatternKind::Literal(expr) => {
@@ -601,7 +644,8 @@ impl Checker {
                     }
                 };
                 for child in arena.arena.pattern_ids(*elements) {
-                    self.check_pattern_arena(arena, source, child, &element_ty);
+                    let projected_origin = self.project_stream_origin(origin, &[StreamProjection::Element], span);
+                    self.check_pattern_arena(arena, source, child, &element_ty, &projected_origin);
                 }
                 if let Some(rest) = rest {
                     if !matches!(
@@ -619,6 +663,7 @@ impl Checker {
                         source,
                         *rest,
                         &Type::List(Box::new(element_ty)),
+                        origin,
                     );
                 }
             }
@@ -668,7 +713,8 @@ impl Checker {
                             DiagnosticCode::CheckPatternField,
                         );
                     }
-                    self.check_pattern_arena(arena, source, field.pattern, &field_ty);
+                    let projected_origin = self.project_stream_origin(origin, &[StreamProjection::Field(field.name)], field_span);
+                    self.check_pattern_arena(arena, source, field.pattern, &field_ty, &projected_origin);
                 }
             }
             ArenaPatternKind::Alternation(patterns) => {
@@ -677,7 +723,7 @@ impl Checker {
                 for sub_id in arena.arena.pattern_ids(*patterns) {
                     self.push_scope();
                     *self.current_scope_mut() = existing.clone();
-                    self.check_pattern_arena(arena, source, sub_id, value_ty);
+                    self.check_pattern_arena(arena, source, sub_id, value_ty, origin);
                     let captures: super::FxHashMap<_, _> = self
                         .current_scope()
                         .iter()
@@ -685,7 +731,7 @@ impl Checker {
                         .map(|(name, binding)| (*name, binding.clone()))
                         .collect();
                     self.pop_scope();
-                    if let Some(common) = &common {
+                    if let Some(common) = &mut common {
                         if common.len() != captures.len()
                             || common.iter().any(|(name, binding)| {
                                 !captures
@@ -695,17 +741,21 @@ impl Checker {
                         {
                             self.error(arena.arena.span(arena.arena.pattern(sub_id).span), "pattern alternatives must bind the same names with identical resolved types", DiagnosticCode::CheckPatternAlternativeBinding);
                         }
+                        for (name, binding) in common.iter_mut() {
+                            if let Some(other) = captures.get(name) { binding.stream_origins.join(&other.stream_origins); }
+                        }
                     } else {
                         common = Some(captures);
                     }
                 }
                 for (name, binding) in common.unwrap_or_default() {
-                    self.define_pattern_binding(name, binding.ty, span);
+                    self.define_pattern_binding(name, binding.ty, span, &binding.stream_origins);
                 }
             }
             ArenaPatternKind::Tuple(patterns) => {
                 for sub_id in arena.arena.pattern_ids(*patterns) {
-                    self.check_pattern_arena(arena, source, sub_id, &Type::Unknown);
+                    let projected_origin = StreamOrigins::opaque();
+                    self.check_pattern_arena(arena, source, sub_id, &Type::Unknown, &projected_origin);
                 }
             }
             ArenaPatternKind::Text(parts) => {
@@ -715,6 +765,8 @@ impl Checker {
             ArenaPatternKind::TextHole { .. } => {}
             ArenaPatternKind::Constructor { name, arg } => {
                 if let Some(info) = self.tag_variants.get(name).cloned() {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
@@ -751,11 +803,13 @@ impl Checker {
                             DiagnosticCode::CheckPatternArity,
                         );
                         for arg in args {
-                            self.check_pattern_arena(arena, source, arg, &Type::Unknown);
+                            let projected_origin = StreamOrigins::opaque();
+                            self.check_pattern_arena(arena, source, arg, &Type::Unknown, &projected_origin);
                         }
                     } else {
                         for (arg, field_ty) in args.into_iter().zip(info.field_types.iter()) {
-                            self.check_pattern_arena(arena, source, arg, field_ty);
+                            let projected_origin = StreamOrigins::opaque();
+                            self.check_pattern_arena(arena, source, arg, field_ty, &projected_origin);
                         }
                     }
                     return;
@@ -783,7 +837,8 @@ impl Checker {
                     }
                 };
                 if let Some(arg) = arg {
-                    self.check_pattern_arena(arena, source, *arg, &target);
+                    let projected_origin = if name == "Ok" { self.project_stream_origin(origin, &[StreamProjection::Success], span) } else { StreamOrigins::opaque() };
+                    self.check_pattern_arena(arena, source, *arg, &target, &projected_origin);
                 } else if !matches!(target, Type::Unit | Type::Unknown) {
                     self.error(
                         span,
@@ -801,6 +856,8 @@ impl Checker {
                 if fields.len == 0
                     && let Some(info) = self.tag_variants.get(&qualified).cloned()
                 {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if info.field_count != 0 {
                         self.error(
                             span,
@@ -864,10 +921,12 @@ impl Checker {
                             "unknown error payload field",
                             DiagnosticCode::CheckPatternField,
                         );
-                        self.check_pattern_arena(arena, source, field.pattern, &Type::Unknown);
+                        let projected_origin = StreamOrigins::opaque();
+                        self.check_pattern_arena(arena, source, field.pattern, &Type::Unknown, &projected_origin);
                         continue;
                     };
-                    self.check_pattern_arena(arena, source, field.pattern, &field_ty);
+                    let projected_origin = StreamOrigins::opaque();
+                    self.check_pattern_arena(arena, source, field.pattern, &field_ty, &projected_origin);
                 }
             }
             ArenaPatternKind::Facet(name) => {
@@ -1139,4 +1198,63 @@ impl Checker {
         };
         self.error(span, &message, DiagnosticCode::CheckMatchValueExhaustive);
     }
+}
+
+#[cfg(test)]
+mod known_tag_relationship_tests {
+    use super::*;
+    use crate::source::SourceMap;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn resolved_tag_patterns_constrain_direct_and_indexed_subjects() {
+        let mut failures = Vec::new();
+        for (name, parameter, body) in [
+            ("typed_direct", "block: Block", "match block {\nPara(text) => text\nStop => \"stop\"\n}"),
+            ("direct", "block", "match block {\nPara(text) => text\nStop => \"stop\"\n}"),
+            ("typed_indexed", "items: List[Block]", "if let Para(text) = items[0] { return text }\n\"stop\""),
+            ("indexed", "items", "if let Para(text) = items[0] { return text }\n\"stop\""),
+        ] {
+            let source = format!("enum Block {{\nPara(Str),\nStop,\n}}\npure {name}({parameter}) -> Str {{\n{body}\n}}\n");
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("known-tag-relationships.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            if !checked.diagnostics.is_empty() { failures.push(format!("{name}: {:?}", checked.diagnostics)); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn resolved_tag_patterns_preserve_family_and_payload_boundaries() {
+        for (body, expected) in [
+            ("pure wrong(value: Other) -> Str { if let Para(text) = value { return text }; \"stop\" }", DiagnosticCode::CheckPatternType),
+            ("pure wrong(value: Other, marker) -> Bool { let _ = marker; value is Para(_) }", DiagnosticCode::CheckPatternType),
+            ("pure wrong(value) -> Str { if let Para() = value { return \"bad\" }; \"stop\" }", DiagnosticCode::CheckPatternArity),
+            ("pure wrong(value) -> Str { if let Pair(name, name) = value { return name }; \"stop\" }", DiagnosticCode::CheckPatternBinding),
+            ("pure wrong(value) -> Str { if let .Para(text) = value { return text }; \"stop\" }", DiagnosticCode::CheckInferredVariant),
+        ] {
+            let source = format!("enum Block {{\nPara(Str),\nPair(Str, Str),\nStop,\n}}\nenum Other {{\nDifferent,\n}}\n{body}\n");
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("known-tag-boundaries.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+
+    #[test]
+    fn known_tag_predicates_admit_resolved_subjects_in_generic_bodies() {
+        let source = "enum Block {\nPara(Str),\nStop,\n}\npure stopped(block: Block, marker) -> Bool {\nlet _ = marker\nblock is Stop\n}\n";
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("known-tag-predicate.xsh", source.to_string());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
 }

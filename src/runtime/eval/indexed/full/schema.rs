@@ -3,7 +3,7 @@ use super::{
     BuildPatternIdSlots, BuildStmtId, DecodeContext, DurationValue,
     EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
-    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
+    CallableKind, DeferKind, FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
     FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
@@ -11,7 +11,7 @@ use super::{
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
     LoweredBindingIdentity, LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot,
-    LoweredType, LoweredTypeCheck,
+    LoweredType, LoweredTypeCheck, LoweredValueCheck,
     LoweredValue, Name, NameText, PathValue,
     PreparedConstantValue, QualifiedName, RegexValue, RuntimeOp, ScanBytes, ScanCheck, Span,
     Type, text_hole_kind, verify_node_metadata,
@@ -22,7 +22,9 @@ use super::decode::{ListView, TextHoleKinds, TextPatternFields, TextPatternSegme
 #[repr(u8)]
 pub(super) enum FullSchemeTypeTag {
     Ground,
+    SchemeCallable,
     Parameter,
+    Callable,
     List,
     Map,
     Stream,
@@ -798,8 +800,8 @@ macro_rules! instruction_schema {
                     if tag == FullTag::StmtWith {
                         decoder.verify_with_shape(instruction)?;
                     }
+                    if tag == FullTag::ExprIndex { decoder.verify_index_operand_kind(instruction)?; }
                     if tag == FullTag::ExprTypedCall {
-                        // Callee-field proof needs parent links for every child.
                         let payload = decoder.cursor(
                             decoder.store.payload(decoder.store.data[instruction].range())?,
                         );
@@ -895,7 +897,7 @@ instruction_schema! {
         Path(value: PathValue) => ExprPath = 28 [0; Operands; FrameApply; EagerAtom];
         FunctionRef {
             function: FunctionName,
-            pure: bool,
+            kind: CallableKind,
         } => ExprFunctionRef = 29 [0; Scheduled; FrameApply];
         PathFrom {
             value: BuildExprId,
@@ -903,7 +905,8 @@ instruction_schema! {
         } => ExprPathFrom = 30 [0; Scheduled; FrameApply];
         Param(slot: usize) => ExprParam = 31 [0; Operands; FrameApply; EagerAtom];
         ComparisonChain {
-            pairs: Vec<BuildExprId>,
+            first: BuildExprId,
+            pairs: Vec<(BinaryOp, BuildExprId, Span)>,
         } => ExprComparisonChain = 32 [0; Operands; FrameControl];
         Binary {
             op: BinaryOp,
@@ -1006,7 +1009,7 @@ instruction_schema! {
         } => ExprField = 56 [0; Operands; FrameApply];
         Index {
             base: BuildExprId,
-            index: BuildExprId,
+            index: crate::runtime::eval::IndexOperand<BuildExprId>,
             span: Span,
         } => ExprIndex = 57 [0; Operands; FrameApply];
         /// `base[-distance]` over a list, where the checker saw the negative
@@ -1048,10 +1051,9 @@ instruction_schema! {
             check: LoweredTypeCheck,
             span: Span,
         } => ExprRequire = 65 [0; Operands; FrameControl];
-        // Preserve a checked domain while retaining ordinary runtime failure semantics.
         CheckedValue {
             value: BuildExprId,
-            check: LoweredTypeCheck,
+            check: LoweredValueCheck,
             span: Span,
         } => ExprCheckedValue = 66 [0; Operands; FrameControl];
         // Boxed because captured and spawned runs are cold, unusually wide
@@ -1257,11 +1259,11 @@ instruction_schema! {
             span: Span,
         } => ExprSelfCall = 112 [EFFECT_TRACE; Scheduled; FrameControl];
         /// A call through a value of a callable type. `signature` is the checked
-        /// `Type::Callable` the arguments were bound against, and `pure` its
-        /// kind; `args` supplies each of its parameters once, in order.
+        /// `Type::Callable` the arguments were bound against, and `kind` its
+        /// actual kind. `args` follows the checked parameter layout.
         TypedCall {
             callee: BuildExprId,
-            pure: bool,
+            kind: CallableKind,
             signature: Type,
             args: Vec<LoweredCallArg>,
             span: Span,
@@ -1480,9 +1482,7 @@ instruction_schema! {
         Continue => StmtContinue = 155 [0; Scheduled; FrameControl];
         Defer {
             value: BuildExprId,
-            /// Whether this is an `errdefer`: the action runs only when its scope
-            /// leaves with an error.
-            on_error: bool,
+            kind: DeferKind,
         } => StmtDefer = 156 [EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameControl];
         DefaultParameter {
             slot: usize,

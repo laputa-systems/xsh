@@ -296,8 +296,9 @@ let out = ./target/build
 ```
 
 **Globs.** `g"..."` expands against the current directory and produces
-`List[Path]`. Globbing is a filesystem effect and is not allowed in pure
-functions. A glob literal and the methods `Path.glob` and `Path.rglob` (15)
+`List[Path]`. Globbing requires the `fs` effect and is not allowed in pure
+functions. Inferred effects include `fs` when the body expands a glob. A glob
+literal and the methods `Path.glob` and `Path.rglob` (15)
 are the only things that glob; every other string, word, and path is taken
 literally.
 
@@ -1066,6 +1067,21 @@ not decide them, and conflicting evidence is an error, never a guessed `Any`
 substitution. Functions, enums, error families, and module contracts are not
 generic, and there is no expression-level type-argument syntax.
 
+Within an inferred callable, a constructor parameter can remain tied to an
+inferred input type:
+
+```xsh
+type Box[T] = {value: T}
+pure boxed(value) { Box(value:) }
+let number = boxed(7)
+let word = boxed("kept")
+```
+
+The constructor's declaration identity and type relationship remain part of the
+callable's checked contract. An unused schema parameter still needs evidence
+from a field or an explicit schema context. Runtime validation requires a
+closed, reifiable static target.
+
 A schema is structural: any record with its fields fits it. `nominal type`
 declares a schema whose name is also an identity, for a value whose fields
 alone do not say what it is:
@@ -1183,6 +1199,10 @@ is the enum, `.Variant` names one without a namespace (5.5). A statement `match`
 over an enum covers every variant or ends in a catch-all
 (`check.non-exhaustive-match`, 6.8); a value `match` names the uncovered
 variants in its `check.match-value-exhaustive` error instead.
+A resolved named variant pattern constrains an inferred subject to its declaring
+nominal enum. For an indexed subject, that enum constrains the indexed element
+through the existing indexing relationship; it does not select the container
+kind. A leading-dot pattern still requires an independently known enum domain.
 `type Alias = Level` aliases the same nominal type.
 Diagnostics display an imported enum's declaration name, including inside
 container types. Declarations from different modules remain distinct nominal
@@ -1770,17 +1790,30 @@ print $absolute $escaping $text $glued $above $plain $widened
 ### 5.1 Inference and annotations
 
 Inference is local and predictable. A `let` or `var` without an annotation
-takes its initializer's type. An annotation supplies the expected type, and the
-initializer must fit it. Annotations never convert or validate data: they only
-state what the checker must prove. A pure function may infer required parameter
+takes its initializer's type. An unannotated `var` initialized from a
+statically resolved pure or proc function, local or exported, keeps one
+inferred callable instance, which later assignments must fit. Callable fields
+inside a mutable record likewise retain one instance per field. Replacing the
+record or a field must preserve that field's contract; independent fields may
+infer different instances. Other fields retain their contracts, including
+quantified fields. An annotation supplies
+the expected type, and the initializer must fit it. Annotations never convert
+or validate data: they only state what the checker must prove. A pure function
+may infer required parameter
 types from its own body. The checker fixes its signature at the declaration;
 each direct call instantiates a quantified signature independently. One call
 never changes the declaration or another call's instance.
 
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
-including writes in branches and loops. An unannotated mutable local initialized
-to `set.empty()` follows the same rule for its element type. Resolve these
+including writes in branches and loops. Fresh empty lists nested in a local
+record or list initializer follow the same rule. Each surviving empty list has
+one element type across all writers. A discarded empty list or `map.empty()`,
+or such a field replaced by a later record spread, contributes no unresolved
+type. These expressions and their record wrappers still evaluate in source order. Explicit `Any` domains and heterogeneous
+list literals keep their declared or inferred domains. Parameter defaults and
+signal hook bodies use the same local inference rules. An unannotated mutable
+local initialized to `set.empty()` follows the same rule for its element type. Resolve these
 types before a concrete operation uses them; otherwise add an annotation. A
 `var` initialized to `null` becomes `T?` once a non-null assignment determines
 `T`; `let x = null` stays `Null`. If all non-null contributions to that `var`
@@ -1895,6 +1928,17 @@ comprehensions, pipeline sources, method calls, spread operands, `?`,
 `attempt`, and `wait` require validation first. A `List[Any]` or `Map[Any]`
 is a concrete container whose elements remain opaque.
 
+Passive generic calls preserve an explicitly checked `Any` argument as opaque
+data, including checked list-splice items. An explicit callable signature can
+also select an `Any` instance of a generic function (9.4). Operations on that
+instance still require validation. An unannotated empty list or `null` remains
+subject to ordinary inference requirements; neither selects `Any` by default.
+
+An explicit `Any` return preserves a raw `Ok` or `Err` as opaque data,
+including through a generic function. Returning that data does not trigger
+`errdefer`. Actual failure propagation still fails the call, and a deferred
+action's failure becomes primary when no earlier failure exists.
+
 Every other use needs a concrete type that the data may not have, and is
 `check.dynamic-boundary`: a typed binding, parameter, return, or field; an
 arithmetic, ordering, or logical operand, including a `sort-by` key and
@@ -1976,7 +2020,22 @@ run later. Narrowing never infers numeric ranges, filesystem state, or
 arbitrary implications.
 
 During `xsht check`, `reveal_type(expr)` reports the inferred type of `expr` as
-a note. It is rejected everywhere else.
+a note at that expression. Checked callable relationships retain their quantified
+type and row parameters and callback effects in this display. Binder names are
+stable when independent declarations are reordered. Printed `forall` notation
+is diagnostic notation, not an annotation the source rewriter can insert.
+`reveal_type` is rejected everywhere else.
+
+Guarded callable displays use `when-non-null(T)` to enclose the live view and its
+local type, row, and effect requirements. The `Null` type supplies no local view.
+An Optional source supplies its potential live payload type, even for a null value.
+`guard-call` and `guard-value` show requirements inherited from a checked call or
+callable materialization. Their `callee.` names belong to that callee, with
+explicit bindings to the enclosing signature. Conditional effects show their
+local and outward contracts, including the empty outward contract for `null`.
+`unknown` preserves an unresolved published effect contract. Guard output relations
+show the outward result, the non-null and null branch types, and their canonical
+join for an Optional source; local branch binders remain inside the guard.
 
 ### 5.5 Target-typed variants
 
@@ -2336,6 +2395,14 @@ let missing = ["build", "test"][-3]  # error: check.index-out-of-range
 `lint.prefer-negative-index` rewrites `list[list.len() - 1]`. `map[key]` and `record["field"]` fail when the key or
 field is missing; use `.get(...)` for a `Result`.
 
+Indexing `Map[UInt, V]` with an `Int` expression validates the key as `UInt`;
+a negative value fails with a Schema error. If that failure can propagate from
+a function returning `Result`, the function's error type must admit `Error`.
+A caller-side `try` does not widen the called function's `Result` error type.
+Handle the index inside the function or pass a `UInt` key when it is already
+validated. With a `UInt` key, a stored `Result` error remains ordinary result
+data.
+
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same
 type. Either bound may be omitted. Negative bounds count from the end, and
 both bounds are clamped into `[0, len]`; an end before the start gives an
@@ -2344,6 +2411,14 @@ bytes: `"aé🦀"[1..3]` is `"é🦀"` and `b"abcdef"[2..5]` is `b"cde"`. `Str` 
 no single-element `[i]` indexing; slice one scalar or iterate. The method
 `.slice(offset, length)` is distinct: it rejects negative or out-of-range
 offsets instead of clamping.
+
+An omitted receiver type retains the indexing or slicing relationship for each
+call. `pure select(values, key) { values[key] }` can be used independently with
+a `List` and a `Map`; an integer key alone does not choose between them.
+The literal syntax remains significant in a generic body: `values[-1]` selects
+the last list item or the map's negative key according to the receiver type.
+`pure clip(values, start, end) { values[start..end] }` similarly retains the
+receiver's `List`, `Str`, or `Bytes` domain and its existing slice units.
 
 ### 6.7 Optional chaining
 
@@ -2383,10 +2458,18 @@ value (each ends in a control transfer, a binding, or nothing) is a statement
 even as the last statement of a block: it needs no `else` and gives the block
 no value, so `if done { return x }` may end a block.
 
-Without an expected type, an `if` expression may use an `Optional[T]` already
-provided by one reachable branch when every other branch value fits it,
-regardless of branch order. A plain `null` branch and plain `T` branch do not
-infer `T?`. Add an `Optional[T]` context or annotate the result.
+An exact `[]` branch in a value-producing `if` or `match` can inherit its item
+type from another list-literal branch. This rule also applies when a branch
+value is the tail of a nested block. A stored list keeps one inferred item
+type across its uses.
+
+Without an expected type, an `if` or `match` expression joins a plain `null`
+branch with a non-dynamic `T` branch as `T?`, regardless of branch order. An
+existing Optional payload stays Optional, and branches that all produce `null`
+stay `Null`. This does not merge invariant container domains: `[null]` and `[7]`
+remain incompatible branch values. An unvalidated `Any` branch does not
+establish an inferred concrete payload. An explicit expected type still
+constrains every value-producing branch.
 
 ```xsh
 let mode = if release { "release" } else { "debug" }
@@ -2510,6 +2593,12 @@ literal finds the type of its elements. A block that never yields needs the
 expected type (`check.collect-item`). A `yield` takes no stream, and
 `yield @` takes no stream either: collect it first
 (`yield @rows.collect()`).
+
+An inferred callable keeps the yielded item type related to its arguments.
+Each call must satisfy the same item rule: an explicit `Any` item remains
+passive data, but a `Stream` cannot be yielded as one item. An inferred
+`yield @values` requires `values` to be a `List` and keeps its item type; it
+does not unwrap a `Result` or consume another iteration domain.
 
 The block is no boundary. `?` and a statement's failure leave it as they
 would leave a bare block, and the list is then discarded; `return`, `break`,
@@ -3048,7 +3137,15 @@ A constructor takes its payload and error types from the expected type. Where
 a `Result[T, E]?` is expected, `Ok(...)` and `Err(...)` are checked against
 the `Result[T, E]` under the `?`, since neither is `null`: `Ok(7)` has the
 error type `E`, and `Err(.Variant(...))` selects the variant from `E`
-(6.8).
+(6.8). An `Err` keeps the expected success type even though it carries only
+an error payload. This also applies when the result is stored in a typed local
+or passed to an inferred generic parameter.
+
+When a generic call leaves only an `Ok` constructor's error type unknown,
+inference waits for all actual arguments before defaulting it to `Error`.
+Later arguments can therefore supply a nominal error type regardless of named
+argument order. An error type related to a function input remains part of its
+inferred scheme. Bare `Ok(value)` without an expected type still uses `Error`.
 
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
@@ -3715,6 +3812,9 @@ runs while unwinding, and the status is an `Int` expression from 0 to 255
 their `errdefer` actions (8.7) run when the status is not zero and are skipped
 by `exit 0`.
 
+`exit` requires the `process` effect. An omitted proc effect clause infers
+that requirement; pure functions and `without process` regions reject it.
+
 ```xsh
 guard uid == 0 else {
   eprint "must run as root"
@@ -3775,7 +3875,7 @@ when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
 ### 9.2 Parameters
 
 Parameters are `name: Type`, `name: Type = default`, `name = default`, or a
-final rest parameter `...name: List[T]`. A defaulted parameter may omit its type
+final rest parameter `...name` or `...name: List[T]`. A defaulted parameter may omit its type
 when the default alone determines one concrete type; `null` and empty
 containers need annotations.
 
@@ -3785,34 +3885,198 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
-A required parameter in a `pure` declaration may omit its type annotation. The
-checker infers that type from the declaration body. An explicit `Any` remains a
-dynamic type and is never treated as a type variable; it may appear beside
-quantified parameters. Required parameters in `proc` and `stream` declarations,
-callable types, and module contracts still need annotations.
+A required parameter in a `pure`, `proc`, or `stream` declaration may omit its type
+annotation. The checker infers that type from the declaration body. An explicit
+`Any` remains a dynamic type and is never treated as a type variable; it may
+appear beside quantified parameters. A quantified proc requires a finite
+checked effect contract. Required parameters in callable types and module
+contracts still need annotations.
 
-When a checked pure signature retains quantified type or row variables, its
-executable body may contain immutable `let` bindings followed by one value
-tail or explicit `return`. Values may be scalar literals, parameter or local
-reads, ground immutable runtime captures, required `.field` projections, or statically
-selected pure calls. User function calls must supply every fixed required
-parameter, by position or name. Registered calls must have a selected pure
-signature with no host effects; their receiver domain and argument layout are
-fixed while checking the declaration. A caller never supplies type evidence
-for choosing that declaration's operations. Unsigned argument and map-key
-contracts keep the ordinary checked conversions and failure propagation.
+Captured runtime bindings retain their declaration's monomorphic type. A writable
+capture must refer to mutable storage with exactly that type. Every assignment
+preserves this storage contract; separate calls cannot specialize shared mutable
+storage. Stream producers observe current captured mutable storage before each
+pull and before cleanup of a started body. Cancelling an unstarted producer runs
+no defaults, body, or defers.
 
-This body subset excludes mutation, destructuring, operators, branches, loops,
-optional field access, indexing, constructed collections and records,
-interpolated text, dynamically selected calls, expression statements before
-the terminal value, and captured mutable or resource state. Compile-time constant bindings remain outside this
-quantified body subset. Registered calls
-with specialized argument rules, script implementations, or resource receiver
-domains are outside this subset. A registered method may omit only trailing
-defaulted parameters. Calls to user functions with defaulted or rest
-parameters remain outside this body subset. The checker reports
-`check.local-inference` for unsupported quantified body shapes. A fully
-concrete inferred signature has no such body restriction.
+A checked quantified body can use lexical `let` and `var` bindings, including
+record destructuring, nested blocks, local assignment, `if`, `match`, `for`,
+`while`, and `loop`, with `break`,
+`continue`, explicit value returns, and ordinary `?` propagation through the
+callable's checked error boundary. Each mutable local has one type within
+an activation: every assignment must fit the same type, even when different
+calls instantiate that type differently. Field, list-index, and map-key
+assignments retain the selected storage type, including a shared type parameter.
+Compound assignments use the ordinary operator domains and keep that storage
+type. Selectors evaluate once before the right side; a compound assignment reads
+the current target value after the right side. Ordinary unsigned checks remain
+active, including within records that also contain quantified fields. Earlier
+aliases keep their contents, and a failed update returns no partial value.
+A nested binding cannot escape its scope. Pattern bindings belong to their own match arm; guards retain the
+ordinary strict `Bool` contract. Value-loop results share constraints from
+reachable breaks belonging to that loop, including `Unit` for a bare break.
+Breaks in an inner loop do not determine an outer loop's result.
+Destructuring evaluates its source once before publishing its bindings. Each
+renamed or nested binding retains the selected field's type. A `for` binding is
+immutable and belongs only to its body. The source evaluates once and retains
+the ordinary item order and snapshot behavior. Result sources propagate their
+actual error family. Stream sources remain lazy, and leaving a loop releases
+its source through ordinary cleanup. The enclosing result contract must admit
+both source errors and errors from pulling a stream.
+An inferred iteration parameter retains the relationship between its source and
+item types. Independent calls may supply a `List`, `Set`, `Map`, `Str`, `Bytes`,
+`Stream`, or one `Result` around those sources. A map yields records with `key`
+and `value` fields; text yields `Str` items, and bytes yield `Int` items.
+Source and stream errors must fit the enclosing error boundary and effect
+contract. An explicit empty effect clause still excludes fallible iteration.
+Nested `Result` sources are not supported.
+An inferred structured-pipeline input retains its item relationship across
+independent `List`, `Set`, and `Stream` calls, including one outer `Result`.
+It excludes the other iteration domains. Sources keep their ordinary order,
+lazy pulls, error transport, and cleanup; a pipeline does not impose a `for`
+loop's enclosing Result error bound on those inputs.
+List and map comprehensions retain the item or value relationship to quantified
+parameters. Set comprehensions require a checked scalar key domain. Qualifiers
+keep their ordinary sequential scope, lazy source evaluation, filter behavior,
+and cleanup. A single unfiltered mapping of a `NonEmpty` list preserves that
+validation; filters and additional sources do not.
+
+Values may be scalar literals, parameter or local reads, ground immutable
+runtime captures, required `.field` projections, list literals without splices,
+records with named fields, declared error variant constructors, `Ok` and `Err`
+constructors, value blocks,
+value-producing `if` and `match` branches, loops, or statically selected pure
+calls. Unguarded indexing retains the `List` or `Map` receiver, key, and item
+relationships; slicing retains the `List`, `Str`, or `Bytes` receiver domain.
+Literal record and module keys preserve the selected field relationship through
+compiler-created immutable temporaries. Negative literals select list items
+from the end or negative map keys; computed negative list indices still fail. Inferred binary arithmetic retains a relationship between both
+operand types and its result. Each call selects an existing operator signature
+from its input types; a result annotation alone does not choose the inputs.
+This covers integer and floating-point arithmetic, text and list concatenation,
+Set difference, and duration arithmetic. Duration scaling requires `Int`, and
+dividing two durations returns `Int`. Unsupported operand pairs remain type
+errors. Unary operations retain their ordinary contracts.
+Declared error variants retain their nominal family and variant, payload field
+types, source argument evaluation order, and ordinary default message. Inferred
+arguments do not erase payload validation or authorize a different family.
+Inferred method calls retain finite registered families. `len()` accepts List,
+Map, Set, and Bytes receivers; `is_empty()` also accepts Str. There is no
+`Str.len()`. A generic `Path.write` call selects its text or bytes overload,
+with or without an explicit mode, from its checked input types. Independent
+calls select independently. `parent()` and `normalize()` accept Path and
+RelPath receivers, returning Path and RelPath respectively. A Path result is
+not inferred to be RelPath. Result annotations do not select a receiver or
+argument domain. Named arguments retain their labels and evaluate once in
+written order, including when that order differs from parameter order.
+
+Passing an inferred parameter to a known nullable formal retains an
+assignability requirement; it does not make the parameter nullable. A body
+that also reads a field therefore requires a present record. A body that only
+forwards the parameter accepts compatible present values and nullable values,
+including `null`. Argument labels, defaults, schemas, effects, and validation
+of `Any` keep their ordinary contracts.
+
+Generic guarded field access, value fallback, error handlers, and enclosing
+`try` blocks retain their Optional or Result relationships. Each call selects
+the mode from its checked inputs. An Optional containing an `Err` keeps that
+value as data; Result mode propagates or handles the outer error. Fallbacks
+and handler bodies remain lazy, and each capture joins the errors contributed
+by its actual operations. A generic relay preserves these relationships.
+When that join has type `Error`, `try` and `retry` convert propagated payloads
+to ordinary `Error` values. Existing errors retain their identity; a nested
+Result returned as success data is preserved. A capture with no propagated
+errors imposes no constraint on its declared error type.
+The `?` operator constrains an otherwise unresolved input to `Result[T, E]`.
+For example, `proc unwrap(value) { value? }` preserves both input parameters
+in its inferred Result return. Independent calls may use different success
+and error types. The ordinary error effect and return-context checks still
+apply; a result annotation cannot turn a non-Result argument into a Result.
+
+Concatenation preserves `NonEmpty` when either operand has it.
+List element storage remains invariant: concatenating `List[UInt]` with
+`List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
+Equality can retain a shared type parameter, including list membership with
+the same item parameter. Membership can retain independent value and container
+parameters, selecting the ordinary domain at each call. Unsigned map membership
+validates the computed needle before evaluating the container; validation errors
+follow the enclosing capture or Proc error boundary. Ordering uses concrete
+checked operand domains.
+Boolean `and` and `or` evaluate the left operand first and evaluate the right
+operand only when needed. Ordering chains evaluate each reached operand once
+and stop at the first false pair. Map membership preserves its declared key
+domain and ordinary unsigned key validation. Set union, intersection, and
+difference preserve the checked element domain; sharing an integer runtime
+representation does not erase an unsigned element guarantee.
+
+Optional parameters and returns retain their nullable contract. Guarded field,
+index, slice, and selected method access use the ordinary postfix rules: a null
+receiver returns null without evaluating its index, slice bounds, or method
+arguments. A present receiver runs the selected operation, including literal
+from-end indexing; an operation that already returns Optional keeps one
+Optional envelope. An Optional containing Result keeps both success and error
+values as data. A guarded Result receiver propagates its actual error to the
+function's Result boundary and runs the operation only on success. The error
+family must fit that boundary.
+
+List splices preserve the checked item domain, including a shared type
+parameter. Shorthand fields use the same lexical binding as an ordinary name
+read, including shadowed locals and checked immutable captures. Their ordinary
+record, map, or contextual set interpretation is unchanged.
+Named record fields and record spreads use the ordinary ordered
+field rules: later permitted fields replace earlier fields, while every
+expression still evaluates in source order. A leading spread of an inferred
+record can retain unknown fields while later named or shorthand fields replace
+known or unknown fields. Each call preserves the source's remaining fields and
+their types. Replacements may have different types from the source fields.
+The source must satisfy every field read in the body. An opaque `Any` does not
+establish the record domain. Computed map keys keep a checked scalar key domain;
+map values may retain the callable's type parameters.
+Map spreads preserve both domains. Scalar-key set literals use the ordinary
+set conversion and remove duplicates. Text and path interpolation use the
+ordinary display and formatting rules. An inferred operand retains the display
+requirement imposed by interpolation or `print`. Each concrete call must satisfy
+that requirement. Generic forwarding preserves it with the same type parameter.
+
+Command arguments retain the conversion required by their syntax. A typed
+argument requires an argv scalar; a standalone interpolation accepts an argv
+scalar or a list of them; an explicit splice requires a list of argv scalars.
+An interpolation within a larger word uses display conversion. These requirements
+preserve the ordinary domains: Float can be displayed but cannot be an argv
+scalar, and a list cannot be displayed. An incompatible instance is rejected
+before execution.
+Static record updates retain a known base shape and disjoint existing paths.
+The base evaluates once before the replacements; replacements preserve their
+field contracts, including ordinary unsigned validation, and a failure exposes
+no partial update. Complete typed storage checks remain active in a quantified
+body; an annotation does not replace proof of its actual input.
+
+A quantified proc supports both `tempdir` heads with their ordinary result
+and cleanup rules (10.4).
+
+A quantified proc may also call a selected finite proc whose effects fit its
+own checked ceiling. Branches evaluate only the selected value, in ordinary
+source order.
+User function calls bind fixed required parameters by position, name, or a
+finite record's named spread. Source entries evaluate once in written order;
+spreads project the checked record fields before the next entry. Trailing items
+and positional list splices fill only the final rest parameter. Omitted defaults
+run in the callee's declaration scope after supplied entries, in parameter
+order; an explicit argument skips its default. The same rules apply when the
+selected callee has an ordinary concrete signature. Registered calls must have a selected pure signature with no host
+effects; their receiver domain and argument layout are fixed while checking
+the declaration. A caller never supplies type evidence for choosing that
+declaration's operations. Unsigned argument and map-key contracts keep the
+ordinary checked conversions and failure propagation.
+
+Unsupported quantified body shapes still produce a checking or preparation
+diagnostic, including calls without a checked callable relationship and
+resource-bearing captures. Compile-time constant bindings and registered calls with specialized
+argument rules, script implementations, or resource receiver domains are not
+yet supported in these bodies. A registered method may omit only trailing
+defaulted parameters. Their named spreads retain the selected argument layout
+and ordinary checks. A fully concrete inferred signature has no such body
+restriction.
 
 Ordinary ground pure helpers called from a quantified body keep their usual
 syntax, including branches, loops, mutation, patterns, defaults, rest arguments,
@@ -3820,27 +4084,86 @@ and collection callbacks. The compiler verifies their actual producers against
 the selected operation contracts. These helpers do not acquire quantified body
 restrictions.
 
+```xsh
+pure boxed(value) { [value] }
+pure successful(value) { Ok(value) }
+pure named(value) { {value: value} }
+pure choose(flag, first, second) {
+  if flag { first } else { second }
+}
+assert boxed(42) == [42]
+assert boxed("demo") == ["demo"]
+assert successful(42) == Ok(42)
+assert successful("demo") == Ok("demo")
+assert named(false).value == false
+assert choose(true, 42, 0) == 42
+assert choose(false, "first", "second") == "second"
+pure display_value(value) { f"value:{value}" }
+assert display_value(42) == "value:42"
+assert display_value("demo") == "value:demo"
+```
+
 A checked value return keeps an explicit `Bool` value, including `false`.
 Closed ground `Result` returns preserve an existing result envelope or wrap a
 plain success value under the ordinary return rules. A `Result` whose success
-kind is itself a bare quantified parameter still blocks lowering. Statement
-assertion or discard elaboration is outside this quantified body subset;
-annotated `Unit` returns are supported when their terminal checked value is
-already `Unit`.
+kind is itself a bare quantified parameter retains the constructor's checked
+`Ok` or `Err` envelope without a runtime payload type guess. Quantified bodies
+support `assert` with a Boolean condition and an optional `Str` message,
+evaluated only on failure. Assertions require the ordinary Error permission,
+including inside deferred actions. A terminal proc `defer` or `assert`
+completes with `Unit`. `error.fail(message)` retains its `Result[Unit, Error]`
+contract and requires a checked `Str` argument. Explicit
+`let _ = value` discards preserve `Result` values as data without propagating
+their errors. Annotated `Unit` returns are supported when their terminal
+checked value is already `Unit`. A generic proc's early value return uses the
+same success-envelope rule as its terminal value. Instantiating that value
+with a `Result` preserves the nested result as data.
 
-At a direct call to an inferred quantified pure declaration, supply all fixed
-required parameters first. Zero or more trailing rest items or list splices may
-then fill only the final rest parameter, whose annotation is `List[T]`. Each
-rest item must match the annotated list element type. A splice must be a list
-whose element type matches it. The fixed required arguments provide type
-evidence for instantiating quantified parameters. This call form also works
-through a direct immutable alias. Ordinary monomorphic calls keep their
-existing behavior. A positional splice that could expand into a fixed parameter before
-the final rest parameter currently blocks lowering. The body restriction above
-still applies to quantified declarations that have rest parameters.
+A pipeline that necessarily returns from a required callback has no completed
+result value. Its owner can generalize without inventing a result or item type
+for that expression. The input, stages, callback returns, and effects remain
+checked. Sort materializes its upstream stages even when a later `take(0)`
+discards the sorted output. A callback that may be skipped, including on a
+possibly empty input, does not establish this completion property. An ordinary
+unresolved value still needs enough type information.
 
-Even after `xsht check` succeeds, a well-typed quantified pure declaration with
-any defaulted parameter currently blocks lowering for the whole function.
+At a generic call, a plain value or `null` may fill an inferred fallback
+source through the ordinary Optional injection for the same checked payload
+type. An existing `Result` or Optional keeps its envelope. The callable's
+other body requirements still apply.
+
+A checked generic call can retain the exact closed `Null` type of an argument,
+including within a list or record, when the callable's body requirements admit
+that type. It does not select `Any`, invent an optional payload, or establish an
+unrelated operation domain. A ground checked result context specializes the
+same fresh callable instance through input variables bound to fresh list
+literals before those arguments are checked. Only compatible result projections
+contribute that early context. It cannot choose a computed arithmetic result signature;
+that signature still follows the actual operands. The complete result check remains with expression completion after argument
+checking and wrapper elaboration. Fresh literals can therefore receive input context;
+pre-existing containers retain their own invariant domains.
+
+Equality or inequality against `null` does not itself choose an inferred
+parameter's type, whichever operand contains `null`.
+
+At a direct call to an inferred quantified pure declaration, fixed required arguments
+may be positional or named. A final rest parameter has type `List[T]`; omitting
+its annotation introduces an inferred item type `T`. Each supplied rest item
+must match `T`. Literal positional list splices without
+nested splices expand into fixed and rest slots in source order. Empty literal
+splices consume no parameter. Each expanded item receives its parameter's type
+and schema context, while the source list still requires one homogeneous item
+type. Supplied expressions are evaluated once in source order.
+
+A positional splice with an unknown length may fill the final rest parameter;
+it cannot supply a fixed slot before that parameter. Defaulted parameters and
+immutable callable aliases follow the same binding rules. Omitted defaults
+retain their declaration scope and evaluation order described above.
+
+A quantified declaration may have defaulted parameters under the same concrete
+default-type rules above. A default can call a selected function and propagate
+its actual error when the enclosing callable permits that error. Defaults retain
+the ordinary failure and cleanup behavior, including lazy stream ownership.
 
 ### 9.3 Return types
 
@@ -3851,26 +4174,139 @@ command statement's value. A final `Result[Unit]` call in a `Unit` or
 Pure functions can omit their return annotation when the checker infers one
 closed type or rank-1 scheme from explicit returns and reachable tails. This
 rule also allows exported pure functions to omit return annotations. Recursive
-pure functions still need an explicit return annotation.
-The checker infers mutually recursive pure parameters together before checking
-callers. Those parameters remain monomorphic. A parameter that the recursive
-bodies leave undetermined needs an annotation.
+pure declarations share provisional parameter and return types within their
+component. The checker solves every member before generalizing the component;
+recursive calls use those shared monotypes, and independent outside calls
+instantiate the published schemes freshly.
+`Null` is a closed return type, including inside records and containers.
+A null-only value supplies no optional payload type or domain schema.
+Checked tooling contracts retain quantified parameter relationships and open
+record rows. Their diagnostic display can use `forall` notation; that notation
+is not source syntax. Tooling compares checked contracts by bound parameter
+renaming while preserving nominal types, labels, schemas, and effects.
+Callable displays append `invoke(C, [A, ...]) -> R` clauses for checked
+applications, including their allowed calling kind, effects, and inferred
+`proc-return(R, propagated=[E, ...])` envelopes. Argument labels and positional
+splices remain visible. A `known-arguments(params=[...], args=[...])` clause
+records argument compatibility with an existing parameter layout; it supplies
+no invented callee, return type, or effects. Effect predicates print as
+`effects-equal`, `effects-included`, `effects-covered`, or `effects-excluded`.
+Direct inclusion and permission coverage retain their distinct meanings.
+A `convert(T, [Display, Argv, ...])` clause retains every required conversion;
+all listed conversions must hold. A
+`method-family(Family, receiver=T, args=[slot: A, ...]) -> R` clause retains
+the finite registered method family, receiver, argument layout and result.
+Path parent and normalization preserve the canonical selected signature's
+result: Path for a Path receiver and RelPath for a RelPath receiver. A written
+Path return accepts either result without choosing the receiver's domain.
+These clauses describe checked relationships and are not source syntax.
 
-- A private `proc` with value tails infers `Result[T]`. A `Result` tail keeps
+Concrete instance comparison specializes schema arguments through the same
+resolved parameter and return instance before comparing canonical schema
+identities. Missing or unresolved schema arguments do not establish a match.
+Structural projection still requires independently ground checked interfaces;
+solving a parameter does not supply a missing input validation.
+
+Interface comparison treats a nonparameterized ordinary record schema without
+defaults or validation obligations as its fully known structural type when
+both checked interfaces have that same ground type. The stored schema and
+execution checks remain unchanged. A contained enum requires its validated
+Str wire mapping and the same exact ground enum family in both interfaces.
+Unbacked or unknown enum families retain their schema obligations.
+This projection applies to implicit
+parameter and return boundaries. Explicit validation and constructor selections
+remain part of body comparison. Unknown, generic, nominal, validated, unsigned,
+and defaulted schema obligations remain constrained. Removing a return
+annotation that selects `UInt` conversion or `Result` wrapping changes source
+meaning and does not qualify as an equivalent erasure.
+
+A candidate `Result` return can have a narrower error under the existing
+callable return rule after the same parameter instance resolves its exact
+success type. This does not admit a different success domain, an unresolved
+error, a bare `Error` return, or a removed `Result` wrapper. Body comparison
+retains each error constructor's canonical family and variant identity.
+
+Local initializer comparison can project a redundant implicit structural check
+when both views independently establish the same stored type and initializer
+type, and all checked operations and effects remain unchanged. A canonical
+empty list literal can establish vacuous list membership. Missing or unknown
+producer evidence, unchecked `Any`, and empty maps or records do not establish
+that proof. Explicit validation, assignment checks, materializations and schema
+obligations remain constrained. This comparison never changes execution checks.
+
+The checker infers mutually recursive parameters and returns before checking
+callers. Variables that are independent of the captured environment can become
+rank-1 scheme parameters after the component is solved. Infinite types and
+recursive calls that require a fresh polymorphic instance are rejected. A failed
+component publishes no member scheme.
+
+- A `proc` with value tails infers `Result[T]`. A `Result` tail keeps
   its shape, and a plain `T` is wrapped in `Ok`. If every completion is
   Unit-like (no tail value, an `if` without `else`, a bare `return`, or a
   failure-only `Err(...)`), the proc returns `Result[Unit]`. Value tails that
   disagree are `check.type-mismatch`; there is no fallback to `Result[Unit]`.
   Failure-only completions (`Err(...)` tails and early `return Err(...)`) and
-  `?` propagations join into the error type: variants of one family join to
-  the family, anything else to `Error`.
-- An exported `proc` with value returns and `proc main` need explicit return
-  types (`check.required-return`). Empty collections, error-only bodies, and
+  `?` propagations join into the error type: matching types retain that type,
+  variants of one family join to the family, and incompatible types join to
+  `Error`. A plain value return uses its actual propagated error types when
+  present; a body without propagated errors retains the default `Error`.
+- When a guarded field creates a Proc completion group, original `Result`
+  returns and returned callable applications contribute their checked error
+  types to the same join. A formal value `T` remains data when an invocation
+  instantiates `T` with a `Result`.
+- Recursive `proc` value returns are solved within the same monomorphic
+  component before generalization. `proc main` still needs an explicit value
+  return type (`check.required-return`). Empty collections, error-only bodies, and
   dynamic shapes cannot be inferred (`check.infer-return`).
 
-A proc with no return type and a statement body returns `Result[Unit]`. A
-caller that ignores an inferred `Result[T]` must handle it like any other
-value-producing result.
+An inferred proc can quantify body-owned type and row variables when its checked
+effect contract is finite. `proc wrap(value) { value }` has the relation
+`forall T. T -> Result[T]`, independent of its callers. Its plain symbolic tail
+always constructs `Ok`; passing `Ok(7)` therefore returns `Ok(Ok(7))`.
+Exported and statically imported procs keep the same relation. Independent
+formal variables may generalize alongside mutable captures whose storage has
+one grounded type. Every assignment retains that storage contract across calls.
+Resource-bearing captures and unknown effect contracts cannot enter this
+quantified body contract. Checked callback applications retain their effect
+relationships through generic forwarders. Each invocation substitutes the
+selected callback's finite checked effects. An inferred proc's checked
+application-result envelope establishes its outer Result shape without
+requiring a concrete callback payload type. Stream forwarders retain lazy
+callback execution.
+
+```xsh
+proc wrap(value) { value }
+let number: Int = wrap(42)?
+let text: Str = wrap("demo")?
+let nested: Result[Int] = wrap(Ok(7))?
+let failed: Result[Int, Str] = wrap(Err("kept"))?
+assert failed == Err("kept")
+assert number == 42
+assert text == "demo"
+assert nested == Ok(7)
+```
+
+A quantified proc that returns its formal value `T` treats that value as data:
+instantiating `T` with a `Result` preserves the inner value inside the proc's
+outer `Ok`. Returning an actual callable application instead follows that
+application's checked result envelope, including through immutable aliases and
+agreeing conditional branches. Each invocation retains this distinction; merely
+unifying a formal value's type with an application's result does not make the
+formal value an application result.
+
+A proc with no return type and a statement body has Unit success type. Its
+error type follows the propagation and failure-only rules above; without known
+errors it defaults to `Error`. A caller that ignores an inferred `Result[T]`
+must handle it like any other value-producing result.
+
+When an inferred proc completion has outer type `Result[T, Error]`, a
+propagated non-Error payload becomes a structured `Error` with kind
+`propagated`. Text and scalar payloads supply its message; other payloads
+produce `non-Error TYPE error payload`, where `TYPE` names the payload type.
+Existing `Error` and process errors retain their identity and causes.
+This conversion affects only the outer error: a `Result` carried as success
+data keeps its payload. An authored `Result[T, E]` contract retains its
+declared error type.
 
 At most 100000 function calls are open at once. The call that would be one
 more fails with the runtime error `stack-overflow`, whose message names the
@@ -3939,15 +4375,39 @@ that function's full signature (labels, defaults, return type, and effects):
 ```xsh
 let build = toolchain.build
 build(root, jobs: 4)
+let identity = toolchain.identity
+let number: Int = identity(42)
+let text: Str = identity("demo")
+assert number == 42
+assert text == "demo"
 ```
 
-An alias to a quantified pure function can be a direct call target; each call
-instantiates the function's scheme independently. It cannot be stored where a
-first-class callable type is required (`check.callable-mismatch`).
+An alias to a quantified pure function can be a direct call target. This includes
+an unannotated immutable alias to a known module export, such as
+`let identity = utilities.identity`. Required exports from a statically known
+module also retain their schemes through a constant string index or a constant
+string `.get(key)?`. Dynamic keys and optional generic exports do not establish
+a callable scheme. Each call instantiates the function's scheme independently.
+The immutable alias remains quantified and cannot itself
+be stored as a polymorphic first-class callable value. When a function or
+immutable alias is assigned to a concrete callable type, the checker selects
+one instance that fits the target. For example, two targets can select
+independent instances of `identity`:
 
-A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives
-a dynamic callable instead. An exported alias must still state its own return
-and effect contract.
+```xsh
+let integer_identity: pure(value: Int) -> Int = identity
+let text_identity: pure(value: Str) -> Str = identity
+```
+
+An unannotated mutable binding selects one pure or proc instance as described
+below.
+
+An unannotated `var` initialized from a statically resolved pure or proc
+function, local or exported, keeps one inferred callable instance, and later
+assignments must fit its signature. A conditional selection or an explicit
+`Pure`/`Proc` annotation gives a dynamic callable instead. Stream producers
+retain their separate lazy alias behavior (9.5). An exported alias must still
+state its own return and effect contract.
 
 A callable type gives a value that is chosen at run time the same checked
 call. `proc(PARAMS) [EFFECTS] -> T` and `pure(PARAMS) -> T` are type
@@ -3969,14 +4429,39 @@ build(workspace)
 run_step(Step(name: "release", build: release_build), workspace)
 ```
 
-A value gets a callable type in one of two ways: a function is named where
-the type is expected (a declaration, a module export, or an alias that kept
-its signature), or a value of a fitting callable type is passed along (5.2).
+A value gets an authored callable type in one of two ways: a function is named
+where the type is expected (a declaration, a module export, or an alias that
+kept its signature), or a value of a fitting callable type is passed along (5.2).
 Where the type is expected, a block may end in a bare function name, so both
 branches of an `if` or the arms of a `match` can select one. A function with
 defaulted parameters fits when its labels and types match, because a call
 through the type passes every argument; one with a rest parameter does not
 fit.
+
+An inferred declaration-derived callable retains its complete selected signature,
+including parameter labels, available defaults, and the final rest parameter.
+An application requirement constrains that actual callable without replacing its
+signature. Supplied entries evaluate in source order before their checked binding
+places them in formal slots; omitted defaults execute in the selected declaration's
+scope, and list splices contribute to its rest parameter. Aliases and returned
+callable values retain the same signature.
+
+A value-producing branch ending in a named function or its immutable alias
+retains that checked signature without a callable type annotation. The other
+branches must fit the inferred callable contract, including parameter labels,
+defaults, rest parameters and effect bounds.
+
+An inferred `proc` may return a named function with an explicit `return` and
+infer its callable signature. An explicit return annotation supplies the
+expected type when an explicit `return` names a function.
+
+Calls through an opaque callable handle validate its retained argument contract
+before executing the target. This includes nested callable signatures and their
+effect bounds, typed module exports, and stream item contracts. Checking a lazy
+stream uses its retained producer contract without pulling an item. `utils.cache` keeps distinct executable targets and distinct
+checked specializations separate, even when their argument values are equal;
+clones and equivalent specializations share an entry. Callable value equality
+continues to compare declaration identity.
 
 A call through the type is written `value(args)`, `record.field(args)` for a
 record field of a callable type, which takes precedence over a record method
@@ -3986,8 +4471,8 @@ position or by label, the result has the type's return type, and the type's
 effect clause is charged to the caller exactly as a named proc's clause is
 (9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
 any proc, and a caller with a declared or `without` bound cannot call it. A
-call passes each argument explicitly; `@` splices and `...` spreads are
-rejected. A stream stage's callable is still a function name; a value of a
+call through an authored fixed-arity type passes each argument explicitly;
+`@` splices and `...` spreads are rejected. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was
@@ -4039,6 +4524,12 @@ proc select(dynamic: Proc, raw: Any, roots: List[Path]) [fs, error] -> Result[Un
 ### 9.5 Stream producers
 
 Calling a `stream` producer returns a `Stream[T]` without running its body.
+Parameter and return annotations may be omitted when the producer's defaults,
+yields, delegation, and parameter relationships determine them. Recursive
+producers share one monomorphic constraint component while their bodies are
+checked; their declaration schemes are generalized together afterward. Each
+independent call can choose a different item type, while aliases of one created
+producer retain that producer's item type.
 The body runs as the stream is consumed by a `for` loop, a pipeline, or
 `.collect()`. Each `yield value` emits one item, and `yield @source` emits every
 item of a `List[T]` or `Stream[T]`, pulling a delegated stream on demand. The
@@ -4072,7 +4563,7 @@ proc read_config(file: Path) [fs, error] -> Result[Config] {
 | `fs` | filesystem APIs (`fs`, `archive`, `diff`, `patch`, `user`, `group`, `module`, path I/O methods) |
 | `net` | `net`, `dns`, and the socket operations listed below |
 | `process` | `run`, `spawn`, `wait`, handle cancellation, effectful `process` APIs, `unix`, `linux`, `applet` |
-| `env` | `env`, `cd`, `system` |
+| `env` | `env`, `cd`, host-dependent `system` operations |
 | `time` | `time` APIs and delayed `retry` |
 | `io` | stdin/stdout APIs; also implies `fs`, `net`, `process`, and `env` |
 | `error` | propagating an `Err` out of the proc |
@@ -4181,6 +4672,10 @@ parameter may be passed as a flag, mapping kebab case to snake case
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
 
+Generic procs and stream producers retain the selected command operation,
+argument conversions, and effects. Their command arguments execute in the same
+positions and scopes as in annotated bodies.
+
 A statement that begins with an identifier or `.name` chain followed by `|>`
 or a binary operator (including `and`, `or`, `in`, `not in`, and `is`) is an
 expression, not a command.
@@ -4262,6 +4757,12 @@ let report = env (overlay) { collect_report()? }?
 environment overrides; the overlay is a `Record` or `Map[Str, V]` whose values
 use argv conversion (11.4), and `null` is rejected rather than meaning "unset".
 Names and values must be valid environment entries without NUL.
+
+An unannotated value used as an overlay entry in a generic procedure retains
+an environment-value conversion requirement. Each call must supply a scalar argv
+value or a `List[Path]`; `Any`, `Null`, and lists of other element types do not
+satisfy this requirement. The inferred requirement does not choose `Str` as a
+default for the value.
 
 An environment value may also be a `List[Path]`, a search path:
 
@@ -4369,9 +4870,12 @@ the tail of a `try` block: `try { tempdir dir at path { 1 } }` is a
 the scope with a `T` tail is the function's result. The scope's `Err` reports
 only a failure to enter: to create the fresh directory, or to clear the path
 and create the directory there; the body does not run. Failures inside the
-body propagate to their ordinary destination. The scope needs the `fs` effect
-and is rejected in pure functions. The path is an ordinary value that may
-leave the scope, but it names a removed directory once the scope ends.
+body propagate to their ordinary destination. The scope needs the `fs` effect.
+Failures to create, clear, or remove the directory can propagate, so a
+restricted Proc must also permit the `error` effect unless an enclosing `try`
+or `retry` captures that propagation. Pure functions reject the scope. The path
+is an ordinary value that may leave the scope, but it names a removed directory
+once the scope ends.
 
 Neither `tempdir` nor `at` is reserved. `tempdir` starts a scope only when a
 name and then `{` or the word `at` follow on the same line; the path after
@@ -4600,6 +5104,12 @@ env LC_ALL=C {
   `pop()`, and `in`/`not in`. Its operands must be `Path` values; a string
   literal there is one (4.4). Its methods
   assign the environment, so they need the `env` effect like any assignment.
+  Each read captures the current entries. A stored read keeps those entries
+  when the environment changes; its methods still change the active environment.
+  Across an `Any` boundary, the captured entries retain the observable behavior
+  of `List[Path]`: list validation and type tests succeed, equality compares
+  entries, and JSON requires explicit conversion of each `Path`. A runtime
+  `EnvPathList` test or validation does not establish the checked view capability.
 
 ## 11. Processes
 
@@ -4963,7 +5473,10 @@ block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `accept`, `detach`, `new_session`, `ignore_hup`, `same_group`, and exactly one
 `run` or `run.status` entry. Missing or multiple run entries are rejected with
 `check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
-`argv` includes `argv[0]`. When the executable is `argv[0]`, the vector alone is
+`argv` includes `argv[0]`. An unannotated wrapper retains the requirement that
+its target and each argv item are `Str` or `Path`; separate calls may use either
+domain. This does not widen list storage or admit ordinary argv conversions such
+as `Int` and `Bool`. When the executable is `argv[0]`, the vector alone is
 the command (`run @argv`, 11.1); `command_argv` is for an executable that
 intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
@@ -5074,6 +5587,12 @@ let sources = fs.files(p"src", exts: ["c"])?
 let total = fs.files(p"src")? |> map .size |> sum
 ```
 
+A collection source is a `List`, `Set`, or `Stream`, optionally inside one
+outer `Result`. The source view removes only that outer layer; an additional
+`Result` layer is a `check.stream-input` error. Use `?` explicitly to remove
+another layer when the enclosing error boundary allows it. `Result` values
+inside the source's item type remain ordinary item data.
+
 The result of a pipeline depends on its last stage:
 
 - a transformation stage yields `List[T]`, collected at the pipeline boundary;
@@ -5102,9 +5621,13 @@ whole pipeline, which must be grouped (`check.ambiguous-grouping`).
 ### 13.2 Laziness
 
 Live sources produce items on demand: `fs.walk`, `fs.files`, `fs.dirs`,
-`fs.children`, `Path.lines()`, `Path.bytes_lines()`, `run.stream`, `range(n)`
-and `range(start, n)`, and `stream` producers. `Str.lines()` and
-`Bytes.lines()` split an existing buffer.
+`fs.children`, `Path.lines()`, `Path.bytes_lines()`, `run.stream`, and `stream`
+producers. `Str.lines()` and `Bytes.lines()` split an existing buffer.
+
+Bare `range(n)` and `range(start, n)` return `Stream[Int]` values with their
+items eagerly materialized when the call runs. Bounds and catchable allocation
+failures are checked before the first item is pulled. Pipeline `range` also
+retains its eager materialization.
 
 Range source bounds must be positional `Int` expressions. The checker validates
 each bound before execution, including bounds inside functions that are never
@@ -5138,8 +5661,31 @@ building a list. `break`, `continue`, errors, and `take` close the source.
 | `shuffle(seed)` | shuffled `List[T]` |
 | `each { ... }`, `table.print(...)` | `Unit` |
 
+Inferred pipeline bodies retain the `sum()` input requirement `Int` and its
+`Int` result. `min()` and `max()` retain their actual item type in `Result[T]`.
+Their inferred `MinMaxItem(T)` predicate rejects an item whose type is `Any`.
+It preserves the existing typed behavior for Float, lists, records containing
+Any, and Result values used as data. It does not apply the sort-key domain.
+Empty selections return an error. Source failures and cleanup keep the ordinary
+pipeline behavior.
+
 The adapters `text.lines()`, `bytes.chunks(size)`, `json.lines()`, and
 `json.stream()` are valid only as the first stage.
+`text.lines()` takes `Str` and produces `Str` items; `bytes.chunks(size)` takes
+`Bytes` and produces `Bytes` items, with a positive `Int` size. Both JSON
+spellings take `Str` containing newline-separated JSON values and produce `Any`
+items. These adapters materialize the buffer before downstream stages run,
+including `take(0)`. JSON parsing skips whitespace-only lines and rejects a
+malformed line even when a later stage would discard it. The source expression
+finishes, including its defers, before chunk-size evaluation.
+
+`table.print(columns: ...)` requires record items, including records with opaque
+`Any` fields. It adds no display requirement to individual fields. Columns are
+an optional `List[Str]`; without it, columns come from the records' field names.
+A selected field that is absent renders as an empty cell. Configuration is
+evaluated before pulling a live source. The stage materializes and closes that
+source before rendering; a failed pull produces no partial table. Its result
+is `Unit`.
 
 ### 13.4 Callbacks and errors
 
@@ -5148,14 +5694,15 @@ list must be distinct (`check.duplicate-name`). A fold or reduce initializer
 uses the enclosing scope before the callback parameters are bound.
 
 - `where`, `any`, and `all` require a `Bool` callback result, `sort-by` a
-  sortable key, and keyed `count` a `Str`, `Int`, or `Bool` key. A
+  sortable key, and keyed `count` a `Str`, `Int`, `UInt`, or `Bool` key. A
   `Result` there is a type error: add `?` to propagate.
 - `map` and `par-map` keep whatever the callback returns. Without `?`, a
   fallible callback yields `List[Result[T, E]]` and every item runs (collect
   all). With `?`, the first failure stops the stage and propagates
   (short-circuit).
 - `each` and `tee` callbacks are statement bodies: a `Result[Unit]` failure
-  propagates.
+  propagates. Generic functions use the same rule. Passing a `Result` as an
+  input item does not propagate its error.
 - `flat-map` callbacks return a `List` or `Stream` per item (a live stream is
   drained before the next item). A `Result` is not implicitly unwrapped; a
   callback returning one is a check error (`check.flat-map`). Use `?` inside
@@ -5163,8 +5710,10 @@ uses the enclosing scope before the callback parameters are bound.
 - `fold` and `reduce` callbacks must return exactly the accumulator's type and
   run serially. A `Result[T]` accumulator keeps `Err` values as data.
 - `reduce-by` keeps one accumulator per key, and its callback must return the
-  `{key, value}` record directly. `sum` adds numbers, or records field by
-  field. Exactly one of `sum`, `min`, `max` must be true.
+  `{key, value}` record directly. String, integer, and boolean keys convert
+  to text; other keys fail at runtime. Generic callbacks retain their actual
+  value type, including opaque `Result` data. `sum` adds numbers, or records
+  field by field. Exactly one of `sum`, `min`, `max` must be true.
 - `group-by` and `unique-by` compare whole key values (including `Result`s).
   `unique-by` keeps the first item per key.
 
@@ -5183,6 +5732,11 @@ per item. `jobs`, `batch` limits, and chunk sizes must be positive; `take`,
 `drop`, and `repeat` accept zero. `batch` needs at least one limit, closes a
 batch at the first limit reached, and keeps a final short batch.
 `batch(max_argv: true)` sizes batches to fit an argv.
+Count-only batches preserve arbitrary item values. Byte-bounded and
+argv-bounded batches require argv-compatible items: `Str`, `Int`, `UInt`,
+`Bool`, `Path`, `Duration`, or a union whose members all support that
+conversion. Generic batches retain the same requirement for each call.
+An explicit `max_argv: false` adds no item conversion requirement.
 
 `par-map` maps items on a bounded pool of workers (by default about one per
 CPU) and keeps input order. The stage is eager: it maps every item before the
@@ -5226,6 +5780,13 @@ values, and records whose fields are themselves orderable (compared field by
 field in field-name order). `desc: true` reverses. An `Any` item or key must be
 validated to an orderable type before sorting; other unsupported types are
 check-time errors.
+
+Generic sorting retains the same key requirement for every call. A generic
+record key includes every field supplied through its row tail. Keyed `count`
+retains its separate requirement for `Str`, `Int`, `UInt`, or `Bool` keys and
+converts each key to text. A callable that requires both domains accepts only
+their intersection. Generic key requirements do not admit `Any`, callable
+values, or resource handles.
 
 ### 13.6 Guidance
 
@@ -6018,9 +6579,9 @@ These are deliberately absent:
 - truthiness and implicit conversions between strings, numbers, and Booleans;
 - exceptions and `try`/`catch` (failures are `Result` data);
 - futures, `await`, asynchronous callbacks, and event loops;
-- first-class polymorphic function values, and expression-level type
-  arguments. Inferred quantified pure declarations are available through
-  direct calls, including calls through immutable aliases (9.2, 9.4);
+- higher-rank callable contracts and expression-level type arguments.
+  Inferred rank-1 callables support direct calls and checked values with a
+  finite family of actual targets (9.2, 9.4);
 - first-class command blocks and script-level job control;
 - tagged JSON.
 

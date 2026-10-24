@@ -1,7 +1,8 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
-    Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredMapCursor,
+    DeferKind, Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
+    LoweredFunctionKey, CallableKind, LoweredMapCursor,
     LoweredProjectedReduceState, LoweredReduceProjection,
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
@@ -39,7 +40,7 @@ use super::{
     lowered_type_name, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
-    read_host_path_bytes, run_pipeline_inherit_with_policy,
+    run_pipeline_inherit_with_policy,
     identified_structured_error_constructor, runtime_error_from_value, splice_to_argv,
     ValueView, value_matches_static_type, value_to_argv_bytes,
 };
@@ -84,10 +85,12 @@ use assignments::{
     apply_indexed_assignment, checked_indexed_assignment, indexed_assignment_operand,
     resolve_assign_index, apply_indexed_path_assignment,
 };
-use calls::{append_call_argument, indexed_callable_identity, indexed_typed_callee_kind};
+pub(super) use calls::indexed_callable_identity;
+use calls::{append_call_argument, indexed_typed_callee_kind};
+pub(in crate::runtime::eval) use operands::indexed_error;
 use operands::{
-    indexed_error, indexed_value, decode_record_updates, decode_comparison_chain,
-    decode_comparison_pair, comparison_pair_at, decode_match_expr, match_expr_arm_at,
+    indexed_value, decode_record_updates, decode_comparison_chain,
+    comparison_pair_at, decode_match_expr, match_expr_arm_at,
     record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
     decode_fmt,
 };
@@ -113,15 +116,15 @@ fn indexed_allocation_error(kind: &str, span: Span) -> RuntimeError {
     error
 }
 
-fn indexed_range_values(start: i64, end: i64, span: Span) -> Result<Vec<LoweredValue>, RuntimeError> {
+fn indexed_range_values<T>(start: i64, end: i64, span: Span, integer: impl FnMut(i64) -> T) -> Result<Vec<T>, RuntimeError> {
     let count = usize::try_from(start.abs_diff(end))
         .map_err(|_| indexed_allocation_error("range", span))?;
     let mut values = Vec::new();
     values.try_reserve_exact(count).map_err(|_| indexed_allocation_error("range", span))?;
     if start <= end {
-        values.extend((start..end).map(LoweredValue::Int));
+        values.extend((start..end).map(integer));
     } else {
-        values.extend((end + 1..=start).rev().map(LoweredValue::Int));
+        values.extend((end + 1..=start).rev().map(integer));
     }
     Ok(values)
 }
@@ -129,37 +132,22 @@ fn indexed_range_values(start: i64, end: i64, span: Span) -> Result<Vec<LoweredV
 /// The `RunArg::mode` of an explicit `@` splice.
 const RUN_ARG_SPLICE: u32 = 2;
 
-/// A deferred action a scope registered: the expression to run, and whether
-/// it is an `errdefer`.
-///
-/// Both are packed into the one word a frame's defer list already stored per
-/// action, so registering a `defer` costs what it did.
 #[derive(Clone, Copy)]
 pub(super) struct RegisteredDefer(u32);
 
 impl RegisteredDefer {
-    const ON_ERROR: u32 = 1 << 31;
-
-    fn new(value: u32, on_error: bool) -> Self {
-        // An expression is an index into a program's instructions, which a
-        // verified program keeps far below this bit.
-        assert!(
-            value & Self::ON_ERROR == 0,
-            "deferred expression index overflows its word"
-        );
-        Self(if on_error {
-            value | Self::ON_ERROR
-        } else {
-            value
-        })
+    fn new(value: u32, kind: DeferKind) -> Self {
+        assert!(value < DeferKind::INDEX_LIMIT, "deferred expression index overflows its word");
+        Self(value | ((kind as u32) << DeferKind::INDEX_BITS))
     }
 
     fn value(self) -> u32 {
-        self.0 & !Self::ON_ERROR
+        self.0 & (DeferKind::INDEX_LIMIT - 1)
     }
 
-    fn on_error(self) -> bool {
-        self.0 & Self::ON_ERROR != 0
+    fn kind(self) -> DeferKind {
+        DeferKind::from_encoded(self.0 >> DeferKind::INDEX_BITS)
+            .expect("registered defer kind is verified")
     }
 }
 
@@ -373,6 +361,28 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
     )
 }
 
+pub(in crate::runtime::eval) enum IndexedFrameApplyChild {
+    Unsupported,
+    Complete,
+    Expression(u32),
+}
+
+pub(in crate::runtime::eval) fn indexed_frame_apply_child_id(
+    tag: FullTag,
+    view: &mut ExprView<'_>,
+    position: usize,
+    span: Span,
+) -> Result<IndexedFrameApplyChild, RuntimeError> {
+    if !indexed_frame_apply_tag(tag) {
+        return Ok(IndexedFrameApplyChild::Unsupported);
+    }
+    indexed_frame_apply_child(tag, view, position, None, None, span)
+        .map(|child| match child {
+            Some(child) => IndexedFrameApplyChild::Expression(child.id),
+            None => IndexedFrameApplyChild::Complete,
+        })
+}
+
 pub(super) fn indexed_type_check(
     check: crate::runtime::eval::indexed::full::decode::TypeCheckView<'_>,
     span: Span,
@@ -385,6 +395,59 @@ pub(super) fn indexed_type_check(
         name: Arc::from(check.name),
         schema: check.schema.cloned(),
     })
+}
+
+pub(in crate::runtime::eval) enum IndexedValueCheck {
+    MembershipKey(u32),
+    Ground(LoweredTypeCheck),
+    Materialization(u32),
+    RecordConstructor,
+}
+
+pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Result<IndexedValueCheck, RuntimeError> {
+    match check {
+        ValueCheckView::MembershipKey(ordinal) => Ok(IndexedValueCheck::MembershipKey(ordinal)),
+        ValueCheckView::Ground(check) => indexed_type_check(check, span).map(IndexedValueCheck::Ground),
+        ValueCheckView::Materialization(id) => Ok(IndexedValueCheck::Materialization(id)),
+        ValueCheckView::RecordConstructor(_) => Ok(IndexedValueCheck::RecordConstructor),
+    }
+}
+
+pub(super) enum CheckedValueOutcome {
+    Value(LoweredValue),
+    Propagate(LoweredValue),
+}
+
+pub(super) fn finish_checked_value(
+    evaluator: &Evaluator,
+    execution: &FullExecution<'_>,
+    invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
+    instruction: u32,
+    check: &IndexedValueCheck,
+    value: LoweredValue,
+    span: Span,
+) -> Result<CheckedValueOutcome, RuntimeError> {
+    match check {
+        IndexedValueCheck::MembershipKey(ordinal) => {
+            if execution.membership_key_check(instruction, *ordinal, invocation).map_err(|error| indexed_error(error, span))? == crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt {
+                let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
+                return Ok(CheckedValueOutcome::Propagate(crate::runtime::eval::require::require_value(evaluator, value, &check, span)));
+            }
+            Ok(CheckedValueOutcome::Value(value))
+        }
+        IndexedValueCheck::RecordConstructor => Ok(CheckedValueOutcome::Value(value)),
+        IndexedValueCheck::Ground(check) => {
+            let value = materialize_indexed_scheme_value(execution, invocation, instruction, value, span)?;
+            super::checked_storage_value(evaluator, &value, check, span)?;
+            Ok(CheckedValueOutcome::Value(value.materialize_validated_list(&check.ty)))
+        }
+        IndexedValueCheck::Materialization(id) => {
+            let (value, ty) = execution.program().materialize_checked_value(*id, instruction, invocation, value).map_err(|error| indexed_error(error, span))?;
+            let check = LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None };
+            super::checked_storage_value(evaluator, &value, &check, span)?;
+            Ok(CheckedValueOutcome::Value(value.materialize_validated_list(&check.ty)))
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -793,13 +856,110 @@ fn indexed_frame_apply_prepares_operands(tag: FullTag) -> bool {
 
 pub(super) fn indexed_function_ref_value(
     function: FunctionName,
-    pure: bool,
+    kind: CallableKind,
 ) -> LoweredValue {
-    if pure {
-        LoweredValue::Pure(function)
-    } else {
-        LoweredValue::Proc(function)
+    LoweredValue::Callable(crate::runtime::value::CallableValue::named(kind, function))
+}
+
+pub(super) fn materialize_indexed_callable(
+    evaluator: &Evaluator,
+    execution: &FullExecution<'_>,
+    invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
+    instruction: u32,
+    value: LoweredValue,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let relationship = execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))?;
+    if !execution.program().has_invocation(instruction) && relationship.is_none() { return Ok(value); }
+    let materialization = match relationship {
+        Some(relationship) => IndexedCallableMaterialization::Relationship(relationship),
+        None => IndexedCallableMaterialization::Invocation { instruction, bindings: invocation },
+    };
+    prepare_indexed_callable(evaluator, execution, materialization, value, span)
+}
+
+enum IndexedCallableMaterialization<'a> {
+    Relationship(u32),
+    Invocation { instruction: u32, bindings: &'a crate::runtime::eval::indexed::full::PreparedInvocationBindings },
+}
+
+pub(super) fn retain_indexed_scheme_callable(
+    evaluator: &Evaluator, execution: &FullExecution<'_>, instruction: u32,
+    value: LoweredValue, span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    if !execution.program().has_scheme_callable_values() { return Ok(value); }
+    let Some(relationship) = execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))? else { return Ok(value); };
+    prepare_indexed_callable(evaluator, execution, IndexedCallableMaterialization::Relationship(relationship), value, span)
+}
+
+fn prepare_indexed_callable(
+    evaluator: &Evaluator, execution: &FullExecution<'_>, materialization: IndexedCallableMaterialization<'_>,
+    value: LoweredValue, span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let (function, kind) = indexed_callable_identity(&value, span)?;
+    let callable = match &value {
+        LoweredValue::Callable(callable) => callable,
+        _ => unreachable!("callable identity requires a callable value"),
+    };
+    if callable.instance().is_some_and(|instance| instance.kind != kind || instance.function != function) {
+        return Err(RuntimeError::new("indexed-ir", "prepared callable identity disagrees with its owner").with_span(span));
     }
+    let program = execution.program_owner().dispatch_arc(evaluator.indexed_program.as_ref())
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable lost its executable program owner").with_span(span))?;
+    if callable.instance().is_some_and(|instance| !Arc::ptr_eq(&instance.program, &program)) {
+        return Err(RuntimeError::new("indexed-ir", "callable materialization belongs to another program").with_span(span));
+    }
+    let view = program.function_view(function, kind).map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable target is missing").with_span(span))?;
+    let actual_kind = view.callable_kind().map_err(|error| indexed_error(error, span))?;
+    if actual_kind != kind {
+        return Err(RuntimeError::new("indexed-ir", "prepared callable kind disagrees with its actual target").with_span(span));
+    }
+    let target = view.index();
+    let state = match materialization {
+        IndexedCallableMaterialization::Relationship(relationship) => {
+            program.validate_scheme_callable_target(relationship, target, actual_kind).map_err(|error| indexed_error(error, span))?;
+            if let Some(instance) = callable.instance() {
+                match instance.state {
+                    crate::runtime::eval::PreparedCallableState::SchemeValue(actual) => {
+                        program.validate_scheme_callable_target(actual, target, actual_kind).map_err(|error| indexed_error(error, span))?;
+                        if actual == relationship { return Ok(value); }
+                    }
+                    crate::runtime::eval::PreparedCallableState::Instance(_) => return Err(RuntimeError::new("indexed-ir", "instantiated callable cannot regain a quantified relationship").with_span(span)),
+                }
+            }
+            crate::runtime::eval::PreparedCallableState::SchemeValue(relationship)
+        }
+        IndexedCallableMaterialization::Invocation { instruction, bindings } => {
+            crate::runtime::eval::PreparedCallableState::Instance(program.invocation_applications(instruction, target, bindings)
+                .map_err(|error| indexed_error(error, span))?)
+        }
+    };
+    let callable = crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
+        program, function, kind: actual_kind, state,
+    }));
+    Ok(LoweredValue::Callable(callable))
+}
+
+pub(super) fn materialize_indexed_scheme_value(
+    execution: &FullExecution<'_>, invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
+    instruction: u32, value: LoweredValue, span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let program = execution.program();
+    let Some(relationship) = program.scheme_callable_site(instruction) else { return Ok(value); };
+    let LoweredValue::Callable(callable) = value else { return Err(RuntimeError::new("indexed-ir", "scheme callable materialization source is not callable").with_span(span)); };
+    let prepared = callable.instance().ok_or_else(|| RuntimeError::new("indexed-ir", "scheme callable materialization has no checked program").with_span(span))?;
+    if !std::ptr::eq(prepared.program.as_ref(), program) { return Err(RuntimeError::new("indexed-ir", "scheme callable materialization belongs to another program").with_span(span)); }
+    let crate::runtime::eval::PreparedCallableState::SchemeValue(source) = &prepared.state else { return Err(RuntimeError::new("indexed-ir", "scheme callable materialization source is already instantiated").with_span(span)); };
+    let target = program.function_view(prepared.function, prepared.kind).map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "scheme callable materialization target is absent").with_span(span))?.index();
+    program.validate_scheme_callable_target(*source, target, prepared.kind).map_err(|error| indexed_error(error, span))?;
+    program.validate_scheme_callable_target(relationship, target, prepared.kind).map_err(|error| indexed_error(error, span))?;
+    let applications = program.invocation_applications(instruction, target, invocation).map_err(|error| indexed_error(error, span))?;
+    Ok(LoweredValue::Callable(crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
+        program: Arc::clone(&prepared.program), function: prepared.function, kind: prepared.kind,
+        state: crate::runtime::eval::PreparedCallableState::Instance(applications),
+    }))))
 }
 
 pub(super) fn indexed_path_from_value(
@@ -835,7 +995,8 @@ pub(super) fn indexed_range_value(
 ) -> Result<LoweredValue, RuntimeError> {
     let start = indexed_range_bound(&start, "start", span)?;
     let end = indexed_range_bound(&end, "end", span)?;
-    Ok(LoweredValue::List(indexed_range_values(start, end, span)?))
+    let items = indexed_range_values(start, end, span, Value::Int)?;
+    Ok(LoweredValue::Stream(Box::new(StreamValue::from_values_live("range", items))))
 }
 
 pub(super) fn indexed_tag_value(
@@ -969,6 +1130,7 @@ fn indexed_frame_apply_host_value(
 pub(super) fn indexed_frame_apply_value(
     evaluator: &mut Evaluator,
     execution: &FullExecution<'_>,
+    invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
     instruction: u32,
     values: Vec<FrameApplyValue>,
     call_span: Span,
@@ -1110,7 +1272,7 @@ pub(super) fn indexed_frame_apply_value(
                 command.span,
             )
         }
-        ExprView::FunctionRef { function, pure } => {
+        ExprView::FunctionRef { function, kind } => {
             assert!(values.next().is_none(), "function reference has no operands");
             let function = match function {
                 crate::runtime::eval::indexed::full::decode::FunctionNameView::Name(name) => {
@@ -1120,7 +1282,7 @@ pub(super) fn indexed_frame_apply_value(
                     FunctionName::qualified(name)
                 }
             };
-            Ok(indexed_function_ref_value(function, pure))
+            materialize_indexed_callable(evaluator, execution, invocation, instruction, indexed_function_ref_value(function, kind), call_span)
         }
         ExprView::PathFrom { span, .. } => {
             let value = values.next().expect("path constructor operand");
@@ -1135,7 +1297,9 @@ pub(super) fn indexed_frame_apply_value(
             let start = values.next().expect("range start operand");
             let end = values.next().expect("range end operand");
             assert!(values.next().is_none(), "range has two operands");
-            indexed_range_value(start, end, span)
+            let mut value = indexed_range_value(start, end, span)?;
+            evaluator.register_returned_lowered_stream(&mut value, span)?;
+            Ok(value)
         }
         ExprView::Tag {
             type_name, name, wire, fields,
@@ -1221,10 +1385,12 @@ pub(super) fn indexed_frame_apply_value(
                 }
             };
             assert!(values.next().is_none(), "path read operand count mismatch");
-            Ok(match read_host_path_bytes(&evaluator.host_path(&path), span) {
-                Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes)),
-                Err(error) => lowered_result_err_value(error),
-            })
+            indexed_frame_apply_module_call(
+                evaluator,
+                RuntimeOp::FsRead,
+                vec![Some(LoweredValue::Path(path))],
+                span,
+            )
         }
         ExprView::PathExists { span, .. }
         | ExprView::PathExecutable { span, .. }
@@ -1244,38 +1410,16 @@ pub(super) fn indexed_frame_apply_value(
                 _ => unreachable!(),
             };
             let path = lowered_path_arg(path, operation, span)?;
-            if matches!(tag, FullTag::ExprPathExists | FullTag::ExprPathExecutable | FullTag::ExprPathMetadata) {
-                let op = match tag {
-                    FullTag::ExprPathExists => RuntimeOp::FsExists,
-                    FullTag::ExprPathExecutable => RuntimeOp::FsExecutable,
-                    FullTag::ExprPathMetadata => RuntimeOp::FsMetadata,
-                    _ => unreachable!(),
-                };
-                return indexed_frame_apply_module_call(
-                    evaluator,
-                    op,
-                    vec![Some(LoweredValue::Path(path))],
-                    span,
-                );
-            }
-            let host_path = evaluator.host_path(&path);
-            Ok(match tag {
-                FullTag::ExprPathDu => match fs_module::disk_usage(host_path, span) {
-                    Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
-                    Err(error) => lowered_result_err_value(error),
-                },
-                FullTag::ExprPathReadlink => match fs_module::readlink(host_path, span) {
-                    Ok(value) => lowered_value_from_runtime_any(&value).map(lowered_result_ok).ok_or_else(|| {
-                        RuntimeError::new("type-error", format!("readlink produced unsupported {}", value.type_name())).with_span(span)
-                    })?,
-                    Err(error) => lowered_result_err_value(error),
-                },
-                FullTag::ExprPathResolve => match fs_module::resolve_path(host_path, span) {
-                    Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
-                    Err(error) => lowered_result_err_value(error),
-                },
+            let op = match tag {
+                FullTag::ExprPathExists => RuntimeOp::FsExists,
+                FullTag::ExprPathExecutable => RuntimeOp::FsExecutable,
+                FullTag::ExprPathMetadata => RuntimeOp::FsMetadata,
+                FullTag::ExprPathDu => RuntimeOp::FsDu,
+                FullTag::ExprPathReadlink => RuntimeOp::FsReadlink,
+                FullTag::ExprPathResolve => RuntimeOp::PathResolve,
                 _ => unreachable!(),
-            })
+            };
+            indexed_frame_apply_module_call(evaluator, op, vec![Some(LoweredValue::Path(path))], span)
         }
         ExprView::Abort { .. } | ExprView::Fail { .. } | ExprView::Error(_) => {
             unreachable!("error and abort values are applied before generic operands")
@@ -1300,11 +1444,15 @@ impl Evaluator {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
         };
         let publication = self.sync_indexed_root_slots(slots, call_span);
-        let mut flow = match (result, publication) {
+        let flow = match (result, publication) {
             (Err(error), _) => Err(error),
             (Ok(_), Err(error)) => Err(error),
             (Ok(flow), Ok(())) => Ok(flow),
         }?;
+        let mut flow = match flow {
+            ControlFlow::Continue(value) => ControlFlow::Continue(retain_indexed_scheme_callable(self, execution, instruction, value, call_span)?),
+            ControlFlow::Break(value) => ControlFlow::Break(value),
+        };
         self.register_returned_lowered_streams(&mut flow, call_span)?;
         Ok(flow)
     }
@@ -1488,10 +1636,8 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 for pair in pairs.by_ref() {
-                    let pair = pair.map_err(|error| indexed_error(error, call_span))?;
-                    let (op, _, right, span) =
-                        decode_comparison_pair(execution, pair, call_span)?;
-                    let right = match self.eval_indexed_expr(execution, right, slots, span)? {
+                    let (op, right, span) = pair.map_err(|error| indexed_error(error, call_span))?;
+                    let right = match self.eval_indexed_expr(execution, right.raw(), slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
@@ -1683,6 +1829,9 @@ impl Evaluator {
                     unreachable!("index tag has an index view")
                 };
                 let base = base.raw();
+                let super::super::IndexOperand::Ordinary(index) = index else {
+                    return Err(RuntimeError::new("indexed-ir", "a literal generic index requires invocation-bound scheduling").with_span(span));
+                };
                 let index = index.raw();
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
@@ -1718,12 +1867,17 @@ impl Evaluator {
                 else {
                     unreachable!("checked-value tag has a checked-value view")
                 };
-                let check = indexed_type_check(check, call_span)?;
+                let check = indexed_value_check(check, call_span)?;
                 let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
-                        super::checked_unsigned_value(&value, &check, span)?;
-                        ControlFlow::Continue(value)
+                        match finish_checked_value(self, execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, &check, value, span)? {
+                            CheckedValueOutcome::Value(value) => ControlFlow::Continue(value),
+                            CheckedValueOutcome::Propagate(value) => match self.indexed_question_value(value, span)? {
+                                Ok(value) => ControlFlow::Continue(value),
+                                Err(value) => return Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value))),
+                            },
+                        }
                     }
                     ControlFlow::Break(value) => ControlFlow::Break(value),
                 }
@@ -2244,7 +2398,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let result = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(direct_limit),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::Int(4)],
                 Span::new(source_id, 0, 0),
             )
@@ -2255,7 +2409,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let recursive = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(countdown),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::Int(4)],
                 Span::new(source_id, 0, 0),
             )
@@ -2265,7 +2419,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let piped = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(pipeline),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::List(vec![
                     Value::Int(3),
                     Value::Int(1),

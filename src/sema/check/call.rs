@@ -2,7 +2,7 @@
 
 use super::expr::is_path_like_type;
 use super::{
-    ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
+    ApiArgCheck, BTreeMap, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
     call_arg_expr_id_arena, call_arg_span_arena,
 };
@@ -10,8 +10,12 @@ use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ExprId,
 };
-use crate::syntax::node::Effect;
 use std::sync::Arc;
+
+enum FunctionSelectionRole {
+    Invocation,
+    ValueReference,
+}
 
 fn call_instantiation_error_message(
     error: crate::sema::constraints::SchemeOperationError,
@@ -20,6 +24,10 @@ fn call_instantiation_error_message(
     use crate::sema::schemes::SchemeBuildError;
 
     match error {
+        SchemeOperationError::Application(error) => format!("callable application requirement failed: {error:?}"),
+        SchemeOperationError::Effects(error) => format!("callable effect requirement failed: {error:?}"),
+        SchemeOperationError::Operation(error) => format!("sealed operation requirement failed: {error}"),
+        SchemeOperationError::Wrapper(error) => format!("wrapper requirement failed: {error}"),
         SchemeOperationError::Resolution(error) => {
             format!("generic call inference resolution failed: {error:?}")
         }
@@ -33,14 +41,28 @@ fn call_instantiation_error_message(
                 SchemeBuildError::InvalidValidatedBase => "validated argument has an invalid base",
                 SchemeBuildError::UnboundTypeParameter => "type parameter is unbound",
                 SchemeBuildError::UnboundRowParameter => "row parameter is unbound",
+                SchemeBuildError::UnboundEffectParameter => "effect parameter is unbound",
+                SchemeBuildError::UnusedEffectParameter => "effect parameter is unused",
+                SchemeBuildError::DuplicateEffectParameter => "effect parameter is duplicated",
                 SchemeBuildError::UnusedTypeParameter => "type parameter is unused",
                 SchemeBuildError::UnusedRowParameter => "row parameter is unused",
                 SchemeBuildError::DuplicateTypeParameter => "type parameter is duplicated",
                 SchemeBuildError::DuplicateRowParameter => "row parameter is duplicated",
                 SchemeBuildError::RowLacksMismatch => "row evidence violates its lacks set",
-                SchemeBuildError::GeneralizationNotPure => "target cannot be generalized",
+                SchemeBuildError::UnresolvedEffects => "generic target requires a finite checked effect contract",
+                SchemeBuildError::UnresolvedCallableApplication => "callable application remains unresolved",
+                SchemeBuildError::UnresolvedSealedOperation => "sealed arithmetic operation remains unresolved",
+                SchemeBuildError::UnresolvedMethodFamily => "generic method family remains unresolved",
+                SchemeBuildError::UnsupportedMethodFamily => "generic method has no registered member for its input",
+                SchemeBuildError::AmbiguousMethodFamily => "generic method inputs select multiple registered family members",
+                SchemeBuildError::UnresolvedWrapper => "wrapper relationship has no complete call evidence",
+                SchemeBuildError::UnresolvedGuardScope => "guarded requirement scope remains unresolved",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
+                SchemeBuildError::ConflictingBodyFact => "body expression has conflicting completion and value facts",
+                SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
+                SchemeBuildError::Conversion => "type argument does not satisfy its value conversion requirements",
+                SchemeBuildError::UnresolvedSchema => "callable schema contract has no ground representation",
             };
             format!("generic call instantiation failed: {reason}")
         }
@@ -55,17 +77,6 @@ fn call_instantiation_error_message(
     }
 }
 
-fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
-    match ty {
-        // A list built before the call has one element type; text and paths
-        // together make it a union, and each member is still an argv word.
-        Type::Union(members) => members.iter().all(process_command_argv_item_type_is_valid),
-        _ => matches!(
-            ty.unvalidated(),
-            Type::Str | Type::Path | Type::Unknown
-        ),
-    }
-}
 
 #[allow(dead_code)]
 /// A positional error-constructor argument and the field it fills.
@@ -213,28 +224,6 @@ impl Checker {
             DiagnosticCode::CheckErrorCause);
     }
 
-    fn check_module_callable_effects(
-        &mut self,
-        caller_effs: &[Effect],
-        callee_effects: &Option<Vec<Effect>>,
-        callee_name: &str,
-        span: Span,
-    ) {
-        self.record_effect_contract(callee_effects, callee_name);
-        if self.defer_effect_diagnostics {
-            self.defer_callable_effects(
-                None,
-                callee_effects.clone(),
-                false,
-                Vec::new(),
-                callee_name,
-                span,
-            );
-            return;
-        }
-        self.check_callee_effects(caller_effs, callee_effects, callee_name, span);
-    }
-
     pub(super) fn expect_json_compatible(&mut self, ty: &Type, span: Span) {
         if !ty.is_json_compatible_with(&|name| self.wire_enums.mappings.contains_key(&name)) {
             self.error(
@@ -255,20 +244,14 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call: ExprId,
         callee: ExprId,
         args_range: ArenaRange,
         span: Span,
         expected_context: Option<&Type>,
     ) -> Type {
         self.check_call_arena_with_arguments(
-            arena,
-            source,
-            callee,
-            arena.arena.call_args(args_range),
-            Some(args_range),
-            None,
-            span,
-            expected_context,
+            arena, source, callee, arena.arena.call_args(args_range), Some(args_range), None, super::method::HostCallSource::Expression(call), span, expected_context,
         )
     }
 
@@ -288,6 +271,7 @@ impl Checker {
             &[],
             None,
             Some(argument),
+            super::method::HostCallSource::Callback { callee, argument: argument.ty.clone(), argument_span: argument.span },
             span,
             expected_context,
         )
@@ -302,6 +286,7 @@ impl Checker {
         args: &[ArenaCallArg],
         args_range: Option<ArenaRange>,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+        call_source: super::method::HostCallSource,
         span: Span,
         expected_context: Option<&Type>,
     ) -> Type {
@@ -322,6 +307,25 @@ impl Checker {
         if self.check_removed_record_require_arena(arena, source, callee, args, span) {
             return Type::Invalid;
         }
+        if let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, callee)
+            && let Ok(Type::SchemeCallable(id)) = self.type_constraints.resolve(&binding.ty)
+        {
+            self.check_expr_arena(arena, source, callee, None);
+            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument, expected_context);
+        }
+        if matches!(&call_source, super::method::HostCallSource::Callback { .. })
+            && let ArenaExprKind::Field { base, name } = callee_kind
+            && let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, base)
+            && binding.static_namespace
+            && let Type::Module(module) = &binding.ty
+            && let Some(export) = module.get(&name)
+            && let Some(alias) = self.resolve_generic_module_callable_alias(arena, base, name, export)
+        {
+            self.check_expr_arena(arena, source, base, None);
+            if let Some(Type::SchemeCallable(relationship)) = self.retain_named_scheme_callable(arena, &alias, callee) {
+                return self.check_scheme_callable_application(arena, source, callee, relationship, args, span, checked_argument, expected_context);
+            }
+        }
         if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
             return self.check_typed_callable_call_with_checked_argument(
                 arena,
@@ -333,6 +337,7 @@ impl Checker {
                 checked_argument,
             );
         }
+        if let Some(result) = self.check_inferred_local_callable_call(arena, source, callee, args, span, checked_argument) { return result; }
         if args
             .iter()
             .any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }))
@@ -361,25 +366,37 @@ impl Checker {
                 arena,
                 source,
                 callee,
+                call_source,
                 args_range.expect("source call arguments retain their arena range"),
                 span,
                 expected_context,
             );
         }
         if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
+            if let ArenaExprKind::Field { base, .. } = callee_kind
+                && let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, base)
+                && binding.static_namespace
+                && matches!(binding.ty, Type::Module(_))
+            {
+                self.check_expr_arena(arena, source, base, None);
+            }
             let contract = self.function_call_contract(&alias.signature, span);
-            self.record_function_call_target(span, contract.definition_target);
+            if matches!(&call_source, super::method::HostCallSource::Expression(_)) {
+                self.record_function_call_target(span, contract.definition_target);
+            }
             self.record_callable_alias(arena.arena.expr(callee).span, &alias);
             if let ArenaExprKind::Field { base, name } = callee_kind
                 && name == "call"
                 && self.resolve_callable_alias_call(arena, base).is_some()
+                && contract.instantiation.is_none()
             {
                 self.static_callable_aliases
                     .get_mut(&arena.arena.expr(callee).span)
-                    .unwrap()
+                    .expect("a monomorphic alias retains its checked method contract")
                     .method_call = true;
             }
-            if !alias.pure {
+            let mut invocation = None;
+            if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -387,20 +404,23 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_callable_effects(
-                        &alias.signature,
+                    invocation = self.check_function_invocation_effects(
+                        &contract,
                         &alias.name.to_string(),
                         span,
                     );
                 }
             }
-            self.check_function_contract_arguments_arena(
-                arena, source, args, &contract, span, checked_argument,
-            );
-            if !alias.pure {
+            if !self.check_function_contract_arguments_arena(
+                arena, source, args, &contract, span, checked_argument, expected_context,
+            ) {
+                self.reject_invocation_return(invocation, &contract.effects, span);
+                return Type::Invalid;
+            }
+            if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 self.invalidate_mutable_narrowings();
             }
-            self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+            self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
             return contract.return_ty;
         }
 
@@ -453,6 +473,7 @@ impl Checker {
                 && let Some(sig) = self.local_function_call_contract(declaration, span)
             {
                 self.record_function_call_target(span, sig.definition_target);
+                let mut invocation = None;
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -460,34 +481,40 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_declaration_effects(
-                        sig.effect_declaration,
+                    invocation = self.check_function_invocation_effects(
+                        &sig,
                         &name.as_str(),
                         span,
                     );
                 }
-                self.check_function_contract_arguments_arena(
-                    arena, source, args, &sig, span, checked_argument,
-                );
-                // A procedure may change mutable lexical captures before the next statement.
+                if !self.check_function_contract_arguments_arena(
+                    arena, source, args, &sig, span, checked_argument, expected_context,
+                ) {
+                    self.reject_invocation_return(invocation, &sig.effects, span);
+                    return Type::Invalid;
+                }
                 self.invalidate_mutable_narrowings();
-                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.pures.get(&name).copied()
                 && let Some(sig) = self.local_function_call_contract(declaration, span)
             {
                 self.record_function_call_target(span, sig.definition_target);
-                self.check_function_contract_arguments_arena(
-                    arena, source, args, &sig, span, checked_argument,
-                );
-                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                if !self.check_function_contract_arguments_arena(
+                    arena, source, args, &sig, span, checked_argument, expected_context,
+                ) {
+                    self.reject_invocation_return(None, &sig.effects, span);
+                    return Type::Invalid;
+                }
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, None);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.streams.get(&name).copied()
                 && let Some(sig) = self.local_function_call_contract(declaration, span)
             {
                 self.record_function_call_target(span, sig.definition_target);
+                let mut invocation = None;
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -495,16 +522,19 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_declaration_effects(
-                        sig.effect_declaration,
+                    invocation = self.check_function_invocation_effects(
+                        &sig,
                         &name.as_str(),
                         span,
                     );
                 }
-                self.check_function_contract_arguments_arena(
-                    arena, source, args, &sig, span, checked_argument,
-                );
-                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                if !self.check_function_contract_arguments_arena(
+                    arena, source, args, &sig, span, checked_argument, expected_context,
+                ) {
+                    self.reject_invocation_return(invocation, &sig.effects, span);
+                    return Type::Invalid;
+                }
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
             return self.check_constructor_call_arena(
@@ -549,6 +579,7 @@ impl Checker {
             }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
+                    let reported = self.diagnostics.len();
                     let params = [super::FunctionParamSig {
                         name: Name::intern("message"),
                         ty: Type::Str,
@@ -559,12 +590,21 @@ impl Checker {
                     self.check_function_call_arguments_arena(
                         arena, source, args, &params, span, checked_argument,
                     );
+                    if !self.diagnostics[reported..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+                    {
+                        self.builtin_calls
+                            .insert(span, super::CheckedBuiltinCall::ErrorFail);
+                    }
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
                 // `error.failure(message)` is the error value `error.fail`
                 // wraps. Like it, the call names the module function even
                 // where `error` is bound, as it is in an `Err(error)` arm.
                 if module.as_str() == "error" && name.as_str() == "failure" {
+                    self.builtin_calls.remove(&span);
+                    let reported = self.diagnostics.len();
                     let params = [super::FunctionParamSig {
                         name: Name::intern("message"),
                         ty: Type::Str,
@@ -575,6 +615,13 @@ impl Checker {
                     self.check_function_call_arguments_arena(
                         arena, source, args, &params, span, checked_argument,
                     );
+                    if !self.diagnostics[reported..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+                    {
+                        self.builtin_calls
+                            .insert(span, super::CheckedBuiltinCall::ErrorFailure);
+                    }
                     return Type::Error;
                 }
                 if self.error_families.contains_key(&module) {
@@ -629,10 +676,13 @@ impl Checker {
                 {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
-                    self.check_function_contract_arguments_arena(
-                        arena, source, args, &contract, span, checked_argument,
-                    );
-                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    if !self.check_function_contract_arguments_arena(
+                        arena, source, args, &contract, span, checked_argument, expected_context,
+                    ) {
+                        self.reject_invocation_return(None, &contract.effects, span);
+                        return Type::Invalid;
+                    }
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, None);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -640,6 +690,7 @@ impl Checker {
                 {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
+                    let mut invocation = None;
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -647,12 +698,15 @@ impl Checker {
                             DiagnosticCode::CheckPureEffect,
                         );
                     } else {
-                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
+                        invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
-                    self.check_function_contract_arguments_arena(
-                        arena, source, args, &contract, span, checked_argument,
-                    );
-                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    if !self.check_function_contract_arguments_arena(
+                        arena, source, args, &contract, span, checked_argument, expected_context,
+                    ) {
+                        self.reject_invocation_return(invocation, &contract.effects, span);
+                        return Type::Invalid;
+                    }
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -660,6 +714,7 @@ impl Checker {
                 {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
+                    let mut invocation = None;
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -667,18 +722,22 @@ impl Checker {
                             DiagnosticCode::CheckPureEffect,
                         );
                     } else {
-                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
+                        invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
-                    self.check_function_contract_arguments_arena(
-                        arena, source, args, &contract, span, checked_argument,
-                    );
-                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    if !self.check_function_contract_arguments_arena(
+                        arena, source, args, &contract, span, checked_argument, expected_context,
+                    ) {
+                        self.reject_invocation_return(invocation, &contract.effects, span);
+                        return Type::Invalid;
+                    }
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
                 if module == "Path" {
                     return self.check_registered_method_arena(
                         arena,
                         source,
+                        call_source.clone(),
                         MethodReceiver::PathConstructor,
                         &name.as_str(),
                         args,
@@ -753,6 +812,7 @@ impl Checker {
             return self.check_receiver_method_call_arena(
                 arena,
                 source,
+                call_source,
                 callee,
                 base,
                 base_ty,
@@ -804,6 +864,7 @@ impl Checker {
             let return_ty = self.check_receiver_method_call_arena(
                 arena,
                 source,
+                call_source,
                 callee,
                 base,
                 inner_ty,
@@ -820,12 +881,15 @@ impl Checker {
             };
         }
 
-        // Any other callee is an expression; it is callable only when its
-        // value has a callable type.
         let diagnostics_before = self.diagnostics.len();
-        if let Type::Callable(callable) = self.check_expr_arena(arena, source, callee, None) {
-            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+        let callee_type = self.check_expr_arena(arena, source, callee, None);
+        if let Type::SchemeCallable(id) = callee_type {
+            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument, expected_context);
         }
+        if let Type::Callable(callable) = &callee_type {
+            return self.check_typed_callable_call(arena, source, callee, args, callable, span);
+        }
+        if let Some(result) = self.check_inferred_callable_application(arena, source, &callee_type, args, span, checked_argument) { return result; }
         self.diagnostics.truncate(diagnostics_before);
         self.record_effect_contract(&None, "unresolved call target");
         self.error(
@@ -845,6 +909,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call_source: super::method::HostCallSource,
         callee: ExprId,
         base: ExprId,
         base_ty: Type,
@@ -854,6 +919,11 @@ impl Checker {
         expected: Option<&Type>,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
+        if let Type::Record(fields) = &base_ty
+            && let Some(Type::SchemeCallable(id)) = fields.get(&name)
+        {
+            return self.check_scheme_callable_application(arena, source, callee, *id, args, span, checked_argument, expected);
+        }
         // A record field of a callable type is called like a method. The
         // field wins over a record method of the same name, because the
         // schema names it.
@@ -886,51 +956,16 @@ impl Checker {
             && let Some(export) = exports.get(&name)
         {
             match export {
-                ModuleExportType::Proc { sig, .. } => {
-                    if self.collecting_effects {
-                        self.provisional_effects_read.set(true);
+                ModuleExportType::Callable { kind, sig, .. } => {
+                    if sig.effects.concrete().is_err() {
+                        self.error(span, "module callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
+                        return Type::Invalid;
                     }
-                    self.record_effect_contract(&sig.effects, &name.as_str());
-                    if self.boundary.in_pure {
-                        self.error(
-                            span,
-                            "effectful proc is not allowed in pure functions",
-                            DiagnosticCode::CheckPureEffect,
-                        );
-                    } else if let Some(caller_effs) = self.boundary.current_effects.clone() {
-                        self.check_module_callable_effects(
-                            &caller_effs,
-                            &sig.effects,
-                            &name.as_str(),
-                            span,
-                        );
-                    }
-                    self.check_callee_not_excluded(&sig.effects, &[], &name.as_str(), span);
-                    self.check_module_callable_arg_list_arena(
-                        arena,
-                        source,
-                        args,
-                        &sig.params,
-                        span,
-                        checked_argument,
+                    let callable = Arc::new(crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() });
+                    return self.check_callable_contract_call_with_checked_argument(
+                        arena, source, callee, args, &callable, span, checked_argument,
                     );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                    return sig.return_ty.as_ref().clone();
                 }
-                ModuleExportType::Pure { sig, .. } => {
-                    self.check_module_callable_arg_list_arena(
-                        arena,
-                        source,
-                        args,
-                        &sig.params,
-                        span,
-                        checked_argument,
-                    );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                    return sig.return_ty.as_ref().clone();
-                }
-                // A module's exported value of a callable type is called
-                // like a record field of one.
                 ModuleExportType::Value {
                     ty: Type::Callable(callable),
                     ..
@@ -945,10 +980,10 @@ impl Checker {
                     );
                 }
                 ModuleExportType::Value { .. } => {}
-                ModuleExportType::GenericPure { .. } => {
+                ModuleExportType::GenericCallable { .. } => {
                     self.error(
                         span,
-                        "generic pure module exports must be called through their static namespace",
+                        "generic callable module exports must be called through their static namespace",
                         DiagnosticCode::CheckModuleMember,
                     );
                     return Type::Unknown;
@@ -974,6 +1009,7 @@ impl Checker {
         self.check_method_dispatch_arena(
             arena,
             source,
+            call_source,
             base,
             base_ty,
             &canonical_name.as_str(),
@@ -1019,50 +1055,12 @@ impl Checker {
         Type::Unit
     }
 
-    fn check_module_callable_arg_list_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        args: &[ArenaCallArg],
-        params: &[CallableParamType],
-        span: Span,
-        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
-    ) {
-        let params = params
-            .iter()
-            .map(|param| super::FunctionParamSig {
-                name: param.name,
-                ty: param.ty.clone(),
-                schema_expectation: Some(if param.rest {
-                    crate::sema::constants::SchemaExpectation {
-                        instances: Vec::new(),
-                        children: std::sync::Arc::new(BTreeMap::from([(
-                            crate::sema::constants::SchemaComponent::Item,
-                            crate::sema::constants::SchemaExpectation::default(),
-                        )])),
-                    }
-                } else {
-                    crate::sema::constants::SchemaExpectation::default()
-                }),
-                defaulted: param.defaulted,
-                rest: param.rest,
-            })
-            .collect::<Vec<_>>();
-        self.check_function_call_arguments_arena(
-            arena,
-            source,
-            args,
-            &params,
-            span,
-            checked_argument,
-        );
-    }
-
     fn check_spread_call_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         callee: ExprId,
+        call_source: super::method::HostCallSource,
         args_range: ArenaRange,
         span: Span,
         expected_context: Option<&Type>,
@@ -1253,15 +1251,13 @@ impl Checker {
                                 Type::Module(exports) => exports.get(&name).is_some_and(|export| {
                                     matches!(
                                         export,
-                                        ModuleExportType::Pure { .. }
-                                            | ModuleExportType::Proc { .. }
+                                        ModuleExportType::Callable { .. }
                                     )
                                 }),
                                 Type::Any
                                 | Type::Unknown
                                 | Type::DynamicModule
-                                | Type::Pure
-                                | Type::Proc
+                                | Type::Function(_)
                                 | Type::Optional(_)
                                 | Type::Result(_, _) => false,
                                 _ => true,
@@ -1333,7 +1329,7 @@ impl Checker {
             assert!(previous.is_none(), "a spread call prepares one signature");
         }
         let result =
-            self.check_call_arena(&temporary, source, callee, args, span, expected_context);
+            self.check_call_arena_with_arguments(&temporary, source, callee, temporary.arena.call_args(args), Some(args), None, call_source, span, expected_context);
         for id in projections {
             self.argument_projection_types.remove(&id);
             self.argument_projection_sources.remove(&id);
@@ -1345,8 +1341,8 @@ impl Checker {
         result
     }
 
-    pub(super) fn record_selected_function_call(&mut self, span: Span, signature: &super::FunctionSig) {
-        self.record_function_call_target(span, signature.definition_target());
+    pub(super) fn record_selected_function_value(&mut self, span: Span, signature: &super::FunctionSig) {
+        self.record_function_value_target(span, signature.definition_target());
     }
 
     pub(super) fn record_function_call_target(
@@ -1354,32 +1350,59 @@ impl Checker {
         span: Span,
         target: Option<super::CheckedFunctionTarget>,
     ) {
+        self.record_function_target(span, target, FunctionSelectionRole::Invocation);
+    }
+
+    pub(super) fn record_function_value_target(
+        &mut self,
+        span: Span,
+        target: Option<super::CheckedFunctionTarget>,
+    ) {
+        self.record_function_target(span, target, FunctionSelectionRole::ValueReference);
+    }
+
+    fn record_function_target(
+        &mut self,
+        span: Span,
+        target: Option<super::CheckedFunctionTarget>,
+        role: FunctionSelectionRole,
+    ) {
         let Some(target) = target else {
             return;
         };
         if let Some(previous) = self.selected_function_calls.insert(span, target) {
-            assert_eq!(previous, target, "a call resolved to conflicting function definitions");
+            assert_eq!(previous, target, "an expression resolved to conflicting function definitions");
+            assert_eq!(self.selected_function_value_references.contains(&span), matches!(role, FunctionSelectionRole::ValueReference),
+                "an expression resolved to conflicting function selection roles");
+        }
+        if matches!(role, FunctionSelectionRole::ValueReference) {
+            self.selected_function_value_references.insert(span);
         }
     }
 
     pub(super) fn resolve_pending_call_instantiations(&mut self) {
-        for (span, (callable, instantiated)) in
+        for (site, evidence) in
             std::mem::take(&mut self.pending_call_instantiations)
         {
-            if self.call_instantiations.contains_key(&span) {
+            if self.call_instantiations.contains_key(&site) {
                 continue;
             }
             match self
                 .type_constraints
-                .resolve_call_instantiation(&callable, &instantiated)
+                .resolve_instantiation_evidence(&evidence)
             {
                 Ok(instantiation) => {
-                    let previous = self.call_instantiations.insert(span, instantiation);
+                    let previous = self.call_instantiations.insert(site, instantiation);
                     assert!(previous.is_none(), "a call instantiation is published once");
                 }
                 Err(error) => {
+                    let code = match &error {
+                        crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnsupportedMethodFamily) => DiagnosticCode::CheckTypeMismatch,
+                        crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::AmbiguousMethodFamily) => DiagnosticCode::CheckAmbiguousOverload,
+                        _ => DiagnosticCode::CheckLocalInference,
+                    };
                     let message = call_instantiation_error_message(error);
-                    self.error(span, &message, DiagnosticCode::CheckLocalInference);
+                    self.error(site.source, &message, code);
                 }
             }
         }
@@ -1390,8 +1413,17 @@ impl Checker {
         span: Span,
         instantiation: super::PendingCallInstantiation,
     ) {
-        let previous = self.pending_call_instantiations.insert(span, instantiation);
+        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::call(span), crate::sema::value_materialization::InstantiationEvidence::Invocation(instantiation));
         assert!(previous.is_none(), "a call instantiation is recorded once");
+    }
+
+    pub(super) fn record_pending_value_instantiation(
+        &mut self,
+        span: Span,
+        instantiation: super::PendingCallInstantiation,
+    ) {
+        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::value(span), crate::sema::value_materialization::InstantiationEvidence::Invocation(instantiation));
+        assert!(previous.is_none(), "a value instantiation is recorded once");
     }
 
     pub(super) fn without_pending_call_instantiations<T>(
@@ -1399,8 +1431,10 @@ impl Checker {
         check: impl FnOnce(&mut Self) -> T,
     ) -> T {
         let pending = std::mem::take(&mut self.pending_call_instantiations);
+        let scheme_calls = std::mem::take(&mut self.scheme_callable_calls);
         let result = check(self);
         self.pending_call_instantiations = pending;
+        self.scheme_callable_calls = scheme_calls;
         result
     }
 
@@ -1417,6 +1451,11 @@ impl Checker {
         }
         let signature = self.declaration_inference.pending(declaration)?.clone();
         let (params, return_ty, instantiation) = if let Some(shape) = signature.provisional() {
+            if let Some(owner) = self.stream_origin_owner {
+                let previous = self.provisional_function_calls.insert(span, (owner, declaration));
+                assert!(previous.is_none_or(|previous| previous == (owner, declaration)),
+                    "a provisional call retains its caller and callee declarations");
+            }
             (
                 shape
                     .params()
@@ -1430,19 +1469,18 @@ impl Checker {
             let callable = signature.generalized()?;
             let instantiated = self
                 .type_constraints
-                .instantiate_callable(callable, signature.solver_level(), span)
+                .instantiate_callable(callable, signature.solver_level(), span, self.constraint_scope())
                 .expect("a checked pending callable scheme instantiates");
-            let instantiation = (!callable.type_parameters().is_empty()
-                || !callable.row_parameters().is_empty())
+            let instantiation = callable.is_quantified()
                 .then(|| (Arc::clone(callable), instantiated.clone()));
             let params = callable
                 .params()
                 .iter()
-                .zip(instantiated.params)
+                .zip(instantiated.params.iter().cloned())
                 .map(|(parameter, ty)| super::FunctionParamSig {
                     name: parameter.name,
                     ty,
-                    schema_expectation: parameter.schema_expectation.clone(),
+                    schema_expectation: parameter.schema_expectation.as_ref().map(|schema| self.type_constraints.instantiate_schema(schema, &instantiated, span).expect("a checked schema retains its callable instance")),
                     defaulted: parameter.defaulted,
                     rest: parameter.rest,
                 })
@@ -1453,10 +1491,13 @@ impl Checker {
                 instantiation,
             )
         };
+        let effects = self.instantiate_invocation_effects(signature.kind(), signature.effect_declaration(),
+            || self.invocation_declaration_effects(signature.effect_declaration()), instantiation.as_ref().map(|(_, instance)| instance))
+            .expect("a checked declaration retains its invocation effect scope");
         Some(super::FunctionCallContract {
             params,
             return_ty,
-            effects: self.declaration_effects(signature.effect_declaration()),
+            effects,
             effect_declaration: signature.effect_declaration(),
             definition_target: signature.definition_target(),
             instantiation,
@@ -1468,26 +1509,47 @@ impl Checker {
         signature: &super::FunctionSig,
         span: Span,
     ) -> super::FunctionCallContract {
+        self.scheme_call_contract(signature.scheme(), signature.effect_declaration(), signature.definition_target(), span)
+    }
+
+    pub(super) fn scheme_call_contract(
+        &mut self,
+        scheme: &Arc<crate::sema::schemes::TypeScheme>,
+        effect_declaration: Option<super::EffectDeclarationId>,
+        definition_target: Option<super::CheckedFunctionTarget>,
+        span: Span,
+    ) -> super::FunctionCallContract {
         if let Some(contract) = self.prepared_function_call_contracts.remove(&span) {
             return contract;
         }
-        let scheme = signature.scheme();
+        self.fresh_scheme_call_contract(scheme, effect_declaration, definition_target, span)
+    }
+
+    pub(super) fn fresh_scheme_call_contract(
+        &mut self,
+        scheme: &Arc<crate::sema::schemes::TypeScheme>,
+        effect_declaration: Option<super::EffectDeclarationId>,
+        definition_target: Option<super::CheckedFunctionTarget>,
+        span: Span,
+    ) -> super::FunctionCallContract {
         let callable = Arc::clone(scheme.callable());
         let instantiated = self
             .type_constraints
-            .instantiate_callable(&callable, 1, span)
+            .instantiate_callable(&callable, 1, span, self.constraint_scope())
             .expect("a checked function scheme instantiates");
-        let call_instantiation = (!callable.type_parameters().is_empty()
-            || !callable.row_parameters().is_empty())
+        let call_instantiation = callable.is_quantified()
             .then(|| (callable, instantiated.clone()));
+        let effects = self.instantiate_invocation_effects(scheme.kind(), effect_declaration,
+            || super::DeclarationEffects::Checked(scheme.effects().clone()), Some(&instantiated))
+            .expect("a checked function scheme retains its invocation effect scope");
         let params = scheme
             .params()
             .iter()
-            .zip(instantiated.params)
+            .zip(instantiated.params.iter().cloned())
             .map(|(parameter, ty)| super::FunctionParamSig {
                 name: parameter.name,
                 ty,
-                schema_expectation: parameter.schema_expectation.clone(),
+                schema_expectation: parameter.schema_expectation.as_ref().map(|schema| self.type_constraints.instantiate_schema(schema, &instantiated, span).expect("a checked schema retains its callable instance")),
                 defaulted: parameter.defaulted,
                 rest: parameter.rest,
             })
@@ -1495,9 +1557,9 @@ impl Checker {
         super::FunctionCallContract {
             params,
             return_ty: instantiated.return_type,
-            effects: scheme.effects().map(<[_]>::to_vec),
-            effect_declaration: signature.effect_declaration(),
-            definition_target: signature.definition_target(),
+            effects,
+            effect_declaration,
+            definition_target,
             instantiation: call_instantiation,
         }
     }
@@ -1517,6 +1579,7 @@ impl Checker {
             callee,
             self.current_namespace,
             span,
+            self.callable_solver_level(),
             expected_context,
             self.boundary.expected_schema.as_ref(),
             &mut self.type_constraints,
@@ -1547,7 +1610,7 @@ impl Checker {
         // Nested occurrences can share variables with their surrounding field
         // expectations. Publish only after every supplied field contributed.
         let pending = std::mem::take(&mut self.pending_record_constructors);
-        for (call_span, instance, _) in pending {
+        for (call_span, instance, actual) in pending {
             match self.record_constructors.finish_constructor_inference(
                 &arena.arena,
                 &instance,
@@ -1557,12 +1620,28 @@ impl Checker {
                     self.record_expr_type(call_span, fact.ty.clone());
                     self.record_constructor_instances.insert(call_span, fact);
                 }
-                Err(error) => self.error(call_span, &error.message, error.code),
+                Err(error) => {
+                    let owner = self.stream_origin_owner.and_then(|owner| {
+                        let declaration = super::FunctionDeclarationId::new(owner);
+                        let pending = self.declaration_inference.pending(declaration)?;
+                        let formals = pending.provisional()?.params().iter().map(|parameter| parameter.signature.ty.clone()).collect::<Vec<_>>();
+                        self.type_constraints.unresolved_local_holes_are_input_bound(owner, &std::collections::BTreeSet::from([owner]), &instance.arguments, &formals)
+                            .ok().filter(|bound| *bound).map(|_| declaration)
+                    });
+                    if let Some(owner) = owner {
+                        self.record_expr_type(call_span, actual.clone());
+                        self.declaration_inference.pending_mut(owner).expect("a deferred constructor retains its callable owner")
+                            .constructor_instances.insert(call_span, crate::sema::constants::CheckedRecordConstructor { instance, ty: actual });
+                    } else {
+                        self.error(call_span, &error.message, error.code);
+                    }
+                }
             }
         }
-        self.publish_unresolved_expr_types();
         self.record_constructor_instances
             .get(&span)
+            .or_else(|| self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+                .and_then(|pending| pending.constructor_instances.get(&span)))
             .map_or(Type::Invalid, |fact| fact.ty.clone())
     }
 
@@ -1694,6 +1773,17 @@ impl Checker {
         expected
     }
 
+    fn constructor_error_default(&mut self, error: Type, span: Span) -> Type {
+        let owner = self.constraint_scope();
+        match self.type_constraints.record_constructor_error_default(owner, &error, span) {
+            Ok(()) => error,
+            Err(error) => {
+                self.error(span, &format!("constructor error context cannot be retained: {error:?}"), DiagnosticCode::CheckLocalInference);
+                Type::Invalid
+            }
+        }
+    }
+
     pub(super) fn check_constructor_call_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1723,6 +1813,7 @@ impl Checker {
         };
         match name {
             "Ok" => {
+                self.result_constructors.insert(span, super::CheckedResultConstructor::Ok);
                 let expected = expected_context.and_then(Type::result_ok);
                 let schema = self
                     .boundary.expected_schema
@@ -1739,12 +1830,25 @@ impl Checker {
                 });
                 self.boundary.expected_schema = previous;
                 let error = match expected_context {
-                    Some(Type::Result(_, error)) => error.as_ref().clone(),
-                    _ => Type::Error,
+                    Some(Type::Result(_, error)) => self.constructor_error_default(error.as_ref().clone(), span),
+                    Some(expected) => match self.type_constraints.wrapper_constructor_context_is_deferred(expected) {
+                        Ok(true) => self.fresh_wrapper_type(span),
+                        Ok(false) if matches!(expected, Type::Inference(_)) => {
+                            let error = self.fresh_wrapper_type(span);
+                            self.constructor_error_default(error, span)
+                        }
+                        Ok(false) => Type::Error,
+                        Err(error) => {
+                            self.error(span, &format!("wrapper constructor context is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            Type::Invalid
+                        }
+                    },
+                    None => Type::Error,
                 };
                 Type::Result(Box::new(ty), Box::new(error))
             }
             "Err" => {
+                self.result_constructors.insert(span, super::CheckedResultConstructor::Err);
                 use crate::sema::arguments::{bind_err_arguments, expand_named_arguments};
                 let expected = match expected_context {
                     Some(Type::Result(_, error)) => Some(error.as_ref()),
@@ -1796,7 +1900,17 @@ impl Checker {
                         self.expect_type(&Type::Error, &arg.ty, arg.span);
                     }
                 }
-                Type::Result(Box::new(Type::Unknown), Box::new(outer))
+                let success = match expected_context {
+                    Some(Type::Result(success, _)) => (**success).clone(),
+                    Some(Type::Inference(_)) => {
+                        let level = self.boundary.proc_completion.as_ref()
+                            .and_then(|completion| self.declaration_inference.pending(super::FunctionDeclarationId::new(completion.owner)))
+                            .map_or(1, super::PendingFunctionSig::solver_level);
+                        self.type_constraints.fresh_at_level(span, level)
+                    }
+                    _ => Type::Unknown,
+                };
+                Type::Result(Box::new(success), Box::new(outer))
             }
             "Error" => {
                 self.error(
@@ -1821,16 +1935,23 @@ impl Checker {
                 Type::ProcessError
             }
             "env" => {
-                self.require_effect(Effect::Env, span, "environment lookup");
+                self.builtin_calls.remove(&span);
+                let reported = self.diagnostics.len();
+                let result = self.check_env_string(span);
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
-                Type::Result(Box::new(Type::Str), Box::new(Type::Error))
+                if !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { self.builtin_calls.insert(span, super::CheckedBuiltinCall::Environment); }
+                result
             }
             "Path" => {
+                self.builtin_calls.remove(&span);
+                let reported = self.diagnostics.len();
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
+                if !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { self.builtin_calls.insert(span, super::CheckedBuiltinCall::Path); }
                 Type::Path
             }
             "range" => {
-                self.builtin_range_calls.insert(span);
+                self.builtin_calls.remove(&span);
+                let reported = self.diagnostics.len();
                 if args.len() != 1 && args.len() != 2 {
                     self.error(
                         span,
@@ -1850,6 +1971,7 @@ impl Checker {
                         self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
                     self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
                 }
+                if !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { self.builtin_calls.insert(span, super::CheckedBuiltinCall::Range); }
                 Type::Stream(Box::new(Type::Int))
             }
             _ => {
@@ -2216,6 +2338,14 @@ impl Checker {
             && let Some(set) =
                 self.check_set_constructor_arena(arena, source, name, args, span, expected_context)
         {
+            if name == "empty" && args.is_empty() && matches!(set, Type::Set(_)) {
+                let [signature] = module_sig.function_overloads(name).expect("the checked Set factory has its canonical registry entry") else {
+                    panic!("the empty Set factory has one canonical signature")
+                };
+                assert_eq!(signature.op, xsh_registry::RuntimeOp::SetEmpty);
+                let instance = crate::sema::builtin_templates::BuiltinInstantiation::from_result(signature, &set, &mut self.type_constraints, span);
+                self.publish_api_call(arena, args, span, None, signature, &instance.signature);
+            }
             return set;
         }
         if module == "env" && name == "get_path" {
@@ -2340,14 +2470,20 @@ impl Checker {
                 .iter()
                 .find(|candidate| std::ptr::eq(*candidate, sig))
         });
-        let mut instance = crate::sema::builtin_templates::BuiltinInstantiation::new(
-            sig,
-            None,
-            None,
-            &mut self.type_constraints,
-            span,
-        )
-        .expect("a module signature has no receiver constraint");
+        let mut instance = if sig.op == xsh_registry::RuntimeOp::MapEmpty
+            && args.is_empty()
+            && let Some(expected @ Type::Map(_, _)) = expected_context
+        {
+            crate::sema::builtin_templates::BuiltinInstantiation::from_result(sig, expected, &mut self.type_constraints, span)
+        } else {
+            crate::sema::builtin_templates::BuiltinInstantiation::new(
+                sig,
+                None,
+                None,
+                &mut self.type_constraints,
+                span,
+            ).expect("a module signature has no receiver constraint")
+        };
         let descriptor_result = matches!(
             sig.semantic_rule,
             crate::modules::signature::SemanticRule::CliDescriptor
@@ -2601,10 +2737,7 @@ impl Checker {
         let target_ty = self.check_optional_api_arg_arena(arena, source, slots[0], None);
         if target_ty == Type::Any {
             self.reject_dynamic_use("a command target", None, slots[0].map(|arg| call_arg_span_arena(arena, arg)).unwrap_or(span));
-        } else if !matches!(
-            target_ty.unvalidated(),
-            Type::Str | Type::Path | Type::Unknown
-        ) {
+        } else if !self.require_value_conversion(&target_ty, crate::sema::schemes::ValueConversion::ProcessWord, slots[0].map(|arg| call_arg_span_arena(arena, arg)).unwrap_or(span)) {
             self.error(
                 slots[0]
                     .map(|k| call_arg_span_arena(arena, k))
@@ -2649,8 +2782,6 @@ impl Checker {
         if let Some(arg) = slots[14] {
             self.check_static_accepted_exit_codes(arena, call_arg_expr_id_arena(arg));
         }
-        // The overloads differ only in parameter types, so either binds the
-        // entries lowering consumes by parameter name.
         if let Some(sig) = api_spec()
             .module("process")
             .and_then(|module| module.function_overloads("command_argv"))
@@ -2711,7 +2842,7 @@ impl Checker {
                 };
                 if item_ty == Type::Any {
                     self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
-                } else if !process_command_argv_item_type_is_valid(&item_ty) {
+                } else if !self.require_value_conversion(&item_ty, crate::sema::schemes::ValueConversion::ProcessWord, arena.arena.expr(item.value).span) {
                     self.error(
                         arena.arena.expr(item.value).span,
                         "process.command_argv argv items must be Str or Path",
@@ -2723,8 +2854,23 @@ impl Checker {
         }
 
         let actual = self.check_call_arg_arena(arena, source, arg, None);
+        let argument_span = call_arg_span_arena(arena, arg);
+        let actual = match self.type_constraints.resolve(&actual) {
+            Ok(Type::Inference(variable)) => {
+                let level = self.type_constraints.type_level(variable).expect("a resolved process argv belongs to its inference problem");
+                let item = self.type_constraints.fresh_at_level(argument_span, level);
+                let list = Type::List(Box::new(item));
+                self.expect_type(&list, &actual, argument_span);
+                list
+            }
+            Ok(actual) => actual,
+            Err(error) => {
+                self.error(argument_span, &format!("process argv type resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
         match actual.into_unvalidated() {
-            Type::List(item) if process_command_argv_item_type_is_valid(&item) => {}
+            Type::List(item) if self.require_value_conversion(&item, crate::sema::schemes::ValueConversion::ProcessWord, argument_span) => {}
             Type::Any => self.reject_dynamic_use("an argv list", None, call_arg_span_arena(arena, arg)),
             Type::List(item) if *item == Type::Any => self.reject_dynamic_use("an argv word", None, call_arg_span_arena(arena, arg)),
             Type::Unknown => {}
@@ -3099,6 +3245,74 @@ mod reveal_type_tests {
     }
 
     #[test]
+    fn reveal_type_preserves_quantified_rows_and_stable_binders() {
+        let mut messages = Vec::new();
+        for prefix in ["", "pure unrelated(value) { [value] }\n"] {
+            let source = format!("{prefix}pure projected(row) {{ row.payload }}\nreveal_type(projected)\n");
+            let output = checked(&source, CheckOptions { reveal_types: true, ..CheckOptions::default() });
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_eq!(output.reveal_types.len(), 1);
+            let diagnostic = &output.reveal_types[0];
+            assert_eq!(diagnostic.code, Some(DiagnosticCode::CheckRevealType));
+            let start = source.rfind("projected").unwrap();
+            assert_eq!(diagnostic.labels[0].span, crate::source::Span::new(SourceId::new(0), start, start + "projected".len()));
+            assert!(diagnostic.message.contains("forall T0, R0"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("payload: T0"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("-> T0"), "{}", diagnostic.message);
+            messages.push(diagnostic.message.clone());
+        }
+        assert_eq!(messages[0], messages[1]);
+    }
+
+    #[test]
+    fn reveal_type_preserves_quantified_callback_effects() {
+        let mut messages = Vec::new();
+        for prefix in ["", "proc unrelated(action, value) [io] { action(value) }\n"] {
+            let source = format!("{prefix}proc apply(action, value) [io] {{ action(value) }}\nreveal_type(apply)\n");
+            let output = checked(&source, CheckOptions { reveal_types: true, ..CheckOptions::default() });
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_eq!(output.reveal_types.len(), 1);
+            let message = &output.reveal_types[0].message;
+            assert!(message.contains("forall"), "{message}");
+            assert!(message.contains("action: T0"), "{message}");
+            assert!(message.contains("invoke(T0, [T1]) ->"), "{message}");
+            assert!(message.contains("kind=effectful effects=[E0&["), "{message}");
+            let start = source.rfind("apply").unwrap();
+            let contract = output.callable_value_contract_at(crate::source::Span::new(SourceId::new(0), start, start + "apply".len())).unwrap();
+            for predicate in &contract.scheme().callable().requirements().effect_predicates {
+                use crate::sema::effects::EffectPredicate;
+                let clause = match predicate {
+                    EffectPredicate::Equal(_, _) => "effects-equal(",
+                    EffectPredicate::Included(_, _) => "effects-included(",
+                    EffectPredicate::Covered(_, _) => "effects-covered(",
+                    EffectPredicate::Excluded(_, _) => "effects-excluded(",
+                };
+                assert!(message.contains(clause), "{message}");
+            }
+            messages.push(message.clone());
+        }
+        assert_eq!(messages[0], messages[1]);
+    }
+
+    #[test]
+    fn reveal_type_distinguishes_known_argument_relations() {
+        let source = "pure optional(value: Int?) -> Bool { value == null }\npure observed(value) { let action = optional; [value] |> map(action) }\nreveal_type(observed)\n";
+        let output = checked(source, CheckOptions { reveal_types: true, ..CheckOptions::default() });
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.reveal_types.len(), 1);
+        let message = &output.reveal_types[0].message;
+        assert!(message.contains("known-arguments(params=[value: Int?], args=[T0])"), "{message}");
+    }
+
+    #[test]
+    fn reveal_type_keeps_monomorphic_result_display() {
+        let output = checked("let value: Result[Int] = Ok(7)\nreveal_type(value)\n", CheckOptions { reveal_types: true, ..CheckOptions::default() });
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.reveal_types.len(), 1);
+        assert_eq!(output.reveal_types[0].message, "revealed type: Result[Int, Error]");
+    }
+
+    #[test]
     fn reveal_type_option_only_publishes_revealed_types() {
         let outputs = option_combinations("proc unused() { reveal_type(1) }\n");
         let diagnostics = &outputs[0].diagnostics;
@@ -3145,7 +3359,7 @@ mod reveal_type_tests {
 mod generic_alias_call_tests {
     use crate::diagnostic::DiagnosticCode;
     use crate::sema::check::{CheckOptions, CheckOutput, Checker};
-    use crate::sema::schemes::{CallInstantiation, SchemeType};
+    use crate::sema::schemes::SchemeType;
     use crate::sema::types::Type;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
@@ -3165,20 +3379,30 @@ mod generic_alias_call_tests {
             })
     }
 
-    fn type_arguments(instantiations: impl Iterator<Item = CallInstantiation>) -> Vec<SchemeType> {
+    fn type_arguments(instantiations: impl Iterator<Item = crate::sema::value_materialization::CheckedInstantiation>) -> Vec<SchemeType> {
         instantiations
             .flat_map(|instantiation| {
-                instantiation
-                    .type_arguments()
-                    .values()
-                    .cloned()
+                instantiation.instances()
+                    .flat_map(|instance| instance.type_arguments().values().cloned())
                     .collect::<Vec<_>>()
             })
             .collect()
     }
 
     #[test]
-    fn immutable_generic_alias_instantiates_direct_calls_and_rejects_callable_conversion() {
+    fn pipeline_alias_descriptor_keeps_its_value_selection_and_call_evidence() {
+        let source = "pure decorated(value: Str, suffix: Str = \"!\") -> Str { value + suffix }\npure mapped(payload) { let action = decorated; {payload, rows: [\"kept\"] |> map(action)} }\n";
+        let checked = checked(source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let span = *checked.static_callable_aliases.keys().find(|span| &source[span.range()] == "action").unwrap();
+        assert!(checked.selected_function_value_references.contains(&span));
+        assert!(checked.selected_function_calls.contains_key(&span));
+        assert!(!checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span)));
+        assert!(checked.static_callable_aliases[&span].signature.params[1].defaulted);
+    }
+
+    #[test]
+    fn immutable_generic_alias_instantiates_direct_calls_and_checked_callable_conversion() {
         let accepted = checked(
             "pure identity(value) { value }\n\
              let shared = identity\n\
@@ -3201,20 +3425,68 @@ mod generic_alias_call_tests {
             );
         }
 
-        let rejected = checked(
+        let converted = checked(
             "type IntIdentity = pure(value: Int) -> Int\n\
              pure identity(value) { value }\n\
              let shared = identity\n\
-             let converted: IntIdentity = shared\n",
+             let converted: IntIdentity = shared\n\
+             let integer: Int = converted(7)\n\
+             let text: Str = shared(\"demo\")\n",
+        );
+        assert!(converted.diagnostics.is_empty(), "{:?}", converted.diagnostics);
+
+        let incompatible = checked(
+            "type WrongIdentity = pure(value: Int) -> Str\n\
+             pure identity(value) { value }\n\
+             let shared = identity\n\
+             let converted: WrongIdentity = shared\n",
         );
         assert!(
-            rejected
+            incompatible
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)),
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)),
             "{:?}",
-            rejected.diagnostics
+            incompatible.diagnostics
         );
+    }
+
+    #[test]
+    fn checked_dynamic_argument_keeps_passive_generic_identity() {
+        let accepted = checked("pure relay(items) { items }\npure keep(value: Any) -> Any { relay(value) }\n");
+        assert!(accepted.diagnostics.is_empty(), "{:?}", accepted.diagnostics);
+        assert_eq!(type_arguments(accepted.call_instantiations.values().cloned()), vec![SchemeType::Ground(Type::Any)]);
+    }
+
+    #[test]
+    fn checked_dynamic_arguments_preserve_passive_generic_instances() {
+        let accepted = checked(
+            "pure relay(items) { items }\n\
+             pure forward(items) { relay(items) }\n\
+             pure positional(value: Any) -> Any { relay(value) }\n\
+             pure named(value: Any) -> Any { relay(items: value) }\n\
+             pure spliced(value: Any) -> Any { relay(@[value]) }\n\
+             pure forwarded(value: Any) -> Any { forward(value) }\n\
+             pure aliased(value: Any) -> Any { let shared = relay; shared(value) }\n\
+             pure container(value: List[Any]) -> List[Any] { relay(value) }\n\
+             let integer: Int = relay(7)\n\
+             let text: Str = relay(\"kept\")\n",
+        );
+        assert!(accepted.diagnostics.is_empty(), "{:?}", accepted.diagnostics);
+        let arguments = type_arguments(accepted.call_instantiations.values().cloned());
+        for expected in [Type::Any, Type::List(Box::new(Type::Any)), Type::Int, Type::Str] {
+            assert!(arguments.contains(&SchemeType::Ground(expected.clone())), "{expected}: {arguments:?}");
+        }
+    }
+
+    #[test]
+    fn checked_dynamic_arguments_do_not_establish_generic_operation_domains() {
+        for body in ["[item for item in value]", "{value, value}", "f\"{value}\"", "value()"] {
+            let output = checked(&format!("pure consume(value) {{ {body} }}\nproc rejected(value: Any) [] -> Unit {{ let result = consume(value); let _ = result }}\n"));
+            let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(!errors.is_empty(), "{body}: {:?}", output.diagnostics);
+            assert!(errors.iter().all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckLocalInference)), "{body}: {errors:?}");
+        }
     }
 
     #[test]
@@ -3232,5 +3504,47 @@ mod generic_alias_call_tests {
             diagnostic.message,
             "generic call instantiation failed: type argument remains unresolved"
         );
+    }
+}
+
+#[cfg(test)]
+mod process_argv_inference_tests {
+    fn accepts(definition: &str) {
+        let source = format!("type Spec = {{cwd: Path, environment: Record}}\n{definition}\nlet plan: Command = make({{cwd: p\".\", environment: {{}}}}, \"true\", [\"true\"])\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_process_arguments_preserve_the_required_record_fields() {
+        accepts("pure make(spec: Spec, target: Str, argv: List[Str]) -> Command { process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment) }");
+    }
+
+    #[test]
+    fn inferred_process_arguments_preserve_the_required_record_fields() {
+        accepts("pure make(spec, target, argv) { process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment) }");
+    }
+
+    #[test]
+    fn inferred_process_arguments_reject_nonwords_dynamic_lists_and_storage_widening() {
+        for body in [
+            "let plan = make(1, [\"word\"])", "let plan = make(true, [\"word\"])", "let plan = make(\"word\", [1])", "let plan = make(\"word\", [true])",
+            "let erased: List[Any] = [\"word\"]; let plan = make(\"word\", erased)",
+            "let erased: Any = \"word\"; let plan = make(erased, [\"word\"])",
+        ] {
+            let source = format!("pure make(target, argv) {{ process.command_argv(target, argv) }}\n{body}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+        let source = "pure make(words) { process.command_argv(\"word\", words) }\npure keep(words: List[Str]) -> List[Union[Str, Path]] { let _ = make(words); words }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
     }
 }

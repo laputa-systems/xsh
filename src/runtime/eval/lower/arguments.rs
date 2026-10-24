@@ -1,16 +1,21 @@
 use super::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, BuildPatternRow,
-    CallArgument, CallableParamType, CompactLowerConstructProbe, DurationValue, ExprId, FxHashMap,
+    CallArgument, CheckedCallParameters, CompactLowerConstructProbe, DurationValue, ExprId, FxHashMap,
     LoweredArgumentValues, LoweredCallArg, LoweredFunctionKey, LoweredRecordEntry, Name,
     PathValue, SlotScope, Span, Type, api_spec,
     compact_checked_type_is_concrete, compact_error_family_info,
 };
 
+pub(super) struct ExpandedPositionalSourceArguments {
+    pub(super) arguments: Vec<ArenaCallArg>,
+    pub(super) expanded_lists: Vec<ExprId>,
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
-    pub(super) fn validate_generic_rest_splices(
+    pub(super) fn validate_generic_rest_splices<T>(
         &mut self,
         call: ExprId,
-        args: &[CallArgument],
+        args: &[CallArgument<T>],
         rest_slot: usize,
     ) -> Option<()> {
         if !args.iter().any(|argument| argument.splice) {
@@ -32,7 +37,30 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         } else {
             None
         };
-        let invalid = first_invalid_generic_rest_splice(args, rest_slot, argument_slots);
+        let invalid = if args.iter().any(|argument| argument.name.is_some()) {
+            first_invalid_generic_rest_splice(args, rest_slot, argument_slots)
+        } else {
+            let mut slot = 0usize;
+            args.iter().enumerate().find_map(|(index, argument)| {
+                if !argument.splice {
+                    slot = slot.saturating_add(1).min(rest_slot);
+                    return None;
+                }
+                if slot >= rest_slot {
+                    return None;
+                }
+                let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
+                    argument.source
+                else {
+                    return Some(index);
+                };
+                let Some(items) = self.static_positional_list_items(expression) else {
+                    return Some(index);
+                };
+                slot = slot.saturating_add(items.len()).min(rest_slot);
+                None
+            })
+        };
         if let Some(index) = invalid {
             self.last_blocker_detail = Some((
                 args[index].span,
@@ -41,6 +69,114 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return None;
         }
         Some(())
+    }
+
+    fn static_positional_list_items(&self, expression: ExprId) -> Option<Vec<ExprId>> {
+        let ArenaExprKind::List(elements) = self.program.arena.expr(expression).kind else {
+            return None;
+        };
+        let elements = self.program.arena.list_elements(elements).collect::<Vec<_>>();
+        elements
+            .iter()
+            .all(|element| element.splice_span.is_none())
+            .then(|| elements.into_iter().map(|element| element.value).collect())
+    }
+
+    pub(super) fn expand_static_positional_source_arguments(&self, args: &[ArenaCallArg]) -> ExpandedPositionalSourceArguments {
+        if args.iter().any(|argument| matches!(argument.kind, ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. })) { return ExpandedPositionalSourceArguments { arguments: args.to_vec(), expanded_lists: Vec::new() }; }
+        let mut expanded = Vec::new();
+        let mut expanded_lists = Vec::new();
+        for argument in args {
+            if let ArenaCallArgKind::Splice { value, .. } = argument.kind
+                && let Some(items) = self.static_positional_list_items(value)
+            {
+                expanded_lists.push(value);
+                expanded.extend(items.into_iter().map(|value| ArenaCallArg { kind: ArenaCallArgKind::Positional(value) }));
+            } else { expanded.push(argument.clone()); }
+        }
+        ExpandedPositionalSourceArguments { arguments: expanded, expanded_lists }
+    }
+
+    pub(super) fn expand_static_positional_splices<T: Clone>(
+        &self,
+        args: &[CallArgument<T>],
+        fixed_slots: usize,
+    ) -> Option<Vec<CallArgument<T>>> {
+        if args.iter().any(|argument| argument.name.is_some()) {
+            return Some(args.to_vec());
+        }
+        let empty_literal_splice = |argument: &CallArgument<T>| {
+            argument.splice && matches!(argument.source, crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression)
+                if self.static_positional_list_items(expression).is_some_and(|items| items.is_empty()))
+        };
+        let mut slot = 0usize;
+        let mut has_static_prefix_splice = false;
+        for argument in args {
+            if slot >= fixed_slots && !empty_literal_splice(argument) {
+                break;
+            }
+            if argument.splice {
+                let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
+                    argument.source
+                else {
+                    return Some(args.to_vec());
+                };
+                let Some(items) = self.static_positional_list_items(expression) else {
+                    return Some(args.to_vec());
+                };
+                has_static_prefix_splice = true;
+                slot = slot.saturating_add(items.len()).min(fixed_slots);
+            } else {
+                slot = slot.saturating_add(1).min(fixed_slots);
+            }
+        }
+        if !has_static_prefix_splice {
+            return Some(args.to_vec());
+        }
+        let mut expanded = Vec::with_capacity(args.len());
+        let mut slot = 0usize;
+        for argument in args {
+            if argument.splice && (slot < fixed_slots || empty_literal_splice(argument)) {
+                let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
+                    argument.source
+                else {
+                    return None;
+                };
+                let items = self.static_positional_list_items(expression)?;
+                let lowered_items = if let Some(lowered) = argument.lowered {
+                    let scratch = self.scratch.borrow();
+                    match &scratch.expressions[lowered.index()] {
+                        BuildExprRow::List(items) => Some(items.clone()),
+                        _ => return None,
+                    }
+                } else {
+                    None
+                };
+                if lowered_items
+                    .as_ref()
+                    .is_some_and(|lowered_items| lowered_items.len() != items.len())
+                {
+                    return None;
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    expanded.push(CallArgument {
+                        name: None,
+                        splice: false,
+                        source: crate::sema::arguments::ArgumentValueSource::Expression(item),
+                        ty: argument.ty.clone(),
+                        span: self.program.arena.expr(item).span,
+                        lowered: lowered_items.as_ref().map(|items| items[index]),
+                    });
+                    slot = slot.saturating_add(1).min(fixed_slots);
+                }
+            } else {
+                expanded.push(argument.clone());
+                if !argument.splice {
+                    slot = slot.saturating_add(1).min(fixed_slots);
+                }
+            }
+        }
+        Some(expanded)
     }
 
     pub(super) fn source_call_arguments(&self, args: &[ArenaCallArg]) -> Option<Vec<CallArgument>> {
@@ -79,9 +215,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .collect()
     }
 
-    pub(super) fn lower_call_argument(
+    pub(super) fn lower_call_argument<T>(
         &mut self,
-        argument: &CallArgument,
+        argument: &CallArgument<T>,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -93,6 +229,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             crate::sema::arguments::ArgumentValueSource::Expression(expr)
             | crate::sema::arguments::ArgumentValueSource::PositionalSplice(expr) => {
                 self.lower_expr(expr, slots, current_function, item_slot)
+            }
+            crate::sema::arguments::ArgumentValueSource::RecordField { .. }
+            | crate::sema::arguments::ArgumentValueSource::CheckedType => None,
+        }
+    }
+
+    pub(super) fn lower_producer_call_argument(
+        &mut self,
+        argument: &CallArgument,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        if let Some(value) = argument.lowered { return Some(value); }
+        match argument.source {
+            crate::sema::arguments::ArgumentValueSource::Expression(expr)
+            | crate::sema::arguments::ArgumentValueSource::PositionalSplice(expr) => {
+                self.lower_producer_input_expr(expr, slots, current_function, item_slot)
             }
             crate::sema::arguments::ArgumentValueSource::RecordField { .. }
             | crate::sema::arguments::ArgumentValueSource::CheckedType => None,
@@ -187,9 +341,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
-    pub(super) fn lower_call_args(
+    pub(super) fn lower_call_args<T>(
         &mut self,
-        args: &[CallArgument],
+        args: &[CallArgument<T>],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -250,6 +404,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_expanded_argument_values(
         &mut self,
         expanded: &[crate::sema::arguments::ExpandedArgument],
+        constructor: Option<ExprId>,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -258,7 +413,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut bindings = Vec::new();
         let mut arguments = Vec::with_capacity(expanded.len());
         let mut record_entry = None;
-        for arg in expanded {
+        for (index, arg) in expanded.iter().enumerate() {
             let span = match arg.value {
                 ArgumentValueSource::Expression(expr) => self.program.arena.expr(expr).span,
                 _ => arg.span,
@@ -267,7 +422,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ArgumentValueSource::Expression(expr)
                 | ArgumentValueSource::PositionalSplice(expr) => {
                     record_entry = None;
-                    self.lower_expr(expr, slots, current_function, item_slot)?
+                    let contextual = constructor.and_then(|constructor| {
+                        self.bodies.resolved_type_expressions.instantiations.get(&constructor)?;
+                        let Type::Record(fields) = self.bodies.expr_types.get(&constructor)? else { return None };
+                        let field = arg.name.or_else(|| self.bodies.record_constructor_fields.get(&constructor)?.get(index).copied())?;
+                        let literal = crate::sema::constants::LiteralConstant::analyze(&self.program.arena, expr, &FxHashMap::default())?;
+                        let contextual = literal.clone().in_type(fields.get(&field)?);
+                        (contextual != literal).then_some(contextual)
+                    });
+                    match contextual {
+                        Some(literal) => self.lower_record_default(&literal)?,
+                        None => self.lower_expr(expr, slots, current_function, item_slot)?,
+                    }
                 }
                 ArgumentValueSource::RecordField { record, field } => {
                     let base = match record_entry {
@@ -445,7 +611,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             overrides.push((callee, slots.postfix_receivers.insert(callee, bound)));
         }
         let lowered =
-            self.lower_expanded_argument_values(&expanded, slots, current_function, item_slot);
+            self.lower_expanded_argument_values(&expanded, Some(id), slots, current_function, item_slot);
         let result = (|| {
             let lowered = lowered?;
             bindings.extend(lowered.bindings);
@@ -485,10 +651,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     /// Arrange named entries in their checked slots. Named calls evaluate their
     /// entries in source order before reaching here, so slot order is free.
-    pub(super) fn lower_function_call_args(
+    pub(super) fn lower_function_call_args<T>(
         &mut self,
-        args: &[CallArgument],
-        params: Option<&[CallableParamType]>,
+        args: &[CallArgument<T>],
+        params: Option<CheckedCallParameters<'_>>,
         argument_slots: Option<&[usize]>,
         definition: Option<(LoweredFunctionKey, usize)>,
         slots: &mut SlotScope,
@@ -519,35 +685,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut values = Vec::new();
         for (slot, entries) in by_slot.into_iter().enumerate() {
             if entries.is_empty() {
-                let signature_parameter = params?.get(slot)?;
-                if signature_parameter.rest {
+                if params?.is_rest(slot)? {
                     continue;
                 }
-                let definitions = self.function_index();
-                let parameter = definition.and_then(|(key, skip)| {
-                    definitions.definition(key).and_then(|def| {
-                        self.program
-                            .arena
-                            .params(self.program.arena.function_def(def.id).params)
-                            .get(slot + skip)
-                    })
-                });
-                let Some(default) = parameter.and_then(|parameter| parameter.default) else {
-                    values.push(LoweredCallArg::Default(
-                        slot + definition.map_or(0, |(_, skip)| skip),
-                    ));
-                    continue;
-                };
-                let value = if let Some(constant) = crate::sema::constants::LiteralConstant::analyze(
-                    &self.program.arena,
-                    default,
-                    &FxHashMap::default(),
-                ) {
-                    self.lower_record_default(&constant.in_type(&signature_parameter.ty))?
-                } else {
-                    self.lower_expr(default, slots, current_function, item_slot)?
-                };
-                values.push(LoweredCallArg::Single(value));
+                values.push(LoweredCallArg::Default(slot + definition.map_or(0, |(_, skip)| skip)));
+                continue;
             }
             for arg in entries {
                 let value = self.lower_call_argument(arg, slots, current_function, item_slot)?;
@@ -581,6 +723,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
+            C::Map(values) if values.is_empty() => BuildExprRow::EmptyMap,
             C::Map(_) | C::Set(_) => BuildExprRow::PreparedConstant(super::lower_prepared_literal(value, Some(&self.declarations.wire_enums))?),
             C::List(values) => BuildExprRow::List(
                 values
@@ -604,8 +747,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 }
 
-fn first_invalid_generic_rest_splice(
-    args: &[CallArgument],
+fn first_invalid_generic_rest_splice<T>(
+    args: &[CallArgument<T>],
     rest_slot: usize,
     argument_slots: Option<&[usize]>,
 ) -> Option<usize> {
@@ -759,7 +902,7 @@ mod named_spread_lowering_tests {
             expression_type_storage_bytes,
         );
         let lowered = probe
-            .lower_expanded_argument_values(&expanded, &mut SlotScope::default(), None, None)
+            .lower_expanded_argument_values(&expanded, None, &mut SlotScope::default(), None, None)
             .expect("expanded entries lower");
 
         assert_eq!(parsed.arena.arena.expr_tags.len(), expression_count);

@@ -45,6 +45,95 @@ lowerability produce no diagnostics. Its default classes are defaulted
 parameters, inferred returns, and exported bindings; `locals` is opt-in. A
 bare `--annotate` uses `[check] annotate` when configured.
 
+`xsht check --compare-with ORIGINAL_ROOT --candidate-root CANDIDATE_ROOT
+CANDIDATE_PATH...` qualifies callable interfaces, CLI parsing contracts, exported
+type-name availability, and checked body facts
+without writing either tree.
+Candidate entries must be existing `.xsh` files inside the explicit candidate
+root; directories are not entry selectors. Relative paths are relative to the
+working directory. Candidate sources map by their relative path to existing
+original files. Both complete programs use the original configuration and module
+roots, with candidate entry and import bytes loaded at the original canonical
+paths. This preserves nominal schema identity across the pair.
+
+Within each selected entry context, qualification requires equal declaration
+sets keyed by logical source path and name, preserving export visibility. A
+physical declaration can have different nominal schema identities when its file
+is checked as an entry and when imported; each context is compared only with its
+corresponding entry in the other tree. Candidate imports must resolve to the same
+corresponding files, including through symlinks and configured module roots.
+Original generic contracts must remain equivalent; original concrete contracts
+must be instances of candidate contracts under the checker's canonical
+comparison. Missing, extra, mismatched, unresolved, or unsupported contracts
+fail with status 2 and a declaration diagnostic. CLI comparison covers
+command paths, parameter parser domains, defaults, rest parameters, and declared
+effect bounds. Help text and runtime behavior require separate paired tests.
+Exported type names must form the same set in each selected entry, keyed by
+relative source path and name. This covers aliases, bounded types, record schemas,
+module contracts, enums, and error families; missing, renamed, newly private, or
+additional public names fail qualification. Private helper names and generic
+binder spellings do not enter this availability set. Ordinary structural alias
+semantics stay unchanged. This check establishes name availability, not independent
+equivalence of every unused type definition. Definitions used in callable, schema,
+and checked body contracts retain those existing canonical comparisons.
+Internal host declarations
+are excluded from both sides. The command checks each program once and prepares
+it once without executing initialization. It compares each selected program's
+complete checked body owner set, keyed by selected entry, canonical source path,
+module-resolution key, and entry or declaration name. Checked operation and stage
+selections, effect summaries, and emitted runtime validation boundaries must be
+preserved according to the canonical body contract. A body loaded in several
+entry contexts is compared separately with its corresponding candidate context.
+Within one selected entry, checked bodies with the same key must have mutually
+preserved contracts.
+Missing facts, unsupported capture, and preparation errors fail qualification.
+These checks do not establish runtime behavior equivalence.
+
+Both roots bound the source view: reachable user imports must stay inside the
+original root and have candidate files. Every candidate `.xsh` file must have
+an original counterpart; module additions and deletions are unsupported. Source
+discovery skips symlinks, `.git`, `.work`, `target`, and `node_modules`.
+Reachable module paths must resolve inside their respective roots.
+Candidate import validation fails when the current `XSH_MODULE_PATH` resolves
+a module outside `CANDIDATE_ROOT`. Embedded standard-library modules load
+normally. Successful comparison prints `xsht check interface qualification: N callable, M CLI`,
+counting unique physical source-path/name keys on the original side, so
+declarations loaded by multiple selected entries count once. At least one count
+must be nonzero. Comparison requires explicit entries and cannot combine with
+`--annotate` or `--summary`.
+
+The frontend facade exposes `CheckedCallableContract` through
+`CheckOutput::callable_declaration_contract(definition)` and
+`CheckOutput::callable_contract_at(span)`. These immutable views share the
+checker-selected signature, symbols and published callable relationships after
+source disposal. `CheckedFunctionDeclaration::callable_contract()` exposes the
+declaration alone. Use the `CheckOutput` accessors when a signature contains
+nested generic callable relationships.
+At an invocation span, `callable_contract_at` returns the callee's declaration
+contract. `CheckOutput::callable_value_contract_at(span)` returns a contract
+only for a checked function value reference. Annotation consumers use this
+query for initializer and argument values.
+`is_generic()` and `kind()` describe the checked declaration. `Display` uses
+stable bound parameter names and expands each nested callable relationship once.
+For example, `callable#0{...}` defines a relationship and a later `callable#0`
+refers to it. These local labels are diagnostic output, not annotation syntax.
+`equivalent_to` compares structure modulo bound type, row and effect parameter
+names, including complete nested callable target families. Missing relationship
+context cannot establish equivalence. `join_effects` combines finite effect
+requirements only when the remaining checked shape agrees; an unrestricted
+clause remains unrestricted. Per-call instantiation does not replace
+the declaration contract. Failed or unresolved declarations have no view.
+`CheckedCallableContract::kind()` returns the public `CallableKind` (`Pure`,
+`Proc`, or `Stream`), excluding CLI entry declarations. `ModuleExportType`
+uses `GenericCallable { kind, optional }` for quantified exports. Its
+`field_type()` returns `Option<Type>`; an unsupported generic stream value
+projection has no ground callable representation.
+
+`source_annotation()` returns source text only for expressible callable types;
+callers recheck it in the insertion scope. Displayed `forall` notation is
+diagnostic text, not an annotation to insert. A `T0: MapKey` binder reports the
+existing finite key-domain requirement on that type parameter.
+
 ## Lint
 
 `xsht lint` analyzes checked facts. It skips files with check errors and

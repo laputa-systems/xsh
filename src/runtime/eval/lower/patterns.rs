@@ -20,28 +20,37 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<(BuildExprId, Vec<usize>)> {
-        let ArenaExprKind::PatternCondition { value, arms } = self.program.arena.expr(id).kind
+        let ArenaExprKind::PatternCondition { value, .. } = self.program.arena.expr(id).kind
         else {
             return Some((
                 self.lower_expr(id, slots, current_function, item_slot)?,
                 Vec::new(),
             ));
         };
-        let span = self.program.arena.expr(id).span;
         let (ok_ty, err_ty) = self.compact_match_scrutinee_result_types(value);
-        // Resolve the subject before installing captures that may shadow it.
         let subject = self.lower_expr(value, slots, current_function, item_slot)?;
+        self.lower_pattern_condition_subject(id, subject, slots, ok_ty.as_ref(), err_ty.as_ref())
+    }
+
+    pub(super) fn lower_pattern_condition_subject(
+        &mut self,
+        id: ExprId,
+        subject: BuildExprId,
+        slots: &mut SlotScope,
+        ok_ty: Option<&Type>,
+        err_ty: Option<&Type>,
+    ) -> Option<(BuildExprId, Vec<usize>)> {
+        let ArenaExprKind::PatternCondition { arms, .. } = self.program.arena.expr(id).kind else { return None };
+        let span = self.program.arena.expr(id).span;
         let pattern = self.program.arena.match_expr_arms(arms)[0].pattern;
         let (pattern, cleanup) =
-            self.lower_pattern(pattern, slots, ok_ty.as_ref(), err_ty.as_ref())?;
+            self.lower_pattern(pattern, slots, ok_ty, err_ty)?;
         let captures = cleanup.into_iter().map(|(_, slot)| slot).collect();
         let wildcard = push_build_row!(self, pattern, BuildPatternRow::Wildcard);
         let yes = push_build_row!(self, expr, BuildExprRow::Bool(true));
         let no = push_build_row!(self, expr, BuildExprRow::Bool(false));
         let mut arms = vec![(pattern, None, yes), (wildcard, None, no)];
         if self.bodies.optional_binding_conditions.contains(&id) {
-            // An optional binding fails on `null` before its pattern, which
-            // would otherwise accept and bind it.
             let null_pattern =
                 push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
             let absent = push_build_row!(self, expr, BuildExprRow::Bool(false));

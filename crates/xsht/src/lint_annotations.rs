@@ -85,7 +85,10 @@ impl<'a> Linter<'a> {
             Some((start, ty_span.end() - start)),
             true,
         );
-        if Some(before) != after.as_ref() {
+        if !after
+            .as_ref()
+            .is_some_and(|candidate| before.preserved_by(candidate))
+        {
             return;
         }
         self.diagnostics.push(
@@ -146,7 +149,10 @@ impl<'a> Linter<'a> {
             Some((start, span.end() - start)),
             true,
         );
-        if Some(before) != after.as_ref() {
+        if !after
+            .as_ref()
+            .is_some_and(|candidate| before.preserved_by(candidate))
+        {
             return;
         }
         self.diagnostics.push(
@@ -218,18 +224,22 @@ impl<'a> Linter<'a> {
                 true,
             ));
         }
-        if let Some(before) = self.return_removal_before.as_ref().unwrap() {
-            let mut rewritten = self.source.to_string();
-            rewritten.replace_range(span.start()..span.end(), "");
-            let after = self.checked_return_removal_probe(
-                &rewritten,
-                span.source_id,
-                Some((span.start(), span.end() - span.start())),
-                true,
-            );
-            if after.as_ref() != Some(before) {
-                return;
-            }
+        let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else {
+            return;
+        };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(span.start()..span.end(), "");
+        let after = self.checked_return_removal_probe(
+            &rewritten,
+            span.source_id,
+            Some((span.start(), span.end() - span.start())),
+            true,
+        );
+        if !after
+            .as_ref()
+            .is_some_and(|candidate| before.preserved_by(candidate))
+        {
+            return;
         }
         self.diagnostics.push(
             Diagnostic::new(
@@ -331,10 +341,10 @@ impl<'a> Linter<'a> {
         if fact.inferred {
             return;
         }
-        let Some(required) = &fact.required else {
+        let Ok(Some(required)) = fact.required.concrete() else {
             return;
         };
-        let mut effects: FxHashSet<_> = required.iter().cloned().collect();
+        let mut effects: FxHashSet<_> = required.into_iter().collect();
         if self.assertion_effect_spans.iter().any(|span| {
             span.source_id == body_span.source_id
                 && span.start() >= body_span.start()
@@ -631,7 +641,7 @@ impl<'a> Linter<'a> {
         // the dynamic `Proc` or `Pure` only because the annotation asks for
         // one, so without it a later `.call` is checked against the
         // signature and the binding no longer takes another function.
-        if matches!(annotation, Type::Proc | Type::Pure)
+        if matches!(annotation, Type::Function(_))
             && matches!(
                 init.kind,
                 ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
@@ -1158,5 +1168,206 @@ impl<'a> Linter<'a> {
             return false;
         };
         actual.matches_expected(expected_ok) && expected_ok.matches_expected(actual)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{LintOptions, Linter};
+    use xsh::diagnostic::DiagnosticCode;
+    use xsh::frontend::check::{CheckOptions, Checker, CheckedEffects};
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    fn lint_missing_effects(
+        source: &str,
+        checked: xsh::frontend::check::CheckOutput,
+    ) -> Vec<xsh::diagnostic::Diagnostic> {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                only: Some(vec![DiagnosticCode::LintMissingEffects]),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics
+    }
+
+    #[test]
+    fn missing_effects_requires_a_finite_nonempty_requirement() {
+        let source = "proc report() [fs] -> Result[Str] { p\"port\".read_text()? }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let fact = checked
+            .function_effect_facts
+            .values()
+            .next()
+            .expect("report effect fact exists");
+        let required = fact.required.concrete().unwrap().expect("finite body effects");
+        assert!(required.contains(&xsh::frontend::syntax::node::Effect::Fs));
+        assert!(required.contains(&xsh::frontend::syntax::node::Effect::Error));
+        let diagnostics = lint_missing_effects(source, checked.clone());
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].fix_hints[0].replacement.as_deref(),
+            Some("[fs, error]")
+        );
+
+        let mut unknown = checked.clone();
+        for fact in unknown.function_effect_facts.values_mut() {
+            fact.required = CheckedEffects::unknown();
+        }
+        assert!(lint_missing_effects(source, unknown).is_empty());
+
+        let mut empty = checked;
+        for fact in empty.function_effect_facts.values_mut() {
+            fact.required = CheckedEffects::finite([]);
+        }
+        assert!(lint_missing_effects(source, empty).is_empty());
+        assert_eq!(CheckedEffects::unknown().concrete(), Ok(None));
+        assert_eq!(CheckedEffects::finite([]).concrete(), Ok(Some(Vec::new())));
+    }
+
+    #[test]
+    fn symbolic_required_effects_do_not_suggest_a_finite_clause() {
+        let source = "pure value_result(payload: Int) -> Result[Int] { Ok(payload) }\nproc relay(action, value) [env, error] { let _ = action(value); match value_result(value) { Ok(_) => {}, Err(problem) => return Err(problem) }; 1 }\nproc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc caller() [env, error] -> Result[Int] { relay(fallible, 7)? }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let program = &parsed.arena;
+        let relay = program
+            .statement_ids()
+            .find_map(|statement| match program.arena.stmt(statement).kind {
+                xsh::frontend::syntax::arena::ArenaStmtKind::ProcDef(definition)
+                    if program.arena.function_def(definition).name.as_str() == "relay" =>
+                {
+                    let body = program.arena.function_def(definition).body;
+                    Some(program.arena.span(program.arena.block(body).span))
+                }
+                _ => None,
+            })
+            .expect("relay declaration exists");
+        let fact = checked
+            .function_effect_facts
+            .iter()
+            .find_map(|(id, fact)| (id.body == relay).then_some(fact))
+            .expect("relay effect fact exists");
+        assert!(fact.required.is_symbolic(), "{:?}", fact.required);
+        assert!(lint_missing_effects(source, checked).is_empty());
+    }
+
+    #[test]
+    fn inferred_effect_clause_is_not_removed_without_a_body_proof() {
+        let source = "proc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc output(input: Int) [io] -> Int { print $input; input }\nproc combine(left, right, value) { let argument = value; let _ = try { left(argument) }; right(argument) }\nproc bounded() [env, io] -> Result[Int] { combine(fallible, output, 7) }\nproc stable() [] -> Int { 1 }\n";
+        let source_id = SourceId::new(0);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let sources = super::super::probes::standalone_sources(source_id, source);
+        let mut checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let program = &parsed.arena;
+        let stable_definition = program
+            .statement_ids()
+            .find_map(|statement| match program.arena.stmt(statement).kind {
+                xsh::frontend::syntax::arena::ArenaStmtKind::ProcDef(definition)
+                    if program.arena.function_def(definition).name.as_str() == "stable" =>
+                {
+                    Some(definition)
+                }
+                _ => None,
+            })
+            .expect("stable declaration exists");
+        let stable_body = {
+            let body = program.arena.function_def(stable_definition).body;
+            program.arena.span(program.arena.block(body).span)
+        };
+        assert!(
+            checked
+                .function_effect_facts
+                .iter()
+                .find_map(|(id, fact)| (id.body == stable_body).then_some(fact))
+                .is_some_and(|fact| fact.redundant_clause),
+            "stable has a checked redundant effect clause"
+        );
+        let (_, effect_bodies) = super::super::checked_source_effect_bodies(
+            program,
+            program.statement_ids(),
+            source,
+        )
+        .expect("the source owns its function effect facts");
+        let valid_body_contracts = program.symbol_owner().with_current(|| {
+            super::super::probes::checked_source_body_contracts(
+                &checked,
+                program,
+                &sources,
+                source_id,
+                &effect_bodies,
+            )
+        });
+        assert!(valid_body_contracts.is_some(), "the original body proof is available");
+        let stable_clause_start = source.find("[] -> Int").expect("stable effect clause");
+        let lint = |checked| {
+            Linter::lint(
+                &parsed.arena,
+                source,
+                LintOptions {
+                    checked_output: Some(std::sync::Arc::new(checked)),
+                    prefer_inferred_private_effects: true,
+                    only: Some(vec![DiagnosticCode::LintPreferInferredPrivateEffects]),
+                    ..LintOptions::default()
+                },
+            )
+        };
+        let valid_output = lint(checked.clone());
+        assert!(
+            valid_output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.labels.iter().any(|label| label.span.start() == stable_clause_start)
+            }),
+            "a valid body proof authorizes stable's clause removal: {:?}",
+            valid_output.diagnostics
+        );
+
+        checked
+            .checked_declarations
+            .functions
+            .remove(&stable_definition)
+            .expect("stable checked declaration exists");
+        assert!(
+            checked
+                .function_effect_facts
+                .iter()
+                .find_map(|(id, fact)| (id.body == stable_body).then_some(fact))
+                .is_some_and(|fact| fact.redundant_clause),
+            "fault injection preserves stable's redundant effect fact"
+        );
+        let unavailable_body_contracts = program.symbol_owner().with_current(|| {
+            super::super::probes::checked_source_body_contracts(
+                &checked,
+                program,
+                &sources,
+                source_id,
+                &effect_bodies,
+            )
+        });
+        assert!(unavailable_body_contracts.is_none(), "the removed declaration blocks the body proof");
+        let output = lint(checked);
+        assert!(
+            !output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.labels.iter().any(|label| label.span.start() == stable_clause_start)
+            }),
+            "an unavailable body proof cannot authorize stable's clause removal: {:?}",
+            output.diagnostics
+        );
     }
 }

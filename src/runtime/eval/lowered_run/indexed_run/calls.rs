@@ -1,7 +1,8 @@
+use crate::runtime::eval::indexed::full::PreparedInvocationBindings;
 use super::{
     Arc, Evaluator, FullFunctionView, FullProgram, FunctionHeader,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredValue, RuntimeError, Span,
-    StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, Value, indexed_error,
+    LoweredFunctionKey, CallableKind, LoweredValue, RuntimeError, Span,
+    StreamValue, Value, indexed_error,
     lowered_splice_arg_items,
 };
 
@@ -30,13 +31,13 @@ pub(super) fn append_call_argument(
 /// checker did not see. The call stops here instead of running it.
 pub(super) fn indexed_typed_callee_kind(
     callee: &LoweredValue,
-    pure: bool,
+    kind: CallableKind,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    let expected = if pure { "Pure" } else { "Proc" };
-    match (callee, pure) {
-        (LoweredValue::Pure(_), true) | (LoweredValue::Proc(_), false) => Ok(()),
-        (other, _) => Err(RuntimeError::new(
+    let expected = kind.value_type_name();
+    match callee {
+        LoweredValue::Callable(callable) if callable.kind() == kind => Ok(()),
+        other => Err(RuntimeError::new(
             "type-error",
             format!(
                 "typed call expected a {expected} of its callable type, found {}",
@@ -47,24 +48,24 @@ pub(super) fn indexed_typed_callee_kind(
     }
 }
 
-pub(super) fn indexed_callable_identity(
+pub(in crate::runtime::eval) fn indexed_callable_identity(
     callee: &LoweredValue,
     span: Span,
-) -> Result<(LoweredFunctionKey, LoweredFunctionKind), RuntimeError> {
+) -> Result<(LoweredFunctionKey, CallableKind), RuntimeError> {
     let (function, kind) = match callee {
-        LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
-        LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
+        LoweredValue::Callable(function) => (function, function.kind()),
         other => {
             return Err(RuntimeError::new(
                 "type-error",
                 format!(
-                    "dynamic call expected Pure or Proc, found {}",
+                    "dynamic call expected a callable, found {}",
                     other.type_name()
                 ),
             )
             .with_span(span));
         }
     };
+    let function = function.identity();
     let key = function
         .as_name()
         .map(LoweredFunctionKey::Name)
@@ -77,7 +78,7 @@ impl Evaluator {
     pub(in crate::runtime::eval) fn call_indexed_direct(
         &mut self,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
@@ -90,7 +91,7 @@ impl Evaluator {
     pub(in crate::runtime::eval) fn call_indexed_direct_omitting(
         &mut self,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
         omitted: &[usize],
         call_span: Span,
@@ -110,7 +111,7 @@ impl Evaluator {
         &mut self,
         program: Arc<FullProgram>,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
         omitted: &[usize],
         call_span: Span,
@@ -145,11 +146,12 @@ impl Evaluator {
             return Some(Err(error));
         }
         let slots = self.try_bind_lowered_runtime_args(&header, args, omitted)?;
+        if let Err(error) = self.validate_scheme_callable_slots(&program, view.index(), &PreparedInvocationBindings::default(), &slots, call_span) { self.recycle_lowered_slots(slots); return Some(Err(error)); }
         let frame_support = match self.indexed_frames_supported(view, call_span) {
             Ok(supported) => supported,
             Err(error) => return Some(Err(error)),
         };
-        if frame_support {
+        if kind != CallableKind::Stream && frame_support {
             return Some(
                 self.eval_indexed_with_frame_slots(
                     program.as_ref(),
@@ -162,111 +164,74 @@ impl Evaluator {
             );
         }
         let mut slots = slots;
-        let result = self
-            .eval_indexed_call_frame(Arc::clone(&program), function, kind, view, &header, &mut slots, call_span)
-            .and_then(|value| super::super::checked_lowered_return_value(&header, value, call_span))
+        let invocation = PreparedInvocationBindings::default();
+        let normalize_error_payload = match program.normalizes_result_error_payload(view.index(), &invocation) {
+            Ok(normalize) => normalize,
+            Err(error) => return Some(Err(indexed_error(error, call_span))),
+        };
+        let result = self.start_indexed_producer(
+            Arc::clone(&program),
+            view,
+            &header,
+            &mut slots,
+            invocation,
+            call_span,
+        );
+        let result = result
+            .and_then(|value| {
+                super::super::checked_lowered_return_value(
+                    &header,
+                    value,
+                    call_span,
+                    &mut self.pending_traceback,
+                    normalize_error_payload,
+                )
+            }).and_then(|value| {
+                self.validate_scheme_callable_return(&program, view.index(), &PreparedInvocationBindings::default(), &value, call_span)?;
+                Ok(value)
+            })
             .map(LoweredValue::into_value);
         self.recycle_lowered_slots(slots);
         Some(result)
     }
 
-    pub(super) fn eval_indexed_call_frame(
-        &mut self,
-        program: Arc<FullProgram>,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        view: FullFunctionView<'_>,
-        header: &FunctionHeader,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        let (frame_kind, enter_kind, exit_kind) = match kind {
-            LoweredFunctionKind::Pure => (
-                TracebackFrameKind::Pure,
-                TraceKind::PureEnter,
-                TraceKind::PureExit,
-            ),
-            LoweredFunctionKind::Proc => (
-                TracebackFrameKind::Proc,
-                TraceKind::ProcEnter,
-                TraceKind::ProcExit,
-            ),
-        };
-        let definition_span = view
-            .definition_span()
-            .map_err(|error| indexed_error(error, call_span))?;
-        // Rendering a display name allocates, so it happens only when a trace
-        // event will use it; the traceback keeps the symbol handles instead.
-        if self.trace_enabled {
-            let name = function.display_name();
-            self.trace_enter_with_definition(
-                enter_kind,
-                Some(call_span),
-                Some(definition_span),
-                Some(&name),
-                TracePayload::None,
-            );
-        }
-        self.call_stack.push(TracebackFrame {
-            kind: frame_kind,
-            name: function.traceback_name(),
-            definition_span: Some(definition_span),
-            call_span: Some(call_span),
-        });
-        let result = self.start_indexed_producer(program, view, header, slots, call_span);
-        self.call_stack.pop();
-        if self.trace_enabled {
-            let name = function.display_name();
-            self.trace_exit_with_definition(
-                exit_kind,
-                Some(call_span),
-                Some(definition_span),
-                Some(&name),
-                TracePayload::None,
-            );
-        }
-        result
-    }
-
-    /// Runs a resolved callee: an ordinary body on the heap-backed frames, and
-    /// a stream producer as a suspended continuation.
     pub(super) fn eval_indexed_call_at(
         &mut self,
         program: &Arc<FullProgram>,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         index: usize,
         values: &[LoweredValue],
+        invocation: PreparedInvocationBindings,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let view = program
-            .function_view_at(index)
-            .expect("cached lowered function index is valid");
-        if self.indexed_frames_supported(view, call_span)? {
-            return self.eval_indexed_with_frames(
-                program.as_ref(),
-                function,
-                kind,
-                values,
-                call_span,
-            );
+        let view = program.function_view_at(index).ok_or_else(|| RuntimeError::new("indexed-ir", "call target is absent").with_span(call_span))?;
+        if view.callable_kind().map_err(|error| indexed_error(error, call_span))? != kind {
+            return Err(RuntimeError::new("indexed-ir", "call target kind disagrees with its executable owner").with_span(call_span));
         }
-        let header = view
-            .header()
-            .map_err(|error| indexed_error(error, call_span))?;
-        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
-        let result = self
-            .eval_indexed_call_frame(
-                Arc::clone(program),
-                function,
-                kind,
-                view,
+        if kind != CallableKind::Stream {
+            return self.eval_indexed_with_invocation(program, function, kind, values.to_vec(), invocation, call_span);
+        }
+        let header = view.header().map_err(|error| indexed_error(error, call_span))?;
+        let mut slots = self.bind_lowered_values(&header, values, call_span)?;
+        let result = self.start_indexed_producer(
+            Arc::clone(program),
+            view,
+            &header,
+            &mut slots,
+            invocation,
+            call_span,
+        );
+        let result = result.and_then(|value| {
+            super::super::checked_lowered_return_value(
                 &header,
-                &mut next_slots,
+                value,
                 call_span,
+                &mut self.pending_traceback,
+                false,
             )
-            .and_then(|value| super::super::checked_lowered_return_value(&header, value, call_span));
-        self.recycle_lowered_slots(next_slots);
+        });
+        self.recycle_lowered_slots(slots);
         result
     }
 
@@ -279,6 +244,7 @@ impl Evaluator {
         view: FullFunctionView<'_>,
         header: &FunctionHeader,
         slots: &mut [LoweredValue],
+        invocation: PreparedInvocationBindings,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
         self.hydrate_lowered_captures(header, slots, call_span)?;
@@ -288,8 +254,11 @@ impl Evaluator {
         let (function, kind) = execution
             .function_identity()
             .map_err(|error| indexed_error(error, call_span))?;
-        let state = self.start_script_producer(program, function, kind, view, slots.to_vec(), call_span)?;
+        let contract = program.stream_function_contract(view.index(), &invocation)
+            .map_err(|error| indexed_error(error, call_span))?;
+        let state = self.start_script_producer(program, function, kind, view, slots.to_vec(), invocation, call_span)?;
         let mut stream = StreamValue::from_script(state);
+        stream.contract = Some(contract);
         self.register_returned_stream(&mut stream, call_span)?;
         Ok(LoweredValue::Stream(Box::new(stream)))
     }

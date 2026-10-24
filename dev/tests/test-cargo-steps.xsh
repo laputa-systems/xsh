@@ -233,6 +233,9 @@ test test_cargo_test_runner_hands_off_lock_and_preserves_cargo_environment { |ct
   harness.write(
     r"""#!/bin/sh
 set -eu
+case " $* " in
+  *' --list '*) printf '%s\n' 'tests::preserves_argv: test' '1 test, 0 benchmarks'; exit 0 ;;
+esac
 printf '%s\n' "${LD_PRELOAD-<unset>}" "${CARGO_MANIFEST_DIR-<unset>}" "${CARGO_PKG_NAME-<unset>}" "${CARGO_BIN_EXE_xsh-<unset>}" "$#" "$@" "${XSH_CARGO_TEST_LOCK_FILE-<unset>}" "${CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUNNER-<unset>}" "${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER-<unset>}" > "$CARGO_TEST_RUNNER_LOG"
 """,
     mode: 0o755,
@@ -287,6 +290,177 @@ printf '%s\n' "${LD_PRELOAD-<unset>}" "${CARGO_MANIFEST_DIR-<unset>}" "${CARGO_P
   )
   assert process.run(ambiguous_lock)?.exited_with(125)
   assert "expected one inherited Cargo lock descriptor, found 2" in error_output.read_text()?
+}
+
+test test_cargo_test_runner_rejects_a_filter_with_no_matching_tests { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("requires Linux flock")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "cargo-test-filter")?
+  let repository = fs.cwd()?
+  let runner = fp"{repository}/dev/cargo_test_runner.sh"
+  let lock_file = fp"{root}/cargo.lock"
+  let harness = fp"{root}/harness.sh"
+  let error_output = fp"{root}/runner.stderr"
+  let invocation_log = fp"{root}/invocations.log"
+  let ran_marker = fp"{root}/test-body-ran"
+  lock_file.write("")
+  harness.write(
+    f"""#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "{invocation_log}"
+selected=0
+filter_seen=0
+listing=0
+help=0
+for argument in "$@"; do
+  case "$argument" in
+    chosen) selected=1; filter_seen=1 ;;
+    typo) filter_seen=1 ;;
+    --list) listing=1 ;;
+    --help) help=1 ;;
+  esac
+done
+if [ "$help" -eq 1 ]; then
+  printf '%s\\n' 'Usage: test-harness [OPTIONS] [FILTER]'
+  exit 0
+fi
+if [ "$filter_seen" -eq 0 ] && [ "${{EMPTY_HARNESS-0}}" -ne 1 ]; then
+  selected=1
+fi
+if [ "$listing" -eq 1 ]; then
+  if [ "$selected" -eq 1 ]; then
+    printf '%s\\n' 'tests::chosen: test' '1 test, 0 benchmarks'
+  else
+    printf '%s\\n' '0 tests, 0 benchmarks'
+  fi
+  exit 0
+fi
+if [ "$selected" -eq 0 ]; then
+  printf '%s\\n' '0 tests, 0 benchmarks'
+  exit 0
+fi
+: > "{ran_marker}"
+""",
+    mode: 0o755,
+  )
+
+  let unfiltered = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(unfiltered)?.exited_with(0)
+  assert invocation_log.read_text()? == "\n"
+  assert ran_marker.exists()?
+
+  ran_marker.remove(missing_ok: false)
+  invocation_log.write("")
+  let unfiltered_zero = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file, EMPTY_HARNESS: "1"},
+    stderr: error_output,
+  )
+  assert process.run(unfiltered_zero)?.exited_with(0)
+  assert invocation_log.read_text()? == "\n"
+  assert ! ran_marker.exists()?
+
+  invocation_log.write("")
+  let option_value_only = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--test-threads", "1"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file, EMPTY_HARNESS: "1"},
+    stderr: error_output,
+  )
+  assert process.run(option_value_only)?.exited_with(0)
+  assert invocation_log.read_text()? == "--test-threads 1\n"
+  assert ! ran_marker.exists()?
+
+  invocation_log.write("")
+  let runner_arguments = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--cargo-runner-argument", "--", "--test-threads=1"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(runner_arguments)?.exited_with(0)
+  assert invocation_log.read_text()? == "--cargo-runner-argument -- --test-threads=1\n"
+  assert ran_marker.exists()?
+
+  ran_marker.remove(missing_ok: false)
+  invocation_log.write("")
+  let metadata_list = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--list"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(metadata_list)?.exited_with(0)
+  assert invocation_log.read_text()? == "--list\n"
+  assert ! ran_marker.exists()?
+
+  invocation_log.write("")
+  let metadata_help = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--help"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(metadata_help)?.exited_with(0)
+  assert invocation_log.read_text()? == "--help\n"
+  assert ! ran_marker.exists()?
+
+  invocation_log.write("")
+  let benchmark = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--bench", "chosen"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(benchmark)?.exited_with(0)
+  assert invocation_log.read_text()? == "--bench chosen\n"
+  assert ran_marker.exists()?
+
+  ran_marker.remove(missing_ok: false)
+  invocation_log.write("")
+  let report_time = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--report-time"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(report_time)?.exited_with(0)
+  assert invocation_log.read_text()? == "--report-time\n"
+  assert ran_marker.exists()?
+
+  ran_marker.remove(missing_ok: false)
+  invocation_log.write("")
+  let matching = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--test-threads", "1", "--report-time", "chosen"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(matching)?.exited_with(0)
+  assert invocation_log.read_text()? == "--list --test-threads 1 --report-time chosen\n--test-threads 1 --report-time chosen\n"
+  assert ran_marker.exists()?
+
+  ran_marker.remove(missing_ok: false)
+  invocation_log.write("")
+  let unmatched = process.command_argv(
+    "/usr/bin/flock",
+    ["/usr/bin/flock", "-x", lock_file, runner, harness, "--test-threads", "1", "--ensure-time", "typo"],
+    env: {XSH_CARGO_TEST_LOCK_FILE: lock_file},
+    stderr: error_output,
+  )
+  assert process.run(unmatched)?.exited_with(125)
+  assert invocation_log.read_text()? == "--list --test-threads 1 --ensure-time typo\n"
+  assert ! ran_marker.exists()?
+  assert "no tests selected" in error_output.read_text()?
 }
 
 test test_build_steps_run_cargo_under_the_preload_and_test_runs_do_not { |ctx|

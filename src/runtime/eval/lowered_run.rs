@@ -75,6 +75,7 @@ mod module_test;
 mod module_text;
 mod module_unix;
 mod module_utils;
+pub(super) use module_utils::UtilsCacheKey;
 use module_linux::with_linux_call_rows;
 use module_unix::with_unix_call_rows;
 
@@ -92,7 +93,7 @@ use super::lowered_ops::{
     lowered_nonnegative_count, lowered_path_method_value, lowered_return_value,
     lowered_slice_value, lowered_sort_key_orderable, lowered_str_byte_at_value,
     lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_parts,
-    lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
+    lowered_str_arg, lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
     lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_type_name,
     lowered_value_from_runtime, lowered_value_from_runtime_any, lowered_value_matches,
     push_lowered_display,
@@ -109,8 +110,8 @@ use super::net_job::NetJobTask;
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{CompTargetView, InlineList};
 use super::{
-    Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredParamKind,
+    Binding, DeferKind, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
+    LoweredFunctionKey, CallableKind, LoweredParamKind,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue,
     Name, ReduceByOp,
     StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
@@ -126,14 +127,20 @@ use super::{
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 
+#[derive(Clone, Copy)]
+enum LoweredModuleOpScope {
+    Callable,
+    Executable,
+}
+
 macro_rules! lowered_module_op_support_guard {
-    (callable; $op:expr) => {
+    (callable; $scope:expr) => {
         true
     };
-    (internal; $op:expr) => {
-        false
+    (internal; $scope:expr) => {
+        matches!($scope, LoweredModuleOpScope::Executable)
     };
-    (fallback; $op:expr) => {
+    (fallback; $scope:expr) => {
         false
     };
 }
@@ -238,6 +245,14 @@ macro_rules! define_lowered_module_op_authority {
         }
 
         pub(super) fn lowered_module_op_supported($op: RuntimeOp) -> bool {
+            Self::lowered_module_op_has_route($op, LoweredModuleOpScope::Callable)
+        }
+
+        pub(super) fn lowered_module_op_executable($op: RuntimeOp) -> bool {
+            Self::lowered_module_op_has_route($op, LoweredModuleOpScope::Executable)
+        }
+
+        fn lowered_module_op_has_route($op: RuntimeOp, scope: LoweredModuleOpScope) -> bool {
             if process_module::is_prim($op)
                 || unix_module::is_prim($op)
                 || linux_module::is_prim($op)
@@ -249,7 +264,7 @@ macro_rules! define_lowered_module_op_authority {
             match $op {
                 $(
                     $(#[$pre_attribute])*
-                    $pre_pattern if lowered_module_op_support_guard!($pre_class; $op) => true,
+                    $pre_pattern if lowered_module_op_support_guard!($pre_class; scope) => true,
                 )*
                 with_unix_call_rows! {
                     lowered_unix_route_pattern! {}
@@ -257,7 +272,7 @@ macro_rules! define_lowered_module_op_authority {
                 } => true,
                 $(
                     $(#[$post_attribute])*
-                    $post_pattern if lowered_module_op_support_guard!($post_class; $op) => true,
+                    $post_pattern if lowered_module_op_support_guard!($post_class; scope) => true,
                 )*
                 with_linux_call_rows! {
                     lowered_linux_route_pattern! {}
@@ -265,7 +280,7 @@ macro_rules! define_lowered_module_op_authority {
                 } => true,
                 $(
                     $(#[$tail_attribute])*
-                    $tail_pattern if lowered_module_op_support_guard!($tail_class; $op) => true,
+                    $tail_pattern if lowered_module_op_support_guard!($tail_class; scope) => true,
                 )*
                 _ => false,
             }
@@ -1467,7 +1482,7 @@ struct PreparedDynamicModule {
     arena: ArenaProgram,
     declarations: crate::sema::check::CompactDeclOutput,
     module_program: Arc<super::indexed::full::FullProgram>,
-    exported_functions: Vec<(Name, bool)>,
+    exported_functions: Vec<(Name, CallableKind)>,
     exported_let_names: Vec<Name>,
     harvest: Arc<super::LoweredSharedState>,
 }
@@ -3852,15 +3867,23 @@ pub(in crate::runtime::eval) fn bind_indexed_comp_target(
     )
 }
 
-fn checked_unsigned_value(
+fn checked_storage_value(
+    evaluator: &Evaluator,
     value: &LoweredValue,
     check: &super::LoweredTypeCheck,
     span: Span,
 ) -> Result<(), RuntimeError> {
+    if let Some(checked) = super::require::require_module_contract(evaluator, value, &check.ty, "$", span) {
+        return checked;
+    }
     if !value_matches_static_type(ValueView::Lowered(value), &check.ty) {
         return Err(RuntimeError::new(
             "type-error",
-            format!("value violates UInt constraint in {}", check.name),
+            if check.ty.has_unsigned_constraint() {
+                format!("value violates UInt constraint in {}", check.name)
+            } else {
+                format!("value violates {} constraint in {}", check.ty, check.name)
+            },
         )
         .with_span(span));
     }
@@ -3871,7 +3894,14 @@ fn checked_lowered_return_value(
     header: &FunctionHeader,
     value: LoweredValue,
     span: Span,
+    pending_traceback: &mut Option<Traceback>,
+    normalize_error_payload: bool,
 ) -> Result<LoweredValue, RuntimeError> {
+    let value = if normalize_error_payload {
+        normalize_inferred_result_error(value, span, pending_traceback)
+    } else {
+        value
+    };
     let value = match header.return_kind {
         LoweredReturnKind::Erased => value,
         kind => lowered_return_value(kind, value, span)?,
@@ -3886,6 +3916,53 @@ fn checked_lowered_return_value(
         .with_span(span));
     }
     Ok(value)
+}
+
+pub(in crate::runtime::eval) fn normalize_inferred_result_error(
+    value: LoweredValue,
+    span: Span,
+    pending_traceback: &mut Option<Traceback>,
+) -> LoweredValue {
+    let LoweredValue::ResultErr(error) = value else { return value; };
+    let trace_error = if matches!(error.as_ref(), Value::Error(_) | Value::RunError(_)) {
+        None
+    } else {
+        Some((
+            TraceError::from_value(error.as_ref()),
+            TraceError::from_propagated_value(error.as_ref()),
+        ))
+    };
+    let error = inferred_proc_error_value(*error, span);
+    if let Some((raw_value_trace, propagated_trace)) = trace_error
+        && let Some(traceback) = pending_traceback
+        && (traceback.error == raw_value_trace || traceback.error == propagated_trace)
+    {
+        traceback.error = TraceError::from_propagated_value(&error);
+    }
+    LoweredValue::ResultErr(Box::new(error))
+}
+
+fn inferred_proc_error_value(value: Value, span: Span) -> Value {
+    match value {
+        Value::Error(error) => Value::Error(error),
+        Value::RunError(error) => Value::RunError(error),
+        value => {
+            let message = match &value {
+                Value::Str(message) => message.to_string(),
+                Value::Int(_) | Value::Float(_) | Value::Duration(_) | Value::Bool(_) | Value::Path(_) => {
+                    let mut message = String::new();
+                    super::ValueView::Runtime(&value)
+                        .push_display(&mut message, span)
+                        .expect("scalar Result error payloads have display text");
+                    message
+                }
+                value => format!("non-Error {} error payload", value.type_name()),
+            };
+            Value::Error(Box::new(
+                RuntimeError::new("propagated", message).with_span(span),
+            ))
+        }
+    }
 }
 
 fn lowered_param_check(lowered: &FunctionHeader, index: usize) -> Option<&super::LoweredTypeCheck> {
@@ -4325,7 +4402,7 @@ impl Evaluator {
         span: Span,
         message: &'static str,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        match value {
+        match value.materialize_list() {
             LoweredValue::List(items) => Ok(items),
             LoweredValue::SharedList(items) => match Arc::try_unwrap(items) {
                 Ok(items) => Ok(items),
@@ -4882,6 +4959,31 @@ impl Evaluator {
                 )?;
                 match fs_module::mount_for(&self.host_path(&path), span) {
                     Ok(mount) => lowered_result_ok(lowered_fs_mount_record(mount)?),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            callable; RuntimeOp::FsDu | RuntimeOp::PathResolve | RuntimeOp::FsReadlink
+                | RuntimeOp::FsReadLines | RuntimeOp::FsStreamLines | RuntimeOp::FsBytesLines
+                | RuntimeOp::FsRemoveDir | RuntimeOp::FsUnlink if values.len() == 1 =>
+            {
+                self.eval_lowered_path_host_call(op, values, span)?
+            }
+            callable; RuntimeOp::FsGlob | RuntimeOp::FsRglob | RuntimeOp::FsWriteLines
+                | RuntimeOp::FsTouchFrom if values.len() == 2 =>
+            {
+                self.eval_lowered_path_host_call(op, values, span)?
+            }
+            callable; RuntimeOp::FsTouch if values.len() == 1 || values.len() == 2 => {
+                self.eval_lowered_path_host_call(op, values, span)?
+            }
+            callable; RuntimeOp::FsRead if values.len() == 1 => {
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "fs.read_bytes",
+                    span,
+                )?;
+                match read_host_path_bytes(&self.host_path(&path), span) {
+                    Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes)),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -6099,12 +6201,8 @@ impl Evaluator {
             }
             callable; RuntimeOp::EnvList if values.is_empty() => return self.eval_lowered_env_list_values(values, span),
             callable; RuntimeOp::EnvPathList if values.is_empty() => {
-                let paths = self
-                    .lowered_env_path_entries(span)?
-                    .into_iter()
-                    .map(LoweredValue::Path)
-                    .collect();
-                LoweredValue::List(paths)
+                let paths = self.lowered_env_path_entries(span)?;
+                LoweredValue::EnvPathList(super::EnvPathListSnapshot::from_environment(paths))
             }
             callable; RuntimeOp::EnvPathList if values.len() == 1 => return self.eval_lowered_env_path_list_values(values, span),
             internal; RuntimeOp::EnvPathPrepend if values.len() == 1 => {
@@ -7147,29 +7245,6 @@ impl Evaluator {
         slots
     }
 
-    fn call_lowered_function_value_with_values(
-        &mut self,
-        function: FunctionName,
-        pure: bool,
-        args: &[Value],
-        call_span: Span,
-    ) -> Option<Result<Value, RuntimeError>> {
-        let function = function
-            .as_name()
-            .map(LoweredFunctionKey::Name)
-            .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))?;
-        self.call_indexed_direct(
-            function,
-            if pure {
-                LoweredFunctionKind::Pure
-            } else {
-                LoweredFunctionKind::Proc
-            },
-            args,
-            call_span,
-        )
-    }
-
     fn hydrate_lowered_captures(
         &mut self,
         lowered: &FunctionHeader,
@@ -7575,13 +7650,6 @@ impl Evaluator {
         );
     }
 
-    /// Runtime `module.load(path)`: load a user module file through the compact
-    /// pipeline and return its export record. Exported `pure`/`proc` definitions
-    /// are installed into the qualified-function tables under the module's
-    /// path-derived namespace so the returned `Value::Pure`/`Value::Proc`
-    /// handles dispatch through the lowered runtime; exported `let` values are
-    /// produced by running the module file as its own compact program in an
-    /// isolated child evaluator. Results are cached by module key.
     /// Make this program's prepared standard-library implementations callable
     /// from a dynamically loaded module.
     ///
@@ -7599,7 +7667,7 @@ impl Evaluator {
                 let function = Name::intern(script.function);
                 let qualified = QualifiedName::new(namespace, function);
                 let key = LoweredFunctionKey::Qualified(qualified);
-                for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+                for kind in [CallableKind::Pure, CallableKind::Proc] {
                     if program.contains_function(key, kind) {
                         additions.push((
                             qualified,
@@ -7684,33 +7752,29 @@ impl Evaluator {
         let exported_functions = exported_functions.clone();
         let exported_let_names = exported_let_names.clone();
         let dynamic_namespace = Name::intern(format!("dynamic:{key}"));
-        for (name, pure) in &exported_functions {
+        for (name, kind) in &exported_functions {
             let qualified = QualifiedName::new(dynamic_namespace, *name);
             Arc::make_mut(&mut self.indexed_dynamic_functions).insert(
                 qualified,
                 DynamicFunction {
                     program: Arc::clone(module_program),
                     function: LoweredFunctionKey::Name(*name),
-                    kind: if *pure {
-                        LoweredFunctionKind::Pure
-                    } else {
-                        LoweredFunctionKind::Proc
-                    },
+                    kind: *kind,
                 },
             );
         }
-        for (name, pure) in &exported_functions {
+        for (name, kind) in &exported_functions {
             let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
                 dynamic_namespace,
                 *name,
             ));
-            let sig = if *pure {
-                declarations.pures.get(name)
-            } else {
-                declarations.procs.get(name)
+            let sig = match kind {
+                CallableKind::Pure => declarations.pures.get(name),
+                CallableKind::Proc => declarations.procs.get(name),
+                CallableKind::Stream => declarations.streams.get(name),
             };
             if let Some(sig) = sig {
-                self.record_module_export_signature(function, *pure, sig);
+                self.record_module_export_signature(function, *kind, sig);
             }
         }
 
@@ -7762,7 +7826,7 @@ impl Evaluator {
                 });
                 let value = if let Some(alias) = alias {
                     let original = match value {
-                        Value::Pure(function) | Value::Proc(function) => *function,
+                        Value::Callable(function) => function.identity(),
                         _ => {
                             return Err(RuntimeError::new(
                                 "module-load",
@@ -7782,42 +7846,30 @@ impl Evaluator {
                         DynamicFunction {
                             program: Arc::clone(module_program),
                             function: target,
-                            kind: if alias.pure {
-                                LoweredFunctionKind::Pure
-                            } else {
-                                LoweredFunctionKind::Proc
-                            },
+                            kind: alias.kind,
                         },
                     );
                     let function = crate::runtime::value::FunctionName::qualified(qualified);
                     Arc::make_mut(&mut self.module_export_signatures).insert(
                         function,
                         super::ModuleExportSignature {
-                            pure: alias.pure,
+                            kind: alias.kind,
                             sig: alias.signature.clone(),
                         },
                     );
-                    if alias.pure {
-                        Value::Pure(function)
-                    } else {
-                        Value::Proc(function)
-                    }
+                    Value::Callable(crate::runtime::value::CallableValue::named(alias.kind, function))
                 } else {
                     value.clone()
                 };
                 record_fields.push((name, value));
             }
         }
-        for (name, pure) in exported_functions {
+        for (name, kind) in exported_functions {
             let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
                 dynamic_namespace,
                 name,
             ));
-            let value = if pure {
-                Value::Pure(function)
-            } else {
-                Value::Proc(function)
-            };
+            let value = Value::Callable(crate::runtime::value::CallableValue::named(kind, function));
             record_fields.push((name, value));
         }
         let record = RecordMap::from_name_values(record_fields);
@@ -7854,7 +7906,7 @@ impl Evaluator {
 
     /// Enumerate the module file's top-level `export pure`/`export proc`
     /// declarations as `(name, is_pure)` pairs.
-    fn module_namespace_export_functions(arena: &ArenaProgram) -> Vec<(Name, bool)> {
+    fn module_namespace_export_functions(arena: &ArenaProgram) -> Vec<(Name, CallableKind)> {
         let mut functions = Vec::new();
         for stmt in arena.statement_ids() {
             let crate::syntax::arena::ArenaStmtKind::Export(inner) = arena.arena.stmt(stmt).kind
@@ -7863,10 +7915,13 @@ impl Evaluator {
             };
             match arena.arena.stmt(inner).kind {
                 crate::syntax::arena::ArenaStmtKind::PureDef(def) => {
-                    functions.push((arena.arena.function_def(def).name, true));
+                    functions.push((arena.arena.function_def(def).name, CallableKind::Pure));
                 }
                 crate::syntax::arena::ArenaStmtKind::ProcDef(def) => {
-                    functions.push((arena.arena.function_def(def).name, false));
+                    functions.push((arena.arena.function_def(def).name, CallableKind::Proc));
+                }
+                crate::syntax::arena::ArenaStmtKind::StreamDef(def) => {
+                    functions.push((arena.arena.function_def(def).name, CallableKind::Stream));
                 }
                 _ => {}
             }
@@ -8033,184 +8088,101 @@ impl Evaluator {
         }
     }
 
+    fn eval_lowered_path_host_call(
+        &mut self,
+        op: RuntimeOp,
+        mut values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let path = lowered_path_arg(values.remove(0), "Path", span)?;
+        match op {
+            RuntimeOp::FsDu => Ok(match fs_module::disk_usage(self.host_path(&path), span) {
+                Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::PathResolve => Ok(match fs_module::resolve_path(self.host_path(&path), span) {
+                Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::FsReadlink => Ok(match fs_module::readlink(self.host_path(&path), span) {
+                Ok(value) => lowered_value_from_runtime_any(&value).map(lowered_result_ok).ok_or_else(|| {
+                    RuntimeError::new("type-error", format!("readlink produced unsupported {}", value.type_name())).with_span(span)
+                })?,
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::FsStreamLines | RuntimeOp::FsBytesLines => {
+                let result = self.path_lines_stream(path, op == RuntimeOp::FsBytesLines, span);
+                lowered_runtime_value(result, span)
+            }
+            RuntimeOp::FsGlob | RuntimeOp::FsRglob => {
+                let pattern = lowered_str_arg(&values.remove(0), "Path.glob", span)?.to_owned();
+                let found = super::expand_glob_below(&self.host_path(&path), &path, &pattern, op == RuntimeOp::FsRglob, span)
+                    .and_then(|matches| matches.into_iter().map(|bytes| PathValue::new(bytes).map(LoweredValue::Path))
+                        .collect::<Result<Vec<_>, _>>().map_err(|error| error.with_span(span)));
+                Ok(match found {
+                    Ok(paths) => lowered_result_ok(LoweredValue::List(paths)),
+                    Err(error) => lowered_result_err_value(error),
+                })
+            }
+            RuntimeOp::FsReadLines => Ok(match read_host_path_text(&self.host_path(&path), span) {
+                Ok(text) => lowered_result_ok(LoweredValue::List(text.lines().map(|line| LoweredValue::Str(line.into())).collect())),
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::FsWriteLines => {
+                let lines = lowered_str_list_arg(values.pop(), "Path.write_lines", span)?;
+                let mut data = Vec::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
+                for line in &lines {
+                    data.extend_from_slice(line.as_bytes());
+                    data.push(b'\n');
+                }
+                Ok(lowered_unit_result(fs_module::write_path(self.host_path(&path), &data, span)))
+            }
+            RuntimeOp::FsRemoveDir => Ok(lowered_unit_result(fs_module::remove_dir(self.host_path(&path), span))),
+            RuntimeOp::FsUnlink => Ok(lowered_unit_result(fs_module::unlink(self.host_path(&path), span))),
+            RuntimeOp::FsTouch => {
+                let create = lowered_bool_arg_or(values.pop(), true, "Path.touch", span)?;
+                Ok(lowered_unit_result(fs_module::touch_path(self.host_path(&path), create, span)))
+            }
+            RuntimeOp::FsTouchFrom => {
+                let reference = lowered_path_arg(values.pop().expect("checked value length"), "Path.touch_from", span)?;
+                Ok(lowered_unit_result(fs_module::touch_path_from(self.host_path(&path), &self.host_path(&reference), span)))
+            }
+            _ => Err(RuntimeError::new("unsupported-call", "unsupported native Path host operation").with_span(span)),
+        }
+    }
+
     fn eval_lowered_method_dispatch(
         &mut self,
         receiver: LoweredValue,
         name: &str,
-        mut values: Vec<LoweredValue>,
+        values: Vec<LoweredValue>,
         span: &Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if let LoweredValue::Path(path) = &receiver
-            && (name == "lines" || name == "bytes_lines")
-            && values.is_empty()
+        if matches!(&receiver, LoweredValue::Path(_))
+            && let Some(methods) = api_spec().method_overloads(crate::modules::MethodReceiver::Path, name)
+            && methods.iter().any(|method| !method.sig.pure)
         {
-            let result = self.path_lines_stream(path.clone(), name == "bytes_lines", *span);
-            let value = lowered_runtime_value(result, *span)?;
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(root) = &receiver
-            && (name == "glob" || name == "rglob")
-            && values.len() == 1
-        {
-            let Some(pattern) = lowered_str_value(&values[0]) else {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("{name} expected Str, found {}", values[0].type_name()),
-                )
-                .with_span(*span));
+            let Some((method, others)) = methods.split_first() else {
+                return Err(RuntimeError::new("unsupported-call", "Path host method has no registered native contract").with_span(*span));
             };
-            let found = super::expand_glob_below(
-                &self.host_path(root),
-                root,
-                pattern,
-                name == "rglob",
-                *span,
-            )
-            .and_then(|matches| {
-                matches
-                    .into_iter()
-                    .map(|bytes| PathValue::new(bytes).map(LoweredValue::Path))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| error.with_span(*span))
-            });
-            let value = match found {
-                Ok(paths) => lowered_result_ok(LoweredValue::List(paths)),
-                Err(error) => lowered_result_err_value(error),
-            };
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "read_lines"
-            && values.is_empty()
-        {
-            // `str::lines` is the split behind `Str.lines`, so this is
-            // `read_text()?.lines()` in one call.
-            let value = match read_host_path_text(&self.host_path(path), *span) {
-                Ok(text) => lowered_result_ok(LoweredValue::List(
-                    text.lines()
-                        .map(|line| LoweredValue::Str(line.into()))
-                        .collect(),
-                )),
-                Err(error) => lowered_result_err_value(error),
-            };
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "write_lines"
-            && values.len() == 1
-        {
-            let lines = lowered_str_list_arg(values.pop(), "Path.write_lines", *span)?;
-            let mut data = Vec::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
-            for line in &lines {
-                data.extend_from_slice(line.as_bytes());
-                data.push(b'\n');
+            if method.sig.pure
+                || method.sig.binding != crate::modules::signature::ImplBinding::Native
+                || !method.sig.effects.contains(&crate::syntax::node::Effect::Fs)
+                || !Self::lowered_module_op_executable(method.sig.op)
+                || others.iter().any(|other| other.sig.op != method.sig.op
+                    || other.sig.pure != method.sig.pure
+                    || other.sig.binding != method.sig.binding
+                    || other.sig.effects != method.sig.effects
+                    || other.sig.return_ty != method.sig.return_ty
+                    || other.sig.arg_check != method.sig.arg_check
+                    || other.sig.semantic_rule != method.sig.semantic_rule)
+            {
+                return Err(RuntimeError::new("unsupported-call", "Path host method overloads have no shared executable native contract").with_span(*span));
             }
-            // The same write as `Path.write`, so creation, replacement, mode,
-            // and failures cannot drift from it.
-            let value =
-                lowered_unit_result(fs_module::write_path(self.host_path(path), &data, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(source) = &receiver
-            && name == "copy"
-            && (values.len() == 1 || values.len() == 2)
-        {
-            let overwrite = lowered_bool_arg_or(values.get(1).cloned(), false, "Path.copy", *span)?;
-            let dest = lowered_path_arg(
-                values.first().cloned().expect("checked value length"),
-                "Path.copy",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::copy_file(
-                self.host_path(source),
-                self.host_path(&dest),
-                overwrite,
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(source) = &receiver
-            && name == "rename"
-            && (values.len() == 1 || values.len() == 2)
-        {
-            let overwrite =
-                lowered_bool_arg_or(values.get(1).cloned(), false, "Path.rename", *span)?;
-            let dest = lowered_path_arg(
-                values.first().cloned().expect("checked value length"),
-                "Path.rename",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::rename_path(
-                self.host_path(source),
-                self.host_path(&dest),
-                overwrite,
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "remove_dir"
-            && values.is_empty()
-        {
-            let value = lowered_unit_result(fs_module::remove_dir(self.host_path(path), *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "touch"
-            && values.len() <= 1
-        {
-            let create = lowered_bool_arg_or(values.first().cloned(), true, "Path.touch", *span)?;
-            let value =
-                lowered_unit_result(fs_module::touch_path(self.host_path(path), create, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "touch_from"
-            && values.len() == 1
-        {
-            let reference = lowered_path_arg(
-                values.first().cloned().expect("checked value length"),
-                "Path.touch_from",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::touch_path_from(
-                self.host_path(path),
-                &self.host_path(&reference),
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "truncate"
-            && values.len() == 1
-        {
-            let size = lowered_int_arg(values.pop(), "Path.truncate", *span)?;
-            let value =
-                lowered_unit_result(fs_module::truncate_path(self.host_path(path), size, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(source) = &receiver
-            && name == "hardlink"
-            && values.len() == 1
-        {
-            let path = lowered_path_arg(
-                values.pop().expect("checked value length"),
-                "Path.hardlink",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::hardlink(
-                self.host_path(source),
-                self.host_path(&path),
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "unlink"
-            && values.is_empty()
-        {
-            let value = lowered_unit_result(fs_module::unlink(self.host_path(path), *span));
-            return Ok(ControlFlow::Continue(value));
+            let mut arguments = Vec::with_capacity(values.len() + 1);
+            arguments.push(Some(receiver));
+            arguments.extend(values.into_iter().map(Some));
+            return self.eval_lowered_module_call_values(method.sig.op, NativeArgumentValues::new(arguments), *span, None);
         }
         if let LoweredValue::ProcessHandle(handle) = &receiver
             && name == "cancel"
@@ -8304,37 +8276,8 @@ impl Evaluator {
             };
             return Ok(ControlFlow::Continue(value));
         }
-        if name == "call"
-            && let Some((function, pure)) = match &receiver {
-                LoweredValue::Pure(function) => Some((*function, true)),
-                LoweredValue::Proc(function) => Some((*function, false)),
-                _ => None,
-            }
-        {
-            let args = values
-                .into_iter()
-                .map(LoweredValue::into_value)
-                .collect::<Vec<_>>();
-            let result = self
-                .call_lowered_function_value_with_values(function, pure, &args, *span)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "unresolved-call",
-                        format!(
-                            "method call target {} could not be lowered",
-                            function.display_name()
-                        ),
-                    )
-                    .with_span(*span)
-                })??;
-            let value = lowered_value_from_runtime_any(&result).ok_or_else(|| {
-                RuntimeError::new(
-                    "type-error",
-                    format!("method call returned unsupported {}", result.type_name()),
-                )
-                .with_span(*span)
-            })?;
-            return Ok(ControlFlow::Continue(value));
+        if name == "call" && matches!(receiver, LoweredValue::Callable(_)) {
+            return self.eval_lowered_callable_values(&receiver, values, *span).map(ControlFlow::Continue);
         }
         match receiver {
             LoweredValue::Stream(stream) if name == "collect" && values.is_empty() => {
@@ -8662,5 +8605,38 @@ mod stream_item_attribution_tests {
                 && error.kind == "division-by-zero"
                 && error.message == "division by zero"
         ));
+    }
+}
+
+#[cfg(test)]
+mod checked_storage_tests {
+    use super::*;
+
+    #[test]
+    fn module_storage_checks_captured_callable_signatures() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _symbols = owner.enter();
+        let name = Name::intern("item");
+        let function = crate::runtime::value::FunctionName::name(name);
+        let signature = |return_ty| crate::sema::types::CallableType {
+            params: Vec::new(), return_ty: Box::new(return_ty), effects: crate::sema::types::CallableEffects::unknown(),
+        };
+        let check = super::super::LoweredTypeCheck {
+            schema: None,
+            ty: Type::Module(Arc::new(crate::sema::types::ModuleType::open(BTreeMap::from([
+                (name, crate::sema::types::ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure, sig: signature(Type::Int), optional: false }),
+            ])))),
+            name: Arc::from("Service"),
+        };
+        let value = LoweredValue::Module(Arc::new(BTreeMap::from([
+            (Arc::from("item"), LoweredValue::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, function))),
+        ])));
+        let mut evaluator = Evaluator::new(Vec::new());
+        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { kind: CallableKind::Pure, sig: signature(Type::Int) });
+        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+        checked_storage_value(&evaluator, &value, &check, span).unwrap();
+        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { kind: CallableKind::Pure, sig: signature(Type::Str) });
+        let error = checked_storage_value(&evaluator, &value, &check, span).unwrap_err();
+        assert!(error.message.contains("mismatched export `item`"), "{}", error.message);
     }
 }

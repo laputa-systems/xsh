@@ -403,3 +403,54 @@ test test_private_proc_effects_module_helpers_use_declaring_module_identity { |c
   assert checked.status.exited_with(0), checked.stderr
   assert "[check." not in checked.stderr, checked.stderr
 }
+
+test test_private_proc_effects_reject_glob_without_filesystem_bound { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc paths() [] -> List[Path] { g"*" }
+""",
+  )?
+  assert !output.success
+  assert "[check.effect-violation]" in output.stderr, output.stderr
+  assert "fs" in output.stderr, output.stderr
+}
+
+test test_private_proc_effects_allow_glob_with_filesystem_bound { |ctx|
+  let root = test.temp_dir(ctx, name: "private-proc-glob-effect")?
+  fp"{root}/only.xsh".write("script")?
+  fp"{root}/other.txt".write("text")?
+  let output = test.run_xsh(
+    ctx,
+    f"""let root = p"{root}"
+proc paths() [fs] -> List[Path] {{ g"*" }}
+let matches = cd (root) {{ paths() }}?
+assert matches == [p"only.xsh", p"other.txt"]
+print "glob ok"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "glob ok\n"
+}
+
+test test_private_proc_effects_keep_glob_out_of_pure_code { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure paths() -> List[Path] { g"*" }
+""",
+  )?
+  assert !output.success
+  assert "[check.pure-effect]" in output.stderr, output.stderr
+  assert "glob expansion is not allowed in pure functions" in output.stderr, output.stderr
+}
+
+test test_private_proc_effects_propagate_glob_filesystem_requirement { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc paths() -> List[Path] { g"*" }
+proc caller() [] -> List[Path] { paths() }
+""",
+  )?
+  assert !output.success
+  assert "[check.effect-violation]" in output.stderr, output.stderr
+  assert "effect `fs` required by `paths`" in output.stderr, output.stderr
+}

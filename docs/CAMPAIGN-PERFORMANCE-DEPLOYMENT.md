@@ -1,8 +1,2000 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: active, 2026-10-17. The owner authorized bounded isolated edits,
+Status: paused 2026-10-24. The owner requested a clean stop, not campaign completion.
+
+## Resume
+
+Prompt: “Resume `full-inference-campaign.md` from the paused 2026-10-24 handoff.
+Keep bounded isolated edits, local commits/integration and owned offline Docker
+operations authorized; do not push.”
+
+First command:
+
+```sh
+git -C /home/josh/d/laputa-systems/xsh/.work/wt/full-inference-integration status --short --branch
+```
+
+Re-read current instructions, this handoff and the full-inference charter, then
+perform the parent steering checkpoint before dispatch. All previous agents have
+stopped. Do not restart the old queue or rebaseline unchanged inputs. Recreate
+only the checkout needed for the next parked item from its named branch.
+
+## State and evidence
+
+The integration branch is `campaign/full-inference-integration`. Executable code
+checkpoint `7187237f7` includes the completed in-flight slices below; later
+commits preserve documentation and recovery information. It is provisional.
+Local `master` remains clean at `c1237e3a6`; nothing was pushed. Its two
+master-only commits (`4f47f9ec7`, `c1237e3a6`) still need ancestry/diff review
+before combined qualification and eventual master integration.
+
+The latest complete library/native checkpoint remains `853b7c829`: **2,694 Rust
+library passes, zero failures, three ignored; 249 exact native cases pass in
+both normal and forced modes; all six API cases and documentation checks pass**.
+Its canonical bootstrap passes, but root integration stops at **197 passes,
+35 failures and one filter**. Later canonical stages and supplemental warnings
+do not run. The failed run stays failed.
+
+Completed repairs are integrated locally:
+
+- All fifteen failing network/TLS controls pass after six mocks declare the actual
+  `NetResponse` schema; seven native mock/schema cases also pass.
+- All ten annotation/signal policy controls pass. Public return hints use the
+  authored declaration visibility; only exit-calling hooks gain `process`.
+- Nine producer-proof controls and all five original map/stream/record integration
+  failures pass. Missing stream proofs share one bounded producer proof rather
+  than repeatedly scanning the program or resetting semantic budgets.
+- Ten procedure-body controls pass: actual checked fallthrough, empty/loop/if
+  bodies, command-valued bindings and data-only literal admission preserve
+  cleanup, physical type evidence and NoCompletion distinctions.
+- Guard value outputs pass sixteen focused controls; imported forwarding passes
+  eleven. Actual Null/present/Optional branches retain precision and physical
+  scope evidence without runtime inference. Seventeen API controls cover the
+  corresponding scoped input/effect/output display.
+- Independent guarded callable correspondence passes twelve controls, followed by
+  five checking parent-output binder propagation. Actual target origins and
+  owned binder packs are rebuilt through existing ranges; target rows remain
+  28 bytes and hot instruction/frame layouts remain 48/8 bytes.
+- Known nominal patterns pass four controls; generic predicate admission passes
+  six. They use the resolved family and existing Bool/Match proof, preserving
+  dynamic and leading-dot boundaries and List/Map indexing relationships.
+- The owned closed-record Null input repair passes strict execution on both
+  routes and its existing authority controls. The reviewed frozen selector
+  protocol passes eighteen Python tests.
+
+After integration, a pinned-image check on `7187237f7` passes these **four**
+exact tests, with no warnings: independent guarded target correspondence,
+discarded-output binder correspondence, exported guarded-handler execution
+after frontend/module disposal, and known-tag execution after disposal.
+This is the winddown integration check, not a whole-library or canonical run.
+SPEC generation was reconciled with its template; its registry inputs remain
+unchanged from the pinned `853` tools used for generation.
+
+All thirty-five canonical failures have focused primary-cause repairs; five
+stack failures were poisoned-lock followers. They still require a fresh
+combined canonical run. **The new combined source has not passed the complete
+library/native/canonical/performance/deployment boundary and is not eligible
+for a compiler-prefix merge to master.**
+
+## Direction and next delivery
+
+The limiting stage is the remaining functional relationships and their combined
+acceptance. Keep one owner for coupled Guard success/error/capture metadata.
+Independent pattern and splice work has useful evidence, but do not replace
+real input evidence with caller training, guessed types or annotation churn.
+Ordinary focused work uses the existing three disjoint Cargo slots (2 CPUs,
+2 jobs, 8 GiB each) and one native slot (2 CPUs, 4 GiB), with a 12 GiB host
+reserve. No manual idle-slot reservations or per-check approval barrier remains.
+A busy lease is unavailable evidence; wait for an actual completion, not a loop.
+Exclusive final/performance allocations remain unchanged.
+
+Finish the parked statement-scope and Proc/capture cases, then the fresh-record
+input relationship. Revisit the next concrete corpus boundary once those causes
+are closed. Perform the next steering checkpoint after that functional group
+and its matching corpus replay. Only then optimize the measured generalization
+map-copy growth; no performance result has been accepted on this source.
+
+## Open lanes: committed and parked
+
+| Branch and checkpoint | Finding and next step |
+|---|---|
+| `campaign/full-inference-statement-scope-completion-wip` — `51f2a0b18` | **Unverified replacement.** Ordinary false-mode `env` tails with `Result[Unit]` are promoted before the default no-value completion is established. The rejected owner-recheck design duplicated one guard into two and scanned whole sources repeatedly. It is removed from the parked working content. Review/test the one-pass typed tail-purpose replacement, preserve explicit nested Result data and written return goals, and require one actual guard plus exact cleanup/error behavior. Do not integrate this commit as a finished repair. |
+| `campaign/full-inference-guarded-requirements` — `e1afc3634` | Value-output checkpoints `56e774942` and `2e550e6fe` are integrated. The following observable fixtures are parked: typed reference passes both routes, inferred Proc fails at `let missing_result: Null = guarded.invoke(null, argument(4))?` with unresolved Optional output. Replay the two `*_guarded_observables_preserve_callback_results_errors_and_retained_values` tests, then extend actual ProcCompletion success/error contributions and captures. Do not default missing payload/error/effect variables. |
+| `campaign/full-inference-splice-relationships` — `56c0ea0fe` | **Whole branch parked.** The declaration-local List relationship, wrong-source/invariance negatives, cold producers and nonempty/authored-empty Int/Str executions pass. The unchanged fresh inline empty record test remains Full RED: `generic call argument has no closed checked type`. Trace actual sender `check_record_arena` field context using existing `contextual_record_fields`; never treat expected types as actual evidence. The valid reduced recipe publishes its splice-dependent scheme, then reaches separate `raw.get(...).require()` overload ambiguity. |
+
+These branches contain their witnesses and findings. Reapply only their new
+reviewed deltas onto current integration; their older ancestors include copies
+of already integrated work. Their checkouts were reclaimed. Code or plans needed
+to resume are committed; archived ignored data is evidence/cache, not its only
+copy. No current lane or launch is in flight.
+
+The reduced tour now passes checking after the known-tag/body repairs, but Full
+preparation reaches `generic module call disagrees with its selected registry
+signature`. That next boundary has not been diagnosed. The recipe `raw.get`
+overloads also remain unclassified; distinguish a real residual relationship
+from genuinely absent domain information before retaining another annotation.
+
+## Corpus reconstruction
+
+The next candidate retains **927** annotations and jointly removes **1,956**
+(**499 local + 1,457 internal**), with historical denominators unchanged. Site
+3209 retains the exact `ctx: context.Context` family selector; it adds seventeen
+bytes relative to the earlier 926 proposal. This is demonstrated semantic
+retention, not a new late enum-selection feature or fresh removal credit.
+The historical 926 replay on `853` passes all eleven original roots and twenty-one
+original runtime cases, then fails in the reduced view. No r2 parity credit exists.
+
+The committed generator reconstructs r2 without a disposable checkout or an
+untracked launch script. Run this only to reconstruct inputs, not as a parity gate:
+
+```sh
+R=/home/josh/d/laputa-systems/xsh/.work/wt/full-inference-integration
+X=/home/josh/d/laputa-systems/xsh
+L=/home/josh/d/laputa-systems/laputa
+S=$(mktemp -d "$R/.work/tmp/resume-r2.XXXXXX")
+mkdir -p "$S/archive/original/xsh" "$S/archive/original/laputa"
+git -C "$X" archive ddc17d3d53c819c343f9ecaa738ac67d59e9033a | tar -x -C "$S/archive/original/xsh"
+git -C "$L" archive ca658ce1da9d89c55209c25268dfdf687ff4fdc6 | tar -x -C "$S/archive/original/laputa"
+git -C "$R" show 15243e97f6fd751016ab28690ada2cadb6fc973a:dev/consolidation/typing-corpus/retained.tsv > "$S/accepted.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/cohort.py" "$S/archive/original" --reduced "$S/archive/reduced-1040" --retain "$S/accepted.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/apply_witness_fixture.py" "$S/archive/original/xsh" "$S/archive/reduced-1040/xsh"
+python3 -B "$R/dev/performance/corpus/frozen_witnesses.py" "$S/archive" --prepare-semantic-candidate > "$S/retained927.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/cohort.py" "$S/archive/original" --reduced "$S/reduced927" --retain "$S/retained927.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/validate.py" "$S/archive/original" "$S/reduced927" --retain "$S/retained927.tsv"
+```
+
+Expected validation: 927 retainers, 1,956 removals. Keep annotation-only erasure
+separate from source rewrites. Use the existing frozen `check_views.sh` owner,
+its complete runtime selectors and semantic interface/effect comparison on a
+named matching compiler before granting new corpus credit.
+
+## Cleanup and retained worktrees
+
+**312 of 316 XSH checkouts were removed normally; about 63 GiB was recovered.**
+No branch was deleted, no worktree was force-removed, and no ignored cache or
+failed-run record was blanket-deleted. Fifteen pre-existing dirty diagnostic,
+scheduler or draft checkouts were saved on separate parked refs before removal.
+Archived ignored payloads live under the common checkout's
+`.work/winddown/2026-10-24/worktrees/`.
+
+The [checkout recovery appendix](../dev/consolidation/winddown/evidence/20261024-worktrees.md)
+records every original path, original HEAD, protected source/recovery ref and
+archive path. Original retired paths in older records below are no longer live;
+use this appendix when reproducing an old path-bound receipt. Restore the exact
+original checkout and its selected archived payload before running such a receipt.
+Pre-existing dirty scheduler snapshots must be reconstructed from their original
+HEAD plus saved-ref difference, not relabeled as qualified new commits.
+The [unmerged-ref snapshot](../dev/consolidation/winddown/evidence/20261024-parked-branches.txt)
+names all 1,388 unmerged refs: master and the Pyramid baseline are distinct;
+other historical or parked refs are preserved without an integration claim.
+
+Only these XSH checkouts remain, all clean at audit:
+
+| Path under `/home/josh/d/laputa-systems/xsh` | Branch / HEAD | Concrete consumer |
+|---|---|---|
+| `.` | `master` / `c1237e3a6` | Main checkout; unchanged local baseline. |
+| `.work/wt/full-inference-integration` | `campaign/full-inference-integration` | Paused source, committed handoff and next implementation/qualification. |
+| `.work/wt/perf-baseline-r13` | detached `0dfebb001` | Existing release baseline products/receipts for remaining performance and scheduler gates. |
+| `.work/wt/pyramid-integration` | `campaign/pyramid-integration` / `c7b9b7b29` | Matching early Pyramid products and public-adapter comparison baseline for post-inference P0. |
+
+Sibling Laputa main remains clean at `f7da5b523`. Its isolated
+`.work/wt/pyramid-integration` (`9fa862cd7`) and `.work/wt/pyramid-cases`
+(`683050033`) also remain clean; their prepared cases and saved deployment
+inputs remain available. Winddown made no sibling source, live root or package
+store changes.
+
+## Not started or not accepted
+
+1. Finish the mandatory functional/corpus boundaries above and complete matching
+   combined regression/documentation qualification. Review master ancestry,
+   qualify the canonical/warning boundary, then integrate to local master.
+2. Run honest cold/scaling/memory/runtime measurements and repair the known
+   repeated generalization-map copying. The prepared 512-unit witness recorded
+   528,384 copied entries even for independently small scalar output; no timing
+   speedup or performance acceptance is claimed.
+3. Complete inherited normal/timed/forced/comparative/scheduler/resource gates,
+   followed by actual Laputa world and Asterinas acceptance on the qualified
+   source. Older boot artifacts bind older XSH and cannot be relabeled.
+4. Complete post-consolidation infrastructure cleanup. Reclaiming checkouts here
+   does not retire every superseded implementation/harness.
+5. Finish Pyramid after full inference is accepted/integrated and its cleanup
+   completes. Early isolated Pyramid correctness is not P0, world, VM or
+   performance acceptance. Keep existing Lean trust checks as maintenance;
+   they do not establish Rust compiler or native-code correspondence.
+
+The previously approved narrow `lsipc` reference-crash exceptions remain explicit
+XSH behavior tests without parity credit; winddown adds no exceptions.
+
+The owner owes no new decision to resume the existing bounded scope. Pushing,
+publishing, host installation and live-root changes remain outside the grant.
+
+## Verified winddown audit
+
+- All agents stopped; owned jobs and cleanup were consumed. No campaign cron
+  entry exists and no Cargo/rustc/kache/VM process remains.
+- Worktree prune/list, source-ref preservation and ignored-data inspection ran.
+  `.work/` is ignored through `.git/info/exclude` and resides on ext4, not tmpfs.
+- Four merged integration tests pass. Focused lane evidence is preserved above;
+  no whole-suite or new performance/deployment run occurred during winddown.
+- Resume command and the complete r2 reconstruction ran successfully under a
+  clean environment: 927 retainers, 1,956 removals. All 316 recovery records,
+  312 retired paths, three current parked source branches and all 1,388 unmerged
+  refs were checked against the repository and archive.
+- Installed Stop command and existing trust entries were reviewed. Interactive
+  `/hooks` is unavailable in this API session; the configured guard is exercised
+  directly instead. It correctly blocked unaccounted checkouts before allowances.
+  Final retained-checkout allowances passed: all four XSH checkouts are clean,
+  the guard accepted the three named non-main consumers, and its marker was
+  consumed. No branch deletion, forced checkout removal or push occurred.
+
+<details>
+<summary>Earlier campaign record (retired checkout paths)</summary>
+
+
+Status: winding down, 2026-10-24. Start no new items or launches.
+The owner authorized bounded isolated edits,
 local commits and integration, pinned fetches, and owned Docker/KVM operations.
 Pushing remains forbidden.
+
+The owner's 2026-10-21 direction authorizes incremental merges to `master`
+and removal of completed, integrated worktrees. Unfinished compiler work stays
+on `campaign/full-inference-integration`. Pushing remains forbidden.
+
+The owner's 2026-10-23 closeout order retains inference qualification, local
+`master` integration and cleanup before Pyramid closes. The subsequent request
+expands independent Pyramid implementation now, alongside inference, using five
+expert lanes initially. The repeated acceleration request now widens this to
+eight expert lanes plus the coordinator, retaining the shared three-build and
+single-native limits. Generic pipeline support has a separate expert so it
+does not wait behind pattern and record-constructor support. Independent checker repairs proceed while lowering owns
+their earlier prerequisites; ready reviews run alongside implementation.
+Approvals and next assignments use the follow-up operation that resumes idle
+lanes. Experts run focused checks within their assigned scope through the
+existing physical leases without a separate coordinator grant for each check.
+Each expert owns at most one job. The shared limits are three Cargo jobs and
+one native job. A busy lease is unavailable evidence, not a test failure;
+retry after an actual completion, without spinning. The coordinator reserves
+larger qualification waves and consumes their completions before resuming
+focused launches. Independent Laputa binder diagnosis, native qualification preparation and F6
+configuration preparation overlap the remaining compiler repairs. Matching
+product qualification starts from a coherent batch while later independent
+repairs continue on their own branches. Pyramid qualification still waits
+for the accepted inference source. Its isolated integration branch is
+`campaign/pyramid-integration`; no pushes are authorized.
+
+The latest complete library/native checkpoint is `853b7c829`, tree
+`5583df1d94c4023be35a26d3ab7e3b9f4d436fdf`. Its complete Rust library run
+passes 2,694 tests, with zero failures and three ignored tests. Matching
+verification products build without warnings. Strict native qualification
+passes all 249 selectors in both normal and forced modes, plus six API cases.
+Every previous 246-selector case remains selected; the three added cases cover
+conditional callback effects and inferred declaration effects. Source, product,
+roster and cleanup guards pass. These results qualify those boundaries; the
+canonical workspace boundary fails before a compiler-prefix merge.
+
+The matching canonical bootstrap passes. Its root integration group then stops
+at 197 passes, 35 failures and one filter; later stages and supplemental warnings
+do not run. Source guards and owned cleanup pass. Fifteen failures share mock
+responses whose empty headers lack a material schema. Fixture repair `2c14efd33`
+uses the runtime's actual `NetResponse` contract; all seven native mock/schema
+controls and all fifteen original network/TLS controls pass. Compiler products
+remain unchanged for those fixture-only checks. Other primary causes are two
+Map producer proofs, two Stream callable-slot proofs, one nested record producer
+proof, seven signal fixtures missing the required `process` permission, two obsolete
+Stream-omission assertions, and a lost public-return annotation hint. Five stack failures follow a poisoned test lock;
+they require replay after the primary record proof is repaired. These repairs
+and the next canonical run remain open.
+
+Signature repair `23b2b7281` is integrated after that checkpoint. All fifteen
+focused API controls pass. Guarded signatures now expose their own conditional
+domains and effects, and inherited callee bindings; nonguarded text remains
+unchanged. SPEC documents this diagnostic notation. Guard value-output rendering
+still waits for the corresponding core metadata. These later focused results do
+not qualify a changed compiler for the full canonical boundary.
+
+Guard requirements now execute imported rendering, Env preload, arithmetic,
+Path methods and closed records with opaque fields. Generic relays, repeated
+relays, and calls using local or ancestor guard binders execute on both routes
+after frontend disposal. Conditional callback effects flow from the actual
+local contribution through a parent-owned output; Null absence invokes nothing.
+Cold controls cover source, polarity, stale reads, post-guard writes, row data,
+sibling scopes, foreign callable packets and omitted effect contributions.
+Root binder requirements remain total. Conditional error propagation, value
+joins, captures, independent guarded callable correspondence and value-output
+signature rendering remain open. Those
+implementation classes are mandatory.
+
+Matching documentation checks pass, including SPEC examples, rejected programs,
+the user tour and the documentation project. The earlier duplicate splice
+diagnostic is repaired without weakening the fixed-arity restriction. The
+full Rust run also closes all fourteen failures from the previous `6c00aef63`
+run: recursive peer application scopes, checked finite effect contributions
+and pending guarded declaration effects. Earlier failed runs remain failed.
+
+The 926-retainer corpus proposal still has no new removal credit. On the
+matching source, all eleven original program roots and all twenty-one original
+runtime cases pass. The annotation-reduced XSH view then fails before reduced
+runtime or interface comparison. Primary causes are body eligibility in
+`tr.validate_classes` and `tour_html.xsh_html`, target-typed enum relationships
+in `docker.host_link_tools`, and effect publication in `cargo_steps.execute`.
+Separate experts own these classes. Nominal-selection proof `c508a13f6` shows
+that the Docker context annotation supplies otherwise absent enum-family meaning;
+two imported families can share a variant spelling. That annotation is a
+purposeful retention, rather than a missing residual enum-selection feature.
+The frozen denominators remain unchanged; the next joint proposal must retain
+this site and report its adjusted absolute count. The former original-view imported callable
+and compound Boolean guard failures are repaired. No annotation restoration or
+classification excludes a compiler defect.
+
+Matching early Pyramid source `c7b9b7b29` passes 64 focused Python controls,
+five exact event/selection CLI tests, and verification product builds. Its
+public PM adapter passes the schema-1 fresh/reuse/root case with clean Laputa
+source `6830500`: selected one, passed one, complete coverage, child status zero,
+no unresolved result. Actual package builds, dependency reuse, root inventory,
+ownership, links, payloads and cleanup are checked. Laputa's four prepared
+kernel-discovery cases also pass on both routes against earlier `abb1c8b82`
+products and are integrated into its isolated Pyramid branch at `9fa862c`.
+These early results establish neither post-inference P0 nor world, VM or
+performance acceptance. Pyramid qualification still waits for accepted inference
+integration and cleanup.
+
+Scaling preparation has identified repeated generalization map copies;
+implementation waits for settled guard contracts. Final canonical warnings,
+corpus/interface parity, performance and inherited Laputa world/Asterinas
+acceptance remain required. No mandatory item is waived.
+
+Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
+verification products. With the precise native-input correction `1c9694a3c`,
+normal and forced routes each pass all 197 selectors; six API selectors pass.
+This retains every prior selector and includes membership, record narrowing,
+bare Proc returns and conditional List data. Source, product and discovery
+guards pass. These products predate the UInt and guard-continuation changes;
+no native credit transfers to them.
+
+Immutable `f5c3baa91` passes the complete Rust library boundary: 2,516 passes,
+zero failures and three ignored tests. This combines membership with the
+Result/context and verifier repairs; all 19 failures from the earlier combined
+run are closed. The source remains clean in
+`.work/wt/full-inference-membership-wave-qualification/`, with the observed
+terminal in `.work/tmp/membership-wave-full-library-r2.log`.
+Immutable `c7617a979` passes the exact canonical workspace warning gate through
+the pinned launcher. That earlier warning result does not qualify later code;
+the final combined warning and acceptance boundaries remain required.
+
+Immutable `4de7c99e4a518a2bf685860fe110d385aebe17ee` passes six combined
+regression controls and builds matching verification products. With the reviewed
+three-line fixture-only input repair `a9d52d29d`, strict normal and forced native
+routes each pass 184 selectors in 22 batches; source/list rosters agree on all
+161 primary-family declarations. Six API selectors pass. These products predate
+Null and the final aggregate stages, so no native credit transfers to that later
+code. Logs and products remain in
+`.work/wt/full-inference-regression-wave-qualification/`.
+
+The next semantic corpus proposal retains 926 annotations and proposes 1,957
+removals: 499 of 693 locals and 1,458 of 2,190 internal sites. It erases 719
+historical Proc restrictions and all 202 eligible effects jointly, while restoring
+four verified WC return-meaning selectors. Historical 1,040-site evidence,
+denominators and source views stay unchanged. Matching interface attempts have
+not qualified: normalized original paths may label candidate byte overrides,
+and cascaded reports are not independent causes. A local `List[Str]` comparison
+false rejection is repaired; the WC probe advances through record guards and
+intrinsic UInt arithmetic to fresh comprehension argument evidence. No new removal credit is
+awarded.
+
+Immutable `374872034` builds matching verification products. With the reviewed
+fixture-only input repairs `05d5cc223` and `a4896a076`, normal and forced native
+routes each pass 191 selectors in 25 batches, including all aggregate stages,
+Null arguments and public-name controls. All 163 primary-family declarations
+are discovered. Its six API selectors also pass. These products predate the
+membership and subsequent corpus repairs; no native credit transfers to them.
+
+The earlier `4c8d0d323` Laputa discovery failure is superseded by the matching
+`abb1c8b82` four-control result above. Pyramid closure still follows inference
+acceptance, local master integration and completed-worktree cleanup.
+
+The 2026-10-24 acceleration changes ordinary Cargo capacity from two to three
+disjoint outputs. Nineteen lease controls pass, including fourth-build rejection,
+same-output exclusion, signal cleanup and exclusive-final exclusion. Activation
+held the old exclusive Cargo lease until both helper revisions matched; no old
+Cargo holder survived the protocol change. Three 8-GiB builds plus a 4-GiB
+native lane preserve the 12-GiB host reserve. This supersedes the earlier
+two-build iteration limit; it changes no final-gate allocation.
+
+Physical limits are three ordinary Cargo jobs and one native job. Canonical
+12-CPU/24-GiB gates run alone; timing windows require readiness on both sides
+and exclude competing work. All pushes remain forbidden.
+
+F6 preparation adds six raw counters and four named-constructor workload
+shapes without changing the previous eight families or census denominators.
+Initial preparation passed 31 of 32 new annotation variants; the required
+inferred size-512 case exceeded the existing materialization work bound.
+The reviewed validate-once substitution repair is now integrated at
+`69ac216f1`: the unchanged size-512 program and all 512 assertions pass strict
+normal and forced execution, alongside unused-binder and resource negatives.
+Complete F6 scaling and timing qualification remain pending. Raw binder-clone
+counts are 8,704, 33,792, 133,120 and 528,384 at sizes 64, 128, 256 and 512.
+These counts are not timing results or F6 acceptance; the substitution repair
+does not establish a bound on the separate cloning cost. Nine canonical
+counter inputs on `cc79637f3` have zero diagnostics. A valid scalar-output size-512
+control retains the same 528,384 binder clones with only 16,008 output/evidence
+nodes, separating whole-scope copying from aggregate result size. This is a
+source-bound work diagnosis, not a timing result or F6 acceptance.
+
+The previous `50f4552aa` product boundary passes six API selectors. Each native
+route runs 161 cases: 159 pass and two fixture defects fail. The corrected
+constructor calls and key-domain cleanup expectations each pass against those
+unchanged products on both routes. Both historical views pass all eleven roots
+and twenty-one runtime selectors, then interface qualification fails with 23
+header and 213 body reports. These repeat entry contexts and award no new
+removal credit. Failed runs remain failed; later changes need matching products.
+
+Remaining expert work is grouped by shared relationships: native FsRoot and JSON
+calls, Each/Tee and the other uncovered stage families, imported declarations and
+generic exports, constructor call-result provenance, and scoped schema interface
+comparison. FsRoot runtime checks can now consume the accepted binding repair.
+The coordinator runs one combined qualification job while the other Cargo slot
+serves focused checks. Preparation and independent review overlap these jobs;
+physical two-Cargo/one-native limits and exclusive timing gates remain unchanged.
+
+Frozen combined source `733745c5c`, tree
+`da1b374f851a2e5332e29229b03bb0522e306917`, passes the full Rust library boundary:
+2,298 pass, zero fail and three remain ignored. Its matching warning-free
+products pass all 145 capability selectors in normal and forced-frame modes,
+plus six API selectors. All eleven historical roots and twenty-one exact
+selectors pass in both views. Interface qualification then fails with 498
+entry-context reports. These are repeated diagnostics, not 498 independent
+causes. They include a confirmed structural-schema comparison false proxy
+and genuine unsigned/schema meaning changes. No new removal credit is awarded.
+Products and logs remain in `.work/wt/full-inference-body-wave-qualification/`
+and `.work/wt/full-inference-body-library-qualification/`.
+
+Provisional combined source `c0e6e773fde352d12abd261643d260ddee1cbf31`, tree
+`835823f555ce9a2732870d1097813e66af45bcfb`, additionally integrates the reviewed
+constructor-finalization, structural-interface comparison, nested Result source,
+known pipeline-item, fold/reduce and keyed/parallel callback repairs. Independent
+integration review finds no merge defect. Its warning-free products build and
+its full Rust library boundary passes: 2,343 pass, zero fail and three remain
+ignored. Source and cleanup guards pass. Products and logs remain in the
+separate immutable `.work/wt/full-inference-six-{wave,library}-qualification/`
+checkouts. XSH is 42,735,592 bytes, SHA-256
+`0a4141329935f84d6c926bae9eea5fe41ca318681f5261b81660cc48346ba8d6`;
+XSHT is 51,086,544 bytes, SHA-256
+`1bf9029bc0ed30d574d8a6035af70def929a313ed8ecdfdba75c29e82a71d5af`.
+All six API selectors pass. The historical replay again reaches interface
+qualification after both views' roots and exact runtime selectors; qualification
+still fails. Header contract reports fall from 116 to 43 and body reports from
+373 to 303 on this same cohort; these are repeated contexts, not independent
+causes or removal credit. The comparison-only local-validation repair and
+classification of actual meaning selectors remain open.
+
+Normal and forced native qualification stop before execution: the source has
+146 family cases but discovery lists 142. The four missing cases belong to one
+new pipeline-input fixture using two removed `.contains(...)` calls. Its owner
+is repairing canonical membership syntax and the actual diagnostic prefix.
+This failed roster check earns no native credit. The intended boundary retains
+the full family and legacy/API selectors and adds the callback, fold, keyed,
+parallel and pattern fixtures plus the changed negative-index case. Fixture-only
+repairs may reuse these products only after compiler-input equivalence is proved;
+no formatter or autofixer is run. The real current Laputa `pm.make` import still
+fails its unique-temporary-binding guard with these products and is under an
+actual owner/slot trace, without a guard relaxation.
+
+Reviewed follow-ons integrate canonical SortKey/CountKey predicates, proven
+local structural comparison and canonical wire-enum schema comparison. Their
+focused checks pass; matching combined-product qualification remains pending.
+Pipeline fixtures now use one shared semantic companion each, with ordinary
+native wrappers and the same Rust frontend-disposal checks. Original assertions,
+pulls, counters, errors and cleanup stay intact. The separate callback fixture
+repair passes actual native execution once per route with the c0e6 products.
+The failed earlier native roster runs remain failed evidence.
+
+Comprehension repair `c99ae7ba2`, integrated as `c4681acce`, derives actual item
+types from lexical empty-list storage and its complete append-writer census.
+All six final focused controls pass, with independent review. The exact current
+Laputa `pm.make` import now prepares and verifies; inferred and annotated minimal
+programs execute on both routes. This is not world, boot or final-source credit.
+Three pre-existing ground-IR admission limits remain recorded in XSH-22, assumed
+priority P3; the repair does not claim universal field/iterable verification.
+
+Open expert work covers nullable-target arguments, scoped parametric constructor
+schemas, collection-expression bodies, remaining pipeline families and callable
+aliases. Result error widening and closed-record/open-row comparison require
+canonical relation evidence; bare Error callable restrictions remain distinct.
+The canonical application, scheme and execution authorities remain mandatory.
+Pyramid caller fix `9614fc7c5` is integrated as `257c285b3`: read-only canonical
+Full closure validation precedes replay Docker operations. Fifty-two Python and
+three focused native controls pass. Manual Full authority and receipt readers
+remain unchanged. Pyramid P0 still waits for accepted full inference.
+
+Earlier return-repair source `ae7128949` integrates the strict process-word,
+boxed Null-return and pure conditional Result-tail repairs. Focused checks
+pass, including both execution routes and cold producer mutations. The exact
+historical `dev/main` module now prepares and verifies. No additional annotation
+removals receive credit until the complete paired corpus boundary passes.
+
+Matching products for frozen `d8d1dc1cf` complete their build without warnings.
+Normal and forced-frame capability runs each pass 143 of 144 exact selectors.
+Both failures are the obsolete Null-return rejection and its exposed lowering
+defect, repaired in `cfdb67eca`. All six API selectors pass. The complete
+historical replay stops at the conditional Result-tail defect in `dev/main`,
+repaired in `ae7128949`. These failed runs remain failed qualification evidence.
+Logs and products remain in `.work/wt/full-inference-calendar-product-qualification/.work/`.
+
+Matching source `ae7128949`, tree `ebc36708681add9e4b751a75e26bbfd5da41efdf`,
+builds XSH, XSHT and XSHI without warnings. All 144 capability selectors pass
+in each normal and forced-frame mode. All six API selectors pass. The runner
+checks the exact listed and executed family roster in one container, then runs
+the eight legacy selectors individually. No required selector is removed.
+Products and native logs remain in `.work/wt/full-inference-return-wave-qualification/.work/`.
+
+Its historical paired replay passes all eleven roots in both views and all
+twenty-one original selectors. The reduced cut boundary then fails at
+`test_cut_keeps_adjacent_range_boundaries`: a negative list index fails inside
+a guarded condition. Interface qualification does not run. This runtime
+defect has a dedicated owner and blocks corpus credit. Its log is
+`.work/wt/full-inference-effect-corpus/.work/tmp/frozen-return-wave-replay-r2.log`.
+The remaining twenty reduced selectors pass a bounded diagnostic replay with
+matching source, products and input guards. That replay isolates the observed
+runtime failure. It supplies no full paired or interface qualification credit.
+
+Optional argument conversion, pattern-body support and pipeline-body support
+continue independently while the cut regression is repaired.
+Pyramid experts finish mixed execution, byte-safe input tracking and stale
+result reporting in separate worktrees. Product preparation overlaps source
+work, under the existing two-Cargo and single-native limits. Qualification
+still requires matching source, products and complete applicable checks.
+
+Earlier provisional inference source `a1fa6bcb2` integrates scoped mutable argument
+proofs, deferred sort-key checks, closed Null returns and pure-return validation.
+Focused controls pass. The actual historical system-report checker goes from
+two sort errors to zero. The mutable argument repair passes twelve controls
+plus strengthened writer positives. The `wc` boundary now authenticates the
+exact ground callee's physical UInt parameter validation while proving the
+caller's actual stored type and all writers. Sixteen focused controls pass,
+including signed runtime rejection, missing/wrong guards, forged initializers
+and charged validation of a wide cached source. Pure Str/Error joins now fail
+during checking, while typed Str results and nominal errors remain valid.
+The shared Optional return relation now accepts a payload or Null under its
+matching Optional scheme while rejecting foreign binders. Arithmetic call
+arguments derive evidence from their physical operands through the existing
+producer proof. Its twelve focused controls pass; the exact historical gates
+and internal modules prepare and verify; the exact historical `wc` module also
+prepares and verifies. The shared Result return relation now preserves symbolic
+success binders while applying existing error-family widening; ten focused
+controls and independent review pass. A scoped integer producer bridge reuses
+the already verified same-owner arithmetic result, with fifteen focused
+controls. The exact historical date-parser module now fully prepares and
+verifies. Broader joint corpus checks remain open.
+
+List compound assignment now relates an unresolved target to a known List
+right operand through the existing constraints. Eight focused controls pass,
+including both execution routes and retained unsigned checks. On the actual
+broader system-report candidate, all compound-operator errors disappear; five
+generic-body eligibility errors remain. Those identify missing nominal variant
+producer evidence and are not a module pass or new removal credit.
+
+Matching verification products for frozen `a1fa6bcb2`, tree
+`ec65b4deec4eadffc83d062e11bae93609c0ea20`, complete their build in
+`.work/wt/full-inference-historical-product-qualification/`.
+Its historical replay fails before qualification. Later repairs and the next
+matching replay supersede that failed attempt without erasing its evidence.
+
+Frozen source `f1a8e1a4c`, tree
+`faba8d431c89c211076b5e8155ff21b2ba280b91`, passes the complete library command:
+2,235 passes, zero failures and three ignores. The owned command exits 0 and
+cleanup completes. The source stays clean. Its log is
+`.work/wt/full-inference-arithmetic-library-qualification/.work/tmp/arithmetic-full-library.log`.
+This source includes Optional and arithmetic-argument repairs, and excludes
+the later `wc` proof change. Matching-product native and corpus qualification
+remain pending.
+
+Frozen source `bdb9b165b` completes the full library command with 2,232 passes,
+one failure and three ignores; the command exits 101. The sole failure expects
+Null data returns to remain rejected, contrary to the campaign's explicit
+return rule. Correction `4b4e4cf57` replaces that obsolete expectation with
+typed Null calls, retaining its other rejection controls; the exact test passes.
+The failed full run remains evidence, not a successful full-library gate.
+Its log is
+`.work/wt/full-inference-domain-library-qualification/.work/tmp/domain-full-library.log`.
+
+Matching `bdb9b165b` verification products build without warnings. The Null,
+deferred-sort and two pure-return selectors each pass once in normal and
+forced-frame modes: eight passes, zero failures or skips. Matching products and
+native logs are under
+`.work/wt/full-inference-domain-product-qualification/.work/`.
+These products exclude the later Optional and arithmetic repairs. The XSH
+product is 42,455,328 bytes; XSHT is 50,810,944 bytes. No speedup is claimed.
+
+Frozen source `a6178b9f5` has matching warning-free verification products.
+Its new Null-return native selector passes once in each normal and forced-frame
+mode, with zero skips. Logs and products are under
+`.work/wt/full-inference-null-pattern-qualification/.work/`.
+This earlier source excludes the later sort, mutable-writer and pure-return
+repairs and supplies no qualification credit for them.
+
+The earlier full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
+zero fail, and three remain ignored. Matching XSH and XSHT verification products
+build without warnings. The source tree is
+`d39903e9fe794a7fd811da1fd3c8a26c83290e36`. The full-library log is
+`.work/wt/full-inference-integration/.work/tmp/parameter-context-full-library.log`;
+matching build and products are in
+`.work/wt/full-inference-parameter-context-qualification/.work/`.
+
+The XSH product is 42,430,688 bytes with SHA-256
+`2cdbaa455fa16693fded208c7e7185ecdbe698681a592255e601d45f73c8f9da`.
+The XSHT product is 50,785,576 bytes with SHA-256
+`ac69cff66fa4f12054f0ad831b873c26a5089aa08bd7ced2687e8b722252e713`.
+Normal and forced-frame capability runs each pass all 143 selectors with zero
+failures or skips; the preceding 140-selector boundary is retained. All six API
+catalog selectors pass. Their logs and detail directories are under that
+checkout's `.work/tmp/parameter-context-native-{normal,forced,api}`. These
+results establish this capability boundary, not corpus or final qualification.
+
+The original corpus passes the require-target check. Ground RecordUpdate
+repair `3d62c73c2`, integrated as `b1c26aeb3`, proves the actual base and every
+replacement against existing field paths. Eight focused controls pass and
+independent review is clear. Nominal-field repair `a589a1583`, integrated as
+`c637b226e`, preserves exact source Tag identities through checked fields and
+charges the complete source-type validation. All twelve focused checks pass,
+including cold preparation of the complete original system-report module.
+Independent review is clear. Runtime corpus qualification remains open. The
+historical 1,040-removal cohort alone also fails on the preceding `f87c6d69a`
+products with seven diagnostics: one list splice, one arithmetic generalization,
+two sort keys and three cold generic-argument builds. Additional Proc/effect
+erasures are not needed to reproduce those seven failures. Their raw log is
+`.work/wt/full-inference-effect-corpus/.work/tmp/frozen-joint-f87c6d69-historical1843-utility9-diagnostic.log`.
+The list-splice fix `70ee168f6`, integrated as `efa83632e`, resolves the canonical
+inferred operand shape before enforcing List-only splicing. Six controls pass,
+including Result/Stream rejection; independent review is clear. Other causes
+are under investigation. This later repair needs broader combined qualification.
+
+The preceding frozen source `4fafeefbb` has 2,193 library passes, six failures
+and three ignores. Its matching system-report selector also fails before its
+body with missing ground index receiver evidence. Preserve its logs under
+`.work/wt/full-inference-qualified-uint/.work/tmp/`; it carries no runtime or
+joint-corpus credit.
+
+Repairs `39eca66cd`, `be4a6fe93` and `addf396ac` close those six failures.
+The first skips receiver work only when the declared error channel already
+accepts Error. The latter two preserve verified selected/forwarded index
+bindings and prefer the existing scoped Optional narrowing proof before
+structural initializer work. Independent reviews are clear. Combined source
+`c8384fe30` first passed thirteen focused controls; the full-library run above
+also includes the typed callback repair. Deterministic proof limits and unsafe
+UInt-to-Str rejection remain unchanged.
+
+The previous combined replay uses source `2da01f69b` and completes the full Rust library run:
+2,183 pass, one fails, and three remain ignored. Its log is
+`.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-full-library.log`.
+Its sole failure is the UInt-map error-contract control. The earlier
+`e80adaf31` run has four failures. All three other failures now pass on the
+combined source. These results do not qualify the compiler.
+
+At `2da01f69b`, matching verification products build without warnings. Normal and forced-frame
+native capability runs each pass all 143 selectors with no skips. Each run
+retains the earlier 140-selector boundary and adds three Proc-capture cases.
+All six API catalog selectors pass. Logs are under
+`.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-native-{normal,forced,api}`.
+The `xsh` product is 42,098,456 bytes with SHA-256
+`c6a6ffa4eeb8c81c95cc45237037bd6a29b280239684a908e6068c4e6a39aeed`.
+The `xsht` product is 50,484,864 bytes with SHA-256
+`a5b5c22a919a62a519470b37e1a38092a82e2949af6e88ba6530460d76923f48`.
+These are capability and API results, not full canonical or performance acceptance.
+
+UInt repair `8b4cfd5be` and follow-up `a433792b3` are integrated as `5e6778bce`
+and `c9f5abbc2`. The final focused group passes all fifteen controls, including
+the former library failure, stored-call captures, conditional Proc completion,
+and original completion-source mutations. Independent review is clear.
+Callee boundaries remain authoritative: caller capture cannot permit a Schema
+error under a Str contract. Local completion evidence retains actual producers
+and conditional operation references. The function-owned verifier rejects a
+TopLevel boundary; its source invariant is reviewed, without mutation coverage
+credit. Combined library and matching-product qualification remain open.
+
+The earlier failures are the UInt-map error-contract control, two cross-output
+scheme pointer assertions, and a lost callback argument relationship in a
+generic Proc call. Constructor error defaults close correctly. The application
+solver failed to revisit the callback relationship after that closure.
+Repair `2d123efa6`, integrated as `516b522ef`, retains pending argument
+constraints and passes five focused controls, including the original failure.
+It preserves selected argument layouts, diagnostics and transaction rollback.
+
+Published outputs intentionally rebase schemes into fresh owners. Test repair
+`027c585cd`, integrated as `67c1ffd1e`, replaces the two pointer assertions
+with complete contract comparisons and passes five publication controls.
+Cached-source identity checks remain unchanged. The UInt repair must preserve
+callee capture boundaries through direct and materialized calls. A caller's
+outer `try` must not permit a callee to publish a Schema error under `Str`.
+The combined library run includes both repairs.
+
+Contextual-list repair `6c021dfcb`, integrated as `4832662a5`, and producer
+repair `e80adaf31` have clear independent source reviews. Producer proof reuses
+the shared owned Expression-fact query. Uniform native method effects remain
+independently checked. Receiver-dependent methods retain their selected effect
+proof. Immutable imported captures retain their actual binding and export
+identity. Combined products, native replay, corpus parity and final gates remain
+open. Tooling repair `d7ab77545`, integrated as `81894a393`, retains the
+published callable-relationship context in `CheckOutput` contract views.
+Comparison memoizes completed relationship pairs. Rendering expands each
+relationship once and uses local labels for later references. Nine XSH library
+controls and two XSHT comparison controls pass. Independent comparison review
+and parent rendering review are clear. `docs/XSHT.md` documents the new
+declaration accessor and diagnostic labels.
+
+Materialized callable repair `2675cfb92`, integrated as `dce4fed2c`, passes
+twelve focused controls and the unchanged pure-forwarding regression. Named
+references retain actual value-instantiation proof, pending application
+relationships forward until settled, and independently supported inputs establish
+dependent callback binders. Runtime controls execute nested Results on both
+routes after frontend disposal. Cold ownership, target, substitution, cycle,
+Null, Any and phantom-binder mutations reject. Independent review is clear.
+The corrected forwarding proof closes the original pure-forwarder provenance
+failure through existing application evidence. This integration needs a combined replay.
+Selected-callback repair `5bc6d5a6d`, integrated as `25cbdb225`, passes three
+focused controls and independent review. It preserves exact left/right stream
+projections for same-signature callbacks, finite known-target unions, mixed
+unknown forwarding and imported stream aliases. Selection uses the actual
+settled layout and unique formal identities, without signature matching.
+Typed-argument follow-up `7a1bd555d`, integrated as `08323a734`, passes five
+focused controls, including local and imported explicit argument types. Both
+new controls fail on the preceding source and pass after the repair. Exact
+source/formal binding identities preserve their stream projections; immutable
+lookup maps share storage across checker probes. Independent review is clear.
+Rest follow-up `387fd3207`, integrated as `80634fd4f`, passes six focused
+checker controls. It preserves exact ordinary-rest and list-splice projections
+through the settled argument layout and actual AST bindings. Independent review
+is clear. Cold index repair `1b9cbc8fd`, integrated as `8c28d61d3`, derives the
+field receiver from the existing checked index-result proof; its six controls
+pass and independent review is clear. The combined source passes three focused
+controls, including a new frontend-disposed runtime case for both rest forms
+and both left/right targets on both execution routes. Its log is
+`.work/wt/full-inference-integration/.work/tmp/combined-rest-runtime3.log`.
+These later repairs still need broader combined qualification.
+From-end follow-up `44ce19b10`, integrated as `0fe66fc5d`, uses the same
+existing proof for `rows[-1].field`. Six controls pass, including distinct
+first/last values on both routes. Default-origin repair `58374d818`, integrated
+as `22f34e420`, uses only the exact selected target's checked defaults for
+omitted slots. Eight controls pass, including direct-call parity and both-route
+execution after frontend disposal. Both repairs have clear independent reviews.
+The combined default/rest/from-end group passes all five controls in
+`.work/wt/full-inference-integration/.work/tmp/combined-callback-default-rest5.log`.
+The pristine system-report fixture exposed a separate record-field proof
+failure before execution. Repair `e385c1fb7`, integrated as `464ad3c27`, reuses
+the existing structural initializer proof beneath an actual complete storage
+check and proves each conditional record branch. Both new regressions and
+seven existing controls pass; independent review is clear. The original test
+module passes static preparation. Matching-product runtime evidence follows.
+The orchestration test is included as test-only integration `f6642254c`. Its
+exact selector passes with the frozen `f87c6d69a` products: one selected, one
+pass, zero skips. All six API catalog selectors also pass with those products.
+Corpus extraction repair `fbe597d4a`, integrated as `3a21d10e0`, reproduces
+both accepted view digests inside Docker. Root tar extraction had restored
+0664/0775 modes; explicit umask 022 and `--no-same-permissions` retain the
+accepted modes, including inherited setgid directories. The existing adapter
+regression fails under umask 077 before the fix and passes afterward. No digest
+guard changed.
+
+The full 21-selector replay reaches original-root checks and the first nine
+utility selectors, then fails while loading the first system-report test
+module at `fallback.target.require()`. It has no reduced-view or parity credit.
+Parameter-context repair `d9d43aecd`, integrated as `3b9bac2ea`, retains the
+selected parameter's structural schema context, preserving actual nominal and
+rest-item schemas. All six controls pass, including Any/callable/unresolved
+target rejections and nominal-instance retention. Independent review is clear;
+the matching-product replay passes that typing boundary but stops at the
+separate RecordUpdate proof gap described above.
+
+A nine-utility diagnostic reaches the jointly reduced ten-XSH-root check and
+fails with 1,501 diagnostics. These are not independent causes. One source-backed
+class is deliberate Proc return semantics: 39 of the 758 candidate Proc sites
+are written plain returns. Charter section 7 gives their erased value bodies a
+Result envelope. Site 2061's plain `collectors.SourceRead` return and site 111's
+`Input` return demonstrate that the annotations preserve meaning. A new
+scratch-only diagnostic retains these 39 original rows and still erases 719
+Proc annotations and all 202 effects jointly: 922 retained rows and 921
+additional candidate erasures. Its tables and source views validate, but no
+new removal or parity credit is accepted. Source resolution confirms that all
+39 selected return types have plain outer shapes, including the misleadingly
+named `InputResult` record. The class probe removes the site-2061 caller field
+failures, but the reduced ten-root check still fails with 765 diagnostics.
+Leading examples include `date_parse.multiply` generalization and wrapper
+fallback relationships. The historical 1,040-only cohort must be checked on
+the same compiler to distinguish regressions from additional-erasure causes;
+diagnostic totals are not independent failure counts.
+
+Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
+`facda4a85`, passes one focused regression with both execution routes.
+Terminal deferred actions retain Unit completion; assertion messages run only
+on failure, and Int/Str instantiations preserve exact failure payloads. Cold
+mutations of condition/message contracts and Error permission reject.
+Independent source review is clear. This closes the demonstrated ordinary-body
+omissions; combined library/native and remaining capability qualification stay
+open.
+
+Frozen corpus adapter repair `19132f32b`, integrated as `4fb050b06`, allows
+selected historical Proc erasures with either zero or all 202 private effect
+clauses erased. Partial effect groups, foreign sites and changed retained
+reasons reject. Fifteen frozen-witness tests and two existing adapter controls
+pass; shell syntax and diff checks pass. No annotations were removed and no
+new corpus equivalence result is claimed. Product-bound corpus runs wait for
+the combined compiler.
+
+Aggregate callable storage at `ffeb2a0c9` and sharing correction `40fd5264f`,
+integrated through `c75deec72`, passes eleven focused controls. The private
+value-evidence contract now carries owned structural conversions; mutable
+record fields retain one monotype, while independent fields and opaque generic
+siblings preserve their contracts. Actual source paths, target substitutions,
+mutable writers and complete evidence ownership remain cold-verified.
+Missing/foreign/shared evidence, changed signatures and noncanonical facts
+reject. Both execution routes retain invocation bindings, and unchanged shared
+containers keep their storage. Independent source reviews are clear. Combined
+source `a7900d1f1` passes 26 focused aggregate, ownership, Path, TempDir, tail
+and defer controls with no failures or ignored tests. Matching verification
+products build successfully at `96a932e04`, including the XSHT static API
+catalog consumer. The catalog rejects owned callable relationships because
+its registry signatures cannot contain them. Matching normal and forced native
+runs each execute 138 selectors: 124 pass, fourteen fail, and none skip. Their
+failure sets match. Against `b5989a1e7`, compatible callable selection now
+passes, while two formerly passing imported-module selectors fail with
+`checked try producer is missing its operand type`. The missing evidence lies
+between `module.get(...)` and its outer propagation. Six API catalog selectors
+fail before execution because successful assertions do not establish non-null
+authority in the ground producer proof. Both gaps require repair. These results
+do not qualify the combined compiler. Test-only import and helper scoping at
+`27aed9509` follows the product freeze and awaits a production rebuild.
+The TempDir native fixture itself used invalid bare field syntax in its two
+print statements. Adding the required `$` preserves every assertion and the
+expected output. Its extracted program passes with the same `96a932e04`
+verification binary in the pinned offline container, printing exactly `5` and
+`2`. A complete newer native boundary has not yet run.
+
+Assertion proof repair `8632f9d4a`, integrated as `ef9a942ad`, passes two
+focused controls with independent review clear. Successful assertions now
+contribute their actual expression condition to the existing charged guard
+census. The unchanged API helper executes on both routes. Mandatory
+typed-callable proof rejects a foreign binding and an assertion moved after
+its read. Writes still invalidate checker narrowing. Primitive checked reads
+can remain valid through runtime validation and are not rejection controls for
+this invariant. Matching verification products and the API selectors still
+require replay.
+
+Callable ownership repair `2b107877a`, integrated as `b4175a43d`, passes all
+thirteen focused callable-value controls with independent source review clear.
+Checked nested signatures rebase into the final owner, and module `get`
+retains the actual Result success contract through propagation. Both execution
+routes preserve prepared relationships after frontend disposal. Publication
+rejects foreign programs, instantiated values regaining quantified authority,
+and a real two-target relationship whose visible identity disagrees with its
+prepared function. Matching combined products and native regression replay
+remain pending.
+
+Constructor error inference repair `2ed526d67`, integrated as `c69597e25`,
+passes four initial controls, three existing wrapper controls, and eleven
+expanded controls with independent source review clear. Constructor-owned
+phantom error cells wait for all invocation arguments; declaration closure
+preserves input-supported relationships. Bare `Ok` retains its `Error`
+default. Rejected calls roll back bindings and close argument checkpoints.
+No runtime evidence or solver is added. Matching native qualification remains
+open; the SPEC template records the behavior and awaits combined generation.
+
+Callable-list repair `41452fb0c`, integrated as `db81ac347`, passes six
+focused controls. The checker joins actual target families, and list producer
+proof preserves the exact physical target union while authenticating each
+child's own contract. Duplicates, aliases and contextual empty branches work
+on both execution routes. Canonical foreign children, forged references,
+erased members and extra parent targets reject. Parent source review is clear;
+matching native replay remains pending.
+
+Proc completion and effect repair `b4664014b` plus `b44499d01`, integrated
+through `911fd9bb7`, passes twelve focused controls with independent review
+clear. Owned completion groups distinguish synthetic lifts, original Results
+and callback application returns. Symbolic data instantiated with a Result
+remains nested data. Scoped producer and effect evidence retain their existing
+authority. Mutation controls preserve table ownership while changing actual
+source roles or contracts; rejection of orphan rows is not credited as source
+authentication. Forwarding, effect ceilings and both execution routes pass.
+Combined library, native and performance qualification remain open.
+
+Grounded callable branches at `685811709`, integrated as `6110c9d61`, pass
+six focused controls with independent review clear. Named function aliases
+retain their checked signatures when leaving a branch. Ground target, ABI,
+immutable origin and writer checks remain strict; generic branches retain
+independent instantiation. Matching native replay remains pending.
+
+Combined source `15c71c323` executes 64 focused Rust selectors: 63 pass and
+one existing typed-alias storage control fails. The same control fails on the
+unchanged grounded-branch base, so it is not attributed to that repair.
+Alias repair `16176899a`, integrated as `f3f308e4a`, passes five focused
+controls with independent review clear. After authenticating an instantiated
+read, storage proof retains its actual lexical contract instead of replacing
+the quantified relationship with a bare function kind. Original driver,
+captured, local and nested aliases execute on both routes; existing cold
+mutations reject. An additional imported-alias control exposed the same earlier structural
+producer defect on both sources. Repair `997205e28`, integrated as
+`2fc9d81ab`, authenticates that Param contract with the existing immutable
+import proof. Six focused controls pass; a strengthened one-test replay
+rejects an owned, same-signature alternate target for the precise structural
+producer reason. Independent source review is clear.
+
+Combined source `30d36decd` passes all 93 focused Rust selectors, with no
+failures, ignored tests or warnings. This includes the original 64, grounded
+callable branches, Index/Slice, lexical aliases and imported aliases. Two
+mechanical module-index adaptations at that source distinguish ordinary keys
+from negative literal operands. Matching verification products and complete
+native/API replay remain pending; this is not global compiler qualification.
+
+Matching `30d36decd` products subsequently execute 140 native selectors in
+each mode: 135 pass, five fail, none skip, and both failure sets match. All
+prior 138 selectors remain, with two new Index/Slice positives. Five of six
+API selectors pass. The remaining API inventory omits the already integrated
+`crypto.ed25519_verify` and `net.validate_root_bundle`; `669396bf9` refreshes
+only those entries and their counts against the matching tool's exact output.
+The five native failures concern optional empty-list fallback composition,
+generic guards/loops, open-record overrides, an Index diagnostic code, and
+returned mutable-callable inference. New matching-product replay remains
+required after their repairs.
+
+Inferred Proc returns at `a1d299c7c`, integrated as `8da279d6e`, preserve
+callable values when the expected type is only an inference placeholder.
+Authored annotations and constructor error contexts remain binding. A checker
+control and expanded Full IR control pass; the latter executes returned
+captured Procs, both generic return branches and explicit contracts on both
+routes. Independent source review is clear. The mutable-capture fixture now
+supplies its monomorphic element type from actual initial state and explicitly
+returns the Proc, avoiding an unrelated empty-cell and command-syntax failure.
+The SPEC template is updated; combined generation and native replay remain.
+
+Open-record overrides at `4fd5c2400`, integrated as `5be8c8cd6`, pass all ten
+focused controls with independent review clear. The existing operation authority
+retains ordered replacements and a distinct output remainder, preserving unknown
+fields and changed-type collisions without restricting input labels. Cold proof
+derives known fields and exact closed results independently. A coordinated
+uncalled-body forgery was accepted before that proof repair and now rejects.
+Full rebuilds and duplicate/shorthand evaluation order pass on both routes.
+The private operation enum and physical rows retain their previous maximum
+sizes; owned field arrays are included in solver and scheme memory accounting.
+SPEC-template and Architecture changes are integrated. Full gates remain open.
+
+The full Rust library attempt at `30d36decd` selects 2,157 tests but aborts on
+a test-thread stack overflow after reporting twelve failures; it has no completed
+suite result. Fixture repair `71a743b79`, integrated as `ab4fc9aa9`, passes its
+eleven focused corruption controls across bounded runs. They target the actual
+type payload after the check discriminator, preserve canonical table ordering,
+and reject real source/contract mutations. The aborting fixture passes with the
+suite's existing scoped stack helper. No production policy is relaxed. The
+separate valid imported-function fixture and a complete library run remain open.
+
+Generic Index and Slice at `48b66343f`, integrated as `8cfbceb34`, pass all
+twenty focused controls with independent review clear. Inputs select List,
+Map, constant Record/Module and slice domains; negative literals retain their
+different List and Map meanings. Known open records use the existing journaled
+field projection. UInt validation preserves lexical captures and uses the
+authenticated substituted return envelope at erased boundaries. Deliberate
+Result data remains data on both routes. Operation payloads grow by eight
+bytes, physical operation rows grow from 16 to 24 bytes, and ordinary Index
+encoding grows by four bytes. `Type` and `SchemeType` remain 24 and 56 bytes.
+Native, memory/scaling and performance qualification remain open.
+
+The Index parity matrix also demonstrates existing safety debt: a negative
+Int key in a UInt Map can publish a Schema error under a Str error envelope
+in both ordinary and generic functions. This is not credited as correct
+behavior. Its origin repair must account for the implicit key validation in
+the checked error contract while preserving input-driven operation selection.
+
+Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
+`ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
+Record and conditional values instantiate independently; mutable bindings
+retain one concrete instance. Factory calls retain separate invocation and
+value evidence at the same span. Both execution routes pass after frontend
+disposal. Independent review finds no demonstrated false acceptance in the
+checked target, effect, binder mapping or runtime paths. These initial
+checkpoints lacked module transport, complete retained accounting and nested
+mutable storage; the subsequent focused repairs cover those gaps. Generic
+composition and the remaining storage families still require coverage. No
+full-library or native qualification is claimed for these checkpoints.
+
+Module ownership repair `5b5fb951f`, integrated as `25cba55dc`, passes its
+module-execution and retained-table controls. Four additional controls at
+`17bdcb3a7`, integrated as `14c099c3b`, cover foreign semantic handles, checker
+probe snapshots, shared allocation accounting, and nested cached imports into
+independent entry roots. Source review is clear. Imported signatures and outputs
+rebase into one fresh final relationship owner before publication. Cached
+sources stay unchanged, and the new relationship pool participates in retained
+accounting. Aggregate materialization is covered by the later focused repair.
+
+Path execution repairs `9525dbc69` and `dd253674b`, integrated as `cc26cd72a`
+and `af9e56aae`, pass three focused controls. Checked generic Path and RelPath
+reads, queries and writes use existing canonical host operations. Byte reads
+share the existing reader. Both execution routes preserve binary data,
+diagnostics, explicit file modes and receiver/argument evaluation order;
+operation, operand and injected-plan corruptions reject. Source review is
+clear. These focused results do not qualify every registered Path operation or
+the combined compiler.
+
+The complete native Path host class at `2cf3a8f0c` and correction `799b67c21`,
+integrated as `b5db0ddc6` and `617d8cda1`, passes four focused controls.
+Canonical checked methods use the existing receiver-first native ABI. Ordinary
+method rows forward only when all registered overloads share one host operation;
+there is no runtime overload selection. Ordinary/generic comparisons cover
+relative cwd, defaults, mutations, lazy reads, stream cleanup and error behavior;
+cold operation forgeries reject. Independent review is clear. A scheduling
+overlap exceeded the two-Cargo bound during the first corrective run; its
+replacement passed all four selectors within the bound. Combined qualification
+remains open. Registered Result[Unit] tail repair `bb4fceea3`, integrated as
+`29845306b`, passes one focused selector. Generic-body admission now accepts
+the existing checked registry plan as well as an operation obligation. Ordinary
+and generic `[fs]` tails return failed writes as Result data; explicit returns
+retain that behavior. A separate non-tail discard still requires Error, and
+removing that permission rejects cold. Both execution modes pass. A frozen
+ordinary-compiler probe confirms the data-forwarding contract; no new lowering
+or blanket return-effect rule was retained.
+
+TempDir repair `5b214e7ed` and its controls, integrated through `5c650d1ab`,
+pass seven distinct focused selectors. Generic fresh and at-path scopes share
+ordinary lowering, reconstruct entry errors from their payloads, and retain
+owned expression and declaration facts. Both execution routes preserve entry
+ordering, body failure, early return, nested Results and cleanup. Six cold
+corruptions reject. Returned independent roots stay live until caller close in
+ordinary and generic scopes; no speculative transfer change was needed.
+Independent source review is clear. Cleanup-effect repair `d69676bec`,
+integrated as `be40c6fcd`, passes one additional focused selector. TempDir
+requires `fs` and `error` unless lexical `try` or `retry` captures Error.
+Required checked Result contracts survive on fresh Match and at-path ValueBlock
+sources; their existing structural producer proofs remain mandatory. The test
+strips auxiliary contexts and rejects missing, incompatible and three Any-widened
+contracts. Independent review is clear. Combined library/native qualification
+remains open.
+
+Source `d54631649` builds matching verification binaries and completes the
+138-selector native inference boundary in normal and forced-frame modes.
+Each mode reports 123 passes, fifteen failures and no skips; every selector
+executes exactly once. All previously passing selectors remain passing, and
+the formerly failing legacy wrapper selector now passes. Six new selectors
+add four passes and two failures: generic Any-return cleanup with monomorphic
+captured counters, and guarded access to a nullable record field. The fifteen
+failures remain mandatory work; callable storage, open-row rebuilding and
+ordinary-body inference are not qualified. No new practical-corpus or full
+library result is claimed from this run.
+
+Capture/Retry repair `6c8150dff`, integrated as `487ea1476`, passes four focused
+regressions and five existing controls with independent review clear. Required
+checked contracts survive publication for ground and driver boundaries,
+including explicit Any payloads; scheme boundaries retain their owned facts.
+Actual mixed error contributions join before comparison and normalize through
+the checked Error boundary. Empty captures preserve declared phantom error
+types. The added verifier traversal is charged against the existing budget.
+Combined library and native qualification remain open. The next wave combines
+this repair with the optional-record argument boundary; callable-value storage
+and ordinary-body inference remain active, while open-row rebuilding waits for
+the scheme representation to settle.
+
+Optional-record repair `0d2ed9c74`, integrated as `f2c1bae75`, passes its
+both-route regression and two constructor controls with independent review
+clear. Explicit closed source annotations preserve nullable record arguments
+when a null field prevents independent type derivation. Existing writer proof
+and complete declaration validation remain authoritative: stale validation
+rejects cold, and malformed physical data behind a valid complete validator
+fails at the declaration before the generic call on both routes. Combined
+source `f2c1bae75` completes the unfiltered Rust library check: 2,078 selected,
+2,061 pass, fourteen fail and three are ignored. Eight failures hit the existing
+work bound; one synthetic resource-cleanup capture lacks its required contract.
+Those remain active repairs. Four stale controls are corrected at `5c70eff57`
+and pass their focused rerun: explicit Any preserves Result data, supported
+fallback relationships do not require the old recovery error, known Unit
+propagation retains ProcessError, and required capture proof derives a fold
+without an auxiliary temporary row. The reduced fold still rejects a forged
+writer and executes on both routes. A fifth stale diagnostic assertion remains
+with the capture repair. No full-library pass or newer native result is claimed.
+The d546 verification products do not qualify this newer source.
+
+Capture discovery repair `c4270b66c`, integrated as `e624551a6`, passes eleven
+focused controls with independent review clear. The existing charged owner
+census now collects actual Capture/Retry roots, avoiding a second traversal of
+every instruction. All eight work-bound failures from the full run pass their
+focused controls. A synthetic resource-cleanup Capture retains its actual
+checked source type; its missing-contract failure also passes. The remaining
+stream-carrier failure was the expected diagnostic text, now updated while
+preserving rejection. Full-library qualification remains open.
+
+Bare-propagation repair `320d777b9`, integrated as `cd8713574`, passes two
+focused controls with independent review clear. `proc unwrap(value) { value? }`
+infers a Result input and preserves its success and error parameters. Direct,
+captured and retried calls retain Str and nominal failures on both execution
+routes after frontend disposal; wrong input and effect mutations reject cold.
+Plain inferred Proc returns now join actual propagated errors instead of always
+defaulting to Error. Compatibility checks remain required for that contract
+change. Phantom constructor context and generic tempdir support remain separate
+mandatory work.
+The combined compatibility check selects twelve controls: ten pass and two
+normalizer fixtures still assume every inferred error becomes Error. Their
+test-only repair `a1e6d312a`, integrated as `484fef6d8`, passes both focused
+controls. Actual Error inputs now exercise inferred mixed-error normalization,
+while a separate all-Str callback relay preserves its specific error. Existing
+traceback, authored-return and cleanup controls remain. The ten compatible
+passes and this two-test receipt cover the affected group; an unfiltered replay
+and matching native products remain required.
+
+Ordinary-body repair `b60f64f8b`, integrated as `b5989a1e7`, passes four focused
+controls with independent review clear. Successful `error.failure` calls publish
+checked argument evidence for generalized bodies. Explicit-return Procs use
+their actual checked Error permission for cleanup propagation, including
+arbitrary authenticated error payloads and independently checked callback
+effects. Captured generic calls substitute the exact invocation's effects;
+Ground script calls retain their existing signature authority. Missing effect
+or invocation evidence and a retargeted script call reject. The worktree was
+moved onto the current integration base before the final check; an earlier
+mixed-capture failure came from its old base and earns no regression claim.
+Source `b5989a1e7` completes the unfiltered Rust library run: 2,083 selected,
+2,073 pass, seven fail and three are ignored. All fourteen failures from the
+previous full run pass. Four mutation controls encounter earlier rejection
+diagnostics; a stream owner-boundary mutation unexpectedly accepts. Two wrapper
+fixtures disagree with the inferred error types. These seven cases require
+diagnosis and focused repair before another full replay. Matching native
+qualification remains open.
+
+Matching verification products for `b5989a1e7` complete the 138-selector native
+boundary in both modes: each has 125 passes, thirteen failures and no skips.
+The dynamic-return cleanup and optional-record-field selectors now pass; every
+previous pass remains passing. Each mode includes all eight legacy selectors,
+all passing. The other thirteen failures remain unchanged. These products
+precede the provisional callable-value checkpoints and do not qualify them.
+Test repair `06caa3779`, integrated as `3b07df9ea`, passes five focused controls
+and one separately checked field-corruption control. Mutations retain rejection
+under the earlier call-target checks. Concrete and generic Procs returning
+Stream fail eagerly under Error permission, while genuine stream bodies fail
+on iteration. Removing Error permission still rejects. Two remaining wrapper
+failures expose a real generic Proc completion gap: retained guarded projection
+still defaults its return error to Error instead of joining actual conditional
+error contributions. That relationship is active work, not a fixture waiver.
+
+Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
+XSH controls and its registry control with independent review clear. Reversed
+named mode/data arguments reproduce a cold-verifier failure before the repair;
+text and byte writes, exact modes, failed writes and both execution routes now
+pass. The private layout adds a 28-byte method row and an 8-byte binding, with
+eight bytes added to each scheme and call-instantiation row. Frozen combined
+source passes nine focused library controls covering methods and the existing
+Proc-envelope relationships. Full-library and complete native replay remain
+required; the earlier selection-mismatch attempt earns no qualification credit.
+
+Wrapper repair `dcb02e1b1`, integrated as `872f7d2bf`, passes focused capture,
+handler, stored-callable and Any-provenance controls with independent review
+clear. Actual dynamic payloads execute on both routes after frontend disposal.
+Constructor payload and coordinated fact forgeries reject; a deep constructor
+alias chain retains the existing depth rejection. Complete ordered capture
+proof replaces uncharged quadratic searches. Combined source `872f7d2bf` passes
+31 of 33 focused controls. A retained corruption case rejects earlier than its
+old expected diagnostic; the corrected assertion passes at `250631339`.
+The other failure is a genuine contextual UInt constructor false rejection,
+repaired by `609a0feda`, integrated as `74c7ff885`. Eight affected combined
+controls pass, including removal of the required runtime validator and a
+negative payload failing at declaration before the call. Compiler layout
+assertions pass at 120 bytes per scheme
+and 60 bytes per call-instantiation row. Full-library, native and corpus
+qualification remain required.
+
+Any-return repair `966af869b`, integrated as `f52452ae5`, passes four focused
+controls and independent review. Explicit Any returns preserve raw Result data;
+actual propagation and failed cleanup retain their failure channels. The
+regression also checks LIFO errdefer behavior. Unit-Proc repair `089eb98fa`,
+integrated as `b4ced1a2b`, infers known propagation errors instead of retaining
+the default Error placeholder. Two corrected controls and nine unchanged
+compatibility controls pass. The former conditional-propagation rejection was
+the same inference deficiency; its preserved test now asserts Result[Unit, Str],
+while an explicit incompatible contract still rejects. Omitted dynamic returns
+retain the existing grounded annotation policy.
+
+The inferred-Proc error repair `83634b225`, integrated as `016e925aa`, passes
+nine focused controls and final independent review. Ground normalization derives
+from the checked return and signature; defaulted Scheme Procs use their actual
+prepared invocation substitution, including callback-result parameters. Both
+routes preserve nested Result data, authored custom errors, cleanup and original
+traceback locations. Its flag reuses existing metadata storage. Combined-source
+qualification remains required.
+Callable-value storage and record remainder
+implementation follow these representation changes. Provisional focused results
+do not advance full campaign acceptance.
+
+Source `3ee4d8b92` builds matching verification products and passes the complete
+four-return practical comparison: twelve XSH roots and three Laputa roots in
+each view, six runtime selectors per view, signature comparisons, 1,991 callable
+interfaces and all three negative controls. Source, product, pinned-input and
+final view guards pass, and owned cleanup completes. The historical cohort,
+final migration and inherited acceptance remain open.
+
+Its complete native inference boundary executes every selector exactly once:
+118 pass, fourteen fail and none skip. Both producer witnesses now pass,
+including forced frames; every previously passing selector remains passing.
+The remaining failures cover wrappers, host method families, callable-value
+storage and open-row spread. The earlier passing unfiltered Rust receipt is the
+`865b8aac2` result below; it does not qualify these newer sources.
+
+Repair `a6fff7537`, integrated as `3ee4d8b92`, proves the missing Result shape
+from the same callable instance's own checked proc-return envelope. It resolves
+both return identities before exact comparison and retains effect permission
+checks. Five focused controls pass, including actual FullBuilder/FullVerifier
+execution on both routes, alias identity and wrong-instance rejection. Both
+reviews are clear. Arbitrary unresolved returns without this proof retain their
+existing diagnostics; no early generalization or new IR state is introduced.
+
+Matching verification products at the preceding `5fa4a4b6b` execute the complete
+132-selector native inference boundary: 116 pass, sixteen fail and none skip. Every selector
+executes exactly once and all previously passing selectors remain passing.
+The one resolved failure is the diagnostic fixture correction described below;
+the fifteen main-family failures are unchanged.
+
+Repair `e8e50ba94`, integrated as `5fa4a4b6b`, stops requiring a settled return
+shape when invocation effects prove Error impossible. The causal regression
+and retained ticket/error-flow control pass: two selected, two passed. Effects
+that may contain Error still require the existing shape proof. The matching
+native replay still rejects the two producer witnesses whose effect contracts
+remain symbolic. Those cases require the retained invocation-flow relationship;
+this narrower repair earns no producer-capability closure.
+
+Source `7d9f4c6ac` builds matching verification products and passes the complete
+four-return practical comparison. Both original and reduced views check all
+twelve XSH roots and three Laputa roots. Six runtime selectors execute in each
+view; signature comparisons, all 1,991 callable interfaces and three retained
+wc negative controls pass. Source, product, pinned-input and final view guards
+pass, and owned cleanup completes. This qualifies only that practical slice;
+the historical 1,040-site cohort and final migration remain required.
+
+The causal Proc repair `b67962c51`, integrated as `7d9f4c6ac`, checks a partial
+tail `if` through the existing statement path when completing a Proc. Unit
+fallthrough and Result[Unit] propagation survive early error returns. Ten
+focused controls pass across compatible receipts, with both reviews clear.
+Value-context conditionals, exhaustive branches, ignored non-Unit values and
+authored Unit return restrictions retain their existing checks.
+The completed Proc checkout is removed after patch-equivalence and ownership
+checks; its branch and four small failure/test logs remain available.
+
+The combined unfiltered library replay at `865b8aac2` selects 2,024 tests:
+2,021 pass, zero fail and three are ignored. Matching verification products
+build successfully. The complete native inference family executes 132 selectors
+exactly once: 115 pass, 17 fail and none skip. All previously passing selectors
+remain passing. One failure is a stale recursive-conflict diagnostic expectation:
+the two declaration orders now report operator-type and type-mismatch errors,
+respectively. Keeping both invalid programs and their status-2 assertions, the
+corrected exact selector passes through normal and forced-frame execution.
+That focused result does not replace the complete 115/17 receipt.
+
+The matching practical replay passes all twelve original XSH roots, including
+the previously failing `sort` check. The original Laputa check stops with nine
+diagnostics, beginning with a partial tail `if` incorrectly requiring `else` in
+an inferred Proc. Reduced views, runtime selectors, interfaces and comparisons
+do not run; no migration credit is claimed. The minimal completion repair and
+retained wrapper relationships are the next deliveries. Full qualification,
+performance gates and deployment acceptance remain open.
+
+The preceding unfiltered library replay at `6d67d40f3` selects 2,023 tests:
+2,012 pass, eight fail and three are ignored. Five failures use expectations or
+fixture premises from earlier contracts. Corrections pass all five focused
+controls, retaining forged-input rejection, dynamic-key rejection and concrete
+recursive SCC assertions. The recursive fixture now explicitly requires Int;
+integer arithmetic alone also admits UInt and can retain a generalized domain.
+
+The other three failures expose an alias initializer probing `env` as a runtime
+module value before ordinary `env.PATH` checking. Repair `1bee8e87f`, integrated
+as `a09ad8b49`, passes those three controls and two retained module/environment
+controls, plus independent review. Standard namespace-as-value rejection remains.
+The subsequent combined replay above covers both repairs without filters.
+
+Iteration evidence repair `42588ef3b`, integrated as `fe094a17c`, passes six
+focused controls and independent review. A checked `List[Any]` source supplies
+its derived item evidence through the canonical iteration contract. Independent
+result forgeries still reject Int-to-Any item widening; bare Any sources still
+require validation, and non-Any refinements retain their directional behavior.
+
+Proc-origin repair `a95f2e801`, integrated as `05c54556e`, passes eight focused
+controls and independent review. Inferred Proc completions already record each
+actual origin; finalization validates those facts without adding the aggregate
+tail's success envelope again. The original `sort` failure was reproduced with
+equal declared/resolved return types and an invalid double-success projection.
+The causal minimal regression goes from fail to pass. Matching products and
+practical replay remain pending.
+
+Checked-dynamic repair `38eaa017c`, integrated as `8a40f9df8`, passes eleven
+distinct focused Rust controls across compatible runs and independent review.
+Passive generic calls retain checked opaque arguments, including typed rest
+splices; empty-list and null inference requirements stay unchanged. Cold ground
+and symbolic calls require exact input-binder evidence. Callable references use
+the existing exact declared-signature proof. Ownership, forged Any/Int arguments
+and results, and dynamic-operation rejection remain covered. Combined library
+and native qualification are pending. The new symbolic evidence walk's repeated
+subtree scan remains a bounded-work risk for the mandatory scaling gates.
+
+The completed module-projection checkout is removed, with its branch and small
+scratch artifacts retained. Docker-owned cache permissions required privileged
+removal after restoring Git's registration; active checkouts remain intact.
+
+Matching verification products built from `ce2c89e34` execute all 121 enumerated
+full-inference native controls and eight changed legacy controls: 110 pass and
+19 fail. Every selector executes exactly once, with no previously passing
+selector regressing. Constant-key module projections and their legacy witness
+also pass through forced frames. Stream iteration cleanup passes; the caught
+iteration-error control reaches execution but lets the error escape its `try`.
+Repair `e20fe99e4`, integrated as `30e2f6ac7`, routes comprehension Result errors
+through the existing checked propagation flow. Its focused Rust regression
+fails before the repair and passes afterward on both runtime routes, preserving
+nominal error identity and stream cleanup. Independent review is clear; matching
+native qualification remains pending.
+
+The practical four-return comparison with these products passes its source,
+product and view guards, then stops in the original XSH check at
+`core/sort.xsh:2298:159`: `buffered_sort` exceeds the checked stream-return
+projection boundary. Reduced-source checks, Laputa, runtime selectors,
+interfaces and final comparisons do not run. This failed replay earns no
+migration credit. A preceding wrong-product-path invocation fails before any
+source check and remains separate from the actual checker failure.
+
+Arithmetic repair `74bf33f00`, integrated as `f2cc01697`, passes fifteen new
+focused Rust controls and three existing effect controls across compatible
+runs, plus independent review. Sealed input/result relationships survive
+generalization, forwarding and cold verification without runtime inference.
+Directional list refinements and fresh Set-key obligations retain rollback
+proof. Encoded requirements occupy 16 bytes and bindings 8 bytes; scheme and
+call-instantiation rows each grow by 8 bytes. With matching `f8d7ffb16`
+verification products, all five arithmetic
+native selectors pass on both runtime routes: ten exact executions, including
+the two original failures. Documentation regeneration also passes. Memory and
+binary-size acceptance remain pending.
+
+Matching verification products built from `e885b64c5` execute all 121 enumerated
+full-inference native controls and seven changed legacy controls: 105 pass and
+23 fail. Every selector executes exactly once. All previously passing selectors
+remain passing, and six previous failures are resolved. Four new controls fail
+on fixture mistakes. Correcting their assertions, reserved names and error
+constructor calls gives two focused passes and exposes two cold driver-annotation
+validation failures. Keep those focused receipts separate from the complete run.
+The existing invalid-comparison-domain control also passes with these products.
+Documentation regeneration succeeds through the existing checked generator.
+
+The unfiltered Rust library replay at `92e7cabf6` selects 1,998 tests: 1,992 pass,
+three fail and three are ignored. Two exact alias-work counters omit the new
+iteration guard's constant representative lookup. Corrected counters pass both
+focused controls, retaining the linear slope, zero compression writes and all
+constraint counts. The remaining failure exposes lost explicit-Any provenance
+through a generic relay. Iteration over that result reports unresolved inference
+instead of the required dynamic boundary. This production class remains open.
+
+Driver-source repair `9631019d8`, integrated as `92e7cabf6`, passes four focused
+Rust controls and independent review. Incomplete runtime annotations require
+proof of the exact initializer. The original local `RelPath`, annotated Stream
+and nominal error-family programs build; forged path bytes, stream items and
+same-owner error constructors are rejected. The combined library replay covers
+the final budget-check ordering change. Native cleanup qualification is pending.
+
+Static module projection repair `6ec8a0d52`, integrated as `6a0497396`, passes
+three focused Rust controls and independent review. Constant-key Get and Index
+retain the imported generic callable's scheme and authenticate its source through
+the existing export proof. Get preserves its registered Result error type.
+Runtime qualification on both routes awaits matching products.
+
+The preceding verification products built from `2137456d9` execute all 113 enumerated
+full-inference native controls and seven changed legacy controls: 95 pass and
+25 fail. Every listed selector executes exactly once. This resolves eight
+failures from the preceding `f8771f5b2` products with assertions through
+`d88180b53` (87 pass, 33 fail), with no passing selector regressing. The earlier
+`7b57e094d` products with `2aaefda86` assertions passed 80 and failed 40.
+Structural and operator relationships and callable composition remain open;
+these results do not establish full capability completion.
+
+Fixture correction `3eb7eda14` passes its exact native selector using the
+`2137456d9` products. Its three explicitly `Int`-returning Proc calls wrongly
+used Result propagation. Direct calls preserve all mutable reassignment,
+effect, runtime value and output assertions. Keep this focused receipt separate
+from the complete 95/25 run.
+
+Imported-callable repair `698e166ca`, integrated as `b5c3c4fd2`, passes four
+focused Rust controls and independent review. Immutable imported aliases resolve
+through the actual Use binding, canonical child namespace and exported function
+contract, without inventing a value binding or an opaque target. Execution after
+frontend disposal covers both routes; existing forged-export and immutable
+alias controls remain. Matching combined native qualification is pending.
+
+Iteration repair `728ddc1e3`, integrated as `44fc9212c`, passes eleven distinct
+focused Rust controls across compatible runs and independent review. Source,
+item and error relationships survive schemes and cold verification. The review
+reproduced a rollback leak and verified its repair without increasing budgets.
+Representative storage grows from 128 to 136 bytes; encoded type-parameter rows
+grow from 12 to 20 bytes. Five new native controls pass across compatible runs;
+two expose the driver-source failures addressed above. Their matching runtime
+qualification remains pending.
+Ordering repair `c97388857`, integrated as `4e6f3d4b0`, passes four focused Rust
+controls. Ordering constrains and resolves operands before checking their
+domains. Polymorphic arithmetic remains open.
+
+Nominal producer repair `73ce589a9`, integrated as `54f03d86d`, passes three
+focused Rust controls and independent review. The unchanged nominal example
+verifies and executes through both routes. Forged nominal targets remain
+rejected. Documentation regeneration passes with matching `e885b64c5` products.
+
+Documentation regeneration through the existing `docs.generate` API with
+`2137456d9` tools fails on the unchanged `70-nominal-type.xsh` example: a physical
+record constructor is rechecked as its nominal result. No generated files were
+written. The nominal repair above resolves this failure, and regeneration passes
+with `e885b64c5` products.
+Iteration review exposed two separate refinement programs: an annotated local
+`RelPath` passed through an inferred iterator, and a grounded
+`List[RelPath]`-to-`List[Path]` helper called with a contextual `p"relative"`
+literal. Repairs `df8a204b9` and `92e7cabf6` now verify and execute these programs
+on both routes, with physical literal-forgery rejection.
+
+Open-row record spreads remain unsupported. Their result must retain unknown
+input fields while later explicit fields replace colliding labels. Resolving
+only the currently known fields would erase that relationship.
+
+Structural repair `2eda90c75`, integrated as `f8771f5b2`, preserves open-row
+relationships during destructuring and seeds omitted rest parameters as lists
+of fresh item variables. All twelve focused Rust controls pass. The native
+source-order and rest cases pass, including explicit JSON rendering of the
+concrete list results. Iterable and Optional/Result relationships remain open.
+Producer repair `e21dcb4b5`, integrated as `acc280757`, passes nine focused
+controls. Cold proof retains runtime validation for unsigned defaults and
+checks fresh aggregate payloads without exempting nested calls or operands.
+
+Alias repair `3d2e04eaa`, integrated as `82914c14d`, passes all 23 focused Rust
+controls and independent review. Driver lowering selects actual immutable reads
+before allocating dense input frames; mutable and signal-hook inputs remain.
+Cold alias authentication is iterative and retains every physical type claim,
+owner check and cycle guard. The controls include the original 400-alias case
+and 64/128/256/512-link cold verification and execution on both routes. No work
+limit or stack size increases. The rejected post-encoding compaction mode is
+absent. The combined unfiltered library replay at `82914c14d` selects 1,957 tests:
+1,947 pass, seven fail and three are ignored. Four failures are stale mutation
+fixture assumptions corrected by `c85e728fe`, integrated as `b0f8a8c88`; all four
+focused controls pass. Three optional-receiver producer controls remain open.
+These three passed on the earlier `c21be8076` source. Repair `e4560be76` moves
+typed-callee signature proof to the mandatory owner-evidence phase while keeping
+structural call checks in place. All twelve focused controls pass, including
+guard-forgery negatives and the original alias work bounds; independent review
+is clear. Broader acceptance remains open.
+
+Effect repair `6b8e61495`, integrated as `4cd251358`, constrains pending recursive
+effects before generalization and retains owned rejected-call tickets. Already
+diagnosed calls skip duplicate effect reporting while still invalidating their
+static call facts. All eleven focused controls pass, including finite empty
+effects, real I/O rejection, diagnostic multiplicity and resource provenance.
+Independent review is clear.
+
+Unary conversion repair `86c970133`, integrated as `c8d79c2e7`, retains Display
+and the existing distinct Argv requirements in schemes and cold proof. The
+type-parameter metadata uses a reserved byte without changing its size. All six
+latest focused controls pass, including natural work bounds through 512
+parameters, and all three matching native controls pass. Independent review is
+clear. Lists remain outside Display; the affected list fixture uses JSON while
+retaining its value assertions. Bare capturing-command tails and direct run
+returns remain separate mandatory gaps. Generated SPEC output and combined
+full Rust/native qualification of this assembly are pending.
+
+The unfiltered library replay at `0b78c8d9f` selects 1,972 tests: 1,957 pass,
+twelve fail and three are ignored. Ten failures expect later verifier rejection
+messages; the actual structural producer/receiver checks reject the unchanged
+mutations earlier. All ten corrected controls pass focused rechecks, preserving
+the strict multiple-parent assertion. The other two count one additional alias
+hop for the unary conversion guard; their exact counts pass at `11ebd4ced`, with
+the original linear slope and zero compression writes. This failed unfiltered
+receipt remains distinct from the focused corrections.
+
+Storage repair `40fac80ec`, integrated as `4e6260b6c`, verifies unannotated
+initializers under an authenticated read contract when no initializer context
+exists. Exact declaration checks remain unchanged. Both capture and Map
+comprehension controls pass; disabling the repair reproduces the Map failure,
+and mutating its actual iterator item is rejected. Imported generic-callable
+source proof remains separate and open.
+
+Command-return repair `e2d3d39f0`, integrated as `feea025ba`, passes all twelve
+focused controls and independent review. Bare command tails complete with Unit;
+explicit run returns retain captured output and use the checker's actual Return
+resource-transfer fact. Coverage includes nested completion, early returns,
+Bytes, Stream ownership, failure cleanup and cold output/permission corruption
+on both execution routes. Combined native qualification remains pending.
+
+Stream repair `c2149de8e`, integrated as `deb26fe9e`, retains the authenticated
+stream owner and admits the runtime's existing `Str`-to-`Error` return-boundary
+conversion. A small script reproduces the original rejection. All five focused
+Rust controls pass, including late failure and exactly-once nested cleanup on
+both execution routes, nominal-error preservation and forged consumer-boundary
+rejections. This does not establish other raw-error conversion domains.
+
+Fixture repairs `51d41a12e` and `071787144` pass all five focused native
+executions. Three corpus controls needed required public documentation and
+valid print interpolation. The cleanup negative incorrectly treated print as
+a capability: XSH print is effect-free. Its corrected Env-read rejection,
+permitted Env construction and original print-only acceptance all pass, as
+does the existing print-effect control. No production capability bug is
+established by the original cleanup receipt. Generic Display fixtures retain
+their value-containing output assertions and require actual inference support.
+
+Static literal-splice repair `10fce8c8d`, integrated as `c06d930d0`, passes the
+matching native source-order/refinement selector, rest-element rejection and
+default controls. Independent review is clear. Iterator-source repair
+`c024801ea`, integrated as `7b57e094d`, resolves established cells before loop
+and comprehension item projection. Ten Rust controls and its native rejection
+pass; the public positive still fails at downstream prepared storage proof.
+Keep that unchanged positive mandatory. Active source work addresses reusable
+Display/Argv requirements and authenticated prepared storage/callable sources.
+
+Provisional assembly `e0a97e754` passes 662 of 670 selected Rust controls.
+The replay preserves all 668 preceding selectors and adds named-spread Stream
+provenance and dormant callable-record guard controls. Eight failures remain:
+three invalid-Proc diagnostic cascades, three producer-contract disagreements,
+one callback receiver contract, and the flat immutable-alias work bound.
+This selected boundary does not qualify the full suite or campaign.
+
+Repair `2ec846442`, integrated as `5938baae2`, rejects an invalid Proc owner
+before generalization. All eight focused diagnostic, sibling-isolation and
+single-body controls pass; independent review reports no P1/P2. Combined
+qualification of this newer assembly remains pending.
+
+Guarded-read repair `7d6c8130e`, integrated as `e0a97e754`, passes 27 focused
+controls and independent review. Ordinary records retain their ordering proofs;
+callable-bearing records retain precise optional-receiver guard proofs even
+without invocation. Repeated field reads reuse the existing bounded traversal
+without per-read visited-set allocation or a larger work limit. Nine stale
+fixtures are corrected at `6d20e11c4`; all nine pass while preserving corruption,
+cleanup and independent-diagnostic assertions.
+
+The preceding `3c98fe04d` passes 639 of 668 selected controls, with 29 failures.
+The unfiltered library run at `c21be8076` passes 1,917 tests, fails 25, and ignores
+three. Those failures expanded the selected boundary; no failed receipt becomes
+acceptance credit. The earlier `8bb093c79` replay passes 629 of 630 controls,
+with the nested optional-guard failure. Its 21 focused Proc controls pass,
+including the six regressions introduced by `4e90fafe1`.
+
+The preceding `4e90fafe1` passes 623 of 630 selected Rust controls, with six
+Proc regressions and the nested optional-guard failure. Preserve that failed
+receipt. Neither selected replay qualifies the full suite or campaign.
+
+The preceding `353cf3c8d` passes 624 of 625 selected Rust controls, with only
+the nested optional-guard failure. Preserve both failed-source receipts; neither
+qualifies the full suite or the campaign.
+
+The preceding `ec65747bb` replay passed 623 of 625 controls and exposed a
+bounded-work regression in repeated guarded record reads. Repair `ad78fe079`,
+integrated as `353cf3c8d`, reuses normal method proofs and searches for a consumer
+only when its receiver contract remains absent. All six focused controls and
+independent review pass. Unresolved roots still require independent receiver,
+argument, result and effect proof; the mandatory final worklist drain remains.
+
+Union checkpoint `af20162d8`, integrated as `1f500a409`, passes fourteen focused
+controls and independent source review. Every native method family requires an
+actual receiver proof. Uniform effects remain unchanged, and exact generic plans
+reuse the mandatory body proof. Completed union-read proofs share owner-local work.
+Capture checkpoint `05238aa81`, integrated as `85700af0d`, passes five focused
+controls and independent source review. Actual immutable literal initializers
+qualify record captures, and a separate cold proof checks every writer value.
+The unread-Stream corruption reaches the intended payload rejection. Literal
+computation repair `92966b18c`, integrated as `f51af1668`, passes seven focused
+controls across compatible runs. The cold traversal now proves finite literal
+arithmetic, field access and canonical Boolean negation. The next combined
+replay retains all 622 selectors and adds its two new behavior controls.
+
+Native-method demand repair `2ca5a91d4`, integrated as `f88cb1bfd`,
+passes four focused controls, including a definition without calling code and
+the original receiver mutations. Independent review found that deferred method
+checks discard the return-context flag needed for implicit Result tails.
+Repair `ac218e8ab`, integrated as `ec65747bb`, passed five focused controls and
+independent review. The final phase-reuse repair preserves that Result-tail
+regression while removing the duplicate method check that caused it.
+
+Earlier runtime assembly `fcdf567fd` passes 604 of 608 selected Rust controls.
+Every previous selector remains selected and every prior passing control passes.
+The four remaining failures cover literal record capture, two union receiver
+cases and nested optional-guard verification. Master remains unchanged.
+This selected regression boundary does not qualify the full campaign.
+
+Builtin assembly `dd3f8be86` first passed 600 of 607 controls and exposed an
+inferred-`Any` return regression. Repair `276d53bf1` rejects the actual dynamic
+return candidate before recursive generalization. All five focused controls pass,
+including authored `Any` and genuine generic recursion. The incidental body-scheme
+diagnostic becomes the direct return-inference diagnostic.
+Result-producer repair `67c1f3f15`, integrated as `fcdf567fd`, passes all four
+focused controls. It specializes the canonical empty-Set constructor and derives
+pipeline output from its actual input and stages. Both execution routes pass.
+The Set test now targets the actual dedicated operation instead of assuming an
+empty-list conversion. Its receiver, item, alias and method mutations still reject.
+
+The reviewed optional-record and immutable callable-alias repairs are now
+integrated. Active source work addresses static literal positional splices,
+the remaining producer/callback verifier contracts, and repeated alias proof
+work. Final-source native, corpus, performance and inherited deployment gates
+remain open. Pyramid remains frozen until inference qualifies.
+
+The generic-body fixture now asserts runtime behavior for an independent generic
+value alongside a live ground mutable capture, and for activation-local mutation.
+Commit `ca80a5964`, integrated as `c53e7ac44`, passes both positive selectors and
+the two retained shared-state rejection controls. Matching final-source native
+qualification remains required. Three other native controls retain diagnostic
+or module-verification failures in the earlier product run.
+
+The fixed-Int mutable-capture rejection was already failing on the preceding
+source and conflicts with the charter's independent-variable generalization.
+Its corrected positive checks two instantiations. Actual shared-state
+polymorphism rejection controls remain selected and pass.
+Pyramid remains frozen until inference qualifies. No full-suite or timing
+acceptance follows from these focused results.
+
+Earlier assembly `e2b76eaac` passes 584 of 589 selected Rust controls.
+Its five failures belong to the earlier full-library failure set. Every prior
+passing control remains selected and passes. The 570-control `e8f4a17bf`
+boundary and all nineteen added controls remain selected. Nominal callable
+pattern ownership is repaired; generic capture, union method receivers, named
+stage configuration and nested optional-guard verification remain open.
+The assembly includes actual host-call selection publication, ordinary generic
+cleanup, With/Guard scopes and immutable environment-path snapshots. Authored
+recursive records retain their dynamic Map values and settled provenance.
+All three original Tokei regressions pass. Master has documentation-only changes
+after `d2453760a`; the assembly is not qualified for master.
+
+Checker checkpoint `6008d4a79`, integrated as `6a65887ad`, closes original
+collecting owners and retains exact pending-call return-flow tickets. Its first
+merged replay exposed twenty-two previously passing controls. Repair `d6ecf0bc2`,
+integrated as `e2b76eaac`, restores them through canonical constructor roles,
+source-derived child types, owner-scoped host finalization, deferred callable
+compatibility and the original unresolved-return diagnostic. All forty-two
+focused controls and the expanded replay pass their previously passing scope;
+no test assertion changed. Broader single-body authority remains incomplete.
+Nominal-pattern checkpoint `e8a60d2eb`, integrated as `6eadbfc40`, retains
+canonical enum/error payload contracts and exact structured-error projections.
+Thirteen focused controls and the expanded replay preserve actual target,
+parameter-label, nominal-field and source-identity rejection checks.
+
+Ownership-test checkpoint `1015ffd0e` corrects a disproved test premise:
+rejected owners intentionally lose latent Stream facts, while a valid owner
+retains the unique call fact. A fallback return makes that valid fixture
+independent of the fact for builder acceptance. Pipeline repair `e8f4a17bf`
+recognizes a physical empty List as a non-Stream source even without an item
+type. Stage-demand analysis and all other producer obligations remain checked.
+Valid empty and typed inputs capture the expected allocation error and produce
+the expected ordinary range output on both execution routes. Each checkpoint
+passes four focused controls; the combined replay preserves the existing
+pipeline and Stream capture mutations and all previous passing controls.
+
+MapKey checkpoint `8808c9281` retains the existing finite key-domain constraint
+through generalization, imports, callbacks and prepared execution. Empty
+List/Map/Set owners retain their actual solved initializer and binding types.
+Thirteen focused controls pass. The first combined replay exposed unnecessary
+representative lookups and two obsolete verifier-test premises. Repair
+`7707b65f0`, integrated as `e53f3e47f`, restores both original exact alias-work
+assertions, preserves canonical `set.empty()` and empty-list conversion
+mutations, and expects the same List-to-Set forgery's earlier missing-key-bound
+rejection. All seventeen focused controls and the combined replay pass their
+previously passing scope. No work limit or forged-input guard is relaxed.
+
+
+Snapshot checkpoint `02a87cb84`, integrated as `1682fc689`, retains immutable
+read-time environment-path entries with a sealed Rust Value payload. Ordinary
+lists cannot forge that retained contract or prime its callable cache. Actual
+Any observations, list consumers and active-environment mutation behavior remain
+unchanged. Authenticated type-test evidence supplies guarded List reads without
+changing the stored Any contract; For and Index source/type/polarity mutations
+remain rejected. Equality reuses the existing concrete-domain rule and retains
+the Any and Optional/Null exceptions. Twenty focused controls and the combined
+569-control replay pass their previously passing scope. The public Rust payload
+change is breaking; XSH syntax and the documented runtime List behavior remain.
+Diagnostic checkpoint `c38df2edc` displays MapKey bounds without producing source
+annotation syntax; its five focused controls and the combined replay pass.
+Dedicated generic Path/env/conversion/require admission remains open.
+
+Scoped-body checkpoint `73596f399` passes seventeen controls and a separate
+symbolic resource control, then the combined replay. Ordinary generic guarded
+commands, retry, error contexts and context scopes reuse the existing executor
+and retain actual values, nominal errors, effect boundaries and restoration.
+Known Stream escape remains statically rejected; symbolic output retains the
+runtime escape guard. Equality reads existing resolved operand types without
+relaxing storage. Dedicated Path/env and authored conversion/require forms
+and single-body authority remain open.
+
+Host checkpoint `3dd1df93f` retains actual checked argument values, binding and
+schema context through canonical method selection. All twenty-three focused
+controls pass, followed by the combined replay. The duplicated inner argument
+effect diagnostic is gone. Original call and named-record-field identities,
+receiver schemas and contextual requirement targets remain authenticated.
+Probe adoption and single-body checking are separate pending work.
+
+Guard checkpoint `b1305521e` prepares earlier Guard success bindings before
+capturing callables through canonical Guard validation. Preparation does not
+advance statement flow. Four focused controls and the combined replay pass,
+including later-binding and fallthrough rejection and the unchanged physical
+capture-writer forgery. Scalar, Optional, destructured and Stream-origin
+captures are checked; no runtime cleanup claim follows from checker controls.
+
+Stream checkpoint `ecfeed5a3` authenticates actual ErrorContext carriers and
+proved noncompleting Capture bodies. Completing captures still need a value
+tail. Its four focused controls pass, including both execution routes and a
+physical false-to-true mutation that removes noncompletion. Parameter checkpoint
+`34f281746` reuses the mandatory checked narrowing at the same ground parameter
+read only when the checked slot matches the declared signature. Five focused
+controls pass; declared call/slot contracts and forged-path guards remain.
+Both checkpoints pass the combined replay without increasing work limits.
+
+Diagnostic checkpoint `3f839a3fa` suppresses only a recovery-type generalization
+cascade with an existing primary error on the same owned recovery-bearing
+expression. Earlier local validation and other scheme failures remain intact.
+The new declaration-order and same-body controls and three existing controls
+pass, followed by the 541-control combined replay. The unchanged List-to-Set
+forgery at that checkpoint expects its earlier declaration/initializer
+rejection; its original source executes on both routes. These changes grant no corpus removal credit.
+
+Local-fact checkpoint `7351fd426` publishes the original empty-list owner's
+existing inference type to its initializer and binding. Constructor publication
+resolves its own pending suffix while preserving earlier pending expressions.
+Four phase controls and 48 family controls pass, followed by the combined
+540-control replay. Nested constructors and error cleanup retain their guards.
+Full-source accounting still records four performed body checks against one
+published body; this is not single-body authority acceptance.
+
+Practical comparison checkpoint `f6d22586c` compares interfaces and private
+bodies within each selected entry context, preserving nominal identity and
+old/new contracts. Seven comparator controls pass in isolation and on integrated
+`25d47071a`. Matching products pass every original/reduced XSH and Laputa root,
+the twelve selected behavior executions, and both interface qualifications.
+The first negative control exposed the recovery cascade repaired by
+`3f839a3fa`. Signature probing then exposed input-mode drift from restoring
+modified frozen files. Adapter checkpoint `bd1a6b280` probes scratch copies;
+its new regression and existing adapter family pass. The guarded practical
+replay on integrated `d225795ad` passes both views' twelve XSH and three Laputa
+roots, twelve exact behavior executions, all three negative controls, six
+signatures per view, interface comparison, unchanged-view postconditions and
+cleanup. The accumulated interface count is 1,991 callable and zero CLI
+contracts. This qualifies the named four-return view, not the historical cohort
+or annotation-removal targets. One preceding invocation exited silently before
+stages; its exact argv was not retained, so its failing predicate is unknown.
+The successful traced run records the exact inputs and complete guards.
+
+Four test-premise corrections pass the combined replay: scalar reads and local
+storage execute against annotated references on both routes; supported default
+arguments construct and verify; forged default calls retain the complete effect
+rejection; discarded container arguments use their actual lowered statement.
+The original sources and forgeries remain. No production guard is weakened.
+
+Path-like checkpoint `55c681c25` passes eighteen focused controls and the
+combined replay. It reuses the canonical Path-like validator for all three
+methods, retaining contextual path literals, stored-Str rejection, exact
+arguments and original effect order. A unique registered receiver remains
+valid inference evidence; no artificial missing-annotation rule is introduced.
+Diagnostic repair `2321053f2` stops retrying already rejected callable
+interfaces. Both original regression assertions pass unchanged. Independent
+inference errors remain visible in both declaration orders, and genuine
+output-only and unresolved-call controls pass. Five focused controls pass
+before the combined replay. No global error suppression is introduced.
+
+Result-context checkpoint `9f1d5939b` retains the documented one- or
+two-argument contract, selected receiver and error family, defaults and effect
+ownership. Twenty focused controls pass, followed by the combined replay.
+Three arguments now receive the existing arity diagnostic instead of reaching
+an unsupported lowering boundary. No runtime or registry signature changes.
+
+Fresh-list checkpoint `8479c7d45` repairs the diagnosed statement-tail join:
+exact empty literals can inherit another literal branch's element type in
+value-producing `if` and `match`, including nested block tails. Ten focused
+controls and the inherited stored-domain control pass. Stored aliases and
+incompatible known element types remain constrained. The SPEC template and
+generated paragraph match. It passes the combined replay. Matching `6cf8c3a25`
+verification products build without warnings. The guarded practical replay
+passes all twelve XSH and three Laputa source roots, and six exact selectors
+in each view. The earlier `cut` comparison failure does not recur. XSH
+interface qualification stops at `date_parse.xsh::absolute`, whose declaration
+is inconsistent across entry programs. Laputa interfaces, negative controls
+and signatures remain unrun. Source, product and cleanup guards pass. No new
+removal credit is claimed; diagnosis precedes another product build.
+
+Interface checkpoint `ccc954553` authenticates empty-list and divergent-block
+operands from their actual checked AST and flow. Exact empty-list branch tails
+may take a peer list literal's item type; stored aliases keep one shared type.
+The SPEC source and generated paragraph match. Exit publication belongs to
+actual ValueBlock expressions, preserving declaration-body comparison across
+annotation removal. All 45 body-contract controls pass. Nine nullable controls
+pass; the extra generalization diagnostic was still a required failure at
+that checkpoint. Diagnostic repair `2321053f2` subsequently closes it. Both
+families retain their passing controls in the latest combined replay. No whole-doc generator was run because its
+only entry point also builds release products and renders all documents.
+Matching `08e824b91` verification products build without warnings. The guarded
+practical replay passes every source root and behavior selector, then fails at
+`cut.xsh:147` during interface comparison. Product/source post-guards and owned
+cleanup pass. Later Laputa interfaces, signature and negative comparisons do
+not run. A separate in-process diagnosis owns the remaining comparison gaps;
+no repeated product build is queued until that source class is repaired.
+
+Host checkpoint `e99bb2cc5` also finalizes argument-dependent Standard method
+overloads from committed argument evidence. Actual before/after argument
+contexts preserve each canonical selection phase and effect owner. All sixteen
+focused controls pass, followed by the combined replay. Schema-bearing and
+specialized method continuations still use their existing checking paths.
+Body probes remain separate work; these checkpoints do not establish one-body
+authority or a performance result.
+
+A subsequent test-only correction retains nested-schema rejection while checking
+supported closed Stream callable identity and both cross-kind rejections. All
+21 callable-contract controls pass. The old assertion treated Stream projection
+as unsupported, contrary to the implemented callable-kind contract. This
+corrects one remaining test premise; no production admission changes.
+
+Three existing valid-first forgery controls also pass after correcting obsolete
+rejection expectations. Generic tail and tail-less block forgeries retain their
+actual type guards. Filesystem scans and walks reject forged Result envelopes
+through the registry signature inside capture and the effect ceiling outside
+capture. Their source programs and mutations are unchanged. No production
+verification rule changes. All four test corrections pass in the 448-control
+combined replay and remain passing in the expanded 493-control replay.
+Required full regression gates remain open.
+
+Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
+`ModuleExportType::Callable { kind, sig, optional }`. Eight isolated controls
+pass, including actual ground and generic Stream exports on both routes,
+owner and signature mutations, strict codecs, and existing module contracts.
+Initial assembly `1255cf0d3` exposed two dynamic module-call regressions.
+Repair `3ef7f5532` preserves common checking while publishing typed-value facts
+only for typed-value calls. All ten focused controls pass, including the
+unchanged purity mutation. Both regressions pass in the combined replay.
+Both libraries compile; this run selects XSH tests and establishes no XSHT
+test coverage.
+
+Test-first checkpoint `06a950205` preserves the earlier parked terminal Proc
+command control in committed source. It now passes in the combined replay.
+Body checkpoint `426157ef3` passes all 26 isolated controls. Host-continuation
+checkpoint `01ae27f43` passes all 15 isolated controls. The initial combined
+replay exposed a test adapter supplying Pure for an actual Proc; correction
+`a6ac1b984` derives the checked scheme kind and retains both capture assertions.
+All three focused controls pass, followed by the corrected combined replay.
+The completed export checkout is retired from the active path and Git
+registration. Its scratch and generated artifacts remain in the ignored
+retired-lane archive.
+
+The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
+44 failures and three existing ignores. Twenty-four failures are repaired or their obsolete test premises corrected in
+the combined replay. The two diagnostic cascades are also repaired on
+`2321053f2`. Four further test-premise corrections leave fourteen required
+failures on `6cf8c3a25`. Guard scheduling, Stream carriers, parameter narrowing
+and the generic-alias test premise subsequently reduce this to ten on
+`6f354caab`. The actual checked-value constructor forgery fixture and solved
+local-fact checkpoint subsequently reduce this to nine on `6a082af02`.
+Remaining failures include producer gaps, malformed mutation
+fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
+or a demonstrated correction of its former premise. The broad binding-fact
+corpus sweep passes.
+
+The practical four-return paired run on matching `97a0b32dd` products passes
+all 12 XSH roots and three Laputa roots in both unchanged source views.
+All six selected behavior tests pass in each view: 12 passes, zero failures.
+The earlier exported-constant interface ambiguity is repaired. XSH interface
+qualification now stops at a null-safe method receiver in `sort.xsh`.
+Laputa interface comparison, negative controls, signatures and final view
+comparison do not run. Source and product post-guards pass. Owned container
+cleanup resolves. These partial results grant no new removal credit.
+
+Repair `cb07cbd79` captures actual checked null-safe receiver payloads without
+changing ordinary field selection. Eleven isolated controls pass, including
+wrong and missing receiver facts. Repair `995ae6054` preserves the established
+Unit boundary of valueless recursive Procs. Three isolated controls pass,
+including the original recursive body-contract failure and value-returning
+controls. Both repairs pass the combined replay. The next matching practical
+pair remains pending.
+
+Repair `058f05738` restores conservative failure capture for an opaque Proc.
+Unknown effects may include `error`; treating them as empty incorrectly permits
+a narrow nominal error promise. Both existing source controls pass, including
+their pure, finite-effect, Result and unpulled Stream counterparts.
+The combined replay retains every earlier passing control and adds no failure.
+
+Runtime checkpoint `3b96ee9e7` is integrated. One canonical callable kind and
+invocation environment survive aliases, suspension, resume and cleanup.
+The unchanged captured-write and Repeat witness passes on both execution
+routes. Consumer writes before first pull, between pulls and before close are
+preserved. Repeated and never-started cancellation retain their contracts.
+Exact capture-storage, actual declaration-kind error boundaries, delegation,
+UInt driver validation and actual dynamic export target controls pass.
+The dynamic adapter repair transports program, function and kind together.
+Ordinary script calls and the actual adapter pass their separate controls.
+The obsolete mandatory Stream return-annotation diagnostic is removed, and its
+existing emission-inventory test now passes. No authored syntax is added.
+
+The remaining generic-body families and single-body checking authority stay
+open, alongside 18 baseline failures. The first body checkpoint does not cover
+run-initialized Guard, Retry/context/error-context, dedicated builtins or the
+remaining conversion forms. The next lanes own those body forms, canonical
+host-call continuations and paired interface completion. Full Rust, native, memory, performance and inherited
+Laputa acceptance remain pending. The last matching native replay is the earlier
+`7f4dccc80` pair: 27 passes with unchanged source and product guards.
+
+Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
+all 14 independent type, row and finite-effect oracle controls pass, including
+rollback and interrupted-trial continuations. The effect comparison is bounded
+to two variables; it does not establish complete solver or scheme-publication
+correctness. XSHT's original 12-selector replay also passes on `0c9d8d1f2`
+with test correction `f29cdd313`. The corrected test first demonstrates that
+the real body proof permits a redundant effect-clause warning, then removes
+one checked declaration while retaining its effect fact and requires removal
+to fail closed. Its former implicit unsupported-body premise is now false.
+Neither follow-up changes production behavior or qualifies a full gate.
+
+The callable-kind foundation changes the internal Rust type API while preserving
+authored Pure and Proc syntax. It passes 68 isolated controls and the non-test
+XSH and XSHT library check. Runtime Stream carriers and dispatch still reject
+unsupported paths explicitly. New runtime probes expose the remaining Stream
+transport and captured-write limitations. These are mandatory open work.
+Structured recursive return repair `4aa2a44eb` is integrated and covered by
+the combined group. Both runtime routes preserve application envelopes and
+formal Result data. Contextual empty-list returns, live-resource escape rejection
+and missing-leaf resource-proof rejection pass. The escape repair checks the
+actual leaf before Unit consumption. Corpus
+classification and the inherited full acceptance gates remain open.
+The counter-getter build warning is fixed. Compiler-setting repair `4563d2c3f`
+lets the pinned compiler complete XSHT's recursive Send proof. The targeted
+verification-profile library check passes with compiler warnings denied.
+XSH solver and verifier budgets remain unchanged. No performance qualification follows.
+
+Single-body authority remains open. Local constraint collection checks a cloned
+body and retains constraints without the selected host-call facts needed by
+execution. Deferred host solving must publish those facts through canonical
+finalization before the second traversal can disappear. Total inference-work
+counters must qualify this requirement. Output-only body counts omit probe work.
+Proc return-shape probing needs separate treatment.
+
+Source review also identifies five remaining generic-body admission classes:
+Proc defer and errdefer, With and Guard scopes, retry and context expressions,
+nonregistry builtins, and authored conversions or require targets. These are
+existing-language implementation gaps. Their completion remains mandatory.
+The deferred host-call continuation must retain its committed instantiation,
+checked argument layout and original effect scope before the probe can disappear.
+
+Master includes the four foundation commits through `c44e47016` and the
+independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
+all 46 canonical-launcher tests. The earlier pinned warning-denied check passed
+for the warning repair. The effect repair reproduces and fixes an external
+unknown-summary panic. Its private graph solver can omit a selected set of
+clauses without changing ordinary solving or authored contracts. All 12 merged
+effect and importer controls pass. No corpus clauses are removed.
+Independent diagnostic repair `62e65d2dc` also lands on master after its exact
+pinned regression passes. Spanless indexed-build errors identify the failing
+entry source; explicit error spans remain intact. This ports campaign repair
+`80fea2f8d` without the unfinished compiler changes. The isolated checkout is
+clean and its owned build has finished.
+Master also includes the independent performance adapter through `353ebeca0`,
+ported with its three generator prerequisites. All seven files match campaign
+source `354d9215c`; fresh isolated checks pass 26 workload/measurement tests
+and 42 adapter tests on both sources. The optional `inference_performance`
+configuration and module command cover section 12 measurements only. They
+require explicit reference products and reject missing canonical counters;
+full inference acceptance remains closed. No actual timing result follows.
+Master now includes the published HTTP dependency updates through `25592b9a8`.
+The h12tiny family is at 0.4.0, with `rustls-webpki` 0.103.16 and both
+WebPKI root packages at 1.0.10. The first update passes 25 focused networking
+checks. The second passes a pinned offline verification-profile `xsh-net`
+check. All dependencies come from the registry. Both updates are integrated
+into the campaign branch.
+No fresh full Rust, native, or performance gate accompanies these merges.
+Later inference commits remain on the campaign branch: even the focused-green
+`8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
+ready for master.
+
+Twelve completed lane worktrees are removed after confirming campaign
+integration, clean tracked files, and no open handles. Their generated Cargo
+outputs are discarded. Branches remain. The temporary foundation and diagnostic
+qualification checkouts are also removed. Active work, qualified products, failed-run evidence,
+and checkouts containing useful probes or corpus data remain intact.
+Both completed performance-adapter checkouts are removed after their merged
+checks pass; their accepted commits remain on master and the campaign branch.
+Seven superseded assignment, comprehension, context, iteration, operator,
+paired-comparison and repaired qualification checkouts are also removed.
+Their raw qualification logs remain under
+`.work/tmp/full-inference-retired-qualification/`; their commits remain available.
+Five completed body, compiler, contract-comparison and driver-projection
+checkouts are also removed after clean ancestry and ownership checks.
+Their complete scratch trees remain under
+`.work/tmp/full-inference-retired-lanes/`. Their branches remain available.
+Four completed interface, record-form, scalar-contract and graph-verification
+checkouts are removed under the same checks. Their complete scratch trees remain
+in that directory. The imported-source reproducer and dirty iteration prototype
+remain untouched. The prototype's patch lines match the accepted iteration edits
+at `c0a282df8`, apart from seven later added stream-error verification lines.
+Two completed XSHT checkouts are removed after clean patch-equivalence checks
+and confirmation that no agent or process uses them. Their complete ignored
+working trees remain under `.work/tmp/full-inference-retired-lanes/`.
+The superseded argument and budget qualification checkouts are also removed
+after clean ancestry checks. Their complete scratch trees remain in the same
+directory. Matching collector, NonEmpty and optional products remain retained.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
@@ -18,7 +2010,1260 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Reviewed producer repair `512779e63` is integrated at `3e11fe729`.
+Its final focused boundary passes all 63 controls, with independent approval
+and unchanged work limits. Nineteen new portable tests cover the repaired
+relationships. Review reproduced a wrong-family direct error transfer accepted
+by the verifier; mandatory physical propagation proofs now reject it at the
+nearest applicable function boundary while preserving local captures.
+The census assertion now counts physical statements independently and compares
+complete writer and return sets with the old traversal. Its old exact count
+described the removed expression walk. The first merged run passes 702 of 703
+controls; the remaining old test requires resolver calls that unique bindings
+no longer need. Test-only repair `4ec6ac8a8` asserts exact zero for those bindings
+and retains nonvacuous ordered-query bounds for actual mutable replacements.
+
+Fresh source `7b6a9629c` passes all 703 controls, eight corpus diagnostic checks
+and twelve runtime controls, with zero failures, ignores or native skips.
+Matching verification products are 36,406,008 bytes for `xsh` and 44,412,944
+bytes for `xsht`. Source and products remain unchanged. The corpus candidate
+is still the 202-effect diagnostic probe; no historical removal or paired runtime
+credit follows. The full canonical attempt stops at 206 root integration passes
+and 25 failures; downstream native stages do not run. Fifteen failures share
+incorrect Result-returning function-tail lowering. The remaining primary causes
+are compacted process defaults, a declaration tag, driver binding ownership,
+loaded standard-library effect contracts and a stale private-proc rejection.
+Four poisoned-lock failures follow the driver failure. Repair each cause through
+its exact controls before retrying the full boundary on a fresh source.
+The failed receipt remains in `full-inference-producers-qualified-r2`; owned
+cleanup resolves and no combined acceptance follows.
+The private-proc test correction and Result-tail repair are integrated. The
+original Pure parameter test remains, and both exact declaration tests pass.
+The tail repair preserves actual Result forwarding and cleanup order on both
+execution routes; all fifteen networking regressions pass with matching products.
+Library effect repair `f467bb0e0` is also integrated. Both original loaded-module
+regressions pass. Two new controls reject forged reserved callees, enforce
+implementation effect contracts and retain concrete Result error transport.
+On Linux, `unix.uptime_seconds` now requires `fs`, matching its shipped file
+reader; other platforms retain `process`. Fresh combined qualification remains
+required before any compiler-prefix merge to master.
+Process default and driver binding repairs pass their two focused controls.
+Configured Range proof repair `d1b5534ba` passes seven focused controls and
+all seven original canonical process and stack controls. These repairs close
+the individually reproduced causes of all 25 failures. A fresh combined
+canonical run remains required.
+Named-cause repair `4d4c93a81` passes 67 focused controls on its isolated source
+and is integrated. The verifier authenticates the exact binding subjects,
+payload and cause without inventing a success type. Merged test extension
+`f91ef3f8d` covers both explicit returns and the original implicit tail with
+the same five physical mutations. Fresh merged replay exposes a real remaining
+failure: the earlier tail repair handles expression tails but misses bare
+binding tails. Repair `de8e288dd` uses the exact resolved binding and its checked
+slot type. Both tail forms now reject all five mutations. All 68 focused
+controls pass, including parameter and captured Result forwarding, cleanup
+order and broader-error retarget rejection. The repair is integrated.
+Obsolete transfer helpers are removed at `6b8ef0329`; the warning-denied
+non-test check and all 68 controls pass. Frozen source `d17f140ce` passes
+fresh canonical bootstrap, then 231 root integration tests. All 25 earlier
+failures pass. The remaining failure is `libc_hygiene::no_migratable_libc_calls`,
+which cannot parse its `cargo metadata` output. Native stages do not run.
+The failed receipt remains in `full-inference-producers-qualified-r5`.
+Source stays clean, cleanup resolves, and peak memory is 4,343,279,616 bytes
+with no OOM events. This run supplies no timing or combined acceptance credit.
+The metadata failure comes from an uncached locked `webpki-root-certs` 1.0.10.
+Fetching that package makes the original unfiltered offline metadata command
+and unchanged hygiene test pass. No source, lockfile or audit policy changes.
+The fresh R4 attempt on the same source passes bootstrap and all 232 root
+integration tests. Ambient-filesystem, symbol and compatibility-boundary groups
+also pass. Core compatibility then stops at 31 passes, 27 failures, three
+ignores and two filters. Failures include stream provenance in `cp`, record
+spread proofs in `expr`, a producer mismatch in the selected `ls` test and
+an unproved binary expression in `btop`. Group the remaining terminal and
+startup failures by reproduced cause before another full attempt.
+Preserve R4 under the same frozen checkout. Later native stages remain unrun.
+
+The owner also requested isolated Laputa certificate hardening. Laputa commit
+`2549eb0` removes unauthenticated live certificate downloads, updates packaged
+roots and runtimes, and makes CA package dependencies explicit. Seven source
+checks and the focused CA recipe test pass. XSH master includes Ed25519 host
+verification at `21ce1ed25`, with one registry and two native controls passing.
+XSH distrust-policy enforcement and trust-generation invalidation are integrated
+through `be7009bb7`. Fifteen Rust controls, two native controls and validation
+of the unchanged curl bundle pass. Laputa local master now includes signed
+trust-release composition and staging repairs through `f7da5b523`.
+Two pre-fix regressions reproduce deletion of caller-owned overlays and
+temporary paths. The repairs use exclusively owned private temporary
+roots and atomic no-replace publication. Initial privacy follows the existing
+mode-at-creation host primitives and independent source review.
+The final five-file check passes under both umask `000` and `002`.
+All six trust-release and fourteen root-composition tests pass under each
+mask, including preservation, publication permissions and one-winner composition.
+No forced publication-race test is claimed. The fast-forwarded master is clean
+and exactly matches the reviewed source. Nothing is pushed or installed.
+The production signing public key remains unprovisioned; authenticated update
+deployment still requires an explicitly provisioned key.
+These security changes do not supply inference or deployment acceptance credit.
+
+Isolated carrier checkpoint `f506a237b` passes three runtime controls on both
+post-disposal routes. Generic callback materialization, polymorphic aliases at
+Int and Str in both client orders, and Result-as-data all pass. Three cold
+controls reject forged targets, layouts, kinds and nested effects. Independent
+review approves that bounded prefix. The warning-denied non-test check still
+needs the canonical reuse API's SCC production consumer. Host `.call` and
+`utils.cache` adapters, SelfCall completion, recursion and Stream remain open.
+This checkpoint is not qualified for master.
+Assembly `0c75290cf` merges that checkpoint with the campaign source.
+The reviewed resolution preserves the registry's declaration-effect ceiling
+and the scoped per-call effect proof. All seven carrier/forgery controls and
+all 66 verifier-effect controls pass on that assembly, with no failures or
+ignores. The slice is integrated into the campaign branch; master is unchanged.
+These targeted passes do not qualify the combined regression boundary.
+A later host checkpoint `2518b8e01` passes eighteen focused controls and is
+integrated through `b87587160`. Actual Module signatures include parameter
+labels. Stream contracts retain their actual program, producer and closed
+instance without pulling. Ground parameter validation uses the same recursive
+matcher. Cold yield proofs retain lazy UInt checks and delegation behavior.
+Independent review approves this bounded prefix. Remaining factory routes,
+generic Stream environments and the combined regression boundary remain open.
+Range checkpoint `a6d119581` passes ten focused controls and is integrated through
+`a57c98136`. It preserves eager allocation and error timing while returning the
+declared Stream carrier. Actual declaration kind controls producer suspension.
+Bound, item and captured-error forgeries reject. Both expr programs now pass
+actual preparation and their native cases on matching verification products.
+
+Recursive command checkpoint `f017423e9` passes nine focused controls and is
+integrated through `6d6e2e4b3`. These cover checked command classes, argument
+authority, original Stream inference cells, callback instances and atomic
+failure. Its combined replay passes 120 of 124 controls with no ignores.
+The later constructor-phase repair clears two original Proc callback failures.
+Checkpoint `c6565bad5`, integrated through `bdf3f43f0`, also prepares omitted-return
+Procs with authored parameters through the existing authoritative body path.
+Its seven-control replay passes six, including the real-program counter fixture
+and both original cold application checks. Completion checkpoint `d16610e26`
+then passes all twelve focused controls. Each terminal branch retains its actual
+application and Proc envelope through the existing completion operation.
+Formal Result values remain nested data. Integration `7137953cb` passes 202 of
+203 combined controls with no ignores. The sole failure is the retained
+Stream-function alias positive. Mutual Proc completion, the real-program counter,
+both mutable runtime routes and the original cold application checks all pass.
+The inherited collecting probe also remains separate work from the authoritative
+body check. Stream aliases, terminal commands and native-order checks remain open.
+
+Constructor checkpoint `3342bf3a9` passes all 43 focused checks with no ignores,
+including disposal, effect order, physical overwrite proofs and paired bodies.
+Its packed body fact occupies sixteen bytes. Authored interfaces now use the
+existing declaration schedule before raw type resolution. Capture-order and
+atomic-publication controls pass. Integration `13c7d119f` preserves the command
+and producer proofs. Explicit `List[Any]` and heterogeneous literals stay dynamic.
+The subsequent combined group passes 192 of 197 controls with no ignores.
+Three failures expose the ordinary Proc preparation gap repaired by `c6565bad5`.
+Mutual Proc completion and the retained Stream-alias positive also fail.
+The later 203-control replay above clears those Proc failures.
+The native witnesses integrated at `6397a90cf` both reproduce real failures.
+Prepared-constant repair `85d6f607a` is now integrated through `6fd59da4b`.
+Its 89-test checker/runtime group and four imported-read/nominal controls pass.
+The final payload and type forgery control passes, and matching verification
+products pass the unchanged native constant witness. Prepared expressions keep
+their ordinary leaf semantics and a separate authenticated data-work budget.
+The ordinary generic proof bound is unchanged. Mutable-callable checkpoint
+`09af29f84` is integrated through `719480599`. Ground and generic reassignment
+pass on both execution routes, and forged writer instances reject. Its wider
+isolated group passes 27 of 30 controls. Recursive inference and the retained
+Stream-alias positive still require combined qualification.
+
+The reviewed producer repair passes all 74 verifier-effect controls, including
+both original 128-use bounds, without exclusions or raised limits.
+It obtains statement ancestry during the existing ownership walk and retains
+the original resolver for owners with expression-region bindings.
+The repair is integrated through `489b304cb`. All 88 selected controls pass on
+that assembly. Matching isolated products build, and the original 27 native
+failures now yield 17 passes and ten failures, with no ignores. The remaining
+failures are eight btop cases and two expr cases. Follow-up `ee22c3cc8` passes all
+78 verifier controls and is integrated through `586d4bf0c`. Its actual btop
+preparation passes after fresh-record, empty-set and immutable-loop guard fixes.
+An earlier complete-Optional allowance failed seven unchanged corruption tests
+and was withdrawn. Matching verification products build on `ee22c3cc8`.
+The original 27 native failures yield 25 passes and two expr failures on that
+checkpoint, with no ignores. All eight btop cases pass. On combined `a57c98136`,
+matching products pass both expr cases but newly fail all five cp cases during
+checking. The resulting 22-pass, five-failure replay has no ignores. Authored
+plain-payload Procs reject valid propagation before inferred error effects settle.
+This regression blocks qualification. The matching build also emits an unused
+counter-getter warning and an XSHT Send-proof recursion-depth warning.
+Test adapter repair `bc7e8fffe` preserves the concrete effect assertions after
+the checked-effect representation change. All five affected integration tests pass.
+These isolated results do not qualify the combined regression boundary.
+Work-counter repair `ab26826b9` passes nine focused controls and a non-test
+check. It counts discarded diagnostics and nested retained type nodes.
+Independent review finds no blocker in that checkpoint. Adaptation `d5ecb43f1`
+counts retained generic body evidence, including proc-return sites, without
+inventing output types. All fifteen focused counter controls pass on its merged
+source. Stream and signal-hook body entries now pass their regression alongside
+all sixteen focused counter controls. The accounting prefix is integrated through
+`9bd8fe67d`. Repair `6da02f160` counts each constructor role as evidence without
+inventing an output type. Its actual constructor fixture passes in the combined
+197-control run. The later Proc repair also passes the real-program evidence
+fixture. Performance qualification remains open.
+
+The superseded failed producer-qualification checkout is removed after preserving
+its complete scratch tree and checking clean ancestry, handles and registration.
+Thirty-nine completed checkouts have now been retired. R3 removal partially
+fails on generated-file permissions after Git unregisters it. Its orphaned
+directory is preserved intact under the retired-qualification archive.
+R4's ignored artifacts are also preserved before ordinary removal succeeds.
+Both original paths and registrations are absent. The completed constant-assembly
+checkout is also removed after confirming clean integration and no consumers.
+Its scratch data and ignored artifacts remain in the retired-lane directory.
+The completed mutable-callable checkout is removed under the same checks after
+the combined runtime controls pass. Its full ignored tree remains archived there.
+The active failed
+canonical checkout and all unfinished source remain retained.
+
+Previous focused source `50b9d543e` passes 684 merged controls with zero failures
+or ignores. Matching verification products build: `xsh` is 36,324,192 bytes
+and `xsht` is 44,329,432 bytes. All twelve runner, resource, constructor and
+comprehension selectors pass, each selecting one test with zero skips and
+unchanged source/product pins. The fresh diagnostic replay passes all four
+Laputa source checks. Four XSH checks still fail: two slice-contract and six
+checked-input-disagreement diagnostic instances. The frozen candidate remains
+the 202-effect probe. No paired runtime, interface or removal credit follows.
+
+Previous focused source `9f66593f3` passes 676 merged controls, with zero failures
+or ignores. Its NonEmpty repair has eleven focused passes and independent
+approval. Fresh literals require actual members; splices require independent
+NonEmpty evidence. Comprehensions retain that validation only from their
+actual source through the canonical single, unfiltered mapping rule. Empty,
+wrong-member and ordinary-list source mutations are rejected. Matching
+verification products build: `xsh` is 36,307,072 bytes and `xsht` is 44,313,360
+bytes. Seven existing runner/resource/constructor controls and all five new
+comprehension selectors pass, with zero skips and unchanged product pins.
+The comprehension file is integrated at `7fef1b5e6`; all five selectors also
+pass against that clean integrated source.
+
+Collector repair `50b9d543e` passes its 19 focused controls and independent
+review, including both existing work-budget controls. It proves every writer
+of the fresh lowered accumulator, preserves actual append types and runtime
+checks, and reuses inherited lexical bindings only during the writer census.
+The 16/32/64/128-writer cases, scope boundaries, early returns and forged
+inputs pass. A separately reproduced scoped-callable baseline failure is also
+fixed without dropping context initialization or effect/resource checks.
+Fresh merged qualification and matching-product replay produce the results
+above. The remaining XSH failures stay owned by the producer lane; this is
+not a qualified full compiler baseline.
+
+Isolated compiler checkpoint `4d67a68a5` passes 29 of 35 focused controls.
+All 23 foundation controls pass. The source controls preserve immutable aliases,
+returned callback identity and one requirement per source application.
+Application-result origins retain their constraint owner and normalize through
+the owning scheme's application evidence. Six Proc and recursive-return cases
+still fail. Outer bound effect publication, latent application causality and
+symbolic cold execution remain unfinished. This checkpoint stays outside the
+integration branch and earns no F2 acceptance.
+
+Outer-effects checkpoint `e142ea86f` compiles and passes 32 of
+those 35 controls. Proc client order, Result-as-data and application-result
+aliases now pass. All five default-ownership and scoped graph controls pass,
+including rejected missing or wrong-owner substitution maps. The public
+`CheckedEffects` projection distinguishes unknown, finite and symbolic effects.
+Cross-edit comparisons retain canonical callable and body proof evidence.
+The isolated XSHT consumer migration starts from this unqualified checkpoint.
+
+After Capture admission through the existing body visitor, eleven of thirteen
+source controls pass. Both captured and uncaptured error contributions pass.
+Self and mutual recursion still fail at the explicit-return inference boundary.
+The mutual source case has not reached its effect-map check. Cold execution and
+effect-scheme acceptance remain unfinished.
+
+Unqualified prerequisite `7a03e30fb` passes 26 of 28 selected controls.
+Forwarded applications retain caller-owned obligations and actual returned
+layouts. Ground calls still require selected argument evidence. Independent
+source review finds no defect in that mapping. Cold verification must also
+reject an in-range ordinal pointing to the wrong caller obligation.
+
+Unqualified compiler checkpoint `096edb232` preserves inferred nominal return
+schemas from actual constructors, separately from contextual expectations.
+Both focused schema controls and the exact prepared-body comparison pass;
+independent review approves this prerequisite only. Mutable reads cannot supply
+constructor identity. The original private-return autofix again proposes both
+expected fixes on this source. Generic Capture still fails during indexed
+preparation, so this checkpoint earns no F2 or cold-execution acceptance.
+
+The isolated seven-file XSHT migration at `9470db0ca` passes eleven focused
+controls on that checkpoint, with zero failures or ignores and independent
+review approval.
+Finite, unknown and symbolic permissions remain distinct. Original effect-fact
+coverage is required before any reload, and annotation removal requires a
+successful canonical body proof. Three regressions reproduce and fix the
+previous fail-open caller paths. The generic Capture body-contract fixture
+remains known red because of the compiler prerequisite above; full tooling
+acceptance remains open.
+
+Isolated Result-pattern prerequisite `42af589d2` passes eight focused controls
+and independent review. Built-in Ok/Err patterns constrain unresolved subjects
+at their original solver level with transactional ownership. Enum shadowing
+and incompatible callback results retain their checks. An ordinary typed-input
+reference establishes the canonical inferred Error join; the new narrower
+expectation was corrected without changing that policy. Cold execution and
+recursive component inference remain unfinished.
+
+The isolated producer repair now passes the actual frozen `cut` source and
+its portable counter, self-slice and field-guard controls. Independently
+anchored storage types retain all writer obligations. Six focused order and
+guard controls pass, including rejected mutations of Binary, List, Fmt, Tag,
+later conditions and completing branches. These results include two reproduced
+evaluation-order defects repaired during review. Final classification review,
+statement-level controls and work-budget qualification remain required.
+
+Three further portable regressions reproduce the advanced corpus failures:
+nullable conditional storage, immutable Boolean aliases of field guards, and
+narrowed return values lifted into `Result`. The return-lifting control passes
+after repair. The other two relationships remain under repair. The actual
+AWK, developer module and system-report checks must pass before merged corpus
+qualification. These isolated results earn no interface or removal credit.
+
+The later isolated producer repair passes all four actual source preparations:
+cut, AWK, the developer module and system-report. The 16/32/64/128-field guarded
+workload also passes without optional hints, on both execution routes, under
+the unchanged work limits. The repair removes expression visits from the writer
+census only when complete statement coverage proves the old traversal's result,
+and reuses positive predicates only for the same immutable snapshot and guard.
+Final portable regression qualification, cleaned-source review and fresh merged
+corpus replay remain required. No interface or annotation-removal credit follows.
+
+The fresh eight-check corpus replay repeats all twenty missing producer
+contracts and two slice-contract failures from `520757c30`. The first actual
+Laputa failure is reproduced in `pm/graph.xsh::edges`: a lowered `collect`
+block ends in its unannotated empty-list accumulator, whose element type
+is not derived from its yield writers. This class is under repair; no full
+baseline or corpus acceptance follows yet.
+
+Source `4e0863e6c` combines the reviewed assignment and producer repairs for
+fresh merged qualification. Assignment source `6591e9ab7` passes 21 focused
+controls before integration. Its merged boundary has 609 passes and 24 failures:
+the previous 22 producer failures and two test navigators that assume the old
+assignment operand layout. The test-only repair restores those mutations
+through the actual lazy operand blocks. It also confirms that a truthful
+List[Int] RHS cannot change List[UInt] compound-assignment storage. All three
+focused controls pass before rebase; production is unchanged by that repair.
+
+Producer repair `4ce9e2c06` passes 45 focused controls before rebase and has
+independent approval. It authenticates guarded storage, captured setters,
+fresh checked producers and every comprehension target, including unused
+record targets. Existing work limits remain unchanged. The combined merged
+run on `4e0863e6c` selects 643 tests: 641 pass, two fail and none are ignored.
+All 24 failures from the earlier assignment run are resolved. Two optional
+typed-call producer controls regress during preparation because the receiver
+lacks a non-null branch proof.
+
+Repair `520757c30` passes the fresh merged boundary: 645 passed, zero failed
+and zero ignored, including both retained budget-exhaustion controls. Its lane
+boundary passes all 49 controls and independent review finds no P1/P2 issue.
+Early callable validation and physical producer verification share the completed
+owner census and its ordered guard proof. Every incomplete optional-payload
+carrier requires that presence proof even when wrapper facts are absent.
+A valid-first mutation that reverses the preceding guard is rejected. Prefix
+scans borrow the existing child forest, and completed positive presence proofs
+are reused only for their exact physical gate within that owner. Work limits
+remain unchanged. Matching verification products build: `xsh` is 36,240,248
+bytes and `xsht` is 44,245,808 bytes. All six runner/resource controls and the
+qualified-alias generic-constructor selector pass with zero skips; source and
+products remain unchanged. Documentation, corpus and full baseline acceptance
+remain pending.
+
+Argument source `2b37fee8c` passes the fresh merged boundary: 673 passed,
+zero failed and zero ignored. Its 29 focused controls and independent review
+cover canonical named spreads, final rest/splice layout, omitted interior
+defaults in declaration scope, selected registered conversions, and actual
+default/argument/effect/substitution proofs after frontend disposal. The same
+expansion and argument-order policy serves concrete types and published
+schemes. Standalone Result propagation uses the existing indexed Try operation.
+These source-acceptance changes have matching SPEC and Architecture updates;
+verification products still describe `520757c30`.
+
+Eleven new native fixture probes against the `520757c30` pair have eight passes
+and three compiler failures, with no skips. NonEmpty preservation fails first
+on its fresh list input; generic mutable-row refinement after a disjoint write
+and a generic deferred body also fail. The producer and core-inference lanes
+own these classes. Initial qualifier-syntax and UInt assertion/display fixture
+errors were corrected before this count. No capability or corpus exclusion
+follows from these failures.
+
+The matching `520757c30` diagnostic corpus replay fails all eight ordinary
+checks: twenty missing checked-value producer contracts and two missing slice
+collection contracts. Original and diagnostic/reduced views fail identically;
+the frozen candidate is the 202-effect probe, not an accepted removal view.
+All source and product pins remain unchanged. The producer lane owns these
+failures. No interface, runtime-parity or annotation-removal credit follows.
+
+Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
+comprehensions. All 20 focused controls pass before integration. They cover
+sequential binding scope, actual producer domains, lazy qualifiers and
+projections, Bool and Status filters, validation survival, and stream cleanup
+on both indexed routes. Synthetic lazy blocks retain canonical resource
+transfer evidence. The merged boundary selects 594 tests: 572 pass, 22 fail,
+and zero are ignored. Its failed set exactly matches the previous iteration
+boundary. Matching native products, documentation checks and corpus parity
+remain pending. This is not a qualified compiler baseline.
+
+Source `c0a282df8` integrates reviewed generic destructuring and iteration.
+The lane's 25 focused controls pass before rebase. They cover source-first
+binding publication, invariant writers, actual iterable item types, finite
+and Result sources, lazy stream cleanup, and owner error boundaries on both
+indexed routes. Ordinary and generic lowering share Result-stream adaptation.
+A corrected coordinated callee mutation passes target/effect/header assertions,
+then is accepted when the new stream-owner proof is omitted and rejected when
+it is retained. The earlier wrong-ID mutation establishes no bypass.
+The inherited merged boundary in `.work/wt/full-inference-iteration-qualified`
+finishes with 549 passes and 22 failures, zero ignored. The iteration controls
+and ordinary neighbors pass. All failures belong to the preceding producer
+boundary; its unsigned-membership failure now passes. The producer lane's
+guard, aggregate and work-limit repairs remain unmerged, so this source is
+not a qualified compiler baseline.
+
+Source `01b6b5a64` adds actual paired-comparator controls. All three selected
+XSHT tests pass after integration in `.work/wt/full-inference-paired-qualified`.
+One unchanged generic body preserves both concrete Int and Str instances.
+Folded operator/domain changes beneath list and record parents are rejected;
+malformed source is distinguished from a checked-body mismatch. These tests
+do not qualify the frozen corpus or repair the producer regressions below.
+
+Source `323a3e52a` is integrated after independent review of contextual
+aggregate producer proofs. Fresh aggregate carriers require an authenticated
+consumer; every physical record entry remains proved, including overwritten
+values. Checked storage retains actual source-domain obligations. Native
+argument facts retain exact owner/instruction identity, and the mandatory
+census revisits only its collected pattern candidates. Eleven focused controls
+pass, including the tracked generic-constructor preparation that previously
+exhausted the unchanged work bound. The merged boundary in
+`.work/wt/full-inference-context-qualified` finishes with 521 passes and 23
+failures. Seventeen are new regressions: existing checked-value producers are
+rejected, and two driver-projection controls exhaust the work bound. The six
+inherited optional-field failures remain. The producer lane owns all repairs;
+this source is not qualified and earns no corpus or annotation-removal credit.
+
+Source `26d87d2bc` is integrated with reviewed generic operator contracts and
+a shared comparison-chain representation containing each real operand once.
+Ordinary depth-8/depth-12 preparation emits 60/88 rows, versus 3,574/57,334
+before repair; generic preparation emits 190/282 and stays within unchanged
+work limits. These are deterministic row counts, not timing measurements.
+The focused operator and completion controls pass. The expanded merged boundary
+has 527 passes and six failures, all in the existing typed-callable optional
+field controls. Running those controls on `054fc7a3a` reproduces the same six
+failures. Guard, loop-backedge, writer and block-order proof repairs remain
+mandatory; this is not a fully qualified compiler baseline.
+
+Source `054fc7a3a` passes the earlier combined 489-test targeted boundary after local
+integration. Quantified bodies elaborate shorthand fields through resolved
+binding identities and static record updates through the existing checked
+paths. Both indexed routes preserve shadowing, immutable captures, base-before-
+replacement evaluation and failure order. Typed Set checks remain executable;
+truthful and coordinated wrong-domain producers are rejected. The 256- and
+512-field update controls stay within the existing work bound. Independent
+source review found no blocking issue. Matching products and corpus acceptance
+remain at the earlier source below; this tranche earns no removal credit.
+
+Source `8f80bc2f5` passes the earlier combined targeted boundary: 473 passed, zero
+failed and zero ignored. Optional aggregate producers prove every actual field
+and element. Immutable pattern reads retain narrowing under direct null guards
+in active if and while bodies, or after a matching branch that cannot complete.
+Wrong guards and writers fail; null exclusion cannot invent unsigned or
+validated domains. Hint-erased execution passes on both routes, including a
+32-node negation chain with charged iterative traversal. Ordinary unary-`!`
+and short-circuit guard forms still fail preparation in confirmed minimal
+sources; the producer lane retains them alongside the contextual carrier,
+conditional-list and `cut` failures. No new corpus parity or annotation-removal
+credit follows from these targeted tests.
+
+Matching verification products build in `.work/wt/full-inference-producer-corpus`
+under `.work/target/x86_64-unknown-linux-musl/verification`. The `xsh` is
+35,929,080 bytes, SHA-256
+`6a83777a7b1a26ca734350fd105d14d799c446833cdf26153ae99ad1e7c2bb3d`.
+The `xsht` is 43,913,056 bytes, SHA-256
+`cc49f85ffdc30f7cd2320b3d5e044e0e03e985b081487776355a15245729f094`.
+The matching pair passes all six focused native Cargo-runner and hidden-resource
+controls, with unchanged source and products before and after execution.
+All eight normal corpus checks finish. Four Laputa checks pass. Frozen XSH
+original and candidate still fail identically on `cut`, three conditional-list
+splices and the `dev/main` list subject; the `system-report` record error is gone.
+Practical XSH original and reduced still fail identically: `awk` now reaches a
+missing loop-item contract instead of the prior nullable read failure, and
+`sort` retains its map-subject failure. Interface and runtime parity remain
+unrun, with no annotation-removal credit.
+Faithful isolated reducers for frozen sites 3476, 7427, 2285 and 6338 pass both
+annotated and erased checks with this pair. The first two previously failed
+when erased. The mutable-record reducer includes its original import closure;
+earlier missing-module fixture attempts supply no compiler evidence. These
+admission results do not qualify the original files or earn removal credit.
+
+Source `f53eb38d1` passes the earlier combined targeted boundary and construction
+neighbors: 468 passed, zero failed and zero ignored. Generic bodies prepare
+checked interpolation, list splices, ordered record spreads, computed maps and
+ground-domain sets through the existing indexed operations. Both runtime routes
+preserve values, overwritten-expression evaluation and first-failure order after
+frontend disposal. Truthful malformed display, splice, map and spread producers
+are rejected; formatting parts are charged before decoding. No new native
+command path or registry policy is introduced. Matching products remain at
+`cf1d47637`; corpus qualification and remaining body families stay open.
+
+Source `a9be9aafa` passes the earlier combined targeted boundary and Optional inference
+neighbors: 454 passed, zero failed and zero ignored. Null and concrete branches
+infer one Optional envelope in either order. Required annotations and invariant
+container domains retain their authority. Checked statement-tail joins survive
+generalization and preparation; every actual arm remains independently proved.
+Unresolved Optional returns preserve nested Result values as data on both
+indexed routes after frontend disposal. Ordinary dynamic-return propagation
+and the underdetermined dynamic-return diagnostic remain unchanged. SPEC and
+Architecture describe this contract expansion. Matching products remain at
+`cf1d47637`; corpus parity and broader native acceptance remain open.
+
+Source `d052c08c0` passes the earlier combined targeted boundary: 432 passed, zero
+failed and zero ignored. Generic Optional field, index, slice and selected
+method access preserve null handling and lazy operands. Nullable return values
+retain nested Result data. Actual Result errors fit the owner's boundary;
+potentially failing unsigned requirements cannot escape a narrower error
+family. Directional Optional widening preserves ordinary explicit matches.
+Valid-first malformed-IR controls and both indexed runtime routes pass.
+Matching products remain at `cf1d47637`; corpus and broader native qualification
+do not transfer to this source. Nullable source joins and other F3 families
+remain mandatory work.
+
+Source `cf1d47637` passes the earlier combined targeted boundary: 414 passed, zero
+failed and zero ignored. Driver projections prove their actual source,
+envelope and every writer, including unused bindings and zero-output patterns.
+Fresh command-word lists retain contextual typing only through authenticated
+compiler-created bindings. Native process-option projection preserves every
+other registered contract. Wide destructuring stays within the existing proof
+work limits. All three exact native Cargo-runner bodies pass with matching
+products: lock handoff, unmatched-filter rejection and lock release. The
+source remains clean and product hashes match before and after the replay.
+Broader native acceptance and corpus parity remain unqualified at this source.
+All three hidden-resource lifetime controls also pass with matching products.
+The qualified-alias generic-constructor selector fails preparation on a list
+match subject at owner 11, instruction 261, subject 251. Its body does not run.
+The producer lane owns this smaller regression alongside the corpus failures.
+
+The matching-product corpus replay finishes all eight normal checks. All four
+Laputa checks pass. Frozen XSH original and candidate fail identically on the
+prior slice, record and list-match-subject proofs, plus three fresh-list-splice
+contract mismatches in `dev/docker`, `dev/gates` and `dev/internal`. Practical
+XSH original and reduced retain the prior `awk` producer disagreement and
+`sort` map-match-subject failure. The producer lane owns the new splice
+regressions together with the five existing classes. Interface comparison
+and runtime parity remain unrun. These checks supply no annotation-removal credit.
+
+Matching verification products build in `.work/wt/full-inference-driver-projection`
+under `.work/target/x86_64-unknown-linux-musl/verification`. The `xsh` is
+35,875,072 bytes, SHA-256
+`50ae360b081ed9fcee035ff50ec42e3e96521e2edddfe598c95b81c984245f04`.
+The `xsht` is 43,859,504 bytes, SHA-256
+`6dc77944c9c3c2967bca4c43d25a5ff18abd58190beb710690e8139a3446d85e`.
+
+Source `3c92adfb3` passes the earlier combined targeted boundary: 407 passed, zero
+failed and zero ignored. Generic bodies prepare unguarded list indexing and
+slicing, literal record-key indexing through compiler-created temporaries,
+from-end literal indexing, and concrete arithmetic and list concatenation.
+Actual operands authenticate unsigned list guarantees. Ordinary runtime checks
+and invariant list typing remain intact. Validated list projections and
+`NonEmpty` concatenation retain their contracts. Shared classifier and
+512-block work-bound controls pass.
+
+Guarded postfix access remains mandatory work. The next witness,
+`pure keep(value, items: List[Int]?) { let _ = items?[0]; value }`, passes
+checking but fails preparation at the Optional parameter representation.
+Matching verification products remain at `934eab3b1`; no new corpus or native
+acceptance follows from the targeted source checks.
+
+Two faithful frozen-corpus reducers confirm the next nullable-join class:
+site 3476 joins an `env.get` string with null, and site 7427 joins null with
+a parsed integer. Each annotated version passes with the `934eab3b1` products;
+each erased version fails despite its optional destination contract. A separate
+site 2483 reducer infers its forwarded source schema in both versions. These
+reducers identify relationships to repair; they supply no original-corpus
+qualification or annotation-removal credit.
+
+Source `934eab3b1` passes the earlier combined targeted boundary: 389 passed, zero
+failed and zero ignored. Generic bodies now prepare lexical mutable and
+immutable locals, match arms, while and value loops, assignments, explicit
+discards and early returns. Declaration facts prove storage type, mutability,
+owner and instruction identity. Every writer is checked. Compound results
+cannot invent UInt validation, while lawful UInt-to-Int local storage passes.
+The iterative lexical-frame proof passes the 256- and 512-block controls under
+unchanged work limits. SPEC and Architecture describe this accepted tranche
+and the remaining unsupported preparation forms. Broader F3 families and
+matching-product corpus qualification remain open.
+
+Matching verification products build in `.work/wt/full-inference-bodies` under
+`.work/target/x86_64-unknown-linux-musl/verification`. The `xsh` is 35,780,280
+bytes, SHA-256 `6fbad331c90aba0918a082a97b96bc833474f9ce8a9d693d23e4712b02806200`.
+The `xsht` is 43,768,424 bytes, SHA-256
+`8f5b96c53d5d46a93eaa97a1a03e507fa97b314778a68bd11844e5a73c7c4704`.
+Eight normal corpus checks preserve both source cohorts and both pairs of
+views. All four Laputa checks pass. Frozen XSH original and candidate fail
+identically on slice proof in `cut`, record proof in `system-report`, and a
+list match subject in `dev/main`. Practical XSH original and reduced fail
+identically on a producer-contract mismatch in `awk` and a map match subject
+in `sort`. The prior tail-less discard and Abort diagnostics are gone.
+Interface comparison and runtime parity remain unrun. No annotation-removal
+credit follows from these normal checks.
+
+Source `cce02595c` passes the earlier combined targeted boundary: 362 passed, zero
+failed and zero ignored. Normally completing tail-less value blocks prove Unit,
+including compatibility with Any. Noncompleting blocks remain distinct from
+Unit, and unresolved value tails retain their uncertainty. Abort rows prove
+an Int status operand and require the process effect. The actual `lib.text_a2`
+import and malformed status/effect controls pass. That checkpoint has no separate matching products or full native acceptance.
+
+Source `ae9793745` passes the earlier combined targeted boundary: 357 passed, zero
+failed and zero ignored. Scalar slots now use canonical lexical projections;
+native overload shape determines a result only with unambiguous authority,
+and actual operands remain independently checked. Fold accumulator proposals
+must prove the actual seed, callback and every writer, including with optional
+facts removed. Spawn, Wait and Command rows prove operands, canonical options,
+result envelopes and their owner's return contract. Opaque Record environments
+retain the existing API boundary. Two corruption tests now require the earlier
+scalar predicate rejection instead of the later writer rejection. No invalid
+program was admitted to make the replay pass. Matching verification products
+build in `.work/wt/full-inference-process-contract`. The `xsh` is 35,587,984
+bytes, SHA-256 `a4dcdc98ca6841493879f2316547865a8ef76e038320cb14bb245afb74983636`.
+The `xsht` is 43,577,840 bytes, SHA-256
+`1acbfb4fda8368b2f7940aeb8c952888a7c33d07546a54e4ee3f7cebe91a0666`.
+Both are under `.work/target/x86_64-unknown-linux-musl/verification`.
+Full corpus, docs, native and performance qualification remain open.
+
+The matching-product replay checks the original and joint 202-effect-removal
+views once each. Both Laputa checks pass. Both ten-root XSH checks fail with
+identical diagnostics: implicit discard in `cut` and `tr`, Abort in `date`,
+a missing record contract in `system-report`, and a missing match-subject
+contract in `dev/main`. Scalar failures are gone. Interface comparison remains
+unrun, and these checks supply no annotation-removal credit.
+
+Guard `6bfb3ca22` rejects an unmatched focused Cargo test filter with exit 125.
+The actual pinned Rust test binary passes one exact test, rejects a typo before
+body execution, and lists its tests without running them. The inherited Cargo
+lock is released before discovery and execution. The matching `ae9793745` pair
+fails preparation on the first XSH runner selector, before its body runs.
+The later `cf1d47637` driver repair proves the actual contextual command-word
+producer, and all three native runner selectors pass with matching products.
+
+Source `0b33e84bf` passes the earlier combined targeted boundary: 342 passed, zero
+failed and zero ignored, including the previously failing dynamic-module-call
+selector. Dynamic calls through required Module exports prove actual arguments,
+defaults, results and effects. Runtime-loaded module calls execute on both
+routes; erased unknown Proc calls still fail finite effect ceilings.
+Matching verification products build in `.work/wt/full-inference-dynamic-contract`.
+The imported constructor annotation selector now passes, as do all three
+hidden-resource lifetime controls, with zero skips. No full native, docs,
+corpus or performance acceptance follows from these focused results.
+
+The matching `xsh` is 35,560,776 bytes, SHA-256
+`3bd5fc41a9bc425b35ca5f2cf61f57a1b8f07fdd22a262199c7267a54b389ddb`;
+`xsht` is 43,550,736 bytes, SHA-256
+`4a9b47543bc2e3ef73fd8079b8af3271f8b83d682082b00b7de770b9ac8d3947`.
+Both are under `.work/target/x86_64-unknown-linux-musl/verification`
+in that frozen checkout. Earlier product evidence remains bound to its source.
+
+Source `12f65d5ee` passes the earlier combined targeted boundary: 338 passed, zero
+failed and zero ignored. Imported module reads use the actual verified Use
+origin and registered export contracts, including reads with erased precision.
+Five portable regressions cover execution after frontend disposal on both
+routes, wrong-child exports, forged registrations and member-context forgery.
+The broad-read regression fails under the old gate and passes with the fix.
+The process-contract lane now owns the remaining Spawn and Wait proofs.
+
+Corpus update `3f2535d9b` preserves the frozen denominator and validates exact
+Map initializer shapes. All fourteen focused witness controls pass after
+integration. The 758 historical Proc annotations remain an in-scope inference
+frontier; conditional retention ceilings do not make them language limits.
+No new annotation-removal or practical-runtime credit follows.
+
+Source `1eeacf2e9` passes the earlier combined targeted boundary: 333 passed, zero
+failed and zero ignored. It includes canonical environment assignment and
+managed-resource release contracts, both indexed execution routes, wrong-value
+and wrong-resource mutations, effect ceilings, and generated resource-scope
+Bool and Result payload writer proofs. Internal descriptors reuse the existing
+conversion policy and resource registry. Matching products and full acceptance
+remain required.
+
+Constructor correction `7b22689ef` replaces implicit recoverable validation
+with the specified typed storage boundary. Negative UInt fields now stop with
+`type-error`, run cleanup and escape `try`; explicit `.require(UInt)` still
+returns validation errors as data. Three focused controls pass. A broader
+346-test replay has 345 passes and one existing dynamic-module-call failure.
+That exact failure also reproduces before the correction at `f3e4eb405`:
+`ExprDynamicCall` has an unknown effect contract. It remains mandatory work;
+it is not waived by the targeted boundary above.
+
+Active implementation owns ordinary generic bodies and driver projection
+proofs. Independent review, corpus qualification and verification speed follow
+each accepted tranche. Lease change `b1c1b886d` permits at most two ordinary
+Cargo builds with disjoint output directories. Existing exclusive builds and
+performance windows still exclude them. Nineteen real-process controls pass,
+including same-output exclusion, module-alias safety and interruption cleanup.
+No lockfiles or job registry were added. The focused launcher rejects an exact
+test filter that selects zero tests. Final gates retain their existing scope.
+
+Read-only F2 analysis at `d052c08c0` separates two remaining mechanisms.
+Concrete recursive effect propagation already exists. Joint clause comparison
+still supports only one unclaused declaration, while generic callback effects
+lack symbolic relationships in the canonical scheme constraints. The recursive
+`item_html`/`blocks_html`/`block_html` group in `dev/tour_html.xsh` supplies a
+source-supported joint witness, not newly resolved checker edges. The 60
+historical non-findings do not establish missing propagation; authored effect
+restrictions remain meaningful. All 202 private clauses remain pending.
+
 ## Current checkpoint
+
+Source `cac5a2ef9` passes the combined immutable replay: 323 passed, zero
+failed and zero ignored. Independently reviewed field projection resolves the
+selected closed-record field through the existing type constraints, including
+Result and Optional projections. Context-free Str, List and Stream iteration
+now preserves a generic Proc's returned field relationships. Cross-binder
+mismatches and non-iterable fields still reject. All 64 focused projection and
+neighboring controls pass. Matching products remain frozen at `d2c820629`;
+these source checks do not qualify new products.
+
+Matching `d2c820629` products pass 13 selected native controls and fail the
+imported record-constructor annotation-retention case. The preserved
+`e0f8cbfac` pair reproduces that exact failure. It is a preexisting constructor
+lowering gap, not evidence of a new regression. Source checking passes all
+80 API examples; 12 of the 202 docs-owned files still fail preparation. The
+actual docs command stops at the missing physical spawn proof. These checks
+supply no full docs or corpus acceptance.
+
+Source `d2c820629` passes the combined immutable replay: 297 passed, zero
+failed and zero ignored. Independent review approves immediate error inference
+for unbounded typed Proc calls. Such a call widens a Capture to Error before
+its signature is published. Pure calls and saved Result and Stream data retain
+their existing behavior. Effect ceilings remain unchanged. All 41 focused
+source, neighbor and physical controls pass. Matching-product qualification is
+next. Context-free iteration over a generic Proc's returned record field still
+fails with `check.for-iterator`. Annotation-directed field controls pass, so
+they do not close that separate consumer-resolution gap.
+
+Source `f854ea6e2` passes the combined immutable replay: 295 passed, zero
+failed and zero ignored. Independent review approves canonical Path receiver
+contracts and physical Method and ModuleCall operand checks. Wrong receivers,
+destinations and filesystem bounds reject. Pure module signatures now carry
+empty effect metadata, while Path filesystem methods retain `fs`. The shared
+integer-mode and Path executable operation selects its actual contract.
+One generated dispatch table distinguishes public call support from executable
+internal routes. Method-only opcode forgeries reject. Legitimate JSON bridges
+pass, while a forged declaration contract or escaped instruction owner rejects.
+The 253-test focused replay includes unchanged public-support assertions and
+all signature controls. Matching products and actual docs and corpus replays
+remain required.
+
+Source `a320fbac9` passes the combined immutable replay: 287 passed, zero
+failed and zero ignored. Independent review approves source Stream-origin
+diagnostics and inferred Capture errors through returns, projections, bindings
+and loop backedges. The existing file probes settle these relationships before
+publishing signatures. The 69-case matrix and six driver cases cover mutable
+captures, global writes, branch joins and reachable loop transfers. Safe saved
+streams remain data. Existing module-cache work-count assertions pass unchanged.
+The focused source and neighboring group passes all 43 controls. Matching
+products, native replay and corpus qualification remain required. Generic Proc
+record-return projection and unknown impure source inference remain open.
+
+Source `15ba7642d` passes the combined immutable replay: 245 passed, zero
+failed and zero ignored. Independent review approves Result-constructor mapping
+through named-argument bindings. Bounded traversal retains argument evaluation
+order and attaches the checked fact to the actual constructor. Both indexed
+routes preserve the outer error and its cause. A valid-first in-place integer
+cause mutation reaches the specific physical producer-contract rejection.
+The unique argument-initializer control passes. Matching products and actual
+docs and corpus replays remain required.
+
+Source `d8e6dc342` passes the combined immutable replay: 243 passed, zero
+failed and zero ignored. Independent review approves the physical abort-discard
+repair. `exit` produces no discarded value, while its status operand retains
+ordinary type and effect checks. The regression reproduces the former missing
+value-contract rejection and preserves status 77 on both indexed routes.
+Valid-first mutations retain rejection of a live expression without a value
+contract and an exit-status call whose effect exceeds its owner's bound.
+All 22 focused effect and abort controls pass. Matching products, snippet
+replay and practical-corpus replay remain required. Existing products stay at
+`e0f8cbfac`.
+
+Source `80fea2f8d` fixes attribution of spanless compact-build errors to the
+current entry. Explicit source spans, diagnostic codes and messages remain
+unchanged. The two-source rendering regression fails before the fix and passes
+afterward, including a blocker with an explicit span in the other source.
+The coordinator's immutable merged replay passes that exact test.
+Matching products below remain at `e0f8cbfac`; this reporting repair does not
+repair the seventeen snippet preparation failures or qualify a new product pair.
+
+Source `e0f8cbfac` passes the combined immutable replay: 238 passed, zero
+failed and zero ignored. Independent review approves contextual verification
+through an exact identity-match binding. The actual subject still proves the
+expected contract through its canonical native operation. The minimal inline
+fold and typed-seed controls produce the expected map on both indexed routes.
+Changing MapEmpty to SetEmpty, removing the binding or returning another slot
+rejects. The focused producer and Capture group passes all 61 controls.
+Matching verification products build. All nine native annotation cases, three
+hidden-resource cases and two docs fixture cases pass with zero failures or
+skips. Actual repository docs replay passes the former parallel-map failure,
+then stops at `tour/30-cancel.xsh`: ExprSpawnRun has no executable type proof.
+Full docs qualification remains open.
+
+Per-file checking establishes 16 unexpected preparation failures among the 202
+docs-owned examples. Rejected examples match their diagnostic annotations.
+A separate 80-file API pass finds one failure. The earlier directory invocation
+selects 221 files and misattributes some diagnostic paths. It does not define
+the docs-owned scope. The exact remaining failures under `docs/snippets` are:
+
+| Failure class | Source files |
+|---|---|
+| Process producer proof | `tour/20-spawn-wait.xsh`, `tour/30-cancel.xsh`, `spec/35-spawn-wait.xsh` |
+| Lambda body lowering | `tour/27-preflight.xsh` |
+| Dynamic call effect | `spec/12-module-contract-failure.xsh`, `spec/47-exact-module-contract.xsh` |
+| Capture identity | `spec/22-with-else.xsh` |
+| Native module effect | `spec/43-env-strings.xsh`, `spec/65-path-kind.xsh`, `spec/69-argument-label.xsh`, `spec/71-with-resource.xsh` |
+| Noncompletion discard | `spec/49-exit.xsh` |
+| Result cause producer | `spec/61-fail-because.xsh`, `api/core-causes.xsh` |
+| Deferred error effect | `spec/62-errdefer.xsh` |
+| Match subject producer | `spec/64-try-run.xsh` |
+| Membership container producer | `spec/69-sets.xsh` |
+
+The repair removes optional native-subject hints in its regression. It retains
+and independently checks the concrete match and accumulator claim. Three proof
+completeness failures remain required work in
+`strict_result_producers_ground_contextual_fold_seeds_inside_capture`:
+removing all optional facts reaches a propagation with no derived Result
+contract; adding `result?.get("k")` reaches a method with no registered
+parameter contract; removing the identity match's concrete claim leaves the
+mutable accumulator writer with no declared collection. These cases do not
+receive qualification from the narrower repair.
+
+Source `55da2de13` passes the combined immutable replay: 237 passed, zero
+failed and zero ignored. Independent review approves the shared source checker
+repair for actual Stream pulls in loops and comprehensions. Known fallible
+pulls now contribute their error through the existing nearest propagation
+boundary. Safe pulls and saved streams remain valid. Seven source cases check
+the accepted forms and exact diagnostic code, message and failing-call span.
+Source provenance through relays and Result wrappers remains open. A fifteen-case
+source matrix accepts all nine controls but incorrectly accepts all six narrow
+fallible cases: direct relay, Result wrapper, projected wrapper, selected
+returned input, alias and typed alias. The repair must jointly settle stream
+origins and effects in the existing file probe loop before final checking.
+A nominal-seeded capture must infer Error for a fallible relay and retain the
+nominal family for a safe relay, independently of declaration order.
+Source `a320fbac9` above closes this source-origin repair, including stale
+origins across mutable captures, loop backedges, match arms and global writes.
+The earlier native results below remain bound to `18c920910`; they do not
+qualify this newer source. The reduced docs regression is a Capture around
+`fold(map.empty())`. A typed seed passes, as does the fold outside Capture.
+Repair its generated identity-match contract before rebuilding products.
+
+Source `18c920910` passes the combined immutable replay: 233 passed, zero
+failed and zero ignored. Independent review approves physical ground Capture
+verification and its two runtime repairs. Capture verifies actual success
+values and propagated error families, including consumed streams through typed
+and recursive relays. Saved streams and nested Result values remain data.
+Canonical native contracts, nearest catch boundaries and existing verification
+work caps remain authoritative. Captured stream tails retain their resource
+owner. Failed Result iteration preserves its original payload and propagates
+through cleanup to the nearest capture.
+
+The compiler lane's focused group passes all 20 controls. Runtime controls
+exercise normal and forced indexed routes. Matching verification products build.
+All nine native annotation cases, three hidden-resource cases and two docs
+fixture cases pass with zero failures or skips. The actual repository docs
+check fails in `docs/snippets/tour/19-par-map.xsh`: a ground match subject
+produced by `ExprModuleCall` has no independently derived contract. Repair and
+replay remain required. A rejected two-filter invocation ran no docs tests;
+both exact fixture selectors subsequently pass separately.
+Source-origin diagnostics remain mandatory: consumed fallible streams can still
+pass a narrow source Capture contract before physical verification rejects it.
+The combined stream fixture also exceeds the unchanged proof-work budget when
+its typed relay case joins the larger aggregate. Separate minimal controls pass;
+that split does not qualify the aggregate. Repair both classes before closure.
+Generic Try/Capture admission, ordinary generic-body frontiers, corpus parity,
+performance, deployment and post-consolidation cleanup remain open.
+
+Source `0a948eab4` passes the combined immutable replay: 213 passed, zero
+failed and zero ignored. Independent review approves command-argument
+verification. Command constructors authenticate targets, argument words and
+every supplied option against native contracts, including without Result
+constructors or optional type hints. Known word lists retain their invariant
+storage contract; heterogeneous literals prove each element. Dynamic list
+reads, incompatible operands and forged literal elements reject. Validation
+wrappers and the existing verification work caps remain intact.
+Ground and generic try-capture transport, ordinary generic-body frontiers,
+matching products and complete capability/corpus qualification remain pending.
+
+A diagnostic per-root replay with matching `d2c820629` products still fails ten
+of the twelve original XSH roots; date-parse and docker pass. Failure frontiers
+have changed: wc, date, gates and internal now stop at import producer contracts;
+AWK stops at a generated constructor Try outside its inferred effect contract;
+sort, cut and tr lack discard proofs; system-report lacks a scalar predicate
+slot contract; main has an unknown dynamic-call effect contract. This isolated
+original-view replay does not run reduced views, Laputa, interface/body
+comparison or runtime selectors, and supplies no annotation-removal credit.
+
+Practical replay with matching `e0f8cbfac` products passes exact source-view
+validation, then fails the original twelve-root XSH check with six
+`compact.indexed-build` diagnostics. Individual checks attribute failures to ten
+of the twelve roots: wc, sort, AWK, cut and tr lack discard proofs; date,
+internal and main lack native effect contracts; system-report lacks the Result
+cause producer; gates lacks an import module contract. Date-parse and docker
+pass source checking. The shared batch deduplicates some failures and does not
+count failing roots. The reduced view, three Laputa roots, signature
+and body comparison, and runtime selectors do not run. The four selected
+annotation removals receive no new parity credit. The cohort remains XSH
+`4233e34ee` and Laputa `a81760724`, separate from the historical 1,040 result.
+Container-generated views preserve the pinned archive modes. Earlier setup
+failures ran no cohort checks.
+
+Practical corpus adapter `b84a128ef` now applies semantic interface and body
+comparison to the same 12 XSH and three Laputa roots used by paired checking.
+Its sixth runtime selector covers AWK include diagnostics and both changed
+parser helpers. Shell syntax and all eight existing adapter controls pass;
+those controls exercise frozen mode with stub products. Matching-product practical
+replay is blocked at the original XSH check above. Historical wc diagnostic probes
+and exact revealed-signature comparisons still need qualification against the
+new inference behavior.
+
+Source `475f8be3a` passes the combined immutable replay: 209 passed, zero
+failed and zero ignored. Independent review approves its condition and
+producer repair. Conditions authenticate their actual operands, pipeline
+callback types come from bounded iterative prefix proofs, and mutable partial
+writes use the independently proved root type. Coordinated slot-fact and
+writer corruption rejects. Canonical builtin templates preserve contextual
+empty-container types. Returned fallbacks preserve implicit scalar lifting
+and nested Result data. The mixed-effect regression now corrupts an actual
+operand instead of requiring optional type evidence.
+Try-capture transport remains a required repair.
+Matching products, native replay and complete capability/corpus qualification
+remain pending.
+
+Source `07ff1bbbd` integrates the reviewed resource-specialization repair.
+Its immutable merged replay passes 64 focused body, callable and resource
+controls with zero failures. One existing manual attribution test is ignored.
+Body comparison specializes transfer operands through the same solved header
+instance. Missing evidence, crossed binders and removed UInt guards reject.
+Record and tag types may retain resources, including hidden payloads.
+Canonical run-value sites preserve propagation selections.
+Generic tail matches, break-valued loops and mutable proc bodies still fail
+checker probes and remain required compiler work. Corpus comparison and fresh
+native ownership replay remain pending.
+
+Previous checkpoint `052b13165` passes 184 focused runtime, verifier, loader, semantic-body
+and interface controls after local integration. The repaired public body
+comparison rejects lost UInt checks, accepts proven Int annotation removal,
+and preserves checker-only commands. Broader qualification remains open. The mutable typed-storage repair at
+`152859aa2` has independent review and positive and corruption controls.
+Physical operations now authenticate callable kinds and finite effect bounds.
+Monomorphic shared reads authenticate the defining value and every writer,
+including partial writes, nominal payloads and unsigned storage checks.
+Typed mutable captures, Proc factories and optional erased callable fields execute on both
+indexed routes. Corrupted kinds, signatures, payloads and writers remain rejected.
+Matching verification products build at `3594b4969`, whose runtime source is
+`77bd52859`. All nine annotation behavior tests and three hidden-resource
+ownership tests pass with zero skips. Generated documentation and broader
+qualification remain pending.
+
+Source `786080e95` integrates the reviewed context and process producer repair.
+Its four focused controls pass in the combined check. Context scopes authenticate
+their body and inputs. Process payloads use the pipeline head's checked run kind.
+The verifier also preserves driver exits followed by unreachable declarations.
+All three matching native context, process and explicit-discard regressions pass
+at `4f58546f2`. Its nine annotation cases fail during shared module preparation,
+before their bodies run. The isolated Rust preparation regression identifies
+an unsupported range producer. Repair `b7dc8f73c` passes that real fixture and
+a minimal range test with an invalid-bound control. Matching native replay at `3594b4969` passes all nine annotation cases.
+The full library check remains pending.
+
+Documentation generation at `4f58546f2` stops before writing files because
+the verifier cannot find the canonical effect contract for `FsRoot.host_path()`.
+Repair `77bd52859` preserves that registered `fs` contract and authenticates
+receiver operands independently of constructor demand. The original implicit
+return passes, while wrong receivers and forged effect ceilings reject.
+Independent review and the merged check pass. Matching documentation replay
+gets past that failure, then rejects a ground match without a subject contract
+before writing files. A focused Rust replay traces the generated match to
+`take_list` in `tour_html`, reading a scoped local through `ExprParam`. The
+origin repair at `4a12cc8a8` passes the real tour import and a mutable-list
+writer control on both indexed routes. Its merged replay has 130 passes and
+one failure: the embedded `template` module rejects a producer contract.
+Repair `546a62469` leaves dynamic slots context-directed and restores the
+entire catalog. Its merged replay passes all 131 selected controls. Expanded
+docs preparation exposed binder and return-carrier cases. Reviewed repair
+`561a011e6` passes eight new positive and corruption controls covering shared
+iteration bindings, byte lines, nullable storage, optional return carriers,
+opaque record returns, glob and last-status values. Both indexed routes run
+after frontend disposal. The combined replay also passes all 38 grounded helper
+transfer controls. Repair `052b13165` preserves exact optional payloads through
+executed checks and authenticates typed calls even without Result constructors
+or redundant wrapper facts. Three new controls execute both indexed routes and
+reject incompatible callable producers. Removing only the typed-call proof root
+makes the actual wrong-source regression fail. Existing With error-slot, driver
+temporary and Result-context controls pass. The nullable-fallback test now
+descends its checked scrutinee before applying the original unchecked-slot
+corruption; its rejection requirement is unchanged.
+Expanded docs preparation advances to a process-command argument-vector
+producer; no matching documentation generation pass is claimed. Process
+argument-vector and try-capture transport remain mandatory open repairs.
+The condition-only producer repair passes the focused checkpoint above.
+Combined corpus qualification remains pending.
+Optional-record literals also fail to propagate a typed callable field context.
+Using an already typed callable isolates the verifier tests but does not close
+that checker case.
+
+The paired interface command at `4f58546f2` preserves original logical source
+identities while checking candidate bytes. Export, symlink and cancellation
+controls pass before integration, alongside warning-denied Clippy for xsh and
+xsht with all targets and features. The merged replay passes twelve process
+tests and two unit controls. Actual corpus comparison remains pending.
+The consumer at `d78615ba6` adds body selections, effects and actual emitted
+validations to qualification. Its compilation and three focused controls pass,
+including real contextual module keys. Independent review finds no P1/P2 issue.
+All sixteen process controls still require matching rebuilt products.
+Private semantic capture at `6aca16797` retains checked facts and canonical
+source sites before checker disposal. The execution API at `8759502c1` combines
+that pending snapshot with validations extracted after one normal lowering.
+Repair `1abd4f41e` preserves proven integer driver bindings and checker-only
+commands. Its six composite controls and the canonical-site lifetime control
+pass in the integrated replay. Physical guards without an independent producer
+proof remain exact. No corpus-removal credit follows from these focused checks.
+
+Public API regression `9dbde9ebe` rejects a CLI parameter change from `Str` to
+`Int` that previously passed body comparison. Owners without a callable
+interface proof preserve exact header validations; normalization requires the
+existing canonical equivalence or instance proof. The public regression and
+all six existing composite controls pass. The library identity regression now
+passes with the resource-specialization repair above. Public command replay
+still needs matching rebuilt products.
+
+Three native ownership controls at `f73caaa92` establish that record validation
+retains extra fields, including hidden resources, and nominal variant payloads
+retain resources until owner exit. Runtime replay passes with the matching
+`3594b4969` products. These controls still need matching products for the
+resource-classification repair above.
+
+The separate origin fix `16d7c4f15` preserves explicit Result discards as data
+and makes annotated storage violations fatal type errors. Explicit schema
+conversion remains recoverable. Source `b77ab2c68` adds canonical concrete-to-scheme
+interface comparison. Its eighteen focused tests and warning-denied library
+Clippy pass. Unsupported comparisons report typed errors and earn no parity credit.
+
+Source `1710bf2ff` passes all 31 focused replay cases, including the eighteen
+earlier library failures. The replay covers private bridge contracts, native
+and static constructor arguments, open typed-callable headers, Result payloads,
+conditional and loop writers, branches that transfer control and Optional transport.
+Forged argument, payload, slot and metadata controls remain rejected.
+The entire embedded-module catalog passes. Matching verification tools built
+successfully. Native replay passes all 26 private-effect cases, ten private-return
+cases and the private/imported generic Result witness, with zero skips. The full
+library boundary remains pending.
+This checkpoint does not qualify the whole source or close inference G1.
+
+The producer repair at `d06e66c34` removes a redundant writer census sweep.
+Actual traversal counts remain within three sweeps at 64 and 128 local bindings;
+the existing work cap is unchanged. CLI descriptor shapes at `9e63ec4dc` share
+their prepared records and retain the initializing symbol owner. Both new
+resource controls and the existing `parse` and `parse_full` execution control pass after
+integration. These are deterministic resource checks, with no timing claim.
+
+Procedure source `139868db6` integrates canonical callable kinds, inferred
+finite-effect Proc interfaces and strict Result producer checking. Both grammar
+generators, the parser/grammar omission matrix and thirteen lint consumer tests
+pass. Matching native products pass immutable prefixes, value branches,
+mutable-capture rejection and exported inference. Private/imported scalar and
+nested Ok probes pass. Repair `e704557d6` passes nested Err disposal tests;
+matching native replay now passes. Frontend-disposal tests reject forged Result payloads and owner
+effect ceilings while preserving contextual collections and Any callable values.
+
+The earlier `139868db6` full library boundary has 1,076 passes, eighteen failures
+and three ignores. All eighteen selectors now pass in the focused replay above.
+A fresh full library run remains required; its result is not implied by that replay.
+
+Matching `1710bf2ff` tools reject documentation generation and all nine annotation
+behavior tests before execution. Two minimal explicit-Result repros fail:
+`Ok(ctx "rendering" { "page" })` lacks a physical producer proof, and
+`Ok(result.stdout)` after `run.capture --text` lacks a propagation result
+contract. Their implicit Result-lifting controls pass. The repair at `786080e95`
+now passes matching native replay at `4f58546f2`. The annotation group still
+cannot start because of the separate producer failure recorded above.
+CLI cleanup `401950302` removes an unused internal accessor and fixes a new
+test-only Clippy warning. Seven descriptor checks pass before integration,
+and warning-denied Clippy passes for xsh and xsht with all targets and features.
+The merged seven-test replay also passes.
+
+The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test
+passes at `596a7f161`, rejecting the modified program. Its initial Print-based
+premise was wrong: print and eprint require no language effect.
+Separately, `22e4de86c` makes direct and transitive glob use require `fs`, fixing
+the baseline's acceptance under an empty bound. The pure diagnostic stays
+unchanged. All four matching native regressions pass; the production caller
+census found no executable glob literals needing broader bounds.
+The retry capability
+fixture now includes its required time effect; its missing-time negative passes.
+
+The constructor tranche at `12436b472`, with branch-fact repair
+`a93a9b756`, supports independent Int/Str instantiation of list, record and
+Result constructors and generic value branches. Focused checks execute both
+indexed routes after frontend disposal and reject forged writer facts and
+uninitialized sibling-branch reads. Matching verification products pass the
+constructor, grounded lazy-branch and converted rank-1 collection witnesses.
+The inline binary-condition branch remains a mandatory open case. These
+results do not qualify the whole source or close inference G1.
+
+Callable consumers now distinguish a selected invocation target from a
+callable value. CLI annotation edits validate a fresh, import-aware candidate
+before writing; lint consumers use the canonical contract. Thirteen focused
+lint tests and the imported generic-alias annotation witness pass. Generic, concrete
+and defaulted List results annotate correctly with matching `5fcc45c48` tools;
+scalar locals remain unannotated. Deferred publication also passes the focused
+later-refined empty-list and generalized-body controls. The wider annotation
+group initially has eight passes and one public-return spelling failure:
+candidate validation rejects generated `Result[Unit]` on an exported proc.
+The renderer repair at `a92955568` spells `Result[Unit, Error]`. All nine
+annotation behavior tests pass with matching rebuilt products, with no skips. Schema anchors preserve nominal
+meaning across independent parses; semantically empty facade contexts compare
+without erasing the checker's diagnostic context.
+
+The independent finite-effect model passes eight tests but has no production
+symbolic-effect differential yet. The strengthened type/row differential at
+`3ac5eb1aa` passes all eleven focused controls after integration, including
+128-seed generic quantification and post-trial continuation comparisons.
+The current low-level publisher rejects unresolved environment roots; this
+does not establish complete captured-environment inference.
+Fixed scaling workloads cover eight families
+at sizes 64, 128, 256 and 512. Their shape and generator checks are not measured
+performance evidence. Three solver scaling checks pass at all four sizes. Seven host-obligation
+checks pass, including actual candidate-trial counts and deduplicated dependency
+requeues. These new counters are test-only; the older `worklist_wakeups` counter
+measures solver pair work. All remaining capability, joint corpus, performance,
+baseline, deployment and cleanup gates retain their requirements.
+
+Isolated test commit `3264d5f5f` adds the production symbolic-effect comparison.
+All three focused tests pass, and independent review finds no P1/P2 issue.
+The model compares every assignment for 64 bounded problems with two variables
+over four effects. Another 306 closed cases cover all seven effects and Unknown.
+Trial, panic and clone controls compare the resulting continuation relations.
+The commit depends on the unfinished compiler foundation at `ea24407c7`.
+Integration and replay against the qualified compiler remain pending.
+
+The first full-inference compiler slice, `dbfea6b51`, admits unannotated
+immutable aliases to known generic module exports. Each call keeps fresh type
+instantiation and the authenticated imported declaration. It preserves the
+remaining typed-storage, conditional-callable, generic-body, proc and stream
+frontiers. The focused checker and normal/forced frontend-disposal tests pass.
+Four existing native controls and the new Int/Str/Bool alias witness each pass
+with zero skips. Independent review finds no P1/P2 issue. The generated SPEC,
+snippet diagnostics and all three tour-project tests pass. The integration
+source also passes workspace Clippy with all targets/features and denied
+warnings. This is focused progress, not full canonical or baseline acceptance.
+
+F1 records 22 exact capability selectors: seven baseline controls pass and
+15 expose missing capabilities or the wrong rejection reason. The imported
+alias target now passes on the combined first-slice products. Other mandatory
+cases remain open, including constant projections, typed storage, conditional
+selection, ordinary generic bodies, proc/stream omission, recursion and callback
+relationships. Safety and broader body witnesses continue in separate files.
+F1's source-only frozen-corpus validator passes eight tests and reproduces all
+1,843 retained-site records against both accepted view digests and the exact
+1,040 edits. This adds no annotation removals. All 202 effects stay in one
+conservative joint group until resolved dependencies are available.
+
+Fixture source `0b2f9cd97` adds these F1 selectors. Prefix each name with
+`tests/xsh/<file>::`. Reference products from `55032a7ee` give two passes,
+seven failures and zero skips. Matching `1710bf2ff` products give the same
+two passes and seven failures, with zero skips; the failures remain required
+capabilities.
+
+| File | Exact test name | Reference result |
+|---|---|---|
+| `full-inference-recursive-components.xsh` | `test_full_inference_self_recursive_scc_generalizes_after_checking` | Required return and monomorphic-call failures |
+| `full-inference-recursive-components.xsh` | `test_full_inference_mutual_recursive_scc_is_declaration_order_independent` | Required return failures |
+| `full-inference-captured-callables.xsh` | `test_full_inference_returned_generic_callable_uses_immutable_capture` | Generic-body and factory-return failures |
+| `full-inference-captured-callables.xsh` | `test_full_inference_returned_callable_keeps_shared_capture_monomorphic` | Wrong rejection: proc omission parse failure |
+| `full-inference-captured-callables.xsh` | `test_full_inference_returned_mutable_capture_ground_control` | Pass |
+| `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_is_lazy_through_returned_alias` | Stream omission parse failure |
+| `full-inference-stream-effects.xsh` | `test_full_inference_inferred_stream_effect_alias_rejects_empty_bound` | Wrong rejection: stream omission parse failure |
+| `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_survives_inferred_returned_producer` | Wrong rejection: stream omission parse failure |
+| `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_alias_typed_ground_control` | Pass |
+
+Source `56a9532b4` retains two native host-result regressions. Both pass on
+frozen reference products from `55032a7ee`; both fail on `1710bf2ff` products
+with the context-producer and process-propagation proof errors above. They
+check scope restoration and text, byte, capture and pipeline payload values.
+
+The stream ground control uses a direct typed producer call. Its first alias
+version tested another unsupported capability and failed name resolution.
+The mandatory inferred alias cases remain unchanged.
+
+Source `c1ae1db64` adds three selectors in
+`tests/xsh/full-inference-callable-lists.xsh`. Reference products pass
+`test_full_inference_callable_list_typed_ground_control` and
+`test_full_inference_callable_list_rejects_an_incompatible_shared_contract`.
+`test_full_inference_callable_list_generalizes_its_outer_relationship` fails
+with `check.call-target` at both indexed calls. The target generalizes the
+immutable list's outer type relationship; it requires no per-element forall.
+Matching `1710bf2ff` products reproduce those two passes and one
+`check.call-target` failure, with zero skips.
+
+Source `b36ea9e40` adds default and callable-relay witnesses. Source `0c0eb1b6b`
+splits imported Proc and Stream aliases into independent tests, giving eleven
+witnesses. Protected
+reference products pass five controls: conflicting default arguments, nested
+row projection and its missing-field rejection, lazy stream defaults and their
+creation-site IO obligation. Two inferred-rest cases remain red. Imported
+Proc/Stream aliases and generic callable selection also remain red. The
+incompatible-selection negative reports an unresolved call instead of the
+required callable mismatch. These six failures remain mandatory work.
+Matching candidate replay is pending.
+
+Source `51b8cd899` extends the ground-capture witnesses to five tests.
+Protected `55032a7ee` products pass four, including optional erased Pure calls
+and rejection of direct calls without a checked signature. The checked-signature
+mutable capture fails with `typed callee slot has no checked type fact`.
+It remains a required capability. Matching candidate replay is pending.
+
+F4 adapter source `d5f7b6267` adds the documented `check_views.sh --frozen`
+invocation. Six focused controls pass before integration and on the merged source,
+including source, product, view, retained-class, retained-reason and no-skip
+rejection. These controlled-product tests earn no compiler or
+annotation-removal credit. The next proposed candidate erases 758 Proc contracts
+from the frozen retained table: 549 parameters and 209 returns. Together with the
+accepted 1,040 edits, that would be 1,798 removals. Source reconstruction and AST
+validation confirm that proposed count: 499 local and 1,299 internal annotations
+across 250 Proc declarations. Compiler and runtime qualification remain pending.
+All 202 effects and other retained classes stay outside this tranche.
+
+Canonical interface comparison remains required before corpus qualification.
+`CheckedCallableContract::equivalent_to` checks exact scheme equivalence.
+It cannot establish that an old concrete private signature is an instance of
+a newly inferred scheme. That comparison must use the existing constraint
+solver with one shared instantiation, canonical schema identities and exact
+callable layout. The corpus adapter must consume that result. Symbolic effect
+substitution remains a separate compiler requirement.
+
+The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
+pass, covering shared binders, component resolution, rollback, rest parameters,
+unresolved origins, schema guards, and independently verified prepared metadata.
+The prepared test rejects forged binder, layout, effect and substitution data.
+It executes after frontend disposal on both indexed routes. Independent source
+review finds no remaining P1/P2 issue in this slice. Symbolic effects, callable
+kind inference, stream materialization and broader generic bodies remain open.
+This graph checkpoint does not complete inference G1 or qualify a baseline.
+
+The independent type/row oracle now compares 128 fixed-seed problems with the
+production solver. All ten focused tests pass, including rollback, generalized
+schemes and deliberate comparison mutations. Bound IDs may be renamed. Free
+environment identities remain anchored. The generator now satisfies the existing
+row-tail lacks invariant. Its initial disagreement was malformed input, not a
+confirmed production defect. Focused warning-denied Clippy passes after the
+oracle fixes integrated at `52bbb4967`. Symbolic-effect correspondence remains
+pending.
+
+Thirteen annotated and erased corpus probes ran against the combined-55032
+canonical products. Recursive parameter omission, null/concrete return joins
+and empty-list accumulation pass. Recursive return omission, interpolation and
+the nested SourceRead parameter expose remaining checker limits. The exact
+results are in `PERFORMANCE-INFERENCE.md`. They add no annotation-removal credit.
+The metamorphic fixtures are integrated at `916d31d7a`; their generic proc and
+stream targets remain mandatory open capabilities.
 
 Full-inference F0 integrates the warning repair at `2ed638691`. The pinned
 offline xsh Clippy check passes with all targets and features under the ordinary
@@ -34,8 +3279,7 @@ success, failure and interruption when a child exits before observation. All
 or job registry is added. The compiler's imported-alias regression fails before
 the change with `check.module-member`, then passes alongside a frontend-disposal
 test on both indexed routes. Native verification and independent review of that
-first behavior change remain pending. Broader callable/effect inference remains
-open.
+first behavior change pass. Broader callable and effect inference remains open.
 
 The owner launched `full-inference-campaign.md` on 2026-10-19 with bounded
 isolated edits, local commits/integration, and owned offline Docker operations.
@@ -194,8 +3438,20 @@ pass; smoke reaches `ASTERINAS_PVH_BOOT_OK`. Kernel SHA-256 is
 The exact AWK shard passes in the real guest: one pass, zero failures and zero
 skips. Cleanup resolves and the qualified R13 seed remains unchanged. Evidence
 is under `laputa-world-acceptance/.work/tmp/asterinas-guest-test-20261019T093052Z-7314-d5856f7d`.
-Actual kernel-test execution and full source-aligned guest acceptance remain
-pending. These focused platform results do not qualify the combined compiler.
+Both clock arithmetic tests also pass in actual KVM kernel guests on unchanged
+kernel source `995610cd`. Run `osdk test` with each exact function name:
+`wall_clock_adds_scaled_elapsed_time_and_carries_nanoseconds` and
+`wall_clock_rejects_invalid_fields_and_arithmetic_overflow`, plus
+`--target-arch=x86_64 --boot-method=vmm-direct --features=pvh_boot`.
+Each guest reports one pass, zero failures and 224 filtered tests. Scratch-only
+manifest and QEMU overlays select `ostd`, two CPUs and 3 GiB guest memory;
+they omit unrelated filesystem fixtures. Kernel source and qualified products
+remain unchanged. The initial `wall_clock_` selector matches zero tests and
+receives no credit: the runner matches complete suffix path elements.
+Evidence remains under `laputa-world-acceptance/.work/tmp/asterinas-wall-clock-ktest/`;
+the owned container is removed and shared leases are released. Full
+source-aligned guest acceptance remains pending. These focused platform
+results do not qualify the combined compiler.
 
 ## Charter
 
@@ -394,7 +3650,7 @@ was performed during planning.
 
 ### Resource and ownership limits
 
-Ordinary iteration allows at most two compiler builds, each at two jobs and
+Ordinary iteration allows at most three compiler builds, each at two jobs and
 8 GiB. The isolated Laputa Deno link may use 12 GiB with two CPUs and no extra
 swap: its 8-GiB container OOM was reproduced, and the 12-GiB node build passed. Inherited release-profile builds keep their 12 jobs, 12 CPUs, and 24 GiB
 and run alone. A full native observer keeps its existing 12-CPU, 24-GiB allocation.
@@ -1018,3 +4274,7 @@ duplicate per-commit copies of controllers solely to record provenance.
 - Review source-level behavior/API changes, inference classes and retained sites, individual workload results, and the artifact experiment decision.
 - Review the exact finite/formal distinction for the selected transformation.
 - Inspect local XSH and Laputa integration branches. Merge only reviewed accepted commits under the launch grant. Nothing is pushed by this campaign.
+
+</details>
+
+Campaign log, 2026-10-24: paused at owner request; completed slices integrated, three current incomplete branches parked, 312 checkouts reclaimed, reboot and Stop-guard audits passed, no push.

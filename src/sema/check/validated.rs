@@ -243,22 +243,6 @@ impl Checker {
         ty
     }
 
-    /// `left + right` keeps a validation that survives concatenation when
-    /// either operand carries it.
-    pub(super) fn concatenation_type(
-        operands: [Option<Validation>; 2],
-        concatenated: Type,
-    ) -> Type {
-        let kept = operands
-            .into_iter()
-            .flatten()
-            .find(|validation| validation.survives_concatenation());
-        match kept.map(|validation| ValidatedType::new(validation, concatenated.clone())) {
-            Some(Ok(validated)) => Type::Validated(Box::new(validated)),
-            _ => concatenated,
-        }
-    }
-
     /// For a mismatch between a validated type and a value of its base that
     /// has not been validated: how the value is validated.
     pub(super) fn validated_mismatch_note(expected: &Type, actual: &Type) -> Option<String> {

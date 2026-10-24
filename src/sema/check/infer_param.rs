@@ -188,15 +188,14 @@ pub(super) fn parameter_type_is_concrete(ty: &Type) -> bool {
                     crate::sema::types::ModuleExportType::Value { ty, .. } => {
                         parameter_type_is_concrete(ty)
                     }
-                    crate::sema::types::ModuleExportType::Pure { sig, .. }
-                    | crate::sema::types::ModuleExportType::Proc { sig, .. } => {
+                    crate::sema::types::ModuleExportType::Callable { sig, .. } => {
                         parameter_type_is_concrete(&sig.return_ty)
                             && sig
                                 .params
                                 .iter()
                                 .all(|param| parameter_type_is_concrete(&param.ty))
                     }
-                    crate::sema::types::ModuleExportType::GenericPure { .. } => false,
+                    crate::sema::types::ModuleExportType::GenericCallable { .. } => false,
                 })
         }
         Type::Record(fields) => {
@@ -350,6 +349,73 @@ mod host_anchor_tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
         assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_method_families_are_input_determined_and_relayable() {
+        let source = concat!(
+            "pure item_count(value) -> Int { value.len() }\n",
+            "pure forwarded_count(value) -> Int { item_count(value) }\n",
+            "pure inferred_count(value) { value.len() }\n",
+            "pure empty(value) -> Bool { value.is_empty() }\n",
+            "pure forwarded_empty(value) -> Bool { empty(value) }\n",
+            "proc write_field(file: Path, row) -> Result[Unit] { file.write(data: row.text) }\n",
+            "proc forwarded_write(file: Path, row) -> Result[Unit] { write_field(file, row) }\n",
+            "proc write_mode_field(file: Path, row, mode: Int) -> Result[Unit] { file.write(data: row.text, mode: mode) }\n",
+            "proc forwarded_write_mode(file: Path, row, mode: Int) -> Result[Unit] { write_mode_field(file, row, mode: mode) }\n",
+            "let mapping: Map[Str, Int] = {[\"key\"]: 1}\n",
+            "let list_count: Int = forwarded_count([1])\n",
+            "let text_list_count: Int = forwarded_count([\"one\"])\n",
+            "let map_count: Int = forwarded_count(mapping)\n",
+            "let set_count: Int = forwarded_count({1, 2})\n",
+            "let bytes_count: Int = forwarded_count(b\"one\")\n",
+            "let inferred_count_value: Int = inferred_count([1])\n",
+            "let list_empty: Bool = forwarded_empty([1])\n",
+            "let text_list_empty: Bool = forwarded_empty([\"one\"])\n",
+            "let map_empty: Bool = forwarded_empty(mapping)\n",
+            "let set_empty: Bool = forwarded_empty({1, 2})\n",
+            "let string_empty: Bool = forwarded_empty(\"one\")\n",
+            "let bytes_empty: Bool = forwarded_empty(b\"one\")\n",
+            "let text_write: Result[Unit] = forwarded_write(p\"out\", {text: \"one\"})\n",
+            "let bytes_write: Result[Unit] = forwarded_write(p\"out\", {text: b\"one\"})\n",
+            "let text_mode_write: Result[Unit] = forwarded_write_mode(p\"out\", {text: \"one\"}, mode: 0o600)\n",
+            "let bytes_mode_write: Result[Unit] = forwarded_write_mode(p\"out\", {text: b\"one\"}, mode: 0o600)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_method_families_reject_unselected_domains_and_contract_forgery() {
+        for (source, expected, requirement) in [
+            (
+                "pure item_count(value) -> Int { value.len() }\nlet invalid = item_count(\"text\")\n",
+                DiagnosticCode::CheckCallableMismatch,
+                Some("Length has no canonical result for Str"),
+            ),
+            (
+                "pure wrong_result(value) -> Bool { value.len() }\n",
+                DiagnosticCode::CheckTypeMismatch,
+                None,
+            ),
+            (
+                "proc write_field(file: Path, row) -> Result[Unit] { file.write(row.text) }\nlet invalid = write_field(p\"out\", {text: false})\n",
+                DiagnosticCode::CheckCallableMismatch,
+                Some("PathWrite has no canonical result for Path"),
+            ),
+            (
+                "pure write_field(file: Path, row) -> Result[Unit] { file.write(row.text) }\n",
+                DiagnosticCode::CheckPureEffect,
+                None,
+            ),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected) && requirement.is_none_or(|requirement| diagnostic.message.contains(requirement))), "{source}: {:?}", checked.diagnostics);
+        }
     }
 
     #[test]

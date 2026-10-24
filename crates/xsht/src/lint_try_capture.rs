@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{CheckBundleView, CheckOptions, CheckOutput, Type};
 use xsh::frontend::source::Span;
@@ -18,10 +18,44 @@ pub(super) fn lint_try_capture_helpers(
     check_original: Option<std::sync::Arc<CheckOutput>>,
 ) -> Vec<Diagnostic> {
     let program = view.program();
-    let Some(before) = check_original else {
+    let Some(checked_before) = check_original else {
         return Vec::new();
     };
+    if !checked_before.diagnostics.is_empty() {
+        return Vec::new();
+    }
     let statements = view.statement_ids().collect::<Vec<_>>();
+    let Some((source_id, effect_body_spans)) = super::probes::checked_source_effect_bodies(
+        program,
+        statements.iter().copied(),
+        source,
+    ) else {
+        return Vec::new();
+    };
+    if !super::probes::checked_effect_facts_cover_source(
+        &checked_before,
+        source_id,
+        &effect_body_spans,
+    ) {
+        return Vec::new();
+    }
+    let before_snapshot = super::probes::LintProbeTransport::standalone(
+        source_id,
+        source,
+        CheckOptions::for_execution(),
+    );
+    if !before_snapshot.parse_diagnostics.is_empty() {
+        return Vec::new();
+    }
+    let Some(before) = before_snapshot.checked.as_ref() else {
+        return Vec::new();
+    };
+    if !before.diagnostics.is_empty() {
+        return Vec::new();
+    }
+    let Some(before_sources) = before_snapshot.sources.as_ref() else {
+        return Vec::new();
+    };
     let mut diagnostics = Vec::new();
     for pair in statements.windows(2) {
         let definition = program.arena.stmt(pair[0]);
@@ -83,9 +117,6 @@ pub(super) fn lint_try_capture_helpers(
         {
             continue;
         }
-        if !before.diagnostics.is_empty() {
-            return Vec::new();
-        }
         let call_span = program.arena.expr(call).span;
         let Some(Type::Result(ok, error)) = before.expr_types.get(&call_span) else {
             continue;
@@ -103,12 +134,11 @@ pub(super) fn lint_try_capture_helpers(
             id.body == body_span
                 && fact
                     .required
-                    .as_ref()
-                    .zip(fact.effective.as_ref())
-                    .is_some_and(|(required, effective)| {
-                        required.len() == effective.len()
-                            && required.iter().all(|effect| effective.contains(effect))
-                    })
+                    .concrete()
+                    .ok()
+                    .flatten()
+                    .zip(fact.effective.concrete().ok().flatten())
+                    .is_some_and(|(required, effective)| required == effective)
         }) {
             continue;
         }
@@ -140,7 +170,7 @@ pub(super) fn lint_try_capture_helpers(
                             if name == "_"
                                 || !closed_scalar_expression(
                                     program,
-                                    &before,
+                                    before,
                                     value,
                                     &locals,
                                     &mut propagated,
@@ -155,7 +185,7 @@ pub(super) fn lint_try_capture_helpers(
                         ArenaStmtKind::Expr(value) if index + 1 == body_statements.len() => {
                             closed_scalar_expression(
                                 program,
-                                &before,
+                                before,
                                 value,
                                 &locals,
                                 &mut propagated,
@@ -177,7 +207,7 @@ pub(super) fn lint_try_capture_helpers(
         let snapshot = super::probes::LintProbeTransport::standalone(
             definition.span.source_id,
             &rewritten,
-            CheckOptions::default(),
+            CheckOptions::for_execution(),
         );
         if !snapshot.parse_diagnostics.is_empty() {
             continue;
@@ -192,9 +222,23 @@ pub(super) fn lint_try_capture_helpers(
             definition: definition.span,
             call: call_span,
             body: body_span,
+            helper: helper.name.as_str().to_string(),
             replacement_len: replacement.len(),
         };
-        if !same_checked_facts(program, &snapshot.program, &before, after, edits) {
+        let Some(after_sources) = snapshot.sources.as_ref() else {
+            continue;
+        };
+        if !same_checked_facts(
+            &before_snapshot.program,
+            before_sources,
+            source,
+            &snapshot.program,
+            after_sources,
+            &rewritten,
+            before,
+            after,
+            &edits,
+        ) {
             continue;
         }
         diagnostics.push(Diagnostic::warning("use a local Result capture for this single-use closed helper")
@@ -370,16 +414,17 @@ fn closed_scalar_expression(
     valid
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct CaptureEdits {
     definition: Span,
     call: Span,
     body: Span,
+    helper: String,
     replacement_len: usize,
 }
 
 impl CaptureEdits {
-    fn map(self, span: Span) -> Option<Span> {
+    fn map(&self, span: Span) -> Option<Span> {
         if span.source_id != self.definition.source_id {
             return Some(span);
         }
@@ -425,10 +470,14 @@ impl CaptureEdits {
 
 fn same_checked_facts(
     before_program: &ArenaProgram,
+    before_sources: &xsh::frontend::source::SourceMap,
+    before_source: &str,
     after_program: &ArenaProgram,
+    after_sources: &xsh::frontend::source::SourceMap,
+    after_source: &str,
     before: &CheckOutput,
     after: &CheckOutput,
-    edits: CaptureEdits,
+    edits: &CaptureEdits,
 ) -> bool {
     let shape = |program: &ArenaProgram, ty: &Type| {
         program
@@ -436,29 +485,53 @@ fn same_checked_facts(
             .with_current(|| super::checked_return_type_shape(ty))
     };
     let source_id = edits.definition.source_id;
-    let before_effects = before
-        .function_effect_facts
-        .iter()
-        .filter(|(id, _)| id.body.source_id == source_id && id.body != edits.body)
-        .filter_map(|(id, fact)| {
-            Some(((id.namespace, edits.map(id.body)?), fact.effective.clone()))
-        })
-        .collect::<BTreeMap<_, _>>();
-    let after_effects = after
-        .function_effect_facts
-        .iter()
-        .filter(|(id, _)| id.body.source_id == source_id)
-        .map(|(id, fact)| ((id.namespace, id.body), fact.effective.clone()))
-        .collect::<BTreeMap<_, _>>();
+    let Some((before_source_id, before_effect_bodies)) = super::probes::checked_source_effect_bodies(
+        before_program,
+        before_program.arena.stmt_ids(before_program.statements),
+        before_source,
+    ) else {
+        return false;
+    };
+    let Some((after_source_id, after_effect_bodies)) = super::probes::checked_source_effect_bodies(
+        after_program,
+        after_program.arena.stmt_ids(after_program.statements),
+        after_source,
+    ) else {
+        return false;
+    };
+    if before_source_id != source_id || after_source_id != source_id {
+        return false;
+    }
+    let Some(mut before_effects) = super::probes::checked_source_body_contracts(
+        before,
+        before_program,
+        before_sources,
+        before_source_id,
+        &before_effect_bodies,
+    ) else {
+        return false;
+    };
+    let Some(after_effects) = super::probes::checked_source_body_contracts(
+        after,
+        after_program,
+        after_sources,
+        after_source_id,
+        &after_effect_bodies,
+    ) else {
+        return false;
+    };
+    before_effects.retain(|(_, name), _| name != &edits.helper);
     before.expr_types.iter().filter(|(span, _)| span.source_id == source_id).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
         after.expr_types.get(&mapped).is_some_and(|other| shape(before_program, ty) == shape(after_program, other))))
-        // Unannotated immutable body locals take their initializer types, which
-        // are compared above. The callable-local inference map is not populated
-        // for the corresponding straight-line capture block.
         && before.local_binding_types.iter().filter(|(span, _)| span.source_id == source_id && !(edits.body.start() <= span.start() && span.end() <= edits.body.end())).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
             after.local_binding_types.get(&mapped).is_some_and(|other| shape(before_program, ty) == shape(after_program, other))))
         && before.statement_positions.iter().filter(|(span, _)| span.source_id == source_id).all(|(span, position)| edits.map(*span).is_none_or(|mapped| after.statement_positions.get(&mapped) == Some(position)))
-        && before_effects == after_effects
+        && before_effects.len() == after_effects.len()
+        && before_effects.iter().all(|(key, original)| {
+            after_effects
+                .get(key)
+                .is_some_and(|candidate| original.preserved_by(candidate))
+        })
 }
 
 #[cfg(test)]

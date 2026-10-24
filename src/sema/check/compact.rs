@@ -12,6 +12,7 @@ use crate::syntax::node::Effect;
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
+    pub(crate) scheme_callables: std::sync::Arc<crate::sema::scheme_callable::SchemeCallableTable>,
     // Namespace and source identity distinguish equal offsets in imported units.
     pub stream_stage_types:
         BTreeMap<(Option<Name>, crate::source::Span), super::CheckedStreamStage>,
@@ -74,6 +75,7 @@ pub struct CompactFunctionSig {
     pub params: Vec<CallableParamType>,
     pub parameter_schemas: Vec<Option<crate::sema::constants::SchemaExpectation>>,
     pub return_ty: Type,
+    pub return_schema: Option<crate::sema::constants::SchemaExpectation>,
     pub return_type_expr: TypeExprId,
     pub inferred_effects: bool,
     pub effects: Option<Vec<Effect>>,
@@ -99,8 +101,9 @@ pub struct CompactBodyFacts {
     /// Checker-selected user declarations for calls and function values.
     pub(crate) selected_function_calls:
         FxHashMap<ExprId, super::CheckedFunctionTarget>,
+    pub(crate) scheme_callable_calls: FxHashMap<crate::sema::schemes::InstantiationSite<ExprId>, crate::sema::types::SchemeCallableId>,
     pub(crate) call_instantiations:
-        FxHashMap<ExprId, crate::sema::schemes::CallInstantiation>,
+        FxHashMap<crate::sema::schemes::InstantiationSite<ExprId>, crate::sema::value_materialization::CheckedInstantiation>,
     pub(crate) selected_function_references:
         BTreeMap<Span, (super::CheckedFunctionTarget, Option<Type>)>,
     pub(crate) statically_resolved_calls: FxHashSet<ExprId>,
@@ -196,13 +199,12 @@ impl CompactBodyFacts {
             if let Some(call) = checked.api_calls.get(&span) {
                 facts.api_calls.insert(id, call.clone());
             }
+
             if let Some(target) = checked.selected_function_calls.get(&span) {
                 facts.selected_function_calls.insert(id, *target);
                 selected_function_expr_spans.insert(span);
             }
-            if let ArenaExprKind::Record(fields) = expression.kind
-                && let Some(container_type) = checked.expr_types.get(&span)
-            {
+            if let ArenaExprKind::Record(fields) = expression.kind {
                 for field in arena.record_fields(fields) {
                     let crate::syntax::arena::ArenaRecordFieldKind::Shorthand {
                         name,
@@ -215,11 +217,11 @@ impl CompactBodyFacts {
                     if !checked.selected_function_calls.contains_key(&field_span) {
                         continue;
                     }
-                    let value_type = match container_type {
-                        Type::Record(fields) => fields.get(name).cloned(),
-                        Type::Map(_, value) | Type::Set(value) => Some((**value).clone()),
+                    let value_type = checked.expr_types.get(&field_span).cloned().or_else(|| match checked.expr_types.get(&span) {
+                        Some(Type::Record(fields)) => fields.get(name).cloned(),
+                        Some(Type::Map(_, value) | Type::Set(value)) => Some((**value).clone()),
                         _ => None,
-                    };
+                    });
                     if let Some(value_type) = value_type {
                         record_field_types.insert(field_span, value_type);
                     }
@@ -232,10 +234,14 @@ impl CompactBodyFacts {
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
                 facts.resolved_type_expressions.instantiations.insert(id, instance.clone());
             }
-            if matches!(expression.kind, ArenaExprKind::Call { .. })
-                && let Some(instantiation) = checked.call_instantiations.get(&span)
-            {
-                facts.call_instantiations.insert(id, instantiation.clone());
+            for role in [crate::sema::schemes::InstantiationRole::Call, crate::sema::schemes::InstantiationRole::Value] {
+                let site = crate::sema::schemes::InstantiationSite { source: span, role };
+                if let Some(&relationship) = checked.scheme_callable_calls.get(&site) {
+                    facts.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite { source: id, role }, relationship);
+                }
+                if let Some(instantiation) = checked.call_instantiations.get(&site) {
+                    facts.call_instantiations.insert(crate::sema::schemes::InstantiationSite { source: id, role }, instantiation.clone());
+                }
             }
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(callable) = checked.typed_callable_calls.get(&span)
@@ -401,6 +407,7 @@ impl Checker {
             let bodies = CompactBodyFacts::collect(program, &checked);
             let mut output = checked.checked_declarations.into_compact();
             output.bodies = bodies;
+            output.scheme_callables = checked.scheme_callables;
             output.function_effect_facts = checked.function_effect_facts;
             output.stream_stage_types = checked.stream_stage_types;
             output.static_callable_aliases = checked.static_callable_aliases;

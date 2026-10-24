@@ -1,0 +1,391 @@
+import sys
+sys.dont_write_bytecode = True
+
+import csv
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+import frozen_witnesses as corpus
+
+
+WORK_TMP = corpus.ROOT / ".work/tmp"
+
+
+def site(site_id=1, kind="parameter-type", owner="pure f parameter x", reason=""):
+    return corpus.Site(
+        site=site_id,
+        project="xsh",
+        path="core/f.xsh",
+        line=1,
+        kind=kind,
+        category="eligible-internal",
+        owner=owner,
+        reason=reason,
+        span=corpus.Span(5, 8),
+        owner_span=corpus.Span(0, 16),
+        edit_span=corpus.Span(4, 8),
+    )
+
+
+class FrozenWitnessTests(unittest.TestCase):
+    def test_candidate_revises_only_the_verified_host_link_context_reason(self):
+        sites, _eligibility, retained, _individual, _facts = corpus.load_corpus()
+        accepted = [[str(site_id), row["reason"]] for site_id, row in sorted(retained.items())]
+        proc_sites = {entry.site for entry in sites if entry.site in retained and entry.reason in {corpus.PROC_PARAMETER_REASON, corpus.PROC_RETURN_REASON}}
+        effect_sites = {entry.site for entry in sites if entry.site in retained and entry.kind == "effect-list" and entry.reason == corpus.EFFECT_REASON}
+        reason = "source meaning selector: context.Context supplies the nominal family for target-typed .Linux and .X86_64 variants in proc host_link_tools"
+        candidate = [[site_id, reason if site_id == "3209" else old] for site_id, old in accepted]
+        corpus.validate_frozen_candidate_rows(accepted, candidate, proc_sites, effect_sites)
+        for changed_site, changed_reason in [("3209", "guessed"), (str(min(proc_sites - {3209})), reason)]:
+            invalid = [[site_id, changed_reason if site_id == changed_site else old] for site_id, old in accepted]
+            with self.assertRaisesRegex(ValueError, "frozen retained row"):
+                corpus.validate_frozen_candidate_rows(accepted, invalid, proc_sites, effect_sites)
+        wrong_original = [[site_id, "guessed" if site_id == "3209" else old] for site_id, old in accepted]
+        with self.assertRaisesRegex(ValueError, "frozen retained row"):
+            corpus.validate_frozen_candidate_rows(wrong_original, candidate, proc_sites, effect_sites)
+
+    def test_host_link_context_selector_authenticates_the_source_annotation(self):
+        WORK_TMP.mkdir(parents=True, exist_ok=True)
+        source = b"proc host_link_tools(ctx: context.Context) {}\n"
+        start = source.index(b"context.Context")
+        selected = corpus.Site(
+            site=3209, project="xsh", path="dev/docker.xsh", line=1,
+            kind="parameter-type", category="eligible-internal",
+            owner="proc host_link_tools parameter ctx", reason=corpus.PROC_PARAMETER_REASON,
+            span=corpus.Span(start, start + len(b"context.Context")),
+            owner_span=corpus.Span(0, len(source)), edit_span=corpus.Span(start - 2, start + len(b"context.Context")),
+        )
+        with tempfile.TemporaryDirectory(prefix="nominal-context-", dir=WORK_TMP) as temporary:
+            root = Path(temporary)
+            path = root / "xsh/dev/docker.xsh"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(source)
+            other_project = root / "laputa/dev/docker.xsh"
+            other_project.parent.mkdir(parents=True)
+            other_project.write_bytes(source)
+            (path.parent / "other.xsh").write_bytes(source)
+            self.assertEqual(corpus.host_link_context_selector_reason(root, selected), corpus.HOST_LINK_CONTEXT_REASON)
+            for changes in [
+                {"site": 3210}, {"kind": "local-type"},
+                {"project": "laputa"}, {"path": "dev/other.xsh"},
+                {"owner": "proc other parameter ctx"}, {"reason": "guessed"},
+            ]:
+                invalid = corpus.Site(**{**selected.__dict__, **changes})
+                with self.assertRaisesRegex(ValueError, "nominal context meaning selector"):
+                    corpus.host_link_context_selector_reason(root, invalid)
+            path.write_bytes(source.replace(b"context.Context", b"context.Options"))
+            with self.assertRaisesRegex(ValueError, "nominal context meaning selector"):
+                corpus.host_link_context_selector_reason(root, selected)
+
+    def test_candidate_restores_only_the_whole_verified_wc_meaning_group(self):
+        sites, _eligibility, retained, _individual, _facts = corpus.load_corpus()
+        accepted = [[str(site_id), row["reason"]] for site_id, row in sorted(retained.items())]
+        proc_sites = {site.site for site in sites if site.site in retained and site.reason in {corpus.PROC_PARAMETER_REASON, corpus.PROC_RETURN_REASON}}
+        effect_sites = {site.site for site in sites if site.site in retained and site.kind == "effect-list" and site.reason == corpus.EFFECT_REASON}
+        restored = [
+            ["17", "source meaning selector: ByteCount UInt fields and return schema in pure byte_count"],
+            ["20", "source meaning selector: ByteCount UInt fields and return schema in pure add_bytes"],
+            ["79", "source meaning selector: Counts UInt fields and return schema in pure count_data"],
+            ["82", "source meaning selector: Counts UInt fields and return schema in pure add_counts"],
+        ]
+        corpus.validate_frozen_candidate_rows(accepted, accepted + restored, proc_sites, effect_sites)
+        with self.assertRaisesRegex(ValueError, "all four"):
+            corpus.validate_frozen_candidate_rows(accepted, accepted + restored[:1], proc_sites, effect_sites)
+        with self.assertRaisesRegex(ValueError, "meaning selector"):
+            corpus.validate_frozen_candidate_rows(accepted, accepted + restored[:-1] + [["82", "guessed"]], proc_sites, effect_sites)
+        with self.assertRaisesRegex(ValueError, "outside"):
+            corpus.validate_frozen_candidate_rows(accepted, accepted + restored + [["22", "guessed"]], proc_sites, effect_sites)
+
+    def test_frozen_candidate_allows_zero_or_all_effects_and_rejects_other_cohorts(self):
+        WORK_TMP.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="frozen-candidate-", dir=WORK_TMP) as temporary:
+            root = Path(temporary)
+            sites, _eligibility, retained, _individual_effect_ids, _effect_facts = corpus.load_corpus()
+            accepted = [
+                [str(site_id), row["reason"]]
+                for site_id, row in sorted(retained.items())
+            ]
+            proc_sites = {
+                site.site
+                for site in sites
+                if site.site in retained and site.reason in {corpus.PROC_PARAMETER_REASON, corpus.PROC_RETURN_REASON}
+            }
+            effect_sites = {
+                site.site
+                for site in sites
+                if site.site in retained and site.kind == "effect-list" and site.reason == corpus.EFFECT_REASON
+            }
+            selected_proc = set(sorted(proc_sites)[:2])
+            accepted_path = root / "accepted.tsv"
+            candidate_path = root / "candidate.tsv"
+
+            def write_table(path, header, rows):
+                with path.open("w", newline="", encoding="utf-8") as destination:
+                    writer = csv.writer(destination, delimiter="\t", lineterminator="\n")
+                    writer.writerow(header)
+                    writer.writerows(rows)
+
+            write_table(accepted_path, ("site", "reason"), accepted)
+
+            def validate(candidate_rows, accepted_rows=accepted):
+                write_table(accepted_path, ("site", "reason"), accepted_rows)
+                write_table(candidate_path, ("site", "reason"), candidate_rows)
+                return subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        str(corpus.ROOT / "dev/performance/corpus/frozen_witnesses.py"),
+                        "--validate-retained-candidate",
+                        str(accepted_path),
+                        str(candidate_path),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                )
+
+            zero_effects = [row for row in accepted if int(row[0]) not in selected_proc]
+            all_effects = [
+                row for row in accepted
+                if int(row[0]) not in effect_sites | selected_proc
+            ]
+            self.assertEqual(validate(zero_effects).returncode, 0)
+            self.assertEqual(validate(all_effects).returncode, 0)
+
+            partial_effects = [row for row in accepted if int(row[0]) != min(effect_sites)]
+            partial_result = validate(partial_effects)
+            self.assertNotEqual(partial_result.returncode, 0)
+            self.assertIn("zero or all 202", partial_result.stderr)
+
+            accepted_sites = set(retained)
+            foreign = accepted + [[str(max(accepted_sites) + 1), "foreign"]]
+            self.assertNotEqual(validate(foreign).returncode, 0)
+
+            nonproc_site = min(accepted_sites - proc_sites - effect_sites)
+            missing_nonproc = [row for row in accepted if int(row[0]) != nonproc_site]
+            self.assertIn("outside selected Proc and joint-effect", validate(missing_nonproc).stderr)
+
+            changed_reason = [
+                [row[0], row[1] + " changed"] if int(row[0]) == nonproc_site else row
+                for row in accepted
+            ]
+            self.assertIn("changes a frozen retained row", validate(changed_reason).stderr)
+
+            wrong_accepted = [
+                [row[0], row[1] + " changed"] if int(row[0]) == nonproc_site else row
+                for row in accepted
+            ]
+            self.assertIn(
+                "accepted table does not match the frozen retained cohort",
+                validate(accepted, wrong_accepted).stderr,
+            )
+
+    def test_frozen_tables_keep_the_accepted_denominators_and_effect_partition(self):
+        sites, eligibility, retained, individual, facts = corpus.load_corpus()
+        retained_sites = [candidate for candidate in sites if candidate.site in retained]
+        self.assertEqual(len(sites), 9194)
+        self.assertEqual(len(eligibility), 9194)
+        self.assertEqual(len(retained), 1843)
+        self.assertEqual(sum(candidate.category == "eligible-local" for candidate in sites), 693)
+        self.assertEqual(sum(candidate.category == "eligible-internal" for candidate in sites), 2190)
+        self.assertEqual(sum(candidate.kind == "effect-list" for candidate in retained_sites), 202)
+        self.assertEqual(len(individual), 142)
+        self.assertEqual(len(facts), 60)
+        self.assertEqual(sum(corpus.EXPECTED_COUNTS.values()), len(retained))
+
+    def test_classifications_keep_source_observations_separate_from_causes(self):
+        parameter = site(owner="proc f parameter x", reason=corpus.PROC_PARAMETER_REASON)
+        self.assertEqual(
+            corpus.classification(parameter, b"Str", b"proc f(x: Str) {}"),
+            ("proc-parameter-contract", "declaration-recheck"),
+        )
+        effect = site(kind="effect-list", owner="proc f effects", reason=corpus.EFFECT_REASON)
+        self.assertEqual(
+            corpus.classification(effect, b"[io]", b"proc f() [io] {}"),
+            ("effect-joint-proof-pending", "all-202-effects-joint"),
+        )
+        diagnostic = site(reason="joint check check.infer-return in pure f; restore declaration group")
+        self.assertEqual(
+            corpus.classification(diagnostic, b"Str", b"pure f(x: Str) -> Str {}"),
+            ("historical-diagnostic-only-pending", "declaration-group-recheck"),
+        )
+
+    def test_map_selector_class_requires_the_literal_source_shape(self):
+        candidate = site(kind="local-type", owner="var labels")
+        self.assertEqual(
+            corpus.classification(candidate, b"Map[Str]", b"var labels: Map[Str] = {}"),
+            ("empty-map-record-selection", "one-site-source-meaning-control"),
+        )
+        explicit_key = site(kind="local-type", owner="var snippets")
+        self.assertEqual(
+            corpus.classification(
+                explicit_key,
+                b"Map[Str, Snippet]",
+                b"var snippets: Map[Str, Snippet] = {}",
+            ),
+            ("empty-map-record-selection", "one-site-source-meaning-control"),
+        )
+        with self.assertRaises(ValueError):
+            corpus.classification(candidate, b"Map[Str]", b"var labels: Map[Str] = Map[Str]()")
+        pending = corpus.Site(**{**candidate.__dict__, "reason": "joint check check.local-inference in var labels"})
+        self.assertEqual(
+            corpus.classification(pending, b"Map[Str]", b"var labels: Map[Str] = {x: \"x\"}"),
+            ("historical-diagnostic-only-pending", "declaration-group-recheck"),
+        )
+
+    def test_nonempty_map_selector_requires_a_map_literal(self):
+        candidate = site(site_id=3598, kind="local-type", owner="const fence_labels")
+        self.assertEqual(
+            corpus.classification(
+                candidate,
+                b"Map[Str]",
+                b'const fence_labels: Map[Str] = {xsh: "xsh"}',
+            ),
+            ("map-literal-selection", "one-site-source-meaning-control"),
+        )
+        with self.assertRaises(ValueError):
+            corpus.classification(candidate, b"Map[Str]", b"const fence_labels: Map[Str] = {}")
+
+    def test_interpolation_source_fact_does_not_assign_a_concrete_type_cause(self):
+        input_site = site(site_id=2850)
+        self.assertEqual(
+            corpus.classification(
+                input_site,
+                b"Str",
+                b'proc f(field: Str) { print f"{field}"; read meminfo.value }',
+            ),
+            ("interpolation-contract-pending", "source-observation-contract-recheck"),
+        )
+
+    def test_nominal_and_membership_probe_pairs_only_erase_the_target_annotation(self):
+        root = corpus.ROOT / "dev/performance/corpus/witnesses"
+        pairs = (
+            ("constructor-unique.annotated.xsh", "constructor-unique.erased.xsh", b" -> ProbeError"),
+            ("constructor-shared-invalid.annotated.xsh", "constructor-shared-invalid.erased.xsh", b" -> FirstError"),
+            ("membership-element.annotated.xsh", "membership-element.erased.xsh", b": DependencyKind"),
+            ("membership-element.annotated.xsh", "membership-list.erased.xsh", b": List[DependencyKind]"),
+        )
+        for annotated_name, erased_name, annotation in pairs:
+            annotated = (root / annotated_name).read_bytes()
+            erased = (root / erased_name).read_bytes()
+            self.assertEqual(annotated.count(annotation), 1)
+            self.assertEqual(annotated.replace(annotation, b""), erased)
+
+    def test_source_context_shapes_keep_the_seventeen_site_partition(self):
+        counts = corpus.Counter(corpus.SOURCE_CONTEXT_CLASSES.values())
+        self.assertEqual(counts, corpus.EXPECTED_SOURCE_CONTEXT_SHAPES)
+        self.assertEqual(len(corpus.SOURCE_CONTEXT_CLASSES), 17)
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[973], "single-visible-variant-spelling")
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[3914], "shared-variant-spelling")
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[9111], "enum-membership-operands")
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[9112], "enum-membership-operands")
+
+    def test_historical_shape_totals_preserve_the_713_site_partition(self):
+        self.assertEqual(
+            sum(sites for sites, _groups in corpus.EXPECTED_DIAGNOSTIC_SOURCE_SHAPES.values()),
+            713,
+        )
+        self.assertEqual(
+            sum(groups for _sites, groups in corpus.EXPECTED_DIAGNOSTIC_SOURCE_SHAPES.values()),
+            388,
+        )
+
+    def test_diagnostic_source_shape_priority_is_reproducible(self):
+        cases = (
+            ("pure f() { for x in xs { yield x } }", {"parameter-type", "return-type"}, "coupled-parameter-return"),
+            ("pure f() { if x == null { return Some(y) } }", set(), "mixed-strong-cues"),
+            ("pure f() { if x == null { return x } }", set(), "optional-row-join"),
+            ("pure f() { for x in xs { yield x } }", set(), "iteration-collection"),
+            ("pure f() { {name: value} }", set(), "record-variant-construction"),
+            ("pure f() { match x { _ => y } }", set(), "variant-match"),
+            ("pure f() { helper() }", set(), "typed-call-method"),
+            ("pure f() { x + y }", set(), "operator-member-index"),
+            ('pure f() { print f"{x}" }', set(), "format-interpolation"),
+            ("var values = []", {"local-type"}, "empty-collection-initializer"),
+            ("var enabled = true", {"local-type"}, "other-typed-initializer"),
+        )
+        for owner, kinds, expected in cases:
+            candidate = site(owner=owner.split("(", 1)[0])
+            self.assertEqual(corpus.historical_source_shape(candidate, owner.encode(), kinds), expected)
+
+    def test_effect_spelling_candidates_are_not_resolved_edges(self):
+        sites, _eligibility, retained, _individual, facts = corpus.load_corpus()
+        labels, pairs, components = corpus.effect_spelling_candidate_components(sites, retained, facts)
+        self.assertEqual(len(labels), 202)
+        self.assertEqual(len(pairs), 42)
+        self.assertEqual(components, corpus.Counter({1: 157, 2: 4, 3: 1, 9: 1, 25: 1}))
+        label_counts = corpus.Counter(labels.values())
+        self.assertEqual(label_counts["lint-only-outgoing-spellings-unavailable"], 119)
+        self.assertEqual(label_counts["source-fact-no-spelling-candidate"], 38)
+        component_sizes = sorted(
+            label_counts[label]
+            for label in label_counts
+            if label.startswith("lexical-candidate-component:")
+        )
+        self.assertEqual(component_sizes, [2, 2, 2, 2, 3, 9, 25])
+
+    def test_reduced_span_tracks_prior_accepted_deletions(self):
+        original = b"pure f(a: Int, b: Str)"
+        removed = corpus.Span(8, 13)
+        retained = site(
+            kind="parameter-type",
+            owner="pure f parameter b",
+            reason=corpus.PROC_PARAMETER_REASON,
+        )
+        retained = corpus.Site(
+            **{
+                **retained.__dict__,
+                "span": corpus.Span(original.index(b"Str"), original.index(b"Str") + 3),
+                "owner_span": corpus.Span(0, len(original)),
+            }
+        )
+        reduced = corpus.erase_spans(original, [removed])
+        mapped = corpus.reduced_site_bytes(retained, original, reduced, {("xsh", "core/f.xsh"): [removed]})
+        self.assertEqual(reduced[mapped.start:mapped.end], b"Str")
+
+    def test_overlapping_source_edits_fail_closed(self):
+        with self.assertRaises(ValueError):
+            corpus.erase_spans(b"abcdef", [corpus.Span(1, 4), corpus.Span(3, 5)])
+
+    def test_source_paths_reject_traversal_and_symlinks(self):
+        WORK_TMP.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="frozen-witness-path-", dir=WORK_TMP) as temporary:
+            view_root = Path(temporary) / "view"
+            project = view_root / "xsh"
+            project.mkdir(parents=True)
+            (project / "core").mkdir()
+            (project / "core/f.xsh").write_text("pure f() {}\n")
+            with self.assertRaises(ValueError):
+                corpus.safe_source_file(view_root, "xsh", "../outside.xsh")
+            (project / "linked").symlink_to(project / "core", target_is_directory=True)
+            with self.assertRaises(ValueError):
+                corpus.safe_source_file(view_root, "xsh", "linked/f.xsh")
+
+    def test_lockstep_source_view_mutation_breaks_both_baseline_digests(self):
+        WORK_TMP.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="frozen-witness-digest-", dir=WORK_TMP) as temporary:
+            roots = {}
+            expected = {}
+            for name in ("original", "reduced-1040"):
+                root = Path(temporary) / name
+                roots[name] = root
+                (root / "xsh").mkdir(parents=True)
+                (root / "laputa").mkdir()
+                (root / "xsh/core.xsh").write_bytes(b"pure f() {}\n")
+                (root / "laputa/plan.xsh").write_bytes(b"pure plan() {}\n")
+                expected[name] = corpus.source_view_digest(root)
+                corpus.verify_view_digest(root, *expected[name])
+
+            for root in roots.values():
+                (root / "xsh/core.xsh").write_bytes(b"pure changed() {}\n")
+
+            for name, root in roots.items():
+                with self.assertRaises(ValueError):
+                    corpus.verify_view_digest(root, *expected[name])
+
+
+if __name__ == "__main__":
+    unittest.main()

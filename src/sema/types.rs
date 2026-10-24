@@ -9,11 +9,73 @@ use xsh_registry::types::BuiltinTypeName;
 #[path = "types/resource.rs"]
 mod resource;
 pub use xsh_registry::types::BuiltinTypeParameter;
+pub use super::effects::CallableEffects;
+pub use super::scheme_callable::SchemeCallableId;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
     map.extend(entries);
     map
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
+#[repr(u8)]
+pub enum CallableKind {
+    Pure,
+    Proc,
+    Stream,
+}
+
+impl CallableKind {
+    pub(crate) fn value_type_name(self) -> &'static str {
+        match self { Self::Pure => "Pure", Self::Proc => "Proc", Self::Stream => "StreamProducer" }
+    }
+
+    pub(crate) fn from_encoded(value: u32) -> Option<Self> {
+        match value { 0 => Some(Self::Pure), 1 => Some(Self::Proc), 2 => Some(Self::Stream), _ => None }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CalleeErrorFlow {
+    None,
+    Immediate,
+    Latent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) enum ConditionRole {
+    Control,
+    Boolean,
+}
+
+impl ConditionRole {
+    pub(crate) fn accepts(self, ty: &Type) -> bool {
+        matches!((self, ty), (_, Type::Bool) | (Self::Control, Type::Status))
+    }
+}
+
+pub(crate) enum MembershipCheck<'a> {
+    Expected(&'a Type),
+    Compared(&'a Type),
+    DynamicOperand,
+    DynamicContainer,
+    DynamicOperandAndContainer,
+    PathPartMismatch,
+    EnvironmentPathMismatch,
+    Recovery,
+    UnsupportedContainer,
+}
+
+impl MembershipCheck<'_> {
+    pub(crate) fn accepts_producer(&self, actual: &Type) -> bool {
+        match self {
+            Self::Expected(required) => actual.matches_expected(required)
+                && (**required != Type::UInt || actual.unvalidated() == &Type::UInt),
+            Self::Compared(required) => actual.matches_expected(required),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,8 +119,7 @@ pub enum Type {
     },
     ErrorFacet(Name),
     ProcessError,
-    Pure,
-    Proc,
+    Function(CallableKind),
     Command,
     ProcessHandle,
     NetJob,
@@ -79,6 +140,7 @@ pub enum Type {
     /// checked fact about every value that reaches the type, never a runtime
     /// test, so no dynamic value converts to it.
     Callable(Arc<TypedCallable>),
+    SchemeCallable(SchemeCallableId),
     /// A base type narrowed by a validation, such as `NonEmpty[T]` over
     /// `List[T]`. At run time it is a value of the base; the validation is a
     /// checked fact about every value that reaches the type. It fits its base
@@ -87,14 +149,16 @@ pub enum Type {
 }
 
 pub(crate) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
-    if next.matches_expected(current) {
-        return Some(current.clone());
+    let refined_current = refine_list_literal_unknowns(current, next, 0)?;
+    let refined_next = refine_list_literal_unknowns(next, current, 0)?;
+    if refined_next.matches_expected(refined_current.as_ref()) {
+        return Some(refined_current.into_owned());
     }
-    if current.matches_expected(next) {
-        return Some(next.clone());
+    if refined_current.matches_expected(refined_next.as_ref()) {
+        return Some(refined_next.into_owned());
     }
     if matches!(
-        (current, next),
+        (refined_current.as_ref(), refined_next.as_ref()),
         (Type::Str, Type::Path) | (Type::Path, Type::Str)
     ) {
         return Some(Type::Any);
@@ -102,13 +166,46 @@ pub(crate) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<
     None
 }
 
-/// The contract of a typed callable. `sig.effects` is the upper bound a call
-/// charges to its caller; `None` is the unrestricted bound of a `proc(...)`
-/// type written without a clause. Parameters carry no defaults and no rest
-/// parameter, so a call supplies every argument.
+fn refine_list_literal_unknowns<'a>(source: &'a Type, peer: &Type, depth: usize) -> Option<std::borrow::Cow<'a, Type>> {
+    use std::borrow::Cow;
+    if depth > super::constraints::MAX_TYPE_DEPTH { return None; }
+    let refined = match (source, peer) {
+        (Type::Unknown, peer) if !peer.is_recovery() => peer.clone(),
+        (Type::List(item), Type::List(peer)) => {
+            match refine_list_literal_unknowns(item, peer, depth + 1)? {
+                Cow::Borrowed(_) => return Some(Cow::Borrowed(source)),
+                Cow::Owned(item) => Type::List(Box::new(item)),
+            }
+        }
+        (Type::Map(key, value), Type::Map(peer_key, peer_value)) => {
+            let key = refine_list_literal_unknowns(key, peer_key, depth + 1)?;
+            let value = refine_list_literal_unknowns(value, peer_value, depth + 1)?;
+            if matches!((&key, &value), (Cow::Borrowed(_), Cow::Borrowed(_))) { return Some(Cow::Borrowed(source)); }
+            Type::Map(Box::new(key.into_owned()), Box::new(value.into_owned()))
+        }
+        (Type::Record(fields), Type::Record(peer)) if fields.keys().eq(peer.keys()) => {
+            let mut refined = None;
+            for (name, ty) in fields.iter() {
+                if let Cow::Owned(ty) = refine_list_literal_unknowns(ty, &peer[name], depth + 1)? {
+                    refined.get_or_insert_with(|| fields.as_ref().clone()).insert(*name, ty);
+                }
+            }
+            match refined {
+                Some(fields) => Type::Record(Arc::new(fields)),
+                None => return Some(Cow::Borrowed(source)),
+            }
+        }
+        _ => return Some(Cow::Borrowed(source)),
+    };
+    Some(Cow::Owned(refined))
+}
+
+/// The contract of a callable value. `sig.effects` bounds invocation effects.
+/// Declaration-derived values retain parameter labels, defaults, and rest
+/// layout. Authored callable type expressions require every listed argument.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedCallable {
-    pub pure: bool,
+    pub kind: CallableKind,
     pub sig: CallableType,
 }
 
@@ -122,8 +219,10 @@ impl TypedCallable {
         mut resolve: impl FnMut(TypeExprId) -> Result<Type, E>,
     ) -> Result<Self, E> {
         let callable = arena.callable_type_expr(id);
+        let kind = if callable.pure { CallableKind::Pure } else { CallableKind::Proc };
+        let effects = CallableEffects::from_clause(callable.effects.map(|effects| arena.effects(effects)));
         Ok(Self {
-            pure: callable.pure,
+            kind,
             sig: CallableType {
                 params: arena
                     .params(callable.params)
@@ -142,15 +241,7 @@ impl TypedCallable {
                     })
                     .collect::<Result<_, E>>()?,
                 return_ty: Box::new(resolve(callable.return_ty)?),
-                // A bound is a set: two clauses that list the same effects
-                // are the same type however they are written.
-                effects: callable.effects.map(|effects| {
-                    let written = arena.effects(effects).collect::<Vec<_>>();
-                    Effect::ALL
-                        .into_iter()
-                        .filter(|effect| written.contains(effect))
-                        .collect()
-                }),
+                effects: CallableEffects::from_contract(effects.contract().clone().for_invocation(kind)),
             },
         })
     }
@@ -187,8 +278,9 @@ impl TypedCallable {
     /// Why a callable with signature `actual` (`actual_pure` for a pure
     /// function) cannot be used where `self` is expected, or `None` when it
     /// can. The rule is deliberately narrow: the same kind, the same
-    /// parameter labels and types in order, and the same return type. Only
-    /// effects vary: the callable may need fewer than the bound allows.
+    /// parameter labels and types in order, the same rest layout, and the
+    /// same return type. A required default must exist. The callable may need
+    /// fewer effects than the bound allows.
     /// `check_effects` is false while effect summaries are still being
     /// solved, when an inferred callable's effects and types may not be
     /// known yet. Otherwise a type the checker has not resolved does not fit:
@@ -196,16 +288,16 @@ impl TypedCallable {
     /// invalid was already reported and is not reported again.
     pub fn mismatch(
         &self,
-        actual_pure: bool,
+        actual_kind: CallableKind,
         actual: &CallableType,
         check_effects: bool,
     ) -> Option<String> {
-        let kind = |pure: bool| if pure { "pure function" } else { "proc" };
-        if self.pure != actual_pure {
+        let kind = |kind| match kind { CallableKind::Pure => "pure function", CallableKind::Proc => "proc", CallableKind::Stream => "stream producer" };
+        if self.kind != actual_kind {
             return Some(format!(
                 "expected a {}, found a {}",
-                kind(self.pure),
-                kind(actual_pure)
+                kind(self.kind),
+                kind(actual_kind)
             ));
         }
         if actual.params.len() != self.sig.params.len() {
@@ -217,11 +309,17 @@ impl TypedCallable {
         }
         for (index, (found, expected)) in actual.params.iter().zip(&self.sig.params).enumerate() {
             let position = index + 1;
-            if found.rest {
+            if found.rest && !expected.rest {
                 return Some(format!(
                     "parameter {position} `{}` is a rest parameter",
                     found.name
                 ));
+            }
+            if expected.rest && !found.rest {
+                return Some(format!("parameter {position} `{}` is not a rest parameter", found.name));
+            }
+            if expected.defaulted && !found.defaulted {
+                return Some(format!("parameter {position} `{}` has no default", found.name));
             }
             if found.name != expected.name {
                 return Some(format!(
@@ -259,26 +357,30 @@ impl TypedCallable {
                 actual.return_ty, self.sig.return_ty
             ));
         }
-        if !check_effects || self.pure {
+        if !check_effects || self.kind == CallableKind::Pure {
             return None;
         }
-        let Some(bound) = &self.sig.effects else {
-            return None;
+        let Ok(bound) = self.sig.effects.concrete() else {
+            return Some("its required effect contract is unresolved".to_string());
         };
-        let Some(required) = &actual.effects else {
+        let bound = bound?;
+        let Ok(required) = actual.effects.concrete() else {
+            return Some("its actual effect contract is unresolved".to_string());
+        };
+        let Some(required) = required else {
             return Some(format!(
                 "its effects are unknown or unrestricted, so it cannot be held to `[{}]`",
-                effect_list(bound)
+                effect_list(&bound)
             ));
         };
         required
             .iter()
-            .find(|effect| !crate::sema::check::Checker::effects_covers(bound, effect))
+            .find(|effect| !crate::sema::check::Checker::effects_covers(&bound, effect))
             .map(|effect| {
                 format!(
                     "it requires the `{}` effect, which `[{}]` does not allow",
                     effect.as_str(),
-                    effect_list(bound)
+                    effect_list(&bound)
                 )
             })
     }
@@ -299,7 +401,7 @@ pub(crate) fn tail_type_matches_expected(expected: &Type, actual: &Type) -> bool
 /// identity. Nothing else varies: a domain change such as `Int` to `UInt` or
 /// a wider record needs a checked boundary that a call through the type does
 /// not run. An unresolved type inside either is not evidence of a fit.
-fn callable_return_fits(actual: &Type, expected: &Type) -> bool {
+pub(crate) fn callable_return_fits(actual: &Type, expected: &Type) -> bool {
     if actual == expected {
         return true;
     }
@@ -351,7 +453,7 @@ pub fn union_member_error(members: &[Type]) -> Option<String> {
             Type::Stream(_) => {
                 "a member cannot be a stream: a type test cannot inspect the items of a stream"
             }
-            Type::Callable(_) => {
+            Type::Callable(_) | Type::SchemeCallable(_) => {
                 "a member cannot be a callable type: a type test cannot inspect a callable's signature"
             }
             _ => continue,
@@ -473,10 +575,9 @@ impl std::ops::Deref for ModuleType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModuleExportType {
     Value { ty: Type, optional: bool },
-    Proc { sig: CallableType, optional: bool },
-    Pure { sig: CallableType, optional: bool },
-    /// A quantified pure export whose scheme is verified from the child module.
-    GenericPure { optional: bool },
+    Callable { kind: CallableKind, sig: CallableType, optional: bool },
+    /// A quantified callable whose scheme is authenticated against its child module.
+    GenericCallable { kind: CallableKind, optional: bool },
 }
 
 impl ModuleExportType {
@@ -485,33 +586,41 @@ impl ModuleExportType {
         size_of::<Self>()
             + match self {
                 Self::Value { ty, .. } => ty.retained_bytes(),
-                Self::Proc { sig, .. } | Self::Pure { sig, .. } => sig.retained_bytes(),
-                Self::GenericPure { .. } => 0,
+                Self::Callable { sig, .. } => sig.retained_bytes(),
+                Self::GenericCallable { .. } => 0,
             }
     }
 
     pub fn optional(&self) -> bool {
         match self {
             Self::Value { optional, .. }
-            | Self::Proc { optional, .. }
-            | Self::Pure { optional, .. }
-            | Self::GenericPure { optional } => *optional,
+            | Self::Callable { optional, .. }
+            | Self::GenericCallable { optional, .. } => *optional,
         }
     }
 
-    pub fn field_type(&self) -> Type {
+    pub fn field_type(&self) -> Option<Type> {
         match self {
-            Self::Value { ty, .. } => ty.clone(),
-            Self::Proc { .. } => Type::Proc,
-            Self::Pure { .. } | Self::GenericPure { .. } => Type::Pure,
+            Self::Value { ty, .. } => Some(ty.clone()),
+            Self::Callable { kind, .. } => Some(Type::Function(*kind)),
+            Self::GenericCallable { kind, .. } => Some(Type::Function(*kind)),
         }
     }
 
     pub(crate) fn field_value_type(&self) -> Option<Type> {
         match self {
-            Self::GenericPure { .. } => None,
-            _ => Some(self.field_type()),
+            Self::GenericCallable { .. } => None,
+            _ => self.field_type(),
         }
+    }
+
+    pub(crate) fn static_callable_value_type(&self) -> Option<Type> {
+        let Self::Callable { kind, sig, optional: false } = self else { return None; };
+        let mut sig = sig.clone();
+        sig.effects = CallableEffects::from_contract(sig.effects.contract().clone().for_invocation(*kind));
+        if !sig.effects.concrete().is_ok_and(|effects| effects.is_some()) { return None; }
+        let ty = Type::Callable(Arc::new(TypedCallable { kind: *kind, sig }));
+        (!ty.contains_inference() && !ty.contains_recovery()).then_some(ty)
     }
 }
 
@@ -519,7 +628,7 @@ impl ModuleExportType {
 pub struct CallableType {
     pub params: Vec<CallableParamType>,
     pub return_ty: Box<Type>,
-    pub effects: Option<Vec<Effect>>,
+    pub effects: CallableEffects,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -537,9 +646,7 @@ impl CallableType {
             + self.params.capacity() * size_of::<CallableParamType>()
             + size_of::<Type>()
             + self.return_ty.retained_bytes();
-        if let Some(effects) = &self.effects {
-            total = total.saturating_add(effects.capacity() * size_of::<Effect>());
-        }
+        total = total.saturating_add(self.effects.retained_bytes().saturating_sub(size_of::<CallableEffects>()));
         for param in &self.params {
             total = total.saturating_add(param.ty.retained_bytes());
         }
@@ -548,6 +655,178 @@ impl CallableType {
 }
 
 impl Type {
+    pub(crate) fn can_be_ordering_operand(&self) -> bool {
+        matches!(self.unvalidated(), Self::Int | Self::UInt | Self::Float | Self::Duration | Self::Str)
+    }
+
+    pub(crate) fn equality_operand_type(&self) -> Self {
+        match self {
+            Self::Optional(inner) => Self::Optional(Box::new(inner.unvalidated().clone())),
+            ty => ty.unvalidated().clone(),
+        }
+    }
+
+    pub(crate) fn set_operator_result(&self, op: crate::syntax::node::BinaryOp, right: &Self) -> Option<Self> {
+        if !matches!(op, crate::syntax::node::BinaryOp::Union | crate::syntax::node::BinaryOp::Intersect) { return None; }
+        let (Self::Set(left), Self::Set(right_item)) = (self.unvalidated(), right.unvalidated()) else { return None };
+        if !left.is_map_key() || !right_item.is_map_key() || !right.unvalidated().matches_expected(self.unvalidated()) { return None; }
+        Some(self.unvalidated().clone())
+    }
+
+    pub(crate) fn membership_needle_type<'a>(&'a self, needle: &'a Type) -> MembershipCheck<'a> {
+        use MembershipCheck as M;
+        match self.unvalidated() {
+            Self::Map(key, _) => M::Expected(key),
+            Self::Set(key) => M::Compared(key),
+            Self::List(_) if needle == &Self::Any => M::Compared(&Self::Any),
+            Self::List(item) => M::Compared(item.unvalidated()),
+            Self::Str | Self::ErasedRecord | Self::Record(_) => M::Expected(&Self::Str),
+            Self::Bytes => M::Expected(&Self::Bytes),
+            Self::Path => match needle.unvalidated() {
+                Self::Str | Self::Path | Self::Unknown => M::Expected(needle.unvalidated()),
+                Self::Any => M::DynamicOperand,
+                _ => M::PathPartMismatch,
+            },
+            Self::EnvPathList => match needle.unvalidated() {
+                Self::Any => M::Expected(&Self::Path),
+                Self::Path | Self::Unknown => M::Expected(needle.unvalidated()),
+                _ => M::EnvironmentPathMismatch,
+            },
+            Self::Any if needle == &Self::Any => M::DynamicOperandAndContainer,
+            Self::Any => M::DynamicContainer,
+            Self::Unknown => M::Recovery,
+            _ => M::UnsupportedContainer,
+        }
+    }
+
+    pub(crate) fn can_be_env_value(&self) -> bool {
+        self.can_be_argv_item()
+            || matches!(self.unvalidated(), Self::List(item) if matches!(**item, Self::Path | Self::Unknown))
+    }
+
+    pub(crate) fn accepts_context_scope_input(&self, kind: crate::syntax::arena::ContextScopeKind) -> bool {
+        use crate::syntax::arena::ContextScopeKind;
+        match kind {
+            ContextScopeKind::Within => matches!(self, Self::Duration | Self::Unknown | Self::Invalid),
+            ContextScopeKind::Cwd => matches!(self.unvalidated(), Self::Path | Self::Str | Self::Unknown | Self::Invalid),
+            ContextScopeKind::Env => match self {
+                Self::Record(fields) => fields.values().all(Self::can_be_env_value),
+                Self::Map(key, value) if **key == Self::Str => value.can_be_env_value(),
+                Self::Unknown | Self::Invalid => true,
+                _ => false,
+            },
+        }
+    }
+
+    pub(crate) fn core_command_result(command: crate::syntax::node::CoreCommand) -> Self {
+        match command {
+            crate::syntax::node::CoreCommand::Print | crate::syntax::node::CoreCommand::Eprint => Self::Unit,
+            crate::syntax::node::CoreCommand::Cd | crate::syntax::node::CoreCommand::Env => Self::Result(Box::new(Self::Unit), Box::new(Self::Error)),
+        }
+    }
+
+    pub(crate) fn run_statement_result() -> Self {
+        Self::Result(Box::new(Self::Status), Box::new(Self::ProcessError))
+    }
+
+    pub(crate) fn callee_error_flow(&self, effects: Option<&[Effect]>) -> CalleeErrorFlow {
+        if !effects.is_some_and(|effects| effects.contains(&Effect::Error)) { return CalleeErrorFlow::None; }
+        if matches!(self.unvalidated(), Self::Stream(_)) { CalleeErrorFlow::Latent }
+        else if self.is_result() { CalleeErrorFlow::None }
+        else { CalleeErrorFlow::Immediate }
+    }
+
+    pub(crate) fn assertion_error_family() -> Name {
+        Name::intern("AssertionError")
+    }
+
+    pub(crate) fn captured_error_type(errors: impl IntoIterator<Item = Self>) -> Self {
+        let mut inferred = None;
+        for error in errors {
+            inferred = Some(match inferred {
+                None => error,
+                Some(current) if error.matches_expected(&current) => current,
+                Some(current) if current.matches_expected(&error) => error,
+                Some(current) => match (&current, &error) {
+                    (Self::ErrorVariant { family: left, .. } | Self::ErrorFamily(left),
+                     Self::ErrorVariant { family: right, .. } | Self::ErrorFamily(right)) if left == right => Self::ErrorFamily(*left),
+                    _ => Self::Error,
+                },
+            });
+        }
+        inferred.unwrap_or(Self::Error)
+    }
+
+    pub(crate) fn run_capture_output(kind: crate::syntax::node::RunKind, assert_success: bool) -> Option<Self> {
+        use crate::syntax::node::RunKind;
+        match kind {
+            RunKind::Plain if assert_success => Some(Self::run_statement_result()),
+            RunKind::Plain | RunKind::Status => Some(Self::Status),
+            kind => Self::run_capture_result(kind),
+        }
+    }
+
+    pub(crate) fn run_pipeline_output(head: crate::syntax::node::RunKind, propagate: bool) -> Option<Self> {
+        use crate::syntax::node::RunKind;
+        match head {
+            RunKind::Plain | RunKind::Status if propagate => Some(Self::run_statement_result()),
+            RunKind::Plain | RunKind::Status => Some(Self::Status),
+            kind => Self::run_capture_result(kind),
+        }
+    }
+
+    pub(crate) fn run_capture_result(kind: crate::syntax::node::RunKind) -> Option<Self> {
+        use crate::syntax::node::RunKind;
+        let output = match kind {
+            RunKind::CaptureText => Self::Str,
+            RunKind::CaptureBytes => Self::Bytes,
+            RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
+                let output = if kind == RunKind::CaptureTextRecord { Self::Str } else { Self::Bytes };
+                Self::Record(Arc::new(BTreeMap::from([
+                    (Name::intern("status"), Self::Status),
+                    (Name::intern("stdout"), output.clone()),
+                    (Name::intern("stderr"), output),
+                ])))
+            }
+            RunKind::StreamText => Self::Stream(Box::new(Self::Str)),
+            RunKind::StreamBytes => Self::Stream(Box::new(Self::Bytes)),
+            RunKind::Plain | RunKind::Status => return None,
+        };
+        Some(Self::Result(Box::new(output), Box::new(Self::ProcessError)))
+    }
+
+    pub(crate) fn for_each_child<'a>(&'a self, mut visit: impl FnMut(&'a Type)) {
+        match self {
+            Self::List(inner) | Self::Stream(inner) | Self::Set(inner) | Self::Optional(inner) => visit(inner),
+            Self::Map(key, value) | Self::Result(key, value) => { visit(key); visit(value); }
+            Self::Record(fields) => { for field in fields.values() { visit(field); } }
+            Self::Union(members) => { for member in members { visit(member); } }
+            Self::Validated(validated) => visit(validated.base()),
+            Self::Callable(callable) => {
+                for parameter in &callable.sig.params { visit(&parameter.ty); }
+                visit(&callable.sig.return_ty);
+            }
+            Self::Module(module) => {
+                for export in module.values() {
+                    match export {
+                        ModuleExportType::Value { ty, .. } => visit(ty),
+                        ModuleExportType::Callable { sig, .. } => {
+                            for parameter in &sig.params { visit(&parameter.ty); }
+                            visit(&sig.return_ty);
+                        }
+                        ModuleExportType::GenericCallable { .. } => {}
+                    }
+                }
+            }
+            Self::BuiltinParameter(_) | Self::Inference(_) | Self::Any | Self::Unknown | Self::Invalid
+            | Self::Null | Self::Bool | Self::Int | Self::UInt | Self::Float | Self::Duration
+            | Self::Str | Self::Bytes | Self::Digest | Self::Regex | Self::Path | Self::ErasedRecord
+            | Self::DynamicModule | Self::Status | Self::EnvPathList | Self::Error | Self::ErrorFamily(_)
+            | Self::ErrorVariant { .. } | Self::ErrorFacet(_) | Self::ProcessError | Self::Function(_) | Self::SchemeCallable(_)
+            | Self::Command | Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::Unit | Self::Tag(_) => {}
+        }
+    }
+
     /// Whether runtime storage must preserve a nonnegative integer constraint.
     pub(crate) fn has_unsigned_constraint(&self) -> bool {
         match self {
@@ -562,6 +841,16 @@ impl Type {
             Self::Union(members) => members.iter().any(Self::has_unsigned_constraint),
             Self::Validated(validated) => validated.base().has_unsigned_constraint(),
             _ => false,
+        }
+    }
+
+    pub(crate) fn concatenation_type(
+        operands: [Option<super::validated::Validation>; 2], concatenated: Type,
+    ) -> Type {
+        let kept = operands.into_iter().flatten().find(|validation| validation.survives_concatenation());
+        match kept.map(|validation| super::validated::ValidatedType::new(validation, concatenated.clone())) {
+            Some(Ok(validated)) => Type::Validated(Box::new(validated)),
+            _ => concatenated,
         }
     }
 
@@ -781,8 +1070,8 @@ impl Type {
             BuiltinTypeName::EnvPathList => Self::EnvPathList,
             BuiltinTypeName::Error => Self::Error,
             BuiltinTypeName::ProcessError => Self::ProcessError,
-            BuiltinTypeName::Pure => Self::Pure,
-            BuiltinTypeName::Proc => Self::Proc,
+            BuiltinTypeName::Pure => Self::Function(CallableKind::Pure),
+            BuiltinTypeName::Proc => Self::Function(CallableKind::Proc),
             BuiltinTypeName::Command => Self::Command,
             BuiltinTypeName::ProcessHandle => Self::ProcessHandle,
             BuiltinTypeName::NetJob => Self::NetJob,
@@ -816,8 +1105,9 @@ impl Type {
             Self::EnvPathList => Some(BuiltinTypeName::EnvPathList),
             Self::Error => Some(BuiltinTypeName::Error),
             Self::ProcessError => Some(BuiltinTypeName::ProcessError),
-            Self::Pure => Some(BuiltinTypeName::Pure),
-            Self::Proc => Some(BuiltinTypeName::Proc),
+            Self::Function(CallableKind::Pure) => Some(BuiltinTypeName::Pure),
+            Self::Function(CallableKind::Proc) => Some(BuiltinTypeName::Proc),
+            Self::Function(CallableKind::Stream) => None,
             Self::Command => Some(BuiltinTypeName::Command),
             Self::ProcessHandle => Some(BuiltinTypeName::ProcessHandle),
             Self::NetJob => Some(BuiltinTypeName::NetJob),
@@ -838,6 +1128,7 @@ impl Type {
             | Self::Optional(_)
             | Self::Union(_)
             | Self::Callable(_)
+            | Self::SchemeCallable(_)
             | Self::Validated(_) => None,
         }
     }
@@ -859,13 +1150,13 @@ impl Type {
             }
             Self::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => ty.contains_recovery(),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     sig.params
                         .iter()
                         .any(|param| param.ty.contains_recovery())
                         || sig.return_ty.contains_recovery()
                 }
-                ModuleExportType::GenericPure { .. } => false,
+                ModuleExportType::GenericCallable { .. } => false,
             }),
             Self::Record(fields) => fields.values().any(Self::contains_recovery),
             Self::Union(members) => members.iter().any(Self::contains_recovery),
@@ -884,6 +1175,15 @@ impl Type {
 
     pub fn is_dynamic(&self) -> bool {
         matches!(self, Self::Any)
+    }
+
+    pub(crate) fn contains_builtin_parameter(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            if matches!(ty, Self::BuiltinParameter(_)) { return true; }
+            ty.for_each_child(|child| pending.push(child));
+        }
+        false
     }
 
     /// Transient variables must be substituted before publishing signatures,
@@ -909,6 +1209,7 @@ impl Type {
                 Self::Union(members) => pending.extend(members),
                 Self::Validated(validated) => pending.push(validated.base()),
                 Self::Callable(callable) => {
+                    if callable.sig.effects.has_inference() { return true; }
                     pending.push(&callable.sig.return_ty);
                     pending.extend(callable.sig.params.iter().map(|param| &param.ty));
                 }
@@ -916,12 +1217,12 @@ impl Type {
                     for export in exports.values() {
                         match export {
                             ModuleExportType::Value { ty, .. } => pending.push(ty),
-                            ModuleExportType::Proc { sig, .. }
-                            | ModuleExportType::Pure { sig, .. } => {
+                            ModuleExportType::Callable { sig, .. } => {
+                                if sig.effects.has_inference() { return true; }
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|param| &param.ty));
                             }
-                            ModuleExportType::GenericPure { .. } => {}
+                            ModuleExportType::GenericCallable { .. } => {}
                         }
                     }
                 }
@@ -934,7 +1235,7 @@ impl Type {
     /// Whether a callable type appears anywhere a value of this type holds one.
     pub fn contains_typed_callable(&self) -> bool {
         match self {
-            Self::Callable(_) => true,
+            Self::Callable(_) | Self::SchemeCallable(_) => true,
             Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
                 inner.contains_typed_callable()
             }
@@ -946,6 +1247,19 @@ impl Type {
             Self::Validated(validated) => validated.base().contains_typed_callable(),
             _ => false,
         }
+    }
+
+    pub(crate) fn contains_scheme_callable(&self) -> bool {
+        if matches!(self, Self::SchemeCallable(_)) { return true; }
+        let mut pending = Vec::new();
+        self.for_each_child(|child| pending.push(child));
+        let mut visited = rustc_hash::FxHashSet::default();
+        while let Some(ty) = pending.pop() {
+            if !visited.insert(std::ptr::from_ref(ty)) { continue; }
+            if matches!(ty, Self::SchemeCallable(_)) { return true; }
+            ty.for_each_child(|child| pending.push(child));
+        }
+        false
     }
 
     pub fn contains_any(&self) -> bool {
@@ -969,11 +1283,11 @@ impl Type {
             }
             Self::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => ty.contains_any(),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     sig.params.iter().any(|param| param.ty.contains_any())
                         || sig.return_ty.contains_any()
                 }
-                ModuleExportType::GenericPure { .. } => false,
+                ModuleExportType::GenericCallable { .. } => false,
             }),
             _ => false,
         }
@@ -1114,10 +1428,9 @@ impl Type {
             // rule, and either dynamic handle of its own kind. A dynamic
             // handle never fits a typed callable: its signature is unknown.
             (Self::Callable(actual), Self::Callable(expected)) => {
-                expected.mismatch(actual.pure, &actual.sig, true).is_none()
+                expected.mismatch(actual.kind, &actual.sig, true).is_none()
             }
-            (Self::Callable(actual), Self::Proc) => !actual.pure,
-            (Self::Callable(actual), Self::Pure) => actual.pure,
+            (Self::Callable(actual), Self::Function(kind)) => actual.kind == *kind,
             (Self::Tag(a), Self::Tag(b)) => a == b,
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
             (Self::ErrorVariant { family, .. }, Self::ProcessError) => {
@@ -1189,7 +1502,7 @@ impl Type {
     /// its base, so no element needs converting, and a structure is a value,
     /// so nothing written through the wider view can reach a holder of the
     /// narrower one. It never runs the other way.
-    pub(super) fn matches_stored(&self, expected: &Type) -> bool {
+    pub(crate) fn matches_stored(&self, expected: &Type) -> bool {
         match (self, expected) {
             (Self::List(actual), Self::List(expected))
             | (Self::Stream(actual), Self::Stream(expected))
@@ -1246,6 +1559,32 @@ impl Type {
                 | Self::Duration
                 | Self::Float
         )
+    }
+
+    pub(crate) fn process_command_argv_item_type() -> &'static Self {
+        static ITEM: std::sync::OnceLock<Type> = std::sync::OnceLock::new();
+        ITEM.get_or_init(|| Self::Union(vec![Self::Str, Self::Path]))
+    }
+
+    pub(crate) fn is_readonly_argv_word_list(&self) -> bool {
+        matches!(self, Self::List(item)
+            if matches!(&**item, Self::Union(members)
+                if members.len() == 2 && members.contains(&Self::Str) && members.contains(&Self::Path)))
+    }
+
+    pub(crate) fn accepts_readonly_argv_argument(&self, actual: &Self) -> bool {
+        self.is_readonly_argv_word_list()
+            && matches!(actual, Self::List(item) if item.can_be_process_command_argv_item())
+    }
+
+    pub(crate) fn can_be_process_command_argv_item(&self) -> bool {
+        match self {
+            Self::Union(members) => members.iter().all(Self::can_be_process_command_argv_item),
+            _ => {
+                let ty = self.unvalidated();
+                *ty == Self::Unknown || (!ty.is_recovery() && ty.matches_expected(Self::process_command_argv_item_type()))
+            }
+        }
     }
 
     pub fn can_be_argv_item(&self) -> bool {
@@ -1382,8 +1721,9 @@ impl Type {
             Self::ErrorVariant { family, variant } => Some(format!("{family}.{variant}")),
             Self::ErrorFacet(name) => Some(name.to_string()),
             Self::ProcessError => Some("ProcessError".to_string()),
-            Self::Pure => Some("Pure".to_string()),
-            Self::Proc => Some("Proc".to_string()),
+            Self::Function(CallableKind::Pure) => Some("Pure".to_string()),
+            Self::Function(CallableKind::Proc) => Some("Proc".to_string()),
+            Self::Function(CallableKind::Stream) => None,
             Self::Command => Some("Command".to_string()),
             Self::ProcessHandle => Some("ProcessHandle".to_string()),
             Self::NetJob => Some("NetJob".to_string()),
@@ -1400,6 +1740,7 @@ impl Type {
                     .join(", ")
             )),
             Self::Callable(callable) => {
+                if callable.kind == CallableKind::Stream { return None; }
                 let params = callable
                     .sig
                     .params
@@ -1410,16 +1751,18 @@ impl Type {
                 let effects = callable
                     .sig
                     .effects
+                    .concrete().ok()?
                     .as_ref()
                     .map_or(String::new(), |effects| {
                         format!(" [{}]", effect_list(effects))
                     });
                 Some(format!(
                     "{}({params}){effects} -> {}",
-                    if callable.pure { "pure" } else { "proc" },
+                    match callable.kind { CallableKind::Pure => "pure", CallableKind::Proc => "proc", CallableKind::Stream => "stream" },
                     callable.sig.return_ty.annotation_source()?
                 ))
             }
+            Self::SchemeCallable(_) => None,
             Self::Validated(validated) => validated.annotation_source(),
         }
     }
@@ -1465,8 +1808,10 @@ impl fmt::Display for Type {
             Self::ErrorVariant { family, variant } => write!(f, "{family}.{variant}"),
             Self::ErrorFacet(name) => write!(f, "{name}"),
             Self::ProcessError => write!(f, "ProcessError"),
-            Self::Pure => write!(f, "Pure"),
-            Self::Proc => write!(f, "Proc"),
+            Self::Function(CallableKind::Pure) => write!(f, "Pure"),
+            Self::SchemeCallable(_) => write!(f, "callable"),
+            Self::Function(CallableKind::Proc) => write!(f, "Proc"),
+            Self::Function(CallableKind::Stream) => write!(f, "stream producer"),
             Self::Command => write!(f, "Command"),
             Self::ProcessHandle => write!(f, "ProcessHandle"),
             Self::NetJob => write!(f, "NetJob"),
@@ -1495,7 +1840,7 @@ impl fmt::Display for Type {
                 write!(f, "]")
             }
             Self::Callable(callable) => {
-                write!(f, "{}(", if callable.pure { "pure" } else { "proc" })?;
+                write!(f, "{}(", match callable.kind { CallableKind::Pure => "pure", CallableKind::Proc => "proc", CallableKind::Stream => "stream" })?;
                 for (index, param) in callable.sig.params.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
@@ -1503,8 +1848,10 @@ impl fmt::Display for Type {
                     write!(f, "{}: {}", param.name, param.ty)?;
                 }
                 write!(f, ")")?;
-                if let Some(effects) = &callable.sig.effects {
-                    write!(f, " [{}]", effect_list(effects))?;
+                match callable.sig.effects.concrete() {
+                    Ok(Some(effects)) => write!(f, " [{}]", effect_list(&effects))?,
+                    Ok(None) => {},
+                    Err(_) => write!(f, " [<effects need inference>]")?,
                 }
                 write!(f, " -> {}", callable.sig.return_ty)
             }
@@ -1523,14 +1870,10 @@ fn module_export_any_flows_to_concrete(
             ModuleExportType::Value { ty: expected, .. },
         ) => actual.any_flows_to_concrete(expected),
         (
-            ModuleExportType::Proc { sig: actual, .. },
-            ModuleExportType::Proc { sig: expected, .. },
-        )
-        | (
-            ModuleExportType::Pure { sig: actual, .. },
-            ModuleExportType::Pure { sig: expected, .. },
-        ) => callable_any_flows_to_concrete(actual, expected),
-        (ModuleExportType::GenericPure { .. }, ModuleExportType::GenericPure { .. }) => false,
+            ModuleExportType::Callable { kind: actual_kind, sig: actual, .. },
+            ModuleExportType::Callable { kind: expected_kind, sig: expected, .. },
+        ) if actual_kind == expected_kind => callable_any_flows_to_concrete(actual, expected),
+        (ModuleExportType::GenericCallable { .. }, ModuleExportType::GenericCallable { .. }) => false,
         _ => false,
     }
 }
@@ -1542,14 +1885,10 @@ fn module_export_matches_expected(actual: &ModuleExportType, expected: &ModuleEx
             ModuleExportType::Value { ty: expected, .. },
         ) => actual.matches_expected(expected),
         (
-            ModuleExportType::Proc { sig: actual, .. },
-            ModuleExportType::Proc { sig: expected, .. },
-        )
-        | (
-            ModuleExportType::Pure { sig: actual, .. },
-            ModuleExportType::Pure { sig: expected, .. },
-        ) => callable_matches_expected(actual, expected),
-        (ModuleExportType::GenericPure { .. }, ModuleExportType::GenericPure { .. }) => true,
+            ModuleExportType::Callable { kind: actual_kind, sig: actual, .. },
+            ModuleExportType::Callable { kind: expected_kind, sig: expected, .. },
+        ) if actual_kind == expected_kind => callable_matches_expected(actual, expected),
+        (ModuleExportType::GenericCallable { kind: actual, .. }, ModuleExportType::GenericCallable { kind: expected, .. }) => actual == expected,
         _ => false,
     }
 }
@@ -1577,15 +1916,13 @@ fn callable_matches_expected(actual: &CallableType, expected: &CallableType) -> 
         && callable_effects_match(&actual.effects, &expected.effects)
 }
 
-/// A contract entry without a clause is unrestricted, so its callers already
-/// assume any effect and it accepts every export. A clause names the exact set.
 pub(crate) fn callable_effects_match(
-    actual: &Option<Vec<Effect>>,
-    expected: &Option<Vec<Effect>>,
+    actual: &CallableEffects,
+    expected: &CallableEffects,
 ) -> bool {
-    match (actual, expected) {
-        (_, None) => true,
-        (Some(actual), Some(expected)) => {
+    match (actual.concrete(), expected.concrete()) {
+        (Ok(_), Ok(None)) => true,
+        (Ok(Some(actual)), Ok(Some(expected))) => {
             actual.iter().all(|effect| expected.contains(effect))
                 && expected.iter().all(|effect| actual.contains(effect))
         }
@@ -1595,10 +1932,25 @@ pub(crate) fn callable_effects_match(
 
 #[cfg(test)]
 mod tests {
-    use super::{CallableParamType, CallableType, ModuleExportType, Type};
+    use super::{CallableEffects, CallableKind, CallableParamType, CallableType, ModuleExportType, Type};
     use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn readonly_argv_compatibility_preserves_container_invariance() {
+        let expected = Type::List(Box::new(Type::process_command_argv_item_type().clone()));
+        for item in [Type::Str, Type::Path, Type::Unknown, Type::Union(vec![Type::Str, Type::Path])] {
+            assert!(expected.accepts_readonly_argv_argument(&Type::List(Box::new(item))));
+        }
+        for item in [Type::Int, Type::Any, Type::Invalid] {
+            assert!(!expected.accepts_readonly_argv_argument(&Type::List(Box::new(item))));
+        }
+        assert!(!Type::List(Box::new(Type::Str)).matches_expected(&expected));
+        assert!(!Type::Map(Box::new(Type::Str), Box::new(Type::Str)).matches_expected(&Type::Map(Box::new(Type::Str), Box::new(Type::Any))));
+        assert!(!expected.accepts_readonly_argv_argument(&Type::Stream(Box::new(Type::Str))));
+        assert!(!Type::List(Box::new(Type::Any)).accepts_readonly_argv_argument(&Type::List(Box::new(Type::Str))));
+    }
 
     #[test]
     fn enum_display_hides_only_filesystem_owned_identities() {
@@ -1633,7 +1985,7 @@ mod tests {
             )])));
             let proc = Type::Module(module_type(BTreeMap::from([(
                 Name::intern("proc"),
-                ModuleExportType::Proc {
+                ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                     sig: CallableType {
                         params: vec![CallableParamType {
                             name: Name::intern("argument"),
@@ -1642,18 +1994,18 @@ mod tests {
                             rest: false,
                         }],
                         return_ty: Box::new(Type::Int),
-                        effects: None,
+                        effects: CallableEffects::unknown(),
                     },
                     optional: false,
                 },
             )])));
             let pure = Type::Module(module_type(BTreeMap::from([(
                 Name::intern("pure"),
-                ModuleExportType::Pure {
+                ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                     sig: CallableType {
                         params: Vec::new(),
                         return_ty: Box::new(Type::Unknown),
-                        effects: Some(Vec::new()),
+                        effects: CallableEffects::finite([]),
                     },
                     optional: false,
                 },
@@ -1809,7 +2161,7 @@ mod tests {
     }
 
     fn proc(effects: Option<Vec<Effect>>) -> ModuleExportType {
-        ModuleExportType::Proc {
+        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -1818,14 +2170,14 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Unit),
-                effects,
+                effects: CallableEffects::from_clause(effects),
             },
             optional: false,
         }
     }
 
     fn pure() -> ModuleExportType {
-        ModuleExportType::Pure {
+        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -1834,7 +2186,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Unit),
-                effects: None,
+                effects: CallableEffects::unknown(),
             },
             optional: false,
         }
@@ -1851,6 +2203,49 @@ mod tests {
             proc(Some(vec![Effect::Error])),
         )])));
         assert!(!Type::Module(module_type(BTreeMap::new())).matches_expected(&expected));
+    }
+
+    #[test]
+    fn callable_kind_identity_preserves_stream_and_authored_boundaries() {
+        for expected_kind in [CallableKind::Pure, CallableKind::Proc, CallableKind::Stream] {
+            let signature = CallableType {
+                params: Vec::new(), return_ty: Box::new(Type::Int),
+                effects: CallableEffects::finite([]),
+            };
+            let expected = super::TypedCallable { kind: expected_kind, sig: signature.clone() };
+            for actual_kind in [CallableKind::Pure, CallableKind::Proc, CallableKind::Stream] {
+                assert_eq!(expected.mismatch(actual_kind, &signature, true).is_none(), expected_kind == actual_kind);
+                let actual = Type::Callable(std::sync::Arc::new(super::TypedCallable { kind: actual_kind, sig: signature.clone() }));
+                assert_eq!(actual.matches_expected(&Type::Function(expected_kind)), expected_kind == actual_kind);
+            }
+        }
+        assert_eq!(Type::Function(CallableKind::Pure).annotation_source().as_deref(), Some("Pure"));
+        assert_eq!(Type::Function(CallableKind::Proc).annotation_source().as_deref(), Some("Proc"));
+        assert_eq!(Type::Function(CallableKind::Stream).annotation_source(), None);
+    }
+
+    #[test]
+    fn materialized_callable_layouts_preserve_default_and_rest_guarantees() {
+        SymbolOwner::new().with_current(|| {
+            let mut signature = CallableType {
+                params: vec![CallableParamType { name: Name::intern("items"), ty: Type::List(Box::new(Type::Int)), defaulted: false, rest: true }],
+                return_ty: Box::new(Type::Int), effects: super::CallableEffects::finite([]),
+            };
+            let expected = super::TypedCallable { kind: crate::sema::types::CallableKind::Pure, sig: signature.clone() };
+            assert!(expected.mismatch(CallableKind::Pure, &signature, true).is_none());
+            signature.params[0].rest = false;
+            assert!(expected.mismatch(CallableKind::Pure, &signature, true).unwrap().contains("not a rest parameter"));
+            assert!(expected.mismatch(CallableKind::Proc, &expected.sig, true).unwrap().contains("found a proc"));
+            signature.params[0].ty = Type::Int;
+            signature.params[0].defaulted = true;
+            let mut expected = super::TypedCallable { kind: crate::sema::types::CallableKind::Pure, sig: signature.clone() };
+            assert!(expected.mismatch(CallableKind::Pure, &signature, true).is_none());
+            signature.params[0].defaulted = false;
+            assert!(expected.mismatch(CallableKind::Pure, &signature, true).unwrap().contains("has no default"));
+            expected.sig.params[0].defaulted = false;
+            signature.params[0].defaulted = true;
+            assert!(expected.mismatch(CallableKind::Pure, &signature, true).is_none());
+        });
     }
 
     #[test]
@@ -1929,11 +2324,11 @@ mod tests {
                 .matches_expected(&expected)
         );
 
-        let wrong_count = ModuleExportType::Proc {
+        let wrong_count = ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
-                effects: Some(vec![Effect::Error]),
+                effects: CallableEffects::finite([Effect::Error]),
             },
             optional: false,
         };
@@ -1942,7 +2337,7 @@ mod tests {
                 .matches_expected(&expected)
         );
 
-        let wrong_parameter = ModuleExportType::Proc {
+        let wrong_parameter = ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -1951,7 +2346,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Unit),
-                effects: Some(vec![Effect::Error]),
+                effects: CallableEffects::finite([Effect::Error]),
             },
             optional: false,
         };
@@ -1960,7 +2355,7 @@ mod tests {
                 .matches_expected(&expected)
         );
 
-        let wrong_return = ModuleExportType::Proc {
+        let wrong_return = ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -1969,7 +2364,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Str),
-                effects: Some(vec![Effect::Error]),
+                effects: CallableEffects::finite([Effect::Error]),
             },
             optional: false,
         };

@@ -1,10 +1,11 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, Checker, CoreCommand, Diagnostic, Effect, FixHint, FxHashSet, Label, ModuleFnSig,
+    Checker, CoreCommand, Diagnostic, Effect, FixHint, FxHashSet, Label, ModuleFnSig,
     Name, RunKind, Span, Type, UnaryOp, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
+use crate::sema::schemes::ValueConversion;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRedirection,
@@ -13,13 +14,6 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::{CommandWordRefSegment, parse_command_word_reference};
 
-fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
-    entries
-        .into_iter()
-        .map(|(name, value)| (name.into(), value))
-        .collect()
-}
-
 pub(super) fn command_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
@@ -27,26 +21,7 @@ pub(super) fn command_ty_auto_propagates(ty: &Type) -> bool {
 pub(super) fn run_capture_result_type_arena(arena: &ArenaProgram, run: RunFormId) -> Option<Type> {
     let run = arena.arena.run_form(run);
     let segment = arena.arena.run_segments(run.segments).first()?;
-    let ok = match segment.kind {
-        RunKind::CaptureText => Type::Str,
-        RunKind::CaptureBytes => Type::Bytes,
-        RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
-            let output = if segment.kind == RunKind::CaptureTextRecord {
-                Type::Str
-            } else {
-                Type::Bytes
-            };
-            Type::Record(btree_map(vec![
-                ("status", Type::Status),
-                ("stdout", output.clone()),
-                ("stderr", output),
-            ]).into())
-        }
-        RunKind::StreamText => Type::Stream(Box::new(Type::Str)),
-        RunKind::StreamBytes => Type::Stream(Box::new(Type::Bytes)),
-        RunKind::Plain | RunKind::Status => return None,
-    };
-    Some(Type::Result(Box::new(ok), Box::new(Type::ProcessError)))
+    Type::run_capture_result(segment.kind)
 }
 
 pub(super) fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
@@ -72,12 +47,8 @@ fn is_bare_ident(text: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
-/// An environment value is one argv item, or a `List[Path]`, which the
-/// runtime joins into a search path. A list of anything else has no single
-/// rendering.
 pub(super) fn can_be_env_value(ty: &Type) -> bool {
-    ty.can_be_argv_item()
-        || matches!(ty.unvalidated(), Type::List(item) if matches!(**item, Type::Path | Type::Unknown))
+    ty.can_be_env_value()
 }
 
 pub(super) fn valid_env_name(name: &str) -> bool {
@@ -90,6 +61,23 @@ pub(super) fn valid_env_name(name: &str) -> bool {
 }
 
 impl Checker {
+    pub(super) fn require_value_conversion(&mut self, ty: &Type, conversion: ValueConversion, span: Span) -> bool {
+        if matches!(ty, Type::Unknown | Type::Invalid) { return true; }
+        match self.type_constraints.require_conversion(ty, conversion, span) {
+            Ok(()) => true,
+            Err(crate::sema::constraints::ConversionConstraintError::Invalid { .. }) => false,
+            Err(error) => {
+                let message = match error {
+                    crate::sema::constraints::ConversionConstraintError::Resolution(crate::sema::constraints::ConstraintResolutionError::ForeignVariable) => "conversion operand belongs to another inference problem",
+                    crate::sema::constraints::ConversionConstraintError::Resolution(crate::sema::constraints::ConstraintResolutionError::TypeDepth) => "conversion operand exceeds the supported nesting depth",
+                    crate::sema::constraints::ConversionConstraintError::Incompatible => "value conversion requirements have no common input type",
+                    crate::sema::constraints::ConversionConstraintError::Invalid { .. } => unreachable!(),
+                };
+                self.error(span, message, DiagnosticCode::CheckLocalInference);
+                true
+            }
+        }
+    }
     fn record_command_binding_site(&mut self, name: Name, span: Span) {
         let id = self.lookup(name).and_then(|binding| binding.id);
         if let Some(id) = id {
@@ -216,20 +204,10 @@ impl Checker {
         if self.reject_dynamic_word(ty, span) {
             return;
         }
-        // A splice reads the list; a validated list splices as its base.
+        if self.require_value_conversion(ty, ValueConversion::ArgvList, span) { return; }
         match ty.unvalidated() {
-            Type::List(item) if item.can_be_argv_item() => {}
-            Type::List(_) => self.error(
-                span,
-                "splice item cannot convert to argv",
-                DiagnosticCode::CheckArgvConversion,
-            ),
-            Type::Unknown => {}
-            _ => self.error(
-                span,
-                "`@` splices require List values",
-                DiagnosticCode::CheckSpliceTarget,
-            ),
+            Type::List(_) => self.error(span, "splice item cannot convert to argv", DiagnosticCode::CheckArgvConversion),
+            _ => self.error(span, "`@` splices require List values", DiagnosticCode::CheckSpliceTarget),
         }
     }
 }
@@ -328,7 +306,7 @@ impl Checker {
                 block,
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
-                self.record_required_effect(Effect::Process);
+                self.record_required_effect(Effect::Process, span);
                 let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
                 self.check_required_effect_clause(
                     Effect::Process,
@@ -661,7 +639,7 @@ impl Checker {
                     }
                     self.check_command_arg_arena_print_tail(arena, source, arg);
                 }
-                Type::Unit
+                Type::core_command_result(name)
             }
             CoreCommand::Cd => {
                 self.require_effect(Effect::Env, span, "`cd`");
@@ -678,7 +656,7 @@ impl Checker {
                 if let Some(block) = block {
                     self.check_block_arena(arena, source, block);
                 }
-                Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
+                Type::core_command_result(name)
             }
             CoreCommand::Env => {
                 self.require_effect(Effect::Env, span, "`env`");
@@ -695,7 +673,7 @@ impl Checker {
                 if let Some(block) = block {
                     self.check_block_arena(arena, source, block);
                 }
-                Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
+                Type::core_command_result(name)
             }
         }
     }
@@ -710,7 +688,7 @@ impl Checker {
     ) {
         let ty = self.check_command_arg_arena(arena, source, arg, None);
         if self.reject_dynamic_word(&ty, arena.arena.span(arg.span)) {
-        } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
+        } else if !self.require_value_conversion(&ty, ValueConversion::Display, arena.arena.span(arg.span)) {
             let arg_span = arena.arena.span(arg.span);
             self.report_conversion(
                 arg_span,
@@ -798,7 +776,7 @@ impl Checker {
             RunKind::Plain | RunKind::Status => {
                 if run.propagate {
                     self.check_propagation(
-                        &Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+                        &Type::run_statement_result(),
                         run_span,
                     )
                 } else {
@@ -1152,7 +1130,7 @@ impl Checker {
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
                         if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
-                        } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid)
+                        } else if !self.require_value_conversion(&ty, ValueConversion::Display, arena.arena.expr(*expr_id).span)
                         {
                             let expr_span = arena.arena.expr(*expr_id).span;
                             self.report_conversion(
@@ -1219,12 +1197,8 @@ impl Checker {
                         if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
                             continue;
                         }
-                        let valid = if standalone_interpolation {
-                            ty.can_be_argv_item()
-                                || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item())
-                        } else {
-                            ty.can_display()
-                        };
+                        let conversion = if standalone_interpolation { ValueConversion::ArgvOrList } else { ValueConversion::Display };
+                        let valid = self.require_value_conversion(&ty, conversion, arena.arena.expr(*expr_id).span);
                         if !valid && !matches!(ty, Type::Unknown) {
                             let expr_span = arena.arena.expr(*expr_id).span;
                             self.report_conversion(
@@ -1240,7 +1214,7 @@ impl Checker {
             ArenaCommandArgKind::Typed(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
                 if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
-                } else if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
+                } else if !self.require_value_conversion(&ty, ValueConversion::Argv, arena.arena.expr(*expr_id).span) {
                     let expr_span = arena.arena.expr(*expr_id).span;
                     self.report_conversion(
                         expr_span,
@@ -1454,6 +1428,40 @@ mod binding_identity_tests {
     use crate::syntax::arena::ArenaStmtKind;
     use crate::syntax::parser::Parser;
     use std::sync::Arc;
+
+    #[test]
+    fn generic_conversion_bodies_retain_requirements_and_check_once() {
+        for command in ["print (payload)", "print f\"item:{payload}\"", "run echo (payload)", "run echo $payload"] {
+            let source = format!("proc sample(payload) {{ {command}; return payload }}\nproc relay(payload) {{ sample(payload) }}\nlet integer = relay(7)\nlet text = relay(\"word\")\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{command}: {:?}", parsed.diagnostics);
+            parsed.arena.symbol_owner().with_current(|| {
+                let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution()));
+                assert!(checked.diagnostics.is_empty(), "{command}: {:?}", checked.diagnostics);
+                assert_eq!(checked.function_body_check_entries, 2, "{command}");
+                assert_eq!(work.function_body_check_entries, 2, "{command}");
+                assert!(checked.checked_declarations.functions.values().all(|declaration| declaration.scheme.as_ref().is_some_and(|scheme| !scheme.callable().requirements().conversion_parameters.is_empty())), "{command}");
+            });
+        }
+    }
+
+    #[test]
+    fn generic_conversion_calls_reject_unsupported_and_empty_domains() {
+        for source in [
+            "pure show(value) { f\"{value}\" }\nlet bad = show([1])\n",
+            "proc send(value) { run echo (value) }\nlet bad = send(1.5)\n",
+            "proc send(value) { run echo @value }\nlet bad = send(7)\n",
+            "proc send(value) { run echo @value }\nlet bad = send([1.5])\n",
+            "proc send(value: Any) { run echo @value }\n",
+            "proc send(value) [] { run echo @value }\n",
+            "proc impossible(value) { print (value); run echo @value }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(!checked.diagnostics.is_empty(), "{source}");
+        }
+    }
 
     #[test]
     fn command_binding_capture_keeps_the_first_selected_identity() {

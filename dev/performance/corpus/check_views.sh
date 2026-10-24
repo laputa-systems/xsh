@@ -1,6 +1,316 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+run_check_root() {
+  local name=$1
+  local root=$2
+  local expected_files=$3
+  shift 3
+  local output=$scratch/check.$name.stdout
+  local error=$scratch/check.$name.stderr
+  if ! (cd "$root" && "$xsht" check "$@") >"$output" 2>"$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+  if ! grep -Eq "^xsht check: $expected_files files? .*check [^,]+, lower " "$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+}
+
+run_check() {
+  local view=$1
+  local project=$2
+  local expected_files=$3
+  shift 3
+  run_check_root "$view.$project" "$views/$view/$project" "$expected_files" "$@"
+}
+
+run_exact() {
+  local view=$1
+  local project=$2
+  local selector=$3
+  local name=${4:-${selector//[^[:alnum:]]/_}}
+  local root=$views/$view/$project
+  local output=$scratch/test.$view.$name.stdout
+  local error=$scratch/test.$view.$name.stderr
+  if ! (cd "$root" && "$xsht" test --exact "$selector") >"$output" 2>"$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+  local matches
+  matches=$(awk -v prefix="$selector ... ok " '
+    index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[^[:space:]]+s$/ { count++ }
+    END { print count + 0 }
+  ' "$output")
+  if [[ $(grep -c '^running 1 tests$' "$output") != 1 ]] || \
+    [[ $matches != 1 ]] || \
+    [[ $(grep -c '^test result: ok\. 1 passed; 0 failed; 0 skipped$' "$output") != 1 ]]; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+}
+
+run_interface_qualification() {
+  local project=$1
+  shift
+  local output=$scratch/interface.$project.stdout
+  local error=$scratch/interface.$project.stderr
+  local original_root=$views/original/$project
+  local candidate_root=$views/reduced/$project
+  local status=0
+  if (cd "$candidate_root" && "$xsht" check \
+    --compare-with "$original_root" --candidate-root "$candidate_root" "$@") >"$output" 2>"$error"; then
+    status=0
+  else
+    status=$?
+  fi
+  if ((status != 0)); then
+    cat "$output" "$error" >&2
+    return "$status"
+  fi
+  if grep -Eq '(^|[[:space:]])err\[[^]]+\]|(^|[[:space:]])error:' "$output" "$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+  local -a summaries=()
+  local summary_lines
+  summary_lines=$(grep -c '^xsht check interface qualification:' "$output" || true)
+  mapfile -t summaries < <(sed -nE 's/^xsht check interface qualification: ([0-9]+) callable, ([0-9]+) CLI$/\1 \2/p' "$output")
+  if [[ $summary_lines != 1 ]] || ((${#summaries[@]} != 1)); then
+    cat "$output" "$error" >&2
+    printf '%s %s interface qualification must emit exactly one count summary\n' "$project" "$candidate_root" >&2
+    return 1
+  fi
+  local callable_count cli_count
+  read -r callable_count cli_count <<<"${summaries[0]}"
+  if [[ $callable_count =~ ^0+$ && $cli_count =~ ^0+$ ]]; then
+    cat "$output" "$error" >&2
+    printf '%s %s interface qualification selected no contracts\n' "$project" "$candidate_root" >&2
+    return 1
+  fi
+  interface_callable_count=$((interface_callable_count + callable_count))
+  interface_cli_count=$((interface_cli_count + cli_count))
+}
+
+frozen_main() {
+  if (($# < 13)); then
+    printf 'usage: %s --frozen COMPILER_SOURCE COMPILER_REV XSH_SOURCE XSH_REV LAPUTA_SOURCE LAPUTA_REV XSH XSHT XSH_SHA256 XSHT_SHA256 RETAINED VIEWS [--selector PROJECT SELECTOR]...\n' "$0" >&2
+    return 2
+  fi
+  umask 022
+  compiler_source=$(cd "$1" && pwd)
+  compiler_revision=$2
+  xsh_source=$(cd "$3" && pwd)
+  xsh_revision=$4
+  laputa_source=$(cd "$5" && pwd)
+  laputa_revision=$6
+  xsh=$7
+  xsht=$8
+  expected_xsh_sha256=$9
+  expected_xsht_sha256=${10}
+  retained=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${11}")
+  views=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${12}")
+  shift 12
+
+  local -a selector_projects=()
+  local -a selectors=()
+  while (($#)); do
+    if (($# < 3)) || [[ $1 != --selector ]]; then
+      printf 'expected repeated --selector PROJECT SELECTOR arguments\n' >&2
+      return 2
+    fi
+    case $2 in
+      xsh|laputa) selector_projects+=("$2") ;;
+      *) printf 'unknown selector project: %s\n' "$2" >&2; return 2 ;;
+    esac
+    [[ $3 == *::* ]] || { printf 'selector must name a test: %s\n' "$3" >&2; return 2; }
+    for existing in "${selectors[@]}"; do
+      [[ $existing != "$3" ]] || { printf 'duplicate exact selector: %s\n' "$3" >&2; return 2; }
+    done
+    selectors+=("$3")
+    shift 3
+  done
+  if ((${#selectors[@]} == 0)); then
+    printf 'at least one exact paired selector is required\n' >&2
+    return 2
+  fi
+
+  repo=$(git rev-parse --show-toplevel)
+  exclude=$(git -C "$repo" rev-parse --git-path info/exclude)
+  if ! awk '$0 == ".work/" || $0 == "/.work/" { found = 1 } END { exit !found }' "$exclude" || \
+    ! git -C "$repo" check-ignore -q --no-index .work/tmp/performance-corpus-frozen; then
+    printf '.work/ must be ignored through %s before the frozen paired check creates scratch\n' "$exclude" >&2
+    return 1
+  fi
+  case "$retained" in
+    "$repo"/.work/tmp/*) ;;
+    *) printf 'retained table must be under %s/.work/tmp\n' "$repo" >&2; return 1 ;;
+  esac
+  case "$views" in
+    "$repo"/.work/tmp/*) ;;
+    *) printf 'views must be under %s/.work/tmp\n' "$repo" >&2; return 1 ;;
+  esac
+  [[ -f $retained ]]
+  [[ -d $views/original/xsh && -d $views/original/laputa ]]
+  [[ -d $views/reduced/xsh && -d $views/reduced/laputa ]]
+
+  verify_checkout() {
+    local root=$1
+    local revision=$2
+    [[ $(git -C "$root" rev-parse --show-toplevel) == "$root" && \
+      $(git -C "$root" rev-parse --verify HEAD^{commit}) == "$revision" && \
+      -z $(git -C "$root" status --porcelain) ]]
+  }
+  verify_source() {
+    local failed=0
+    if ! verify_checkout "$compiler_source" "$compiler_revision"; then failed=1; fi
+    if ! verify_checkout "$xsh_source" "$xsh_revision"; then failed=1; fi
+    if ! verify_checkout "$laputa_source" "$laputa_revision"; then failed=1; fi
+    return "$failed"
+  }
+  verify_products() {
+    local failed=0
+    for product in "$xsh" "$xsht"; do
+      if [[ ! -f $product || ! -x $product ]]; then
+        failed=1
+        continue
+      fi
+      case "$product" in
+        "$compiler_source"/.work/*) ;;
+        *) printf 'product must be under the pinned compiler checkout .work/: %s\n' "$product" >&2; failed=1 ;;
+      esac
+    done
+    if [[ -f $xsh ]] && [[ $(sha256sum "$xsh" | cut -d ' ' -f 1) != "$expected_xsh_sha256" ]]; then failed=1; fi
+    if [[ -f $xsht ]] && [[ $(sha256sum "$xsht" | cut -d ' ' -f 1) != "$expected_xsht_sha256" ]]; then failed=1; fi
+    return "$failed"
+  }
+  verify_views() {
+    local failed=0
+    for project in xsh laputa; do
+      if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
+        "$scratch/archive/original/$project" "$views/original/$project"; then
+        printf 'original %s view changed during frozen paired checking\n' "$project" >&2
+        failed=1
+      fi
+      if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
+        "$scratch/expected/reduced/$project" "$views/reduced/$project"; then
+        printf 'reduced %s view changed during frozen paired checking\n' "$project" >&2
+        failed=1
+      fi
+    done
+    return "$failed"
+  }
+  verify_source
+  verify_products
+
+  scratch=$(mktemp -d "$repo/.work/tmp/performance-corpus-frozen.XXXXXXXX")
+  cleanup_frozen() {
+    local primary_status=$?
+    local cleanup_status=0
+    trap - EXIT INT TERM
+    if ! verify_source; then
+      printf 'source checkout changed during frozen paired checking\n' >&2
+      cleanup_status=1
+    fi
+    if ! verify_products; then
+      printf 'compiler product changed during frozen paired checking\n' >&2
+      cleanup_status=1
+    fi
+    if [[ -d $scratch/archive/original && -d $scratch/expected/reduced ]]; then
+      verify_views || cleanup_status=1
+    fi
+    rm -rf "$scratch" || cleanup_status=1
+    if ((primary_status != 0)); then
+      exit "$primary_status"
+    fi
+    exit "$cleanup_status"
+  }
+  trap cleanup_frozen EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  mkdir -p "$scratch/archive/original/xsh" "$scratch/archive/original/laputa"
+  git -C "$xsh_source" archive "$xsh_revision" | tar --no-same-permissions -x -C "$scratch/archive/original/xsh"
+  git -C "$laputa_source" archive "$laputa_revision" | tar --no-same-permissions -x -C "$scratch/archive/original/laputa"
+  local frozen_retained=$scratch/retained-1040.tsv
+  git -C "$repo" show 15243e97f6fd751016ab28690ada2cadb6fc973a:dev/consolidation/typing-corpus/retained.tsv >"$frozen_retained"
+  if ! python3 "$repo/dev/consolidation/typing-corpus/cohort.py" \
+    "$scratch/archive/original" --reduced "$scratch/archive/reduced-1040" \
+    --retain "$frozen_retained" >"$scratch/accepted-cohort.log" 2>&1; then
+    cat "$scratch/accepted-cohort.log" >&2
+    return 1
+  fi
+  if ! python3 "$repo/dev/consolidation/typing-corpus/apply_witness_fixture.py" \
+    "$scratch/archive/original/xsh" "$scratch/archive/reduced-1040/xsh" \
+    >"$scratch/fixture.log" 2>&1; then
+    cat "$scratch/fixture.log" >&2
+    return 1
+  fi
+  if ! python3 "$repo/dev/consolidation/typing-corpus/validate.py" \
+    "$scratch/archive/original" "$scratch/archive/reduced-1040" \
+    --retain "$frozen_retained" >"$scratch/accepted-validation.log" 2>&1; then
+    cat "$scratch/accepted-validation.log" >&2
+    return 1
+  fi
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$repo/dev/performance/corpus/frozen_witnesses.py" \
+    "$scratch/archive" --validate-retained-candidate "$frozen_retained" "$retained" \
+    >/dev/null; then
+    return 1
+  fi
+
+  mkdir -p "$scratch/expected"
+  if ! python3 "$repo/dev/consolidation/typing-corpus/cohort.py" \
+    "$scratch/archive/original" --reduced "$scratch/expected/reduced" \
+    --retain "$retained" >"$scratch/candidate-cohort.log" 2>&1; then
+    cat "$scratch/candidate-cohort.log" >&2
+    return 1
+  fi
+  if ! python3 "$repo/dev/consolidation/typing-corpus/validate.py" \
+    "$scratch/archive/original" "$scratch/expected/reduced" \
+    --retain "$retained" >"$scratch/candidate-validation.log" 2>&1; then
+    cat "$scratch/candidate-validation.log" >&2
+    return 1
+  fi
+  verify_views
+
+  export XSH_BIN=$xsh XSHT_BIN=$xsht
+  export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
+  local -a xsh_roots=(
+    core/wc.xsh core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh
+    core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
+  )
+  interface_callable_count=0
+  interface_cli_count=0
+  for view in original reduced; do
+    run_check "$view" xsh 10 "${xsh_roots[@]}"
+    run_check "$view" laputa 1 pm/plan_json.xsh
+    for ((index = 0; index < ${#selectors[@]}; index++)); do
+      local project=${selector_projects[$index]}
+      local selector=${selectors[$index]}
+      local test_path=${selector%%::*}
+      case "$test_path" in
+        /*|../*|*/../*|*/..|.|./*) printf 'selector path escapes its source root: %s\n' "$selector" >&2; return 1 ;;
+      esac
+      [[ -f $views/$view/$project/$test_path ]]
+      run_exact "$view" "$project" "$selector" "$index"
+    done
+  done
+
+  run_interface_qualification xsh "${xsh_roots[@]}"
+  run_interface_qualification laputa pm/plan_json.xsh
+  verify_views
+  verify_source
+  verify_products
+  printf 'paired frozen corpus: 11 roots and %s exact selectors passed in both views; interface qualification: %s callable, %s CLI\n' \
+    "${#selectors[@]}" "$interface_callable_count" "$interface_cli_count"
+}
+
+if [[ ${1:-} == --frozen ]]; then
+  shift
+  frozen_main "$@"
+  exit $?
+fi
+
 if (($# != 13)); then
   printf 'usage: %s COMPILER_SOURCE COMPILER_REV XSH_SOURCE XSH_REV LAPUTA_SOURCE LAPUTA_REV XSH XSHT XSH_SHA256 XSHT_SHA256 INVENTORY SITE_IDS VIEWS\n' "$0" >&2
   exit 2
@@ -81,23 +391,7 @@ verify_products
 
 mkdir -p "$repo/.work/tmp"
 scratch=$(mktemp -d "$repo/.work/tmp/performance-corpus-paired.XXXXXXXX")
-restore_probes() {
-  if [[ ! -f $scratch/probe-restore-required ]]; then
-    return
-  fi
-  for view in original reduced; do
-    for path in core/wc.xsh core/sort.xsh core/awk.xsh; do
-      if [[ -f $scratch/expected/$view/xsh/$path ]]; then
-        cp "$scratch/expected/$view/xsh/$path" "$views/$view/xsh/$path"
-      fi
-    done
-    if [[ -f $scratch/expected/$view/laputa/pm/generation.xsh ]]; then
-      cp "$scratch/expected/$view/laputa/pm/generation.xsh" "$views/$view/laputa/pm/generation.xsh"
-    fi
-  done
-}
 cleanup() {
-  restore_probes
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -124,6 +418,15 @@ done
 
 export XSH_BIN=$xsh XSHT_BIN=$xsht
 export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
+
+practical_xsh_roots=(
+  core/wc.xsh core/sort.xsh core/awk.xsh
+  core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh
+  core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
+)
+practical_laputa_roots=(pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh)
+interface_callable_count=0
+interface_cli_count=0
 
 run_negative_control() {
   local selector=$1
@@ -155,81 +458,35 @@ run_negative_control() {
   printf '%s: %s\n' "$name" "$codes"
 }
 
-run_check() {
-  local view=$1
-  local project=$2
-  local expected_files=$3
-  shift 3
-  local root=$views/$view/$project
-  local output=$scratch/check.$view.$project.stdout
-  local error=$scratch/check.$view.$project.stderr
-  if ! (cd "$root" && "$xsht" check "$@") >"$output" 2>"$error"; then
-    cat "$output" "$error" >&2
-    return 1
-  fi
-  if ! grep -Eq "^xsht check: $expected_files files? .*check [^,]+, lower " "$error"; then
-    cat "$output" "$error" >&2
-    return 1
-  fi
-}
-
-run_exact() {
-  local view=$1
-  local project=$2
-  local selector=$3
-  local name=${selector//[^[:alnum:]]/_}
-  local root=$views/$view/$project
-  local output=$scratch/test.$view.$name.stdout
-  local error=$scratch/test.$view.$name.stderr
-  if ! (cd "$root" && "$xsht" test --exact "$selector") >"$output" 2>"$error"; then
-    cat "$output" "$error" >&2
-    return 1
-  fi
-  local matches
-  matches=$(awk -v prefix="$selector ... ok " '
-    index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[^[:space:]]+s$/ { count++ }
-    END { print count + 0 }
-  ' "$output")
-  if [[ $(grep -c '^running 1 tests$' "$output") != 1 ]] || \
-    [[ $matches != 1 ]] || \
-    [[ $(grep -c '^test result: ok\. 1 passed; 0 failed; 0 skipped$' "$output") != 1 ]]; then
-    cat "$output" "$error" >&2
-    return 1
-  fi
-}
-
 for view in original reduced; do
-  run_check "$view" xsh 12 \
-    core/wc.xsh core/sort.xsh core/awk.xsh \
-    core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh \
-    core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
-  run_check "$view" laputa 3 pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh
+  run_check "$view" xsh "${#practical_xsh_roots[@]}" "${practical_xsh_roots[@]}"
+  run_check "$view" laputa "${#practical_laputa_roots[@]}" "${practical_laputa_roots[@]}"
   run_exact "$view" xsh core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes
   run_exact "$view" xsh core/tests/test-sort.xsh::test_sort_general_numeric_orders_past_double_precision
   run_exact "$view" xsh core/tests/test-awk.xsh::test_awk_arrays_functions_and_loops
+  run_exact "$view" xsh core/tests/test-awk.xsh::test_awk_matrix_program_files_and_includes_shard_001
   run_exact "$view" laputa tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
   run_exact "$view" laputa tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
 done
+
+run_interface_qualification xsh "${practical_xsh_roots[@]}"
+run_interface_qualification laputa "${practical_laputa_roots[@]}"
 
 run_negative_control 'xsh|core/wc.xsh|parameter|94|pure continuation parameter data' continuation_data
 run_negative_control 'xsh|core/wc.xsh|parameter|99|pure within parameter data' within_data
 run_negative_control 'xsh|core/wc.xsh|parameter|214|pure byte_words parameter data' byte_words_data
 
-touch "$scratch/probe-restore-required"
+probe_views=$scratch/signature-probes
 python3 "$repo/dev/performance/corpus/append_probes.py" \
-  "$inventory" "$xsh_revision" "$laputa_revision" \
-  "$views/original/xsh" "$views/original/laputa"
-python3 "$repo/dev/performance/corpus/append_probes.py" \
-  "$inventory" "$xsh_revision" "$laputa_revision" \
-  "$views/reduced/xsh" "$views/reduced/laputa"
+  "$inventory" "$xsh_revision" "$laputa_revision" "$views" "$probe_views"
 
 for view in original reduced; do
   for project in xsh laputa; do
     if [[ $project == xsh ]]; then
-      run_check "$view" xsh 3 core/wc.xsh core/sort.xsh core/awk.xsh
+      run_check_root "$view.xsh" "$probe_views/$view/xsh" 3 core/wc.xsh core/sort.xsh core/awk.xsh
       expected_notes=4
     else
-      run_check "$view" laputa 1 pm/generation.xsh
+      run_check_root "$view.laputa" "$probe_views/$view/laputa" 1 pm/generation.xsh
       expected_notes=2
     fi
     grep 'revealed type:' "$scratch/check.$view.$project.stderr" >"$scratch/signatures.$view.$project"
@@ -242,8 +499,6 @@ for view in original reduced; do
 done
 cmp "$scratch/signatures.original.xsh" "$scratch/signatures.reduced.xsh"
 cmp "$scratch/signatures.original.laputa" "$scratch/signatures.reduced.laputa"
-restore_probes
-rm -f "$scratch/probe-restore-required"
 for view in original reduced; do
   for project in xsh laputa; do
     if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
@@ -256,4 +511,5 @@ done
 
 verify_source
 verify_products
-printf 'paired practical corpus: retained diagnostics, five runtime selectors, and six signatures passed\n'
+printf 'paired practical corpus: retained diagnostics, six runtime selectors, six signatures, and interface qualification: %s callable, %s CLI passed\n' \
+  "$interface_callable_count" "$interface_cli_count"

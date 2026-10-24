@@ -1344,7 +1344,7 @@ immediately. `exit STATUS` chooses the exit status; a hook for `INT` or
 ```xsh
 const state = p"deploy.state"
 
-on SIGTERM [fs, error] {
+on SIGTERM [fs, process, error] {
   state.write("interrupted\n")
   exit 143
 }

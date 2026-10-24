@@ -73,9 +73,15 @@ pub struct CheckedFunctionDeclaration {
     pub kind: CheckedFunctionKind,
     pub signature: Option<CompactFunctionSig>,
     pub(crate) scheme: Option<std::sync::Arc<TypeScheme>>,
+    pub(super) symbol_owner: crate::symbol::SymbolOwner,
+    pub(super) schema_identities: std::sync::Arc<BTreeMap<TypeDefId, super::callable_contract::SchemaIdentity>>,
     pub(crate) scheme_body_facts: Option<SchemeBodyFacts>,
     pub body: Span,
     pub parameter_spans: Vec<Span>,
+}
+
+impl CheckedFunctionDeclaration {
+    pub fn is_exported(&self) -> bool { self.exported }
 }
 
 /// Declaration data selected by the checker, before execution preparation.
@@ -136,6 +142,8 @@ impl CheckedDeclarations {
                 kind,
                 signature,
                 scheme,
+                symbol_owner: _,
+                schema_identities: _,
                 scheme_body_facts,
                 body,
                 parameter_spans,
@@ -190,7 +198,6 @@ impl CheckedDeclarations {
 
 impl Checker {
     pub(super) fn publish_type_declaration(&mut self, program: &ArenaProgram, id: TypeDefId, checked: bool) {
-        if self.collecting_effects { return; }
         let def = program.arena.type_def(id);
         let namespace = self.current_namespace;
         let mut declaration = CheckedTypeDeclaration {
@@ -238,13 +245,13 @@ impl Checker {
                             optional: entry.optional,
                         },
                         ArenaModuleContractEntryKind::Proc { params, return_ty, effects } => {
-                            ModuleExportType::Proc {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                                 sig: self.checked_contract_callable(program, params, return_ty, effects)?,
                                 optional: entry.optional,
                             }
                         }
                         ArenaModuleContractEntryKind::Pure { params, return_ty } => {
-                            ModuleExportType::Pure {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                                 sig: self.checked_contract_callable(program, params, return_ty, None)?,
                                 optional: entry.optional,
                             }
@@ -271,12 +278,11 @@ impl Checker {
                 defaulted: param.default.is_some(), rest: param.rest,
             })).collect::<Option<Vec<_>>>()?,
             return_ty: Box::new(self.resolved_type_expressions.annotations.get(&(self.current_namespace, return_ty))?.clone()),
-            effects: effects.map(|effects| program.arena.effects(effects).collect()),
+            effects: crate::sema::types::CallableEffects::from_clause(effects.map(|effects| program.arena.effects(effects))),
         })
     }
 
     pub(super) fn publish_error_declaration(&mut self, program: &ArenaProgram, id: ErrorDefId) {
-        if self.collecting_effects { return; }
         let def = program.arena.error_def(id);
         let variants = program.arena.error_variants(def.variants);
         self.checked_declarations.errors.insert(id, CheckedErrorDeclaration {
@@ -289,9 +295,9 @@ impl Checker {
     pub(super) fn publish_function_declaration(&mut self, program: &ArenaProgram, id: FunctionDefId,
         kind: CheckedFunctionKind, exported: bool, signature: Option<&super::FunctionSig>,
         scheme_body_facts: Option<SchemeBodyFacts>) {
-        if self.collecting_effects { return; }
         let def = program.arena.function_def(id);
         let scheme = signature.map(|sig| std::sync::Arc::clone(sig.scheme()));
+        let schema_identities = scheme.as_ref().map(|scheme| self.callable_schema_identities(program, scheme)).unwrap_or_default();
         let signature = signature.and_then(|sig| {
             let params = sig.scheme().params().iter().map(|param| {
                 Some(CallableParamType {
@@ -303,19 +309,20 @@ impl Checker {
             }).collect::<Option<Vec<_>>>()?;
             Some(CompactFunctionSig {
                 parameter_schemas: sig.scheme().params().iter()
-                    .map(|param| param.schema_expectation.clone()).collect(),
+                    .map(|param| match &param.schema_expectation { Some(schema) => schema.closed_ground().map(Some), None => Some(None) }).collect::<Option<_>>()?,
                 params,
                 return_ty: sig.scheme().return_type().closed_ground_type()?,
+                return_schema: match sig.scheme().return_schema() { Some(schema) => Some(schema.closed_ground()?), None => None },
                 return_type_expr: def.return_ty,
                 inferred_effects: sig.scheme().inferred_effects(),
-                effects: sig.scheme().effects().map(<[_]>::to_vec),
+                effects: sig.scheme().effects().concrete().ok()?,
             })
         });
         self.checked_declarations.functions.insert(id, CheckedFunctionDeclaration {
             name: def.name, namespace: self.current_namespace,
             internal: self.current_namespace.is_some_and(|owner| program.is_internal_namespace(owner)),
             exported,
-            kind, signature, scheme, scheme_body_facts,
+            kind, signature, scheme, symbol_owner: program.symbol_owner().clone(), schema_identities, scheme_body_facts,
             body: program.arena.span(program.arena.block(def.body).span),
             parameter_spans: program.arena.params(def.params).iter().map(|param| program.arena.span(param.span)).collect(),
         });
@@ -355,7 +362,7 @@ mod tests {
     use super::{CheckedDeclarations, CheckedFunctionDeclaration, CheckedFunctionKind};
     use crate::diagnostic::DiagnosticCode;
     use crate::sema::schemes::{
-        SchemeBodyFacts, SchemeCallableKind, SchemeParameter, SchemeType,
+        SchemeBodyFacts, SchemeParameter, SchemeType,
         SchemeTypeParameterId, TypeScheme,
     };
     use crate::source::{SourceId, Span};
@@ -614,7 +621,7 @@ mod tests {
             let type_parameter = SchemeTypeParameterId(0);
             let scheme = std::sync::Arc::new(
                 TypeScheme::new(
-                    SchemeCallableKind::Pure,
+                    crate::sema::types::CallableKind::Pure,
                     vec![type_parameter],
                     Vec::new(),
                     vec![SchemeParameter {
@@ -640,6 +647,8 @@ mod tests {
                 kind: CheckedFunctionKind::Pure,
                 signature: None,
                 scheme: Some(std::sync::Arc::clone(&scheme)),
+                symbol_owner: crate::symbol::SymbolOwner::current().unwrap(),
+                schema_identities: Default::default(),
                 scheme_body_facts,
                 body: Span::at(SourceId::new(0), index),
                 parameter_spans: Vec::new(),

@@ -56,8 +56,30 @@ fn single_use_read_port_helper_becomes_a_checked_local_capture() {
 }
 
 #[test]
+fn capture_proof_does_not_reload_around_missing_original_effect_facts() {
+    let source = "proc read_port() [fs, error] -> Result[Int] {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n}\nlet port = read_port() ?? 8080\nprint $port\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let mut checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(!checked.function_effect_facts.is_empty());
+    checked.function_effect_facts.clear();
+    let view = CheckBundleView::for_root(
+        &parsed.arena,
+        parsed.arena.statements,
+        None,
+        Some(SourceId::new(0)),
+    );
+
+    let diagnostics = parsed.arena.symbol_owner().with_current(|| {
+        lint_try_capture_helpers(&view, source, Some(std::sync::Arc::new(checked)))
+    });
+    assert!(diagnostics.is_empty(), "incomplete original facts veto the fix: {diagnostics:?}");
+}
+
+#[test]
 fn capture_proof_compares_the_rewritten_source_when_other_module_facts_are_present() {
-    use xsh::frontend::check::{EffectDeclarationId, FunctionEffectFact, StatementPosition, Type};
+    use xsh::frontend::check::{CheckedEffects, EffectDeclarationId, FunctionEffectFact, StatementPosition, Type};
     use xsh::frontend::source::Span;
     use xsh::frontend::symbols::Name;
 
@@ -72,7 +94,9 @@ fn capture_proof_compares_the_rewritten_source_when_other_module_facts_are_prese
     checked
         .statement_positions
         .insert(imported_span, StatementPosition::Statement);
-    checked.callable_effects.insert("imported".to_owned(), None);
+    checked
+        .callable_effects
+        .insert("imported".to_owned(), CheckedEffects::unknown());
     parsed.arena.symbol_owner().with_current(|| {
         checked.function_effect_facts.insert(
             EffectDeclarationId {

@@ -64,7 +64,6 @@ impl Checker {
         Type::List(Box::new(scope.item))
     }
 
-    /// `yield VALUE` in a `collect` block: one more item of its list.
     pub(super) fn check_collect_yield_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -83,10 +82,15 @@ impl Checker {
             );
             return;
         }
+        if matches!(actual.unvalidated(), Type::Inference(_)) {
+            let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+            if let Err(error) = self.type_constraints.require_type_predicate(owner, crate::sema::sealed_operation::TypeDomain::CollectItem, &actual, value_span) {
+                self.error(value_span, &error.to_string(), DiagnosticCode::CheckYieldStream);
+            }
+        }
         self.finish_collect_yield(actual, value_span);
     }
 
-    /// `yield @VALUE` in a `collect` block: every item of a list.
     pub(super) fn check_collect_yield_delegation_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -99,8 +103,20 @@ impl Checker {
             .map(|item| Type::List(Box::new(item)));
         let actual = self.check_expr_arena(arena, source, value, expected.as_ref());
         let value_span = arena.arena.expr(value).span;
+        let actual = match self.type_constraints.resolve(&actual) {
+            Ok(actual) => actual,
+            Err(error) => {
+                self.error(value_span, &format!("collected delegation type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
         match actual.into_unvalidated() {
             Type::List(item) => self.finish_collect_yield(*item, value_span),
+            actual @ Type::Inference(_) => {
+                let item = self.type_constraints.fresh_at_level(value_span, self.callable_solver_level());
+                self.expect_type(&Type::List(Box::new(item.clone())), &actual, value_span);
+                self.finish_collect_yield(item, value_span);
+            }
             Type::Unknown => {}
             Type::Stream(_) => self.error(
                 value_span,

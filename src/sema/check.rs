@@ -9,7 +9,7 @@ pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExpor
 pub(crate) use crate::source::Span;
 use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, BlockId, ExprId, StmtId, TypeExprId};
+use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, ExprId, StmtId, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 use callable_alias::CallableAlias;
@@ -251,29 +251,6 @@ impl<'a> CheckBundleView<'a> {
         })
     }
 
-    /// The blocks whose span lies in a source of this view, in table order.
-    pub(super) fn block_ids(&self) -> Vec<BlockId> {
-        self.view_ids(self.program.arena.blocks.len(), BlockId::from_index, |rows, source| {
-            rows.block_ids(source).collect()
-        })
-    }
-
-    /// Indices into the record field table of the fields that carry a span
-    /// in a source of this view.
-    pub(super) fn record_field_indices(&self) -> Vec<usize> {
-        if self.all_sources {
-            return (0..self.program.arena.record_fields.len()).collect();
-        }
-        let rows = self.program.arena.source_rows();
-        let mut indices = self
-            .source_ids
-            .iter()
-            .flat_map(|&source| rows.record_field_indices(source))
-            .collect::<Vec<_>>();
-        indices.sort_unstable();
-        indices
-    }
-
     fn view_ids<I: Ord>(
         &self,
         table_len: usize,
@@ -352,6 +329,15 @@ mod call;
 mod callable_alias;
 mod collect;
 mod checked_declarations;
+mod callable_contract;
+mod scheme_values;
+pub use callable_contract::{CheckedCallableContract, ContractComparisonError};
+pub(crate) use callable_contract::SchemeBinderCorrespondence;
+mod body_contract;
+pub use body_contract::{BodyContractError, BodyContractOwner};
+pub(crate) use body_contract::{BodyContractSite, CanonicalBodyContractSite, PendingBodyContracts, SemanticBodyContract};
+mod cli_contract;
+pub use cli_contract::{CheckedCliEntryContract, CliContractError};
 pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
     CheckedFunctionKind, CheckedTypeDeclaration, InstantiatedTypeExpressions, ResolvedTypeExpressions};
 pub(crate) use checked_declarations::CheckedFunctionTarget;
@@ -365,6 +351,7 @@ mod compact;
 mod decl;
 #[path = "check/scheme_body.rs"]
 mod scheme_body;
+mod recursive_components;
 #[path = "check/expected.rs"]
 mod expected;
 #[path = "check/expr.rs"]
@@ -383,6 +370,12 @@ mod infer_effects;
 mod infer_param;
 #[path = "check/infer_return.rs"]
 mod infer_return;
+
+pub(crate) fn join_guarded_output(left: &Type, right: &Type) -> Option<Type> {
+    if left.contains_inference() || right.contains_inference() || left.contains_recovery() || right.contains_recovery() { return None; }
+    infer_return::unify_return_shapes(left, right)
+}
+
 #[path = "check/inferred_variant.rs"]
 mod inferred_variant;
 #[path = "check/local_inference.rs"]
@@ -411,11 +404,13 @@ pub use resource::{ResourceTransferFacts, ResourceTransferSite};
 mod set;
 #[path = "check/stmt.rs"]
 mod stmt;
-pub(crate) use stmt::block_callable_body_cannot_fall_through_arena;
+pub(crate) use stmt::{block_callable_body_cannot_fall_through_arena, proc_tail_requires_value_checking};
 #[path = "check/stream.rs"]
 mod stream;
+mod stream_origins;
 #[path = "check/typed_callable.rs"]
 mod typed_callable;
+mod storage_materialization;
 #[path = "check/types.rs"]
 mod types;
 #[path = "check/validated.rs"]
@@ -438,6 +433,7 @@ pub use super::constants::RecordConstructors;
 pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
+pub use crate::sema::effects::{CheckedEffectScope, CheckedEffects, UnresolvedCallableEffects};
 use self::infer_effects::{DeferredEffectCheck, EffectGraph, EffectSummary};
 use self::module_record::{ArgsDomain, ModuleRecordCache, ModuleRecords};
 
@@ -453,6 +449,12 @@ use super::types::tail_type_matches_expected;
 pub enum StatementPosition {
     Statement,
     Value,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CheckedBinaryOperator {
+    pub(crate) operator: BinaryOp,
+    pub(crate) operation: Option<super::constraints::SealedOperationId>,
 }
 
 /// A registered method or module function call's selected overload: its
@@ -498,13 +500,20 @@ pub struct CheckedStreamStage {
     pub output: Type,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CheckedResultConstructor { Ok, Err }
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum CheckedBuiltinCall { Range, Path, Environment, ErrorFail, ErrorFailure }
+
 /// Opaque checker proofs used by lowering to preserve checked control flow.
 /// The carrier stays public so output structs remain constructible with
 /// `..Default::default()` without allowing callers to forge individual proofs.
 #[derive(Clone, Debug, Default)]
 pub struct CheckedControlFlowFacts {
     complete: bool,
-    pub(crate) builtin_range_calls: BTreeSet<Span>,
+    pub(crate) builtin_calls: BTreeMap<Span, CheckedBuiltinCall>,
+    pub(crate) result_constructors: BTreeMap<Span, CheckedResultConstructor>,
     pub(crate) cardinality_preserving_collection_calls: BTreeSet<Span>,
     pub(crate) propagating_error_spans: BTreeSet<Span>,
     pub(crate) latent_stream_error_spans: BTreeSet<Span>,
@@ -520,7 +529,8 @@ impl CheckedControlFlowFacts {
 
     fn merge_from(&mut self, mut other: Self) {
         self.complete &= other.complete;
-        self.builtin_range_calls.append(&mut other.builtin_range_calls);
+        self.builtin_calls.append(&mut other.builtin_calls);
+        self.result_constructors.append(&mut other.result_constructors);
         self.cardinality_preserving_collection_calls
             .append(&mut other.cardinality_preserving_collection_calls);
         self.propagating_error_spans
@@ -557,11 +567,13 @@ pub struct CheckOutput {
     pub requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub(crate) binary_operators: BTreeMap<ExprId, CheckedBinaryOperator>,
     pub stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     pub projections: BTreeMap<Span, CheckedProjection>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
-    pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub callable_effects: FxHashMap<String, CheckedEffects>,
     pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
+    pub(crate) stream_origin_summaries: stream_origins::StreamOriginSummaries,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     /// Statements whose checked command or `Result[Unit]` expression
@@ -637,7 +649,10 @@ pub struct CheckOutput {
     /// Checker-selected declarations for static calls and function values,
     /// keyed by expression or statement span.
     pub(crate) selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
-    pub(crate) call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
+    pub(crate) selected_function_value_references: BTreeSet<Span>,
+    pub(crate) scheme_callables: Arc<super::scheme_callable::SchemeCallableTable>,
+    pub(crate) scheme_callable_calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::types::SchemeCallableId>,
+    pub(crate) call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, super::value_materialization::CheckedInstantiation>,
     /// List index expressions whose index is a negative integer literal,
     /// with the distance from the end it names: `items[-2]` is 2. Only these
     /// count from the end; lowering reads this instead of looking at the
@@ -656,6 +671,7 @@ pub struct CheckOutput {
     /// different runtime ownership scope. Missing entries indicate an
     /// unpublished sink fact, not a scalar value.
     pub resource_transfers: ResourceTransferFacts,
+    pub(crate) same_scope_resource_assignments: rustc_hash::FxHashSet<crate::syntax::arena::StmtId>,
     /// Each text pattern, compiled: its literal segments and what each hole
     /// makes of the text it matches. Lowering copies this into the program.
     pub text_patterns: BTreeMap<Span, TextPattern>,
@@ -711,10 +727,17 @@ impl CheckOutput {
             .append(&mut module.static_callable_aliases);
         self.selected_function_calls
             .append(&mut module.selected_function_calls);
+        self.selected_function_value_references
+            .append(&mut module.selected_function_value_references);
         self.call_instantiations
             .append(&mut module.call_instantiations);
+        self.scheme_callable_calls.append(&mut module.scheme_callable_calls);
         self.local_binding_types
             .append(&mut module.local_binding_types);
+        self.function_body_check_entries = self
+            .function_body_check_entries
+            .checked_add(module.function_body_check_entries)
+            .expect("function body check entry count overflowed");
         self.proven_nonnull_fallback_receivers
             .append(&mut module.proven_nonnull_fallback_receivers);
         self.diagnostics.append(&mut module.diagnostics);
@@ -730,6 +753,7 @@ impl CheckOutput {
             .append(&mut module.requirement_expected_targets);
         self.reveal_types.append(&mut module.reveal_types);
         self.expr_types.append(&mut module.expr_types);
+        self.binary_operators.append(&mut module.binary_operators);
         self.stream_stage_types
             .append(&mut module.stream_stage_types);
         self.projections.append(&mut module.projections);
@@ -768,6 +792,7 @@ impl CheckOutput {
         self.api_calls.append(&mut module.api_calls);
         self.module_commands.append(&mut module.module_commands);
         self.argument_bindings.append(&mut module.argument_bindings);
+        self.stream_origin_summaries.append(&mut module.stream_origin_summaries);
         self.definitely_exiting_block_spans
             .append(&mut module.definitely_exiting_block_spans);
         self.handler_input_types
@@ -794,6 +819,7 @@ impl CheckOutput {
         self.conversions.append(&mut module.conversions);
         self.resource_scopes.append(&mut module.resource_scopes);
         self.resource_transfers.extend(module.resource_transfers);
+        self.same_scope_resource_assignments.extend(module.same_scope_resource_assignments);
         self.text_patterns.append(&mut module.text_patterns);
         self.inferred_variant_patterns
             .append(&mut module.inferred_variant_patterns);
@@ -949,6 +975,19 @@ pub enum AnnotationFactKind {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct BindingSchemaFacts {
+    expectation: Option<super::constants::SchemaExpectation>,
+    origin: Option<super::constants::SchemaExpectation>,
+}
+
+#[derive(Clone, Debug)]
+struct LiteralCapturePayload {
+    statement: crate::syntax::arena::StmtId,
+    initializer: crate::syntax::arena::ExprId,
+    namespace: Option<Name>,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
     id: Option<BindingId>,
@@ -957,12 +996,14 @@ pub(super) struct Binding {
     callable_alias: Option<CallableAlias>,
     ty: Type,
     latent_stream_error: bool,
+    stream_origins: stream_origins::StreamOrigins,
     mutable: bool,
     pure_local_mutation: bool,
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
-    schema_expectation: Option<super::constants::SchemaExpectation>,
+    literal_capture_payload: Option<LiteralCapturePayload>,
+    schemas: BindingSchemaFacts,
 }
 
 impl Binding {
@@ -972,6 +1013,7 @@ impl Binding {
             recovery: false,
             callable_alias: None,
             static_namespace: false,
+            stream_origins: stream_origins::StreamOrigins::unproven(&ty),
             ty,
             latent_stream_error: false,
             mutable,
@@ -979,7 +1021,8 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
-            schema_expectation: None,
+            literal_capture_payload: None,
+            schemas: BindingSchemaFacts::default(),
         }
     }
 
@@ -1028,7 +1071,7 @@ impl FunctionDeclarationId {
 
 #[derive(Clone, Debug)]
 pub(super) struct PendingFunctionSig {
-    kind: super::schemes::SchemeCallableKind,
+    kind: crate::sema::types::CallableKind,
     exported: bool,
     effect_declaration: Option<EffectDeclarationId>,
     is_alias: bool,
@@ -1037,12 +1080,12 @@ pub(super) struct PendingFunctionSig {
     solver_level: u32,
     return_authority: TypeAuthority,
     body_checked: bool,
-    generalizable: bool,
+    constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     callable: PendingCallable,
 }
 
 impl PendingFunctionSig {
-    pub(super) fn kind(&self) -> super::schemes::SchemeCallableKind {
+    pub(super) fn kind(&self) -> crate::sema::types::CallableKind {
         self.kind
     }
 
@@ -1070,32 +1113,35 @@ impl PendingFunctionSig {
         self.body_checked = true;
     }
 
-    pub(super) fn generalizable(&self) -> bool {
-        self.generalizable
-    }
-
-    pub(super) fn make_monomorphic(&mut self) {
-        self.generalizable = false;
+    pub(super) fn reject_generalization(&mut self) {
+        self.callable = PendingCallable::Rejected;
     }
 
     pub(super) fn provisional(&self) -> Option<&PendingCallableShape> {
         match &self.callable {
             PendingCallable::Provisional(shape) => Some(shape),
-            PendingCallable::Generalized(_) => None,
+            PendingCallable::Generalized(_) | PendingCallable::Rejected => None,
         }
     }
 
     pub(super) fn provisional_mut(&mut self) -> Option<&mut PendingCallableShape> {
         match &mut self.callable {
             PendingCallable::Provisional(shape) => Some(shape),
-            PendingCallable::Generalized(_) => None,
+            PendingCallable::Generalized(_) | PendingCallable::Rejected => None,
         }
     }
 
     pub(super) fn generalized(&self) -> Option<&Arc<super::schemes::CallableScheme>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.callable),
+        }
+    }
+
+    pub(super) fn generalized_scope(&self) -> Option<&super::constraints::CallableGeneralizationScope> {
+        match &self.callable {
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+            PendingCallable::Generalized(callable) => Some(&callable.generalization_scope),
         }
     }
 
@@ -1103,8 +1149,29 @@ impl PendingFunctionSig {
         &self,
     ) -> Option<&BTreeMap<ExprId, super::schemes::SchemeType>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.body_types),
+        }
+    }
+
+    pub(super) fn generalized_noncompleting_expressions(&self) -> Option<&std::collections::BTreeSet<ExprId>> {
+        match &self.callable {
+            PendingCallable::Generalized(callable) => Some(&callable.noncompleting_expressions),
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+        }
+    }
+
+    pub(super) fn generalized_constructor_producers(&self) -> Option<&BTreeMap<ExprId, super::schemes::NonmaterialConstructor>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+            PendingCallable::Generalized(callable) => Some(&callable.constructor_producers),
+        }
+    }
+
+    pub(super) fn generalized_constructor_instances(&self) -> Option<&BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>> {
+        match &self.callable {
+            PendingCallable::Generalized(callable) => Some(&callable.constructor_instances),
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
         }
     }
 
@@ -1112,21 +1179,28 @@ impl PendingFunctionSig {
         &self,
     ) -> Option<&BTreeMap<StmtId, super::schemes::SchemeType>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.tail_types),
         }
     }
 
     pub(super) fn generalized_registered_calls(&self) -> Option<&BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.registered_calls),
+        }
+    }
+
+    pub(super) fn generalized_guard_scopes(&self) -> Option<&super::guarded_requirements::GuardBodyScopes> {
+        match &self.callable {
+            PendingCallable::Generalized(callable) => Some(&callable.guard_scopes),
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
         }
     }
 
     pub(super) fn generalized_read_bindings(&self) -> Option<&std::collections::BTreeSet<BindingId>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.read_bindings),
         }
     }
@@ -1134,38 +1208,54 @@ impl PendingFunctionSig {
     pub(super) fn generalize(
         &mut self,
         callable: Arc<super::schemes::CallableScheme>,
+        generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+        noncompleting_expressions: std::collections::BTreeSet<ExprId>,
+        constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
+        constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
         read_bindings: std::collections::BTreeSet<BindingId>,
+        guard_scopes: super::guarded_requirements::GuardBodyScopes,
     ) {
         assert!(
             matches!(self.callable, PendingCallable::Provisional(_)),
             "a provisional callable shape generalizes once"
         );
-        self.callable = PendingCallable::Generalized(GeneralizedCallable {
+        self.constructor_instances.clear();
+        self.callable = PendingCallable::Generalized(Box::new(GeneralizedCallable {
             callable,
+            generalization_scope,
             body_types,
+            noncompleting_expressions,
+            constructor_producers,
+            constructor_instances,
             tail_types,
             registered_calls,
-            read_bindings,
-        });
+            read_bindings, guard_scopes,
+        }));
     }
 }
 
 #[derive(Clone, Debug)]
 struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
+    generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+    noncompleting_expressions: std::collections::BTreeSet<ExprId>,
+    constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
+    constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<BindingId>,
+    guard_scopes: super::guarded_requirements::GuardBodyScopes,
 }
 
 #[derive(Clone, Debug)]
 enum PendingCallable {
     Provisional(PendingCallableShape),
-    Generalized(GeneralizedCallable),
+    Generalized(Box<GeneralizedCallable>),
+    Rejected,
 }
 
 #[derive(Clone, Debug)]
@@ -1209,14 +1299,34 @@ pub(super) struct FunctionParamSig {
 }
 
 #[derive(Clone, Debug)]
+pub(super) enum DeclarationEffects {
+    Pending(EffectDeclarationId),
+    Checked(CheckedEffects),
+}
+
+impl DeclarationEffects {
+    fn into_checked(self) -> Option<CheckedEffects> {
+        match self { Self::Pending(_) => None, Self::Checked(effects) => Some(effects) }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum InvocationEffects {
+    Pending(EffectDeclarationId),
+    Checked(crate::sema::types::CallableEffects),
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct FunctionCallContract {
     pub(super) params: Vec<FunctionParamSig>,
     pub(super) return_ty: Type,
-    pub(super) effects: Option<Vec<Effect>>,
+    pub(super) effects: InvocationEffects,
     pub(super) effect_declaration: Option<EffectDeclarationId>,
     pub(super) definition_target: Option<CheckedFunctionTarget>,
     instantiation: Option<PendingCallInstantiation>,
 }
+
+type PendingInstantiation = super::value_materialization::InstantiationEvidence<Type, PendingCallInstantiation>;
 
 type PendingCallInstantiation = (
     Arc<super::schemes::CallableScheme>,
@@ -1225,7 +1335,7 @@ type PendingCallInstantiation = (
 
 impl FunctionSig {
     pub(super) fn ground(
-        kind: super::schemes::SchemeCallableKind,
+        kind: crate::sema::types::CallableKind,
         effect_declaration: Option<EffectDeclarationId>,
         is_alias: bool,
         definition: Option<Span>,
@@ -1242,7 +1352,7 @@ impl FunctionSig {
             .map(|parameter| super::schemes::SchemeParameter {
                 name: parameter.name,
                 ty: super::schemes::SchemeType::Ground(parameter.ty),
-                schema_expectation: parameter.schema_expectation,
+                schema_expectation: parameter.schema_expectation.map(|schema| schema.map(&mut |ty| super::schemes::SchemeType::Ground(ty.clone()))),
                 defaulted: parameter.defaulted,
                 rest: parameter.rest,
             })
@@ -1252,14 +1362,15 @@ impl FunctionSig {
             Vec::new(),
             params,
             super::schemes::SchemeType::Ground(return_ty),
-            return_schema,
+            return_schema.map(|schema| schema.map(&mut |ty| super::schemes::SchemeType::Ground(ty.clone()))),
             explicit_return,
+            super::schemes::CallableRequirements::default(),
         )
         .ok()?;
         let scheme = super::schemes::TypeScheme::with_callable(
             kind,
             Arc::new(callable),
-            effects,
+            CheckedEffects::from_clause(effects),
             inferred_effects,
         )
         .ok()?;
@@ -1584,10 +1695,7 @@ enum NamedItem {
     Accumulated,
 }
 
-/// The scope binding that holds an implicit callback item, so `.` narrows
-/// like a named parameter (`if .health != null { use(.health) }`). No source
-/// spelling can name it.
-fn item_binding() -> Name {
+pub(crate) fn item_binding() -> Name {
     Name::intern(".")
 }
 
@@ -1601,6 +1709,7 @@ impl ItemFrame {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct UserModuleSig {
+    scheme_callables: Option<Arc<super::scheme_callable::SchemeCallableTable>>,
     values: BTreeMap<Name, Type>,
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,
@@ -1636,12 +1745,23 @@ impl ReturnContext {
     }
 }
 
-/// State whose lifetime belongs to the body being checked. Crossing a callable
-/// boundary replaces and restores this value whole, so a producer's yields or
-/// an enclosing loop cannot become control targets in another body.
+#[derive(Clone)]
+struct ValueLoopResult {
+    depth: usize,
+    expected: Option<Type>,
+    values: Vec<(Type, Span)>,
+}
+
+#[derive(Clone)]
+struct ProcCompletionBoundary {
+    owner: EffectDeclarationId,
+    return_ty: Type,
+}
+
 #[derive(Clone, Default)]
 struct BoundaryContext {
     current_return: Option<ReturnContext>,
+    proc_completion: Option<ProcCompletionBoundary>,
     current_yield: Option<Type>,
     in_pure: bool,
     current_effects: Option<Vec<Effect>>,
@@ -1652,13 +1772,16 @@ struct BoundaryContext {
     collect_scope: Option<collect::CollectScope>,
     // Only propagation evaluated while initializing the current With reaches its handler.
     with_initializer_errors: Option<Vec<Type>>,
-    error_boundary_errors: Vec<Vec<(Type, Span)>>,
+    error_boundary_errors: Vec<Vec<(super::wrapper_operation::WrapperErrorContribution<Type>, Span)>>,
     retry_attempt_depth: usize,
     /// `retry` attempts are a subset of the error boundaries.
     retry_block_depth: usize,
     /// A producer cannot suspend while its deadline remains open.
     within_block_depth: usize,
     loop_depth: usize,
+    value_loops: Vec<ValueLoopResult>,
+    stream_loops: Vec<stream_origins::StreamLoopFrame>,
+    stream_flow: stream_origins::StreamFlow,
     block_depth: usize,
     in_defer_block: bool,
     in_signal_hook: bool,
@@ -1678,29 +1801,62 @@ struct BoundaryContext {
     in_control_position: bool,
 }
 
+#[derive(Clone, Default)]
+struct CheckerScope {
+    bindings: FxHashMap<Name, Binding>,
+    guard: Option<super::constraints::WrapperOperationId>,
+}
+
+impl std::ops::Deref for CheckerScope {
+    type Target = FxHashMap<Name, Binding>;
+    fn deref(&self) -> &Self::Target { &self.bindings }
+}
+
+impl std::ops::DerefMut for CheckerScope {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.bindings }
+}
+
+impl<'a> IntoIterator for &'a CheckerScope {
+    type Item = (&'a Name, &'a Binding);
+    type IntoIter = std::collections::hash_map::Iter<'a, Name, Binding>;
+    fn into_iter(self) -> Self::IntoIter { self.bindings.iter() }
+}
+
+impl<'a> IntoIterator for &'a mut CheckerScope {
+    type Item = (&'a Name, &'a mut Binding);
+    type IntoIter = std::collections::hash_map::IterMut<'a, Name, Binding>;
+    fn into_iter(self) -> Self::IntoIter { self.bindings.iter_mut() }
+}
+
 #[derive(Clone)]
 pub struct Checker {
     checked_declarations: CheckedDeclarations,
     resolved_type_expressions: ResolvedTypeExpressions,
     resolved_bindings: Arc<ResolvedBindings>,
     assignment_facts: assignment_facts::AssignmentFacts,
-    resolved_command_sites: FxHashMap<(Span, Name), BindingId>,
+    resolved_command_sites: BTreeMap<(Span, Name), BindingId>,
     boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
+    scheme_callables: Arc<std::sync::Mutex<super::scheme_callable::SchemeCallableTable>>,
+    scheme_callable_calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::types::SchemeCallableId>,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
     selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
-    pending_call_instantiations: BTreeMap<Span, PendingCallInstantiation>,
-    call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
+    selected_function_value_references: BTreeSet<Span>,
+    pending_call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, PendingInstantiation>,
+    provisional_function_calls: BTreeMap<Span, (EffectDeclarationId, FunctionDeclarationId)>,
+    call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, super::value_materialization::CheckedInstantiation>,
     prepared_function_call_contracts: BTreeMap<Span, FunctionCallContract>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources:
         FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     argument_projection_contexts:
         FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
+    call_splice_item_contexts: Option<args::CallSpliceItemContexts>,
     record_constructors: RecordConstructors,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
+    checked_schema_origins: BTreeMap<Span, super::constants::SchemaExpectation>,
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     constructor_group_depth: usize,
@@ -1716,8 +1872,9 @@ pub struct Checker {
     current_namespace: Option<Name>,
     bundle_root_statements: Option<ArenaRange>,
     bundle_module_keys: Option<Arc<[String]>>,
-    scopes: Vec<FxHashMap<Name, Binding>>,
+    scopes: Vec<CheckerScope>,
     declaration_inference: DeclarationInference,
+    recursive_function_components: Vec<Vec<crate::syntax::arena::FunctionDefId>>,
     procs: FxHashMap<Name, FunctionDeclarationId>,
     byte_script_arguments: bool,
     pures: FxHashMap<Name, FunctionDeclarationId>,
@@ -1739,6 +1896,8 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    guarded_nodes: BTreeMap<Span, super::constraints::WrapperOperationId>,
+    binary_operators: BTreeMap<ExprId, CheckedBinaryOperator>,
     stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     projections: BTreeMap<Span, CheckedProjection>,
     statement_positions: BTreeMap<Span, StatementPosition>,
@@ -1773,7 +1932,8 @@ pub struct Checker {
     collect_yields: BTreeMap<Span, Span>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
-    builtin_range_calls: BTreeSet<Span>,
+    builtin_calls: BTreeMap<Span, CheckedBuiltinCall>,
+    result_constructors: BTreeMap<Span, CheckedResultConstructor>,
     cardinality_preserving_collection_calls: BTreeSet<Span>,
     propagating_error_spans: BTreeSet<Span>,
     latent_stream_error_spans: BTreeSet<Span>,
@@ -1782,6 +1942,7 @@ pub struct Checker {
     exhaustive_match_spans: BTreeSet<Span>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     resource_transfers: ResourceTransferFacts,
+    same_scope_resource_assignments: rustc_hash::FxHashSet<crate::syntax::arena::StmtId>,
     text_patterns: BTreeMap<Span, TextPattern>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
@@ -1790,7 +1951,7 @@ pub struct Checker {
     pipeline_hole_types: BTreeMap<Span, Type>,
     /// Collected on first use; a checker checks one program.
     return_inference_index: Option<Arc<infer_return::ReturnInferenceIndex>>,
-    inferred_returns: Option<Vec<(Type, Span)>>,
+    inferred_returns: Option<Vec<infer_return::InferredReturn>>,
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
     return_conflicts: Option<Vec<(Type, Type, Span)>>,
@@ -1804,6 +1965,16 @@ pub struct Checker {
     function_body_check_entries: usize,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
+    provisional_stream_origins_read: std::cell::Cell<bool>,
+    stream_origin_inputs: stream_origins::StreamOriginSummaries,
+    stream_origin_outputs: stream_origins::StreamOriginSummaries,
+    stream_expr_origins: FxHashMap<Span, stream_origins::StreamOrigins>,
+    stream_stmt_origins: FxHashMap<Span, stream_origins::StreamOrigins>,
+    stream_argument_binding_cache: std::cell::RefCell<BTreeMap<SourceId, (Arc<ResolvedBindings>, Arc<BTreeMap<Span, Option<BindingId>>>)>>,
+    proc_return_sites: BTreeMap<EffectDeclarationId, BTreeMap<Span, Vec<infer_return::CheckedProcReturnSite>>>,
+    stream_stmt_results: FxHashSet<Span>,
+    stream_origin_owner: Option<EffectDeclarationId>,
+    stream_target_definitions: BTreeMap<EffectDeclarationId, CheckedFunctionTarget>,
     /// Set by a probe that read a callee's effects from a module-value type
     /// instead of recording a graph edge, so the probe must repeat until the
     /// summaries it read are the solved ones.
@@ -1835,9 +2006,13 @@ impl Checker {
 
     fn enter_callback_boundary(&mut self) -> BoundaryContext {
         let mut callback = self.boundary.clone();
+        callback.proc_completion = None;
         callback.current_yield = None;
         callback.collect_scope = None;
         callback.loop_depth = 0;
+        callback.value_loops.clear();
+        callback.stream_loops.clear();
+        callback.stream_flow = stream_origins::StreamFlow::Live;
         std::mem::replace(&mut self.boundary, callback)
     }
 
@@ -1984,16 +2159,23 @@ impl Checker {
     }
 
     fn into_output(mut self) -> CheckOutput {
+        if let Err((owner, _)) = self.validate_published_stream_origins() {
+            self.report_stream_origin_boundary(owner.body);
+            self.stream_origin_outputs = stream_origins::StreamOriginSummaries::new();
+        }
         assert!(self.pending_call_instantiations.is_empty());
         assert!(self.prepared_function_call_contracts.is_empty());
         let callable_effects = self.callable_effects();
         let checked_declarations = self.take_checked_declarations();
         CheckOutput {
+            scheme_callables: Arc::new(self.scheme_callables.lock().expect("checked scheme callable table is poisoned").snapshot()),
+            scheme_callable_calls: self.scheme_callable_calls,
             checked_declarations,
             resolved_type_expressions: self.resolved_type_expressions,
             static_callable_aliases: self.static_callable_aliases,
             typed_callable_calls: self.typed_callable_calls,
             selected_function_calls: self.selected_function_calls,
+            selected_function_value_references: self.selected_function_value_references,
             call_instantiations: self.call_instantiations,
             local_binding_types: self.local_inference.checked_bindings,
             resolved_bindings: self.resolved_bindings,
@@ -2010,10 +2192,12 @@ impl Checker {
             requirement_expected_targets: self.requirement_expected_targets,
             reveal_types: self.reveal_types,
             expr_types: self.expr_types,
+            binary_operators: self.binary_operators,
             stream_stage_types: self.stream_stage_types,
             projections: self.projections,
             statement_positions: self.statement_positions,
             function_effect_facts: self.effect_graph.facts(&self.effect_summaries),
+            stream_origin_summaries: self.stream_origin_outputs,
             callable_effects,
             assertion_effect_spans: self.assertion_effect_spans,
             statement_expression_spans: self.statement_expression_spans,
@@ -2043,7 +2227,8 @@ impl Checker {
             conversions: self.conversions,
             checked_control_flow: CheckedControlFlowFacts {
                 complete: true,
-                builtin_range_calls: self.builtin_range_calls,
+                builtin_calls: self.builtin_calls,
+                result_constructors: self.result_constructors,
                 cardinality_preserving_collection_calls: self.cardinality_preserving_collection_calls,
                 propagating_error_spans: self.propagating_error_spans,
                 latent_stream_error_spans: self.latent_stream_error_spans,
@@ -2053,6 +2238,7 @@ impl Checker {
             },
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
+            same_scope_resource_assignments: self.same_scope_resource_assignments,
             text_patterns: self.text_patterns,
             inferred_variant_patterns: self.inferred_variant_patterns,
             embedded_bodies_checked: self.options.embedded_bodies,
@@ -2086,11 +2272,14 @@ impl Checker {
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
             selected_function_calls: BTreeMap::new(),
+            selected_function_value_references: BTreeSet::new(),
             pending_call_instantiations: BTreeMap::new(),
+            provisional_function_calls: BTreeMap::new(),
             call_instantiations: BTreeMap::new(),
             prepared_function_call_contracts: BTreeMap::new(),
-            scopes: vec![FxHashMap::default()],
+            scopes: vec![CheckerScope::default()],
             declaration_inference: DeclarationInference::default(),
+            recursive_function_components: Vec::new(),
             procs: FxHashMap::default(),
             byte_script_arguments: false,
             pures: FxHashMap::default(),
@@ -2101,18 +2290,22 @@ impl Checker {
             type_defs: FxHashMap::default(),
             local_inference: local_inference::LocalInference::default(),
             type_constraints: super::constraints::TypeConstraints::default(),
+            scheme_callables: Arc::new(std::sync::Mutex::new(super::scheme_callable::SchemeCallableTable::default())),
+            scheme_callable_calls: BTreeMap::new(),
             argument_projection_types: FxHashMap::default(),
             argument_projection_sources: FxHashMap::default(),
             argument_projection_contexts: FxHashMap::default(),
+            call_splice_item_contexts: None,
             record_constructors: RecordConstructors::default(),
             record_constructor_instances: BTreeMap::new(),
+            checked_schema_origins: BTreeMap::new(),
             requirement_targets: BTreeMap::new(),
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
             resolved_bindings: Arc::default(),
             assignment_facts: assignment_facts::AssignmentFacts::default(),
-            resolved_command_sites: FxHashMap::default(),
+            resolved_command_sites: BTreeMap::new(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             condition_proofs: FxHashMap::default(),
@@ -2132,6 +2325,8 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            guarded_nodes: BTreeMap::new(),
+            binary_operators: BTreeMap::new(),
             stream_stage_types: BTreeMap::new(),
             projections: BTreeMap::new(),
             statement_positions: BTreeMap::new(),
@@ -2163,7 +2358,8 @@ impl Checker {
             collect_yields: BTreeMap::new(),
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
-            builtin_range_calls: BTreeSet::new(),
+            builtin_calls: BTreeMap::new(),
+            result_constructors: BTreeMap::new(),
             cardinality_preserving_collection_calls: BTreeSet::new(),
             propagating_error_spans: BTreeSet::new(),
             latent_stream_error_spans: BTreeSet::new(),
@@ -2172,6 +2368,7 @@ impl Checker {
             exhaustive_match_spans: BTreeSet::new(),
             resource_scopes: BTreeMap::new(),
             resource_transfers: ResourceTransferFacts::default(),
+            same_scope_resource_assignments: rustc_hash::FxHashSet::default(),
             text_patterns: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
@@ -2192,6 +2389,16 @@ impl Checker {
             function_body_check_entries: 0,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
+            provisional_stream_origins_read: std::cell::Cell::new(false),
+            stream_origin_inputs: stream_origins::StreamOriginSummaries::new(),
+            stream_origin_outputs: stream_origins::StreamOriginSummaries::new(),
+            stream_expr_origins: FxHashMap::default(),
+            stream_stmt_origins: FxHashMap::default(),
+            stream_argument_binding_cache: std::cell::RefCell::new(BTreeMap::new()),
+            proc_return_sites: BTreeMap::new(),
+            stream_stmt_results: FxHashSet::default(),
+            stream_origin_owner: None,
+            stream_target_definitions: BTreeMap::new(),
             provisional_effects_read: std::cell::Cell::new(false),
             module_depth: 0,
             root_signal_hooks: FxHashMap::default(),
@@ -2310,14 +2517,12 @@ impl Checker {
         );
         records.install(self, program);
         let statements = records.root().statements();
-        if !self.collecting_effects {
-            self.diagnostics
-                .extend(crate::syntax::grouping::grouping_diagnostics_in_range(
-                    program,
-                    bundle.root_statements,
-                    source,
-                ));
-        }
+        self.diagnostics
+            .extend(crate::syntax::grouping::grouping_diagnostics_in_range(
+                program,
+                bundle.root_statements,
+                source,
+            ));
         self.module_diagnostic_position = self.diagnostics.len();
         self.collect_type_imports_arena(program, statements.iter().copied());
         self.collect_definitions_arena(program, type_program, source, statements.iter().copied());
@@ -2415,11 +2620,6 @@ impl Checker {
         );
         self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
-        if !self.collecting_effects {
-            let resource_check = resource::check_root_owner(self, bundle);
-            self.diagnostics.extend(resource_check.diagnostics);
-            self.resource_transfers = resource_check.transfers;
-        }
     }
 
     pub(crate) fn check_public_module_docs(
@@ -2502,39 +2702,31 @@ impl Checker {
         }
     }
 
-    fn callable_effects(&self) -> FxHashMap<String, Option<Vec<Effect>>> {
+    fn callable_effects(&self) -> FxHashMap<String, CheckedEffects> {
         let mut effects = FxHashMap::default();
         for (name, declaration) in &self.procs {
             effects.insert(
                 name.to_string(),
-                self.declaration_effects(Some(declaration.effect_declaration())),
+                self.declaration_effects(Some(declaration.effect_declaration())).into_checked().expect("published declaration effect contract"),
             );
         }
         for (name, declaration) in &self.streams {
             effects.insert(
                 name.to_string(),
-                self.declaration_effects(Some(declaration.effect_declaration())),
+                self.declaration_effects(Some(declaration.effect_declaration())).into_checked().expect("published declaration effect contract"),
             );
         }
         for (name, sig) in self.qualified_procs.iter() {
-            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
+            effects.insert(name.to_string(), sig.scheme().effects().clone());
         }
         for (name, sig) in self.qualified_streams.iter() {
-            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
+            effects.insert(name.to_string(), sig.scheme().effects().clone());
         }
         effects
     }
 
     pub(crate) fn effects_covers(caller: &[Effect], required: &Effect) -> bool {
-        if caller.contains(required) {
-            return true;
-        }
-        // io subsumes fs, net, process, env but not time or error
-        caller.contains(&Effect::Io)
-            && matches!(
-                required,
-                Effect::Fs | Effect::Net | Effect::Process | Effect::Env
-            )
+        caller.iter().any(|permission| super::effects::effect_covers(permission, required))
     }
 
     pub(crate) fn check_callee_effects(
@@ -2678,7 +2870,10 @@ impl Checker {
     }
 
     pub(crate) fn reveal_type(&mut self, ty: &Type, span: Span) {
-        let message = format!("revealed type: {ty}");
+        let message = {
+            let callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
+            format!("revealed type: {}", callable_contract::render_revealed_type(ty, &callables))
+        };
         self.reveal_types.push(
             Diagnostic::new(Severity::Note, message)
                 .with_code(DiagnosticCode::CheckRevealType)
@@ -2694,8 +2889,26 @@ impl Checker {
         self.scopes.last_mut().expect("checker always has a scope")
     }
 
+    fn record_guarded_node(&mut self, span: Span) {
+        if let Some(guard) = self.scopes.last().and_then(|scope| scope.guard) { self.guarded_nodes.insert(span, guard); }
+        else { self.guarded_nodes.remove(&span); }
+    }
+
+    fn constraint_scope_at(&self, owner: EffectDeclarationId, span: Span) -> crate::sema::constraints::CallableApplicationScope {
+        self.guarded_nodes.get(&span).copied().map(crate::sema::constraints::CallableApplicationScope::Guard)
+            .unwrap_or(crate::sema::constraints::CallableApplicationScope::Declaration(owner))
+    }
+
+    fn constraint_scope(&self) -> super::constraints::CallableApplicationScope {
+        self.scopes.last().and_then(|scope| scope.guard).map_or_else(
+            || self.stream_origin_owner.map_or(super::constraints::CallableApplicationScope::Invocation, super::constraints::CallableApplicationScope::Declaration),
+            super::constraints::CallableApplicationScope::Guard,
+        )
+    }
+
     pub(crate) fn push_scope(&mut self) {
-        self.scopes.push(FxHashMap::default());
+        let guard = self.scopes.last().and_then(|scope| scope.guard);
+        self.scopes.push(CheckerScope { guard, ..CheckerScope::default() });
     }
 
     pub(crate) fn pop_scope(&mut self) {

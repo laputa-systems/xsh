@@ -8,7 +8,7 @@ on USR1 [fs, time, error] {
   }
 }
 
-on USR2 [] {
+on USR2 [process] {
   print "wrong-hook"
   exit 2
 }

@@ -64,7 +64,8 @@ fn contract_violations(
     evaluator: &Evaluator,
     module: &BTreeMap<Arc<str>, LoweredValue>,
     contract: &ModuleType,
-) -> Vec<(Name, ContractViolation)> {
+    span: Span,
+) -> Result<Vec<(Name, ContractViolation)>, RuntimeError> {
     let mut violations = Vec::new();
     for (name, expected) in contract.iter() {
         let Some(value) = module.get::<str>(name.as_str().as_str()) else {
@@ -78,7 +79,7 @@ fn contract_violations(
             }
             continue;
         };
-        if let Some(reason) = export_mismatch(evaluator, value, expected) {
+        if let Some(reason) = export_mismatch(evaluator, value, expected, span)? {
             violations.push((
                 *name,
                 ContractViolation::Mismatched {
@@ -102,20 +103,18 @@ fn contract_violations(
             }
         }
     }
-    violations
+    Ok(violations)
 }
 
-/// Why a present export does not satisfy its contract entry, or `None` when
-/// it does. A callable whose signature was not captured at load satisfies any
-/// entry of its own kind.
 fn export_mismatch(
     evaluator: &Evaluator,
     value: &LoweredValue,
     expected: &ModuleExportType,
-) -> Option<String> {
-    match (expected, value) {
+    span: Span,
+) -> Result<Option<String>, RuntimeError> {
+    Ok(match (expected, value) {
         (ModuleExportType::Value { ty, .. }, value) => {
-            if matches!(value, LoweredValue::Proc(_) | LoweredValue::Pure(_)) {
+            if matches!(value, LoweredValue::Callable(_)) {
                 Some("the contract declares a value, the module exports a callable".to_string())
             } else if super::value_matches_static_type(ValueView::Lowered(value), ty) {
                 None
@@ -123,45 +122,41 @@ fn export_mismatch(
                 Some("the value type differs".to_string())
             }
         }
-        (
-            ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. },
-            LoweredValue::Proc(function) | LoweredValue::Pure(function),
-        ) => {
-            let captured = evaluator.lookup_module_export_signature(*function);
-            // The captured declaration decides purity when there is one; the
-            // value's own kind stands in for a callable without a capture.
-            let found_pure = captured.map_or(matches!(value, LoweredValue::Pure(_)), |captured| {
-                captured.pure
-            });
-            match (
-                matches!(expected, ModuleExportType::Pure { .. }),
-                found_pure,
-            ) {
-                (false, true) => Some(
-                    "the contract declares a proc, the module exports a pure function".to_string(),
-                ),
-                (true, false) => Some(
-                    "the contract declares a pure function, the module exports a proc".to_string(),
-                ),
-                _ => captured.and_then(|captured| signature_mismatch(&captured.sig, sig)),
+        (ModuleExportType::Callable { kind, sig, .. }, LoweredValue::Callable(function)) => {
+            let found = function.kind();
+            if *kind != found {
+                Some(match (*kind, found) {
+                    (crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Pure) => "the contract declares a proc, the module exports a pure function".to_string(),
+                    (crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc) => "the contract declares a pure function, the module exports a proc".to_string(),
+                    _ => format!("the contract declares {}, the module exports {}", kind.value_type_name(), found.value_type_name()),
+                })
+            } else if function.instance().is_none()
+                && let Some(captured) = evaluator.lookup_module_export_signature(function.identity())
+            {
+                if captured.kind != *kind {
+                    return Err(RuntimeError::new("indexed-ir", "captured callable kind disagrees with its value").with_span(span));
+                }
+                signature_mismatch(&captured.sig, sig)
+            } else {
+                let actual = evaluator.retained_callable_type(evaluator.indexed_program.as_deref(), ValueView::Lowered(value), span)?
+                    .ok_or_else(|| RuntimeError::new("indexed-ir", "callable export has no retained signature").with_span(span))?;
+                signature_mismatch(&actual.sig, sig)
             }
         }
-        (ModuleExportType::Proc { .. } | ModuleExportType::Pure { .. }, _) => {
+        (ModuleExportType::Callable { .. }, _) => {
             Some("the contract declares a callable, the module exports a value".to_string())
         }
-        (ModuleExportType::GenericPure { .. }, LoweredValue::Pure(_)) => None,
-        (ModuleExportType::GenericPure { .. }, _) => {
-            Some("the contract declares a generic pure function, the module exports a value".to_string())
+        (ModuleExportType::GenericCallable { kind, .. }, _) => {
+            if evaluator.retained_generic_callable_matches(evaluator.indexed_program.as_deref(), ValueView::Lowered(value), *kind, span)? {
+                None
+            } else {
+                Some("the contract declares a generic callable, the module exports a different value kind".to_string())
+            }
         }
-    }
+    })
 }
 
-/// The first difference between an export's signature and its contract
-/// entry: parameter count, each parameter's rest flag and type, the checked
-/// effects (the same set as the entry's clause; an entry without a clause is
-/// unrestricted and accepts any effects, as in static checking), then the
-/// return type.
-fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<String> {
+pub(super) fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<String> {
     if found.params.len() != expected.params.len() {
         return Some(format!(
             "the contract declares {}, the export takes {}",
@@ -174,6 +169,12 @@ fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<S
         if found.rest != expected.rest {
             return Some(format!(
                 "parameter {position} is a rest parameter on one side only"
+            ));
+        }
+        if found.name != expected.name {
+            return Some(format!(
+                "parameter {position} is named `{}`, expected `{}`",
+                found.name, expected.name
             ));
         }
         if !found.ty.matches_expected(&expected.ty) {
@@ -208,7 +209,11 @@ fn parameter_count(count: usize) -> String {
 }
 
 fn render_effects(sig: &CallableType) -> Option<String> {
-    sig.effects.as_ref().map(|effects| {
+    let effects = match sig.effects.concrete() {
+        Ok(effects) => effects,
+        Err(_) => return Some("[<effects need inference>]".to_string()),
+    };
+    effects.as_ref().map(|effects| {
         format!(
             "[{}]",
             effects
@@ -242,23 +247,27 @@ fn render_callable(keyword: &str, name: Name, sig: &CallableType) -> String {
 fn render_contract_entry(name: Name, entry: &ModuleExportType) -> String {
     match entry {
         ModuleExportType::Value { ty, .. } => format!("export let {name}: {ty}"),
-        ModuleExportType::Proc { sig, .. } => render_callable("proc", name, sig),
-        ModuleExportType::Pure { sig, .. } => render_callable("pure", name, sig),
-        ModuleExportType::GenericPure { .. } => format!("export pure {name}(...)") ,
+        ModuleExportType::Callable { kind, sig, .. } => render_callable(callable_keyword(*kind), name, sig),
+        ModuleExportType::GenericCallable { kind, .. } => format!("export {} {name}(...)", match kind {
+            crate::sema::types::CallableKind::Pure => "pure",
+            crate::sema::types::CallableKind::Proc => "proc",
+            crate::sema::types::CallableKind::Stream => "stream",
+        }),
     }
 }
 
-/// The export as the module declares it, as far as the loaded value records:
-/// a callable's captured signature, or a value's runtime type.
+fn callable_keyword(kind: crate::sema::types::CallableKind) -> &'static str {
+    match kind { crate::sema::types::CallableKind::Pure => "pure", crate::sema::types::CallableKind::Proc => "proc", crate::sema::types::CallableKind::Stream => "stream" }
+}
+
 fn render_found_export(evaluator: &Evaluator, name: Name, value: &LoweredValue) -> String {
     let (value_keyword, function) = match value {
-        LoweredValue::Proc(function) => ("proc", function),
-        LoweredValue::Pure(function) => ("pure", function),
+        LoweredValue::Callable(function) => (callable_keyword(function.kind()), function),
         value => return format!("export let {name}: {}", value.type_name()),
     };
-    match evaluator.lookup_module_export_signature(*function) {
-        Some(ModuleExportSignature { pure, sig }) => {
-            render_callable(if *pure { "pure" } else { "proc" }, name, sig)
+    match evaluator.lookup_module_export_signature(function.identity()) {
+        Some(ModuleExportSignature { kind, sig }) => {
+            render_callable(callable_keyword(*kind), name, sig)
         }
         None => format!("export {value_keyword} {name}"),
     }
@@ -274,7 +283,7 @@ pub(super) fn require_module_contract(
     path: &str,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    let violations = contract_violations(evaluator, module, contract);
+    let violations = contract_violations(evaluator, module, contract, span)?;
     if violations.is_empty() {
         return Ok(());
     }

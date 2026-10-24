@@ -15,11 +15,11 @@ pub enum ArgumentValueSource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpandedArgument {
+pub struct ExpandedArgument<T = Type> {
     pub entry_index: usize,
     pub name: Option<Name>,
     pub value: ArgumentValueSource,
-    pub ty: Type,
+    pub ty: T,
     pub span: Span,
 }
 
@@ -36,12 +36,36 @@ pub fn expand_named_arguments(
     args: &[ArenaCallArg],
     mut checked_type: impl FnMut(ExprId) -> Option<Type>,
 ) -> Result<Vec<ExpandedArgument>, ArgumentExpansionError> {
+    expand_named_arguments_inner(program, args, |value| Some(checked_type(value).unwrap_or(Type::Unknown)), |ty| match ty {
+        Type::Record(fields) => Some(fields.iter().map(|(name, ty)| (*name, ty.clone())).collect()),
+        _ => None,
+    })
+}
+
+pub(crate) fn expand_scheme_named_arguments(
+    program: &ArenaProgram,
+    args: &[ArenaCallArg],
+    checked_type: impl FnMut(ExprId) -> Option<super::schemes::SchemeType>,
+) -> Result<Vec<ExpandedArgument<super::schemes::SchemeType>>, ArgumentExpansionError> {
+    use super::schemes::SchemeType;
+    expand_named_arguments_inner(program, args, checked_type, |ty| match ty {
+        SchemeType::Record { fields, tail: super::schemes::SchemeRowTail::Closed } => Some(fields.into_iter().collect()),
+        SchemeType::Ground(Type::Record(fields)) => Some(fields.iter().map(|(name, ty)| (*name, SchemeType::Ground(ty.clone()))).collect()),
+        _ => None,
+    })
+}
+
+fn expand_named_arguments_inner<T>(
+    program: &ArenaProgram, args: &[ArenaCallArg],
+    mut checked_type: impl FnMut(ExprId) -> Option<T>,
+    record_fields: impl Fn(T) -> Option<Vec<(Name, T)>>,
+) -> Result<Vec<ExpandedArgument<T>>, ArgumentExpansionError> {
     let mut expanded = Vec::new();
     for (entry_index, arg) in args.iter().enumerate() {
         let (expr, name, span, splice) = match arg.kind {
             ArenaCallArgKind::NamedSpread { value, span } => {
                 let span = program.arena.span(span);
-                let Some(Type::Record(fields)) = checked_type(value) else {
+                let Some(fields) = checked_type(value).and_then(&record_fields) else {
                     return Err(ArgumentExpansionError {
                         span,
                         message: "named argument spread requires a checked finite Record".into(),
@@ -54,14 +78,14 @@ pub fn expand_named_arguments(
                     });
                 }
                 expanded.extend(
-                    fields.iter().map(|(field, ty)| ExpandedArgument {
+                    fields.into_iter().map(|(field, ty)| ExpandedArgument {
                             entry_index,
-                            name: Some(*field),
+                            name: Some(field),
                             value: ArgumentValueSource::RecordField {
                                 record: value,
-                                field: *field,
+                                field,
                             },
-                            ty: ty.clone(),
+                            ty,
                             span,
                         }),
                 );
@@ -85,7 +109,7 @@ pub fn expand_named_arguments(
             } else {
                 ArgumentValueSource::Expression(expr)
             },
-            ty: checked_type(expr).unwrap_or(Type::Unknown),
+            ty: checked_type(expr).ok_or_else(|| ArgumentExpansionError { span, message: "call argument has no checked type".into() })?,
             span,
         });
     }
@@ -98,6 +122,13 @@ pub struct StaticArgumentBinding {
     pub argument_slots: Vec<usize>,
     /// Parameters absent from the source, retained for their ordinary defaults.
     pub omitted_slots: Vec<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StaticArgumentKind {
+    Positional,
+    Named(Name),
+    Splice,
 }
 
 /// Err retains a positional outer value and an optional named diagnostic cause.
@@ -156,19 +187,54 @@ pub fn bind_static_arguments(
     params: &[CallableParamType],
     args: &[ExpandedArgument],
 ) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
+    if let Some(argument) = args.iter().find(|argument| argument.name.is_some()
+        && matches!(argument.value, ArgumentValueSource::PositionalSplice(_)))
+    {
+        return Err(ArgumentExpansionError { span: argument.span, message: "positional splice cannot name a parameter".into() });
+    }
+    bind_argument_layout(params, args.iter().map(|argument| (
+        match argument.value {
+            ArgumentValueSource::PositionalSplice(_) => StaticArgumentKind::Splice,
+            _ => argument.name.map_or(StaticArgumentKind::Positional, StaticArgumentKind::Named),
+        }, argument.span,
+    )))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ArgumentParameterLayout {
+    pub(crate) name: Name,
+    pub(crate) defaulted: bool,
+    pub(crate) rest: bool,
+}
+
+pub(crate) fn bind_argument_layout(
+    params: &[CallableParamType],
+    args: impl ExactSizeIterator<Item = (StaticArgumentKind, Span)>,
+) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
+    let parameters = params.iter().map(|parameter| ArgumentParameterLayout {
+        name: parameter.name, defaulted: parameter.defaulted, rest: parameter.rest,
+    }).collect::<Vec<_>>();
+    bind_parameter_layout(&parameters, args)
+}
+
+pub(crate) fn bind_parameter_layout(
+    params: &[ArgumentParameterLayout],
+    args: impl ExactSizeIterator<Item = (StaticArgumentKind, Span)>,
+) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
     let mut named_slots = FxHashMap::default();
     for (slot, param) in params.iter().enumerate().filter(|(_, param)| !param.rest) {
-        // Malformed declarations retain the first parameter for consistent recovery.
         named_slots.entry(param.name).or_insert(slot);
     }
     let mut occupied = vec![false; params.len()];
     let mut argument_slots = Vec::with_capacity(args.len());
     let mut next = 0;
-    for arg in args {
-        let slot = if let Some(name) = arg.name {
+    let mut first_span = None;
+    for (kind, span) in args {
+        first_span.get_or_insert(span);
+        let slot = if let StaticArgumentKind::Named(name) = kind {
             named_slots.get(&name).copied()
                 .ok_or_else(|| ArgumentExpansionError {
-                    span: arg.span,
+                    span,
                     message: format!("unknown named parameter `{name}`"),
                 })?
         } else {
@@ -177,24 +243,24 @@ pub fn bind_static_arguments(
             }
             if next == params.len() {
                 return Err(ArgumentExpansionError {
-                    span: arg.span,
+                    span,
                     message: "too many positional arguments".into(),
                 });
             }
             next
         };
-        if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) && !params[slot].rest {
-            return Err(ArgumentExpansionError { span: arg.span, message: "positional splice must bind a rest parameter when combined with named spreading".into() });
+        if kind == StaticArgumentKind::Splice && !params[slot].rest {
+            return Err(ArgumentExpansionError { span, message: "positional splice must bind a rest parameter when combined with named spreading".into() });
         }
         if occupied[slot] && !params[slot].rest {
             return Err(ArgumentExpansionError {
-                span: arg.span,
+                span,
                 message: format!("parameter `{}` supplied more than once", params[slot].name),
             });
         }
         occupied[slot] = true;
         argument_slots.push(slot);
-        if arg.name.is_none() && !params[slot].rest {
+        if !matches!(kind, StaticArgumentKind::Named(_)) && !params[slot].rest {
             next = slot + 1;
         }
     }
@@ -208,9 +274,7 @@ pub fn bind_static_arguments(
         .find(|&&slot| !params[slot].defaulted && !params[slot].rest)
     {
         return Err(ArgumentExpansionError {
-            span: args
-                .first()
-                .map(|arg| arg.span)
+            span: first_span
                 .unwrap_or_else(|| Span::at(crate::source::SourceId::new(0), 0)),
             message: format!("missing required parameter `{}`", params[slot].name),
         });

@@ -2,7 +2,7 @@ use crate::sema::types::{ModuleExportType, Type};
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
@@ -16,6 +16,7 @@ pub struct ApiSpec {
     modules: Vec<ModuleEntry>,
     module_index: FxHashMap<&'static str, usize>,
     methods: Vec<MethodReceiverSig>,
+    registered_method_locations: Vec<(usize, usize, usize)>,
     docs: BTreeMap<String, ApiDocs>,
     /// Reverse map from a `RuntimeOp` to its `module.function` spelling, for
     /// `module.call`/`module.result` trace event names.
@@ -99,6 +100,11 @@ impl ApiSpec {
         methods: Vec<MethodReceiverSig>,
         docs: BTreeMap<String, ApiDocs>,
     ) -> Self {
+        let registered_method_locations = methods.iter().enumerate().flat_map(|(receiver, entry)| {
+            entry.methods.iter().enumerate().flat_map(move |(method, named)| {
+                (0..named.overloads.len()).map(move |overload| (receiver, method, overload))
+            })
+        }).collect();
         let module_index = modules
             .iter()
             .enumerate()
@@ -129,6 +135,7 @@ impl ApiSpec {
             modules,
             module_index,
             methods,
+            registered_method_locations,
             docs,
             op_names,
         }
@@ -200,6 +207,122 @@ impl ApiSpec {
             .map(|method| method.overloads.as_slice())
     }
 
+    pub(crate) fn method_family_id(
+        &self,
+        receiver: MethodReceiver,
+        name: &str,
+        signature: &MethodSig,
+    ) -> Option<registry::MethodFamilyId> {
+        let overload = self.method_overloads(receiver, name)?.iter()
+            .position(|candidate| std::ptr::eq(candidate, signature))?;
+        registry::api_spec().method_family_id(receiver, name, overload)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn registered_method_id(
+        &self,
+        receiver: MethodReceiver,
+        name: &str,
+        signature: &MethodSig,
+    ) -> Option<registry::RegisteredMethodId> {
+        let overload = self.method_overloads(receiver, name)?.iter()
+            .position(|candidate| std::ptr::eq(candidate, signature))?;
+        registry::api_spec().registered_method_id(receiver, name, overload)
+    }
+
+    pub(crate) fn registered_method(
+        &self,
+        id: registry::RegisteredMethodId,
+    ) -> Option<(MethodReceiver, &'static str, &MethodSig)> {
+        let (receiver, method, overload) = *self.registered_method_locations.get(id.raw() as usize)?;
+        let receiver = self.methods.get(receiver)?;
+        let method = receiver.methods.get(method)?;
+        Some((receiver.receiver, method.name, method.overloads.get(overload)?))
+    }
+
+    pub(crate) fn method_family_members<'a>(
+        &'a self,
+        family: registry::MethodFamilyId,
+    ) -> impl Iterator<Item = (registry::RegisteredMethodId, MethodReceiver, &'static str, &'a MethodSig)> + 'a {
+        registry::api_spec().method_family_member_ids(family).iter().copied().filter_map(|id| {
+            self.registered_method(id).map(|(receiver, name, signature)| (id, receiver, name, signature))
+        })
+    }
+
+    pub(crate) fn method_family_member_count(&self, family: registry::MethodFamilyId) -> usize {
+        registry::api_spec().method_family_member_ids(family).len()
+    }
+
+    pub(crate) fn method_family_result(&self, family: registry::MethodFamilyId) -> Option<MethodFamilyResult> {
+        let mut members = self.method_family_members(family);
+        let (_, _, name, first) = members.next()?;
+        let mut uniform = true;
+        let mut selected = first.sig.params.is_empty() && first.sig.pure && first.sig.effects.is_empty()
+            && first.receiver_ty.as_ref() == Some(&first.sig.return_ty);
+        for (_, _, candidate_name, candidate) in members {
+            if candidate_name != name || candidate.sig.pure != first.sig.pure || candidate.sig.effects != first.sig.effects { return None; }
+            uniform &= candidate.sig.return_ty == first.sig.return_ty;
+            selected &= candidate.sig.params.is_empty() && candidate.sig.op == first.sig.op
+                && candidate.receiver_ty.as_ref() == Some(&candidate.sig.return_ty);
+        }
+        if uniform { Some(MethodFamilyResult::UniformGround(first.sig.return_ty.clone())) }
+        else if selected { Some(MethodFamilyResult::SelectedSignature) }
+        else { None }
+    }
+
+    pub(crate) fn method_family_returns_paths(&self, family: registry::MethodFamilyId) -> bool {
+        matches!(self.method_family_result(family), Some(MethodFamilyResult::SelectedSignature))
+            && self.method_family_members(family).all(|(_, _, _, member)| member.sig.return_ty == Type::Path || member.sig.return_ty == Type::rel_path())
+    }
+
+    pub(crate) fn select_method_family(
+        &self,
+        family: registry::MethodFamilyId,
+        receiver_type: &Type,
+        argument_slots: &[u32],
+        arguments: &[Type],
+    ) -> MethodFamilySelection {
+        if argument_slots.len() != arguments.len()
+            || receiver_type.contains_any()
+            || receiver_type.contains_recovery()
+            || arguments.iter().any(|argument| argument.contains_any() || argument.contains_recovery())
+        {
+            return MethodFamilySelection::Unsupported;
+        }
+        let Some((_, _, name, _)) = self.method_family_members(family).next() else { return MethodFamilySelection::Unsupported; };
+        let mut actual = receiver_type;
+        let domain = loop {
+            match actual {
+                Type::Validated(validated) => {
+                    if let Some(receiver) = validated.validation().method_receiver()
+                        && self.method_overloads(receiver, name).is_some()
+                    { break Some(receiver); }
+                    actual = validated.base();
+                }
+                _ => break None,
+            }
+        };
+        let mut selected = None;
+        for (id, receiver, _, signature) in self.method_family_members(family) {
+            if domain.map_or_else(|| !method_receiver_accepts(receiver, actual), |domain| receiver != domain) { continue; }
+            let mut supplied = BTreeSet::new();
+            let mut fits = true;
+            for (argument, &slot) in arguments.iter().zip(argument_slots) {
+                let slot = slot as usize;
+                let Some(parameter) = signature.sig.params.get(slot) else { fits = false; break; };
+                if !supplied.insert(slot) || argument.unvalidated() != parameter.ty.unvalidated() {
+                    fits = false;
+                    break;
+                }
+            }
+            if !fits || signature.sig.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !supplied.contains(&slot)) {
+                continue;
+            }
+            if selected.replace(id).is_some() { return MethodFamilySelection::Ambiguous; }
+        }
+        selected.map_or(MethodFamilySelection::Unsupported, MethodFamilySelection::Selected)
+    }
+
     pub fn method_names(
         &self,
         receiver: MethodReceiver,
@@ -216,6 +339,31 @@ impl ApiSpec {
             .and_then(|overloads| overloads.first())
             .map(|method| method.sig.op)
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MethodFamilySelection {
+    Selected(registry::RegisteredMethodId),
+    Unsupported,
+    Ambiguous,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum MethodFamilyResult {
+    UniformGround(Type),
+    SelectedSignature,
+}
+
+fn method_receiver_accepts(receiver: MethodReceiver, ty: &Type) -> bool {
+    use MethodReceiver as R;
+    use Type as T;
+    matches!((receiver, ty),
+        (R::List, T::List(_))
+            | (R::Map, T::Map(_, _))
+            | (R::Set, T::Set(_))
+            | (R::Bytes, T::Bytes)
+            | (R::Str, T::Str)
+            | (R::Path, T::Path))
 }
 
 #[derive(Clone, Debug)]
@@ -302,9 +450,236 @@ pub struct NamedMethodSigs {
     pub overloads: Vec<MethodSig>,
 }
 
+enum NativeOperationContract {
+    Direct(&'static ModuleFnSig),
+    ReceiverMethod(ModuleFnSig),
+    Internal(ModuleFnSig),
+}
+
+impl NativeOperationContract {
+    fn signature(&self) -> &ModuleFnSig {
+        match self { Self::Direct(signature) => signature, Self::ReceiverMethod(signature) | Self::Internal(signature) => signature }
+    }
+}
+
+struct NativeOperationContracts {
+    contracts: Vec<NativeOperationContract>,
+    process_options: Vec<usize>,
+}
+
+fn same_process_command_options(left: &ModuleFnSig, right: &ModuleFnSig) -> bool {
+    let ModuleFnSig { params, return_ty, pure, command, arg_check, semantic_rule, op, binding, effects, discardable } = left;
+    let ModuleFnSig { params: right_params, return_ty: right_return_ty, pure: right_pure, command: right_command,
+        arg_check: right_arg_check, semantic_rule: right_semantic_rule, op: right_op, binding: right_binding,
+        effects: right_effects, discardable: right_discardable } = right;
+    return_ty == right_return_ty && pure == right_pure && command == right_command && arg_check == right_arg_check
+        && semantic_rule == right_semantic_rule && op == right_op && binding == right_binding
+        && effects == right_effects && discardable == right_discardable && params.len() == right_params.len()
+        && params.iter().zip(right_params).enumerate().all(|(position, (left, right))| {
+            let ParamSig { name, ty, defaulted, label } = left;
+            name == &right.name && defaulted == &right.defaulted && label == &right.label && (position == 1 || ty == &right.ty)
+        })
+}
+
+fn process_command_option_representatives(contracts: &[NativeOperationContract]) -> Vec<usize> {
+    let mut representatives: Vec<usize> = Vec::new();
+    for (index, contract) in contracts.iter().enumerate() {
+        if !representatives.iter().any(|&previous| same_process_command_options(contracts[previous].signature(), contract.signature())) {
+            representatives.push(index);
+        }
+    }
+    representatives
+}
+
+fn native_operation_index(op: RuntimeOp) -> Option<&'static NativeOperationContracts> {
+    static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, NativeOperationContracts>> = std::sync::OnceLock::new();
+    let signatures = SIGNATURES.get_or_init(|| {
+        let mut signatures = FxHashMap::<RuntimeOp, Vec<NativeOperationContract>>::default();
+        for (_, module) in api_spec().module_entries() {
+            for function in &module.functions {
+                for signature in &function.overloads {
+                    if signature.binding == ImplBinding::Native {
+                        signatures.entry(signature.op).or_default().push(NativeOperationContract::Direct(signature));
+                    }
+                }
+            }
+        }
+        for (receiver, methods) in api_spec().method_entries() {
+            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::Path | MethodReceiver::FsRoot | MethodReceiver::EnvPathList) { continue; }
+            for method in methods {
+                for overload in &method.overloads {
+                    let signature = &overload.sig;
+                    if signature.binding == ImplBinding::Native {
+                        let signature = if receiver == MethodReceiver::EnvPathList {
+                            NativeOperationContract::Internal(signature.clone())
+                        } else if receiver != MethodReceiver::PathConstructor {
+                            let mut signature = signature.clone();
+                            let receiver_ty = overload.receiver_ty.clone().expect("native receiver method has a registered receiver type");
+                            signature.params.insert(0, ParamSig { name: "self", ty: receiver_ty, defaulted: false, label: LabelRule::Free });
+                            NativeOperationContract::ReceiverMethod(signature)
+                        } else { NativeOperationContract::Direct(signature) };
+                        signatures.entry(signature.signature().op).or_default().push(signature);
+                    }
+                }
+            }
+        }
+        let assignment = registry::sig(
+            vec![registry::param("name", xsh_registry::types::Type::Str), registry::param("value",
+                xsh_registry::types::Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Element))],
+            xsh_registry::types::Type::Unit, false, RuntimeOp::EnvSet,
+        );
+        signatures.entry(RuntimeOp::EnvSet).or_default().push(NativeOperationContract::Internal(
+            convert_module_fn_sig("env", "set", &assignment)));
+        let path_snapshot = registry::sig(Vec::new(), xsh_registry::types::Type::EnvPathList, false, RuntimeOp::EnvPathList);
+        signatures.entry(RuntimeOp::EnvPathList).or_default().push(NativeOperationContract::Internal(
+            convert_module_fn_sig("env", "PATH", &path_snapshot)));
+        for resource in xsh_registry::ManagedResource::ALL {
+            let Some(release) = resource.release_op() else { continue };
+            let resource_type = convert_type(&resource.resource_type());
+            let consuming = resource.rule().consuming.iter().filter_map(|consumption| match consumption {
+                xsh_registry::managed_resource::ResourceConsumption::Operation(op) => Some(*op),
+                _ => None,
+            });
+            let inherited = consuming.flat_map(|op| signatures.get(&op).into_iter().flatten())
+                .map(NativeOperationContract::signature)
+                .filter(|signature| signature.params.len() == 1 && signature.params[0].ty == resource_type)
+                .cloned().collect::<Vec<_>>();
+            assert!(!inherited.is_empty(), "scoped resource release has no canonical consuming contract");
+            for mut signature in inherited {
+                signature.op = release;
+                signatures.entry(release).or_default().push(NativeOperationContract::Internal(signature));
+            }
+        }
+        signatures.into_iter().map(|(op, contracts)| {
+            let process_options = if op == RuntimeOp::ProcessCommandArgv { process_command_option_representatives(&contracts) } else { Vec::new() };
+            (op, NativeOperationContracts { contracts, process_options })
+        }).collect()
+    });
+    signatures.get(&op)
+}
+
+fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContract] {
+    native_operation_index(op).map_or(&[], |index| index.contracts.as_slice())
+}
+
+pub(crate) fn native_process_command_option_signatures() -> impl Iterator<Item = &'static ModuleFnSig> {
+    native_operation_index(RuntimeOp::ProcessCommandArgv).into_iter().flat_map(|index| {
+        index.process_options.iter().map(|&representative| index.contracts[representative].signature())
+    })
+}
+
+pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> impl Iterator<Item = &'static ModuleFnSig> {
+    native_operation_contracts(op).iter().map(NativeOperationContract::signature)
+}
+
+pub(crate) fn native_static_operation_requires_producer_proof(op: RuntimeOp) -> bool {
+    native_operation_contracts(op).iter().any(|contract| !matches!(contract, NativeOperationContract::Direct(_)))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NativeEffectRule {
+    Uniform { effects: &'static [Effect], pure: bool },
+    OperandDependent,
+}
+
+fn native_effect_rule<'a>(mut signatures: impl Iterator<Item = &'a ModuleFnSig>) -> Option<NativeEffectRule> {
+    let first = signatures.next()?;
+    Some(if signatures.all(|signature| signature.effects == first.effects && signature.pure == first.pure) {
+        NativeEffectRule::Uniform { effects: first.effects, pure: first.pure }
+    } else { NativeEffectRule::OperandDependent })
+}
+
+pub(crate) fn native_static_operation_effect_rule(op: RuntimeOp) -> Option<NativeEffectRule> {
+    native_effect_rule(native_static_operation_signatures(op))
+}
+
+pub(crate) fn script_implementation_effect_rule(module: &str, function: &str) -> Option<NativeEffectRule> {
+    let spec = api_spec();
+    let module_signatures = spec.module_entries().flat_map(|(_, module)| module.functions.iter())
+        .flat_map(|function| function.overloads.iter());
+    let method_signatures = spec.method_entries().flat_map(|(_, methods)| methods.iter())
+        .flat_map(|method| method.overloads.iter().map(|overload| &overload.sig));
+    native_effect_rule(module_signatures.chain(method_signatures).filter(|signature| {
+        signature.script_impl().is_some_and(|implementation| implementation.module == module && implementation.function == function)
+    }))
+}
+
+struct NativeMethodEffectRules {
+    names: BTreeMap<&'static str, NativeEffectRule>,
+    operand_dependent: BTreeSet<usize>,
+    receiver_names: BTreeSet<&'static str>,
+    receiver_proof_names: BTreeSet<&'static str>,
+}
+
+fn native_method_effect_rules() -> &'static NativeMethodEffectRules {
+    static RULES: OnceLock<NativeMethodEffectRules> = OnceLock::new();
+    RULES.get_or_init(|| {
+        let mut signatures = BTreeMap::<&'static str, Vec<&'static ModuleFnSig>>::new();
+        let mut receiver_names = BTreeSet::new();
+        let mut receiver_proof_names = BTreeSet::new();
+        for (receiver, methods) in api_spec().method_entries() {
+            if receiver == MethodReceiver::PathConstructor { continue; }
+            for method in methods {
+                for overload in &method.overloads {
+                    if overload.sig.binding == ImplBinding::Native {
+                        signatures.entry(method.name).or_default().push(&overload.sig);
+                        receiver_proof_names.insert(method.name);
+                        if receiver == MethodReceiver::Path { receiver_names.insert(method.name); }
+                    }
+                }
+            }
+        }
+        let mut rules = NativeMethodEffectRules { names: BTreeMap::new(), operand_dependent: BTreeSet::new(), receiver_names, receiver_proof_names };
+        for (name, signatures) in signatures {
+            if let Some(rule) = native_effect_rule(signatures.iter().copied()) {
+                if rule == NativeEffectRule::OperandDependent || rules.receiver_names.contains(name) {
+                    rules.operand_dependent.extend(signatures.iter().map(|signature| *signature as *const ModuleFnSig as usize));
+                }
+                rules.names.insert(name, rule);
+            }
+        }
+        rules
+    })
+}
+
+pub(crate) fn native_method_effect_rule(name: &str) -> Option<NativeEffectRule> {
+    native_method_effect_rules().names.get(name).copied()
+}
+
+pub(crate) fn native_method_requires_receiver_proof(name: &str) -> bool {
+    native_method_effect_rules().receiver_proof_names.contains(name)
+}
+
+pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceiver>, signature: &ModuleFnSig) -> bool {
+    if signature.binding != ImplBinding::Native { return false; }
+    if signature.op == RuntimeOp::ProcessCommandArgv { return true; }
+    match receiver {
+        None | Some(MethodReceiver::PathConstructor | MethodReceiver::EnvPathList) => native_static_operation_requires_producer_proof(signature.op)
+            || native_static_operation_effect_rule(signature.op) == Some(NativeEffectRule::OperandDependent),
+        Some(_) => native_method_effect_rules().operand_dependent.contains(&(signature as *const ModuleFnSig as usize)),
+    }
+}
+
 pub fn api_spec() -> &'static ApiSpec {
     static SPEC: OnceLock<ApiSpec> = OnceLock::new();
     SPEC.get_or_init(|| ApiSpec::from_registry(registry::api_spec()))
+}
+
+#[cfg(test)]
+mod numeric_effect_tests {
+    use super::*;
+
+    #[test]
+    fn numeric_system_contracts_do_not_read_the_environment() {
+        for name in ["parse_long_double", "format_long_double", "long_double_precision"] {
+            let operation = api_spec().module_overloads("system", name).unwrap().first().unwrap();
+            assert!(operation.pure);
+            assert!(operation.effects.is_empty());
+        }
+        let hostname = api_spec().module_overloads("system", "hostname").unwrap().first().unwrap();
+        assert!(!hostname.pure);
+        assert_eq!(hostname.effects, &[Effect::Env]);
+    }
 }
 
 fn convert_module_entry(entry: &registry::ModuleEntry) -> ModuleEntry {
@@ -345,7 +720,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
-        effects: Effect::from_module_call(module, function),
+        effects: if sig.pure { &[] } else { Effect::from_module_call(module, function) },
         discardable: sig.discardable,
     }
 }
@@ -459,8 +834,8 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Error => Type::Error,
         xsh_registry::types::Type::ProcessError => Type::ProcessError,
         xsh_registry::types::Type::ErrorFamily(name) => Type::ErrorFamily(Name::intern(name)),
-        xsh_registry::types::Type::Pure => Type::Pure,
-        xsh_registry::types::Type::Proc => Type::Proc,
+        xsh_registry::types::Type::Pure => Type::Function(crate::sema::types::CallableKind::Pure),
+        xsh_registry::types::Type::Proc => Type::Function(crate::sema::types::CallableKind::Proc),
         xsh_registry::types::Type::Command => Type::Command,
         xsh_registry::types::Type::ProcessHandle => Type::ProcessHandle,
         xsh_registry::types::Type::NetJob => Type::NetJob,
@@ -501,6 +876,50 @@ mod tests {
     use xsh_registry::signature as registry;
 
     #[test]
+    fn process_option_projection_preserves_every_other_contract() {
+        use super::{ApiArgCheck, ImplBinding, LabelRule, NativeOperationContract, RuntimeOp, SemanticRule};
+        use crate::sema::types::Type;
+        let canonical = super::native_static_operation_signatures(RuntimeOp::ProcessCommandArgv).collect::<Vec<_>>();
+        let projected = super::native_process_command_option_signatures().collect::<Vec<_>>();
+        let bytes_stdin = canonical.iter().find(|signature| signature.params[4].ty == Type::Bytes).unwrap();
+        let path_stdin = canonical.iter().find(|signature| signature.params[0].ty == bytes_stdin.params[0].ty && signature.params[4].ty == Type::Path).unwrap();
+        assert!(!bytes_stdin.params[4].defaulted);
+        assert!(!super::same_process_command_options(bytes_stdin, path_stdin));
+        for signature in &canonical {
+            assert_eq!(projected.iter().filter(|representative| super::same_process_command_options(signature, representative)).count(), 1);
+        }
+        let base = canonical[0].clone();
+        let mut argv = base.clone();
+        argv.params[1].ty = Type::List(Box::new(Type::Path));
+        assert_eq!(super::process_command_option_representatives(&[
+            NativeOperationContract::Internal(base.clone()), NativeOperationContract::Internal(argv),
+        ]), vec![0]);
+        let mutations: &[fn(&mut super::ModuleFnSig)] = &[
+            |signature| { signature.params.pop(); },
+            |signature| signature.params[0].ty = Type::Bool,
+            |signature| signature.params[1].name = "words",
+            |signature| signature.params[1].defaulted = !signature.params[1].defaulted,
+            |signature| signature.params[1].label = LabelRule::Required,
+            |signature| signature.return_ty = Type::Bool,
+            |signature| signature.pure = !signature.pure,
+            |signature| signature.command = !signature.command,
+            |signature| signature.arg_check = ApiArgCheck::JsonCompatible,
+            |signature| signature.semantic_rule = SemanticRule::SchemaValidation,
+            |signature| signature.op = RuntimeOp::EnvSet,
+            |signature| signature.binding = ImplBinding::Script(super::ScriptImpl { module: "test", function: "test" }),
+            |signature| signature.effects = &[crate::syntax::node::Effect::Io],
+            |signature| signature.discardable = !signature.discardable,
+        ];
+        for (index, mutate) in mutations.iter().enumerate() {
+            let mut changed = base.clone();
+            mutate(&mut changed);
+            assert_eq!(super::process_command_option_representatives(&[
+                NativeOperationContract::Internal(base.clone()), NativeOperationContract::Internal(changed),
+            ]), vec![0, 1], "contract mutation {index} was hidden by argv projection");
+        }
+    }
+
+    #[test]
     fn api_spec_adapter_exactly_mirrors_registry() {
         let main = api_spec();
         let registry = registry::api_spec();
@@ -536,10 +955,10 @@ mod tests {
                     assert_module_overload_matches_registry(main_overload, registry_overload);
                     assert_eq!(
                         main_overload.effects,
-                        crate::syntax::node::Effect::from_module_call(
+                        if registry_overload.pure { &[] } else { crate::syntax::node::Effect::from_module_call(
                             main_module.name,
                             main_function.name,
-                        )
+                        ) }
                     );
                 }
             }

@@ -223,7 +223,7 @@ pub(super) fn lowered_comp_iterable(value: LoweredValue, span: Span) -> Result<L
     match value {
         LoweredValue::ResultOk(value) => lowered_comp_iterable(*value, span),
         LoweredValue::ResultErr(error) => Err(super::super::runtime_error_from_value(*error, span)),
-        value => Ok(value),
+        value => Ok(value.materialize_list()),
     }
 }
 
@@ -279,6 +279,43 @@ impl Evaluator {
             result?
         } else {
             super::super::super::lowered_ops::lowered_registered_method_value(plan, receiver, values, span)?
+        };
+        let mut result = ControlFlow::Continue(value);
+        self.register_returned_lowered_streams(&mut result, span)?;
+        Ok(result)
+    }
+
+    pub(super) fn eval_indexed_registered_method_identity_dispatch(
+        &mut self,
+        method: xsh_registry::signature::RegisteredMethodId,
+        receiver: LoweredValue,
+        values: Vec<LoweredValue>,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let (domain, name, signature) = crate::modules::api_spec().registered_method(method)
+            .ok_or_else(|| RuntimeError::new("invalid-method", "verified method identity is not registered").with_span(span))?;
+        if domain == crate::modules::MethodReceiver::Path && name == "write" {
+            if signature.sig.op != crate::runtime::eval::RuntimeOp::FsWrite || signature.sig.params.len() != values.len() {
+                return Err(RuntimeError::new("invalid-method", "verified Path.write identity has an invalid operation layout").with_span(span));
+            }
+            let mut arguments = Vec::with_capacity(values.len() + 1);
+            arguments.push(Some(receiver));
+            arguments.extend(values.into_iter().map(Some));
+            return self.eval_indexed_module_call_values(
+                signature.sig.op,
+                super::super::NativeArgumentValues::new(arguments),
+                span,
+                None,
+            );
+        }
+        let value = if self.trace_enabled {
+            let trace_name = format!("{}.{}", xsh_registry::signature::receiver_name(domain), name);
+            self.trace_enter(TraceKind::MethodCall, Some(span), Some(&trace_name), TracePayload::None);
+            let result = super::super::super::lowered_ops::lowered_registered_method_identity_value(method, receiver, values, span);
+            self.trace_exit(TraceKind::MethodResult, Some(span), Some(&trace_name), TracePayload::None);
+            result?
+        } else {
+            super::super::super::lowered_ops::lowered_registered_method_identity_value(method, receiver, values, span)?
         };
         let mut result = ControlFlow::Continue(value);
         self.register_returned_lowered_streams(&mut result, span)?;

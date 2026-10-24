@@ -455,9 +455,9 @@ impl SchemaTypeError {
 /// Checked application identity is retained separately from the structural
 /// record type. Parameters absent from fields still constrain construction.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SchemaInstance {
+pub struct SchemaInstance<T = Type> {
     pub definition: TypeDefId,
-    pub arguments: Vec<Type>,
+    pub arguments: Vec<T>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -472,9 +472,9 @@ pub enum SchemaComponent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CheckedRecordConstructor {
-    pub instance: SchemaInstance,
-    pub ty: Type,
+pub struct CheckedRecordConstructor<T = Type> {
+    pub instance: SchemaInstance<T>,
+    pub ty: T,
 }
 
 #[derive(Clone, Debug)]
@@ -491,13 +491,46 @@ pub struct RecordConstructorInference {
 /// signature through the checker's scope snapshots and are cloned far more
 /// often than they change, so a clone copies the root and a change copies one
 /// level (`Arc::make_mut`).
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct SchemaExpectation {
-    pub instances: Vec<SchemaInstance>,
-    pub children: Arc<BTreeMap<SchemaComponent, SchemaExpectation>>,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaExpectation<T = Type> {
+    pub instances: Vec<SchemaInstance<T>>,
+    pub children: Arc<BTreeMap<SchemaComponent, SchemaExpectation<T>>>,
+}
+
+impl<T> Default for SchemaExpectation<T> {
+    fn default() -> Self { Self { instances: Vec::new(), children: Arc::new(BTreeMap::new()) } }
 }
 
 impl SchemaExpectation {
+    pub(crate) fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
+        let mut pending = vec![self];
+        while let Some(schema) = pending.pop() {
+            for instance in &mut schema.instances {
+                for argument in &mut instance.arguments { map(argument); }
+            }
+            pending.extend(Arc::make_mut(&mut schema.children).values_mut());
+        }
+    }
+
+}
+
+impl<T: Clone> SchemaExpectation<T> {
+    pub(crate) fn map<U>(&self, map: &mut impl FnMut(&T) -> U) -> SchemaExpectation<U> {
+        match self.try_map(&mut |ty| Ok::<_, std::convert::Infallible>(map(ty))) {
+            Ok(schema) => schema,
+            Err(never) => match never {},
+        }
+    }
+
+    pub(crate) fn try_map<U, E>(&self, map: &mut impl FnMut(&T) -> Result<U, E>) -> Result<SchemaExpectation<U>, E> {
+        let instances = self.instances.iter().map(|instance| Ok(SchemaInstance {
+            definition: instance.definition,
+            arguments: instance.arguments.iter().map(&mut *map).collect::<Result<_, E>>()?,
+        })).collect::<Result<_, E>>()?;
+        let children = self.children.iter().map(|(&component, child)| Ok((component, child.try_map(map)?))).collect::<Result<_, E>>()?;
+        Ok(SchemaExpectation { instances, children: Arc::new(children) })
+    }
+
     pub fn merge(&mut self, concrete: &Self) {
         let mut instances = concrete.instances.clone();
         instances.extend(
@@ -545,7 +578,26 @@ pub struct RecordConstructors {
     defaults: FxHashMap<TypeDefId, BTreeMap<Name, LiteralConstant>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecordConstructorTemplate {
+    pub(crate) definition: TypeDefId,
+    pub(crate) callable: Arc<crate::sema::schemes::CallableScheme>,
+}
+
+
 impl RecordConstructors {
+    pub(crate) fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
+        let mut instances = self.instances.lock().expect("record constructor cache lock poisoned").clone();
+        for (_, arguments, result) in &mut instances {
+            for argument in arguments { map(argument); }
+            map(result);
+        }
+        let mut mapped = self.clone();
+        mapped.instances = Arc::new(Mutex::new(instances));
+        for ty in mapped.error_types.values_mut() { map(ty); }
+        mapped
+    }
+
     #[cfg(test)]
     pub(crate) fn instance_facts_for_test(&self) -> Vec<(TypeDefId, Vec<Type>, Type)> {
         self.instances
@@ -704,6 +756,22 @@ impl RecordConstructors {
                 })
                 .sum::<usize>();
         (type_count, bytes)
+    }
+
+    pub(crate) fn visit_types(&self, mut visit: impl FnMut(&Type)) {
+        let instances = self
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned");
+        for (_, arguments, ty) in instances.iter() {
+            for argument in arguments {
+                visit(argument);
+            }
+            visit(ty);
+        }
+        for ty in self.error_types.values() {
+            visit(ty);
+        }
     }
 
     pub fn collect(program: &ArenaProgram) -> Self {
@@ -1234,6 +1302,29 @@ impl RecordConstructors {
         }
     }
 
+    pub(crate) fn constructor_template(&self, arena: &AstArena, definition: TypeDefId)
+        -> Option<RecordConstructorTemplate>
+    {
+        use crate::sema::schemes::{CallableScheme, SchemeParameter};
+        let names = arena.names(arena.type_def(definition).type_parameters).collect::<Vec<_>>();
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let origin = crate::source::Span::at(crate::source::SourceId::new(0), 0);
+        let arguments = names.iter().map(|_| constraints.fresh_at_level(origin, 1)).collect::<Vec<_>>();
+        let result = self.instantiate_checked(arena, definition, &arguments).ok()?;
+        let context = self.instance_expectation(arena, definition, &arguments).ok()?;
+        let (generalized, normalized) = constraints.generalize_constructor_template(&CheckedRecordConstructor {
+            instance: SchemaInstance { definition, arguments }, ty: result,
+        }).ok()?;
+        let result = normalized.ty;
+        let params = names.into_iter().zip(normalized.instance.arguments).map(|(name, ty)| SchemeParameter {
+            name, ty, schema_expectation: None, defaulted: false, rest: false,
+        }).collect();
+        let context = constraints.generalize_scoped_schema(&context, &generalized).ok()?;
+        let callable = CallableScheme::new(generalized.type_parameters, generalized.row_parameters,
+            params, result, Some(context), true, generalized.requirements).ok()?;
+        Some(RecordConstructorTemplate { definition, callable: Arc::new(callable) })
+    }
+
     pub fn instantiate_checked(
         &self,
         arena: &AstArena,
@@ -1265,6 +1356,7 @@ impl RecordConstructors {
         callee: ExprId,
         namespace: Option<Name>,
         span: crate::source::Span,
+        level: u32,
         expected: Option<&Type>,
         context: Option<&SchemaExpectation>,
         constraints: &mut crate::sema::constraints::TypeConstraints,
@@ -1279,7 +1371,7 @@ impl RecordConstructors {
             })?;
         let arguments = arena
             .names(arena.type_def(definition).type_parameters)
-            .map(|_| constraints.fresh(span))
+            .map(|_| constraints.fresh_at_level(span, level))
             .collect::<Vec<_>>();
         let ty = self.instantiate_checked(arena, definition, &arguments)?;
         if !matches!(ty.unvalidated(), Type::Record(_))
@@ -1580,14 +1672,14 @@ impl RecordConstructors {
             Type::Validated(validated) => Self::contains_template_parameter(validated.base()),
             Type::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => Self::contains_template_parameter(ty),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     Self::contains_template_parameter(&sig.return_ty)
                         || sig
                             .params
                             .iter()
                             .any(|param| Self::contains_template_parameter(&param.ty))
                 }
-                ModuleExportType::GenericPure { .. } => false,
+                ModuleExportType::GenericCallable { .. } => false,
             }),
             _ => false,
         }
@@ -1690,7 +1782,7 @@ impl RecordConstructors {
                             params,
                             effects,
                             return_ty,
-                        } => ModuleExportType::Proc {
+                        } => ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                             sig: self.instance_callable_type(
                                 arena,
                                 params,
@@ -1703,7 +1795,7 @@ impl RecordConstructors {
                             optional: entry.optional,
                         },
                         ArenaModuleContractEntryKind::Pure { params, return_ty } => {
-                            ModuleExportType::Pure {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                                 sig: self.instance_callable_type(
                                     arena, params, return_ty, namespace, &bindings, active, None,
                                 )?,
@@ -2013,7 +2105,7 @@ impl RecordConstructors {
             return_ty: Box::new(
                 self.resolve_instance_annotation(arena, return_ty, namespace, bindings, active)?,
             ),
-            effects,
+            effects: super::types::CallableEffects::from_clause(effects),
         })
     }
 
@@ -2179,12 +2271,21 @@ impl LiteralConstant {
 pub(crate) const CONSTANT_TYPE_FIT_FAILURE: &str =
     "constant value does not match its expected type";
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedBinaryOperator {
+    pub(crate) operator: crate::syntax::node::BinaryOp,
+    pub(crate) left_type: Type,
+    pub(crate) right_type: Type,
+    pub(crate) result_type: Type,
+}
+
 /// Prepared declarations own data only. Lexical runtime bindings remain barriers
 /// to constant lookup even when their initializer happens to be a literal.
 #[derive(Clone, Debug, Default)]
 pub struct PreparedConstants {
     pub values: FxHashMap<ExprId, LiteralConstant>,
     pub types: FxHashMap<ExprId, Type>,
+    pub(crate) binary_operators: FxHashMap<ExprId, PreparedBinaryOperator>,
     pub record_constructor_instances: FxHashMap<ExprId, CheckedRecordConstructor>,
     pub origins: FxHashMap<ExprId, ExprId>,
     pub binding_values: FxHashMap<crate::sema::check::BindingId, ExprId>,
@@ -2470,6 +2571,7 @@ impl PreparedConstants {
     pub(super) fn clear_prepared_declaration_facts(&mut self) {
         self.values.clear();
         self.types.clear();
+        self.binary_operators.clear();
         self.record_constructor_instances.clear();
         self.origins.clear();
         self.binding_values.clear();
@@ -2480,6 +2582,7 @@ impl PreparedConstants {
     pub(super) fn merge_visible(&mut self, other: &Self) {
         merge_owned_map_by(&mut self.values, &other.values, LiteralConstant::same_prepared_source);
         merge_owned_map(&mut self.types, &other.types);
+        merge_owned_map(&mut self.binary_operators, &other.binary_operators);
         merge_owned_map(&mut self.record_constructor_instances, &other.record_constructor_instances);
         merge_owned_map(&mut self.origins, &other.origins);
         merge_owned_map(&mut self.binding_values, &other.binding_values);
@@ -2547,6 +2650,7 @@ impl PreparedConstants {
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.record_constructor_instances
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+        self.binary_operators.retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.origins
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.binding_values.retain(|binding, _| {
@@ -3330,24 +3434,13 @@ impl ConstantPreparation<'_> {
             ArenaExprKind::Binary { op, left, right } => {
                 let (left_id, right_id) = (left, right);
                 let left = self.expression(left, namespace, None, depth + 1)?;
-                // Both operands must belong to the subset; short circuiting cannot admit runtime dependencies.
                 let right = self.expression(right, namespace, None, depth + 1)?;
-                if matches!(
+                let left_type = self.prepared.types.get(&left_id).cloned().unwrap_or_else(|| left.value_type());
+                let right_type = self.prepared.types.get(&right_id).cloned().unwrap_or_else(|| right.value_type());
+                let value = if matches!(
                     op,
                     crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne
                 ) {
-                    let left_type = self
-                        .prepared
-                        .types
-                        .get(&left_id)
-                        .cloned()
-                        .unwrap_or_else(|| left.value_type());
-                    let right_type = self
-                        .prepared
-                        .types
-                        .get(&right_id)
-                        .cloned()
-                        .unwrap_or_else(|| right.value_type());
                     if !right_type.matches_expected(&left_type) {
                         return Err((
                             expr.span,
@@ -3367,7 +3460,9 @@ impl ConstantPreparation<'_> {
                             "invalid constant operation or arithmetic overflow".into(),
                         )
                     })?
-                }
+                };
+                self.prepared.binary_operators.insert(id, PreparedBinaryOperator { operator: op, left_type, right_type, result_type: value.value_type() });
+                value
             }
             ArenaExprKind::List(items) => {
                 // The elements and spreads are read against the base; the
@@ -3623,6 +3718,7 @@ impl ConstantPreparation<'_> {
                         callee,
                         namespace,
                         expr.span,
+                        0,
                         expected,
                         self.expected_schema.as_ref(),
                         &mut self.type_constraints,
@@ -3786,7 +3882,7 @@ impl ConstantPreparation<'_> {
                             .record_constructor_instances
                             .insert(expression, fact);
                     }
-                    for ty in self.prepared.types.values_mut() {
+                    for ty in self.prepared.types.values_mut().chain(self.prepared.binary_operators.values_mut().flat_map(|operation| [&mut operation.left_type, &mut operation.right_type, &mut operation.result_type])) {
                         if ty.contains_inference() {
                             *ty = self.type_constraints.resolve(ty).map_err(|_| {
                                 (
@@ -4325,7 +4421,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         | Type::ErrorVariant { .. }
         | Type::ErrorFacet(_)
         | Type::ProcessError => ValueClass::Error,
-        Type::Pure | Type::Proc | Type::Callable(_) => ValueClass::Callable,
+        Type::Function(_) | Type::Callable(_) | Type::SchemeCallable(_) => ValueClass::Callable,
         Type::Command => ValueClass::Command,
         Type::ProcessHandle => ValueClass::ProcessHandle,
         Type::NetJob => ValueClass::NetJob,

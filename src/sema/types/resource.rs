@@ -7,8 +7,6 @@ impl Type {
     /// contents cannot be inspected from the static type.
     pub fn may_hold_resource(&self) -> bool {
         let mut pending = vec![self];
-        // Fx keeps the checker free of the process-random seed std's hasher
-        // fetches from getrandom, which an applet must run without.
         let mut visited = FxHashSet::default();
 
         while let Some(ty) = pending.pop() {
@@ -26,7 +24,7 @@ impl Type {
                     pending.push(key);
                     pending.push(value);
                 }
-                Self::Record(fields) => pending.extend(fields.values()),
+                Self::Record(_) | Self::Tag(_) => return true,
                 Self::Union(members) => pending.extend(members),
                 Self::Validated(validated) => pending.push(validated.base()),
                 Self::Any
@@ -41,6 +39,7 @@ impl Type {
                 | Self::ErrorFacet(_)
                 | Self::ProcessError
                 | Self::Callable(_)
+                | Self::SchemeCallable(_)
                 | Self::BuiltinParameter(_)
                 | Self::Inference(_) => return true,
                 Self::Null
@@ -56,11 +55,9 @@ impl Type {
                 | Self::Path
                 | Self::Status
                 | Self::EnvPathList
-                | Self::Pure
-                | Self::Proc
+                | Self::Function(_)
                 | Self::Command
-                | Self::Unit
-                | Self::Tag(_) => {}
+                | Self::Unit => {}
             }
         }
 
@@ -100,10 +97,11 @@ mod tests {
         assert!(record.may_hold_resource());
         let validated = Type::nominal(owner.intern("Wrapper"), record).expect("record is nominal");
         assert!(validated.may_hold_resource());
-        for ty in [Type::Any, Type::ErasedRecord, Type::Error, Type::Unknown] {
+        for ty in [Type::Any, Type::ErasedRecord, Type::Error, Type::Unknown,
+            Type::Record(BTreeMap::new().into()), Type::Tag(owner.intern("Hidden"))] {
             assert!(ty.may_hold_resource());
         }
-        for ty in [Type::Int, Type::Str, Type::Record(BTreeMap::new().into())] {
+        for ty in [Type::Int, Type::Str] {
             assert!(!ty.may_hold_resource());
         }
     }

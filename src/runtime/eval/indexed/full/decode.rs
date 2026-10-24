@@ -2,7 +2,7 @@ use super::{
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunOption, LoweredRunOperands,
     LoweredRunRedirection, LoweredRunPipelineSegment, LoweredRunTailOperand,
     LoweredProcessCommandArgv, LoweredRunCapture, LoweredSpawnRun,
-    LoweredTypeCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
+    LoweredTypeCheck, LoweredValueCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
     LoweredRecordEntry, LoweredAssignStep, LoweredCompTarget, LoweredCompQualifier,
     LoweredProcessCommandBuilderEntry, LoweredErrorExpr,
     LoweredPipelineStage,
@@ -61,6 +61,8 @@ impl<'a> DecodeContext<'a> {
             owner: self.owner,
             instruction_range: self.start..self.end,
             instruction_states: None,
+            borrowed_instruction_parents: None,
+            producer_prefix: None,
             instruction_proof: None,
             block_states: None,
             slot_count: self.slots,
@@ -70,6 +72,7 @@ impl<'a> DecodeContext<'a> {
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
+            producer_demand: crate::runtime::eval::ProducerDemand::Absent,
         prepared_constant_work: Cell::new(0),
             verified: self.verified,
         }
@@ -164,6 +167,17 @@ macro_rules! instruction_id {
     };
 }
 instruction_id!(BuildExprId, Expr, ExprInstructionId);
+impl BorrowCodec for crate::runtime::eval::IndexOperand<BuildExprId> {
+    type View<'a> = crate::runtime::eval::IndexOperand<ExprInstructionId<'a>>;
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(crate::runtime::eval::IndexOperand::Ordinary(BuildExprId::borrow(context, input)?)),
+            1 => Ok(crate::runtime::eval::IndexOperand::NegativeLiteral(crate::runtime::eval::EndDistance::borrow(context, input)?)),
+            _ => Err(IrVerifyError::new("index operand kind is invalid")),
+        }
+    }
+}
+
 instruction_id!(BuildStmtId, Stmt, StmtInstructionId);
 instruction_id!(BuildIntId, Int, IntInstructionId);
 instruction_id!(BuildBoolId, Bool, BoolInstructionId);
@@ -219,7 +233,7 @@ macro_rules! scalar_field {
     )*};
 }
 scalar_field!(
-    bool, usize, i64, u32, u64, FloatValue, DurationValue, Name, QualifiedName, Span,
+    crate::sema::types::CallableKind, crate::runtime::eval::DeferKind, bool, usize, i64, u32, u64, FloatValue, DurationValue, Name, QualifiedName, Span,
     BinaryOp, AssignOp, RuntimeOp, LoweredStrPredicate, RedirectionKind, RunKind,
     HashAlgorithm, FormatSpec, ReduceByOp, crate::runtime::eval::EndDistance,
     crate::syntax::arena::ContextScopeKind, crate::syntax::arena::RetrySchedule,
@@ -300,7 +314,27 @@ macro_rules! type_field {
         }
     )*};
 }
-type_field!(Type, LoweredType);
+type_field!(Type);
+
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) enum LoweredTypeRef<'a> { Semantic(TypeRef<'a>), SchemeCallable }
+
+impl LoweredTypeRef<'_> {
+    pub(in crate::runtime::eval) fn materialize_lowered(self) -> Result<LoweredType, IrVerifyError> {
+        match self { Self::Semantic(ty) => ty.materialize_lowered(), Self::SchemeCallable => Ok(LoweredType::SchemeCallable) }
+    }
+}
+
+impl BorrowCodec for LoweredType {
+    type View<'a> = LoweredTypeRef<'a>;
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
+        let raw = input.raw()?;
+        if raw == super::IR_NONE { return Ok(LoweredTypeRef::SchemeCallable); }
+        let id = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("lowered type id is invalid"))?;
+        context.store.semantic.type_tag(id)?;
+        Ok(LoweredTypeRef::Semantic(TypeRef { id, store: context.store }))
+    }
+}
 
 impl BorrowCodec for LoweredModuleExport {
     type View<'a> = LoweredModuleExport;
@@ -331,6 +365,35 @@ pub(in crate::runtime::eval) struct ValueRef<'a> {
     context: DecodeContext<'a>,
 }
 impl ValueRef<'_> {
+    pub(super) fn is_null(self) -> Result<bool, IrVerifyError> {
+        self.context.store.values.get(self.raw as usize).map(|tag| *tag == super::FullValueTag::Null)
+            .ok_or_else(|| IrVerifyError::new("value id is out of bounds"))
+    }
+
+    pub(in crate::runtime::eval) fn with_scalar_view<R>(self, mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>, inspect: impl FnOnce(crate::runtime::eval::type_view::ValueView<'_>) -> Result<R, IrVerifyError>) -> Result<R, IrVerifyError> {
+        use super::FullValueTag as V;
+        use crate::map_key::MapKeyRef;
+        use crate::runtime::eval::type_view::ValueView;
+        let tag = *self.context.store.values.get(self.raw as usize).ok_or_else(|| IrVerifyError::new("value id is out of bounds"))?;
+        let data = *self.context.store.value_data.get(self.raw as usize).ok_or_else(|| IrVerifyError::new("value payload is out of bounds"))?;
+        let words = self.context.store.payload(data.range())?;
+        charge(1 + words.len())?;
+        match tag {
+            V::Str if words.len() == 1 => inspect(ValueView::Key(MapKeyRef::Str(self.context.store.string(*words.first().ok_or_else(|| IrVerifyError::new("scalar string payload is absent"))?)?))),
+            V::Bytes if words.len() == 1 => inspect(ValueView::Key(MapKeyRef::Bytes(self.context.store.bytes(*words.first().ok_or_else(|| IrVerifyError::new("scalar byte payload is absent"))?)?))),
+            V::Null | V::Unit | V::Int | V::Float | V::Duration | V::Bool => {
+                let value = self.materialize()?;
+                inspect(ValueView::Lowered(&value))
+            }
+            V::Path => {
+                charge(self.context.store.bytes(*words.first().ok_or_else(|| IrVerifyError::new("scalar path payload is absent"))?)?.len())?;
+                let value = self.materialize()?;
+                inspect(ValueView::Lowered(&value))
+            }
+            _ => Err(IrVerifyError::new("literal value is not scalar")),
+        }
+    }
+
     pub(in crate::runtime::eval) fn materialize(self) -> Result<LoweredValue, IrVerifyError> {
         LoweredValue::decode(&self.context.decoder(), &mut FullCursor::new(&[self.raw]))
     }
@@ -689,18 +752,14 @@ pub(in crate::runtime::eval) struct FunctionRef<'a> {
     store: &'a FullStore,
 }
 impl FunctionRef<'_> {
-    /// Resolve the borrowed identity through the program that owns this reference.
-    pub(in crate::runtime::eval) fn key(
+    pub(in crate::runtime::eval) fn identity(
         self,
         execution: &FullExecution<'_>,
-    ) -> Result<LoweredFunctionKey, IrVerifyError> {
+    ) -> Result<(LoweredFunctionKey, crate::sema::types::CallableKind), IrVerifyError> {
         if !std::ptr::eq(self.store, execution.store()) {
             return Err(IrVerifyError::new("function reference belongs to another program"));
         }
-        execution
-            .program()
-            .function_identity(self.id.index())
-            .map(|(key, _)| key)
+        execution.program().function_identity(self.id.index())
     }
 }
 impl BorrowCodec for LoweredFunctionKey {
@@ -946,6 +1005,103 @@ struct_schema!(LoweredTypeCheck => TypeCheckView {
         return Err(IrVerifyError::new("prepared schema does not match its checked type"));
     }
 });
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub(super) enum ValueCheckTag { Ground, Materialization, RecordConstructor, MembershipKey }
+
+impl TryFrom<u32> for ValueCheckTag {
+    type Error = IrVerifyError;
+
+    fn try_from(raw: u32) -> Result<Self, Self::Error> {
+        match raw {
+            0 => Ok(Self::Ground),
+            1 => Ok(Self::Materialization),
+            2 => Ok(Self::RecordConstructor),
+            3 => Ok(Self::MembershipKey),
+            _ => Err(IrVerifyError::new("checked value contract tag is invalid")),
+        }
+    }
+}
+
+pub(in crate::runtime::eval) enum ValueCheckView<'a> {
+    MembershipKey(u32),
+    Ground(TypeCheckView<'a>),
+    Materialization(u32),
+    RecordConstructor(super::schemes::FullSchemeSchemaExpectationId),
+}
+
+fn verify_membership_key_owner(decoder: &FullDecoder<'_>, ordinal: u32) -> Result<(), IrVerifyError> {
+    let super::ExecutableOwner::Function(function) = super::ExecutableOwner::from_raw(decoder.owner)? else { return Err(IrVerifyError::new("membership key check has no function owner")); };
+    let super::FullCallableContract::Scheme(id) = decoder.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("membership key check owner is out of bounds"))?.contract else { return Err(IrVerifyError::new("membership key check has no scoped owner")); };
+    let scheme = decoder.store.scheme(id)?;
+    let range = scheme.operations.bounds(decoder.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
+    match decoder.store.scheme_operations[range].get(ordinal as usize) {
+        Some(super::schemes::FullSealedOperation::Membership { .. }) => Ok(()),
+        _ => Err(IrVerifyError::new("membership key check ordinal has no membership contract")),
+    }
+}
+
+impl BorrowCodec for LoweredValueCheck {
+    type View<'a> = ValueCheckView<'a>;
+
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
+        match ValueCheckTag::try_from(input.raw()?)? {
+            ValueCheckTag::MembershipKey => {
+                let ordinal = input.raw()?;
+                if !context.verified { verify_membership_key_owner(&context.decoder(), ordinal)?; }
+                Ok(ValueCheckView::MembershipKey(ordinal))
+            }
+            ValueCheckTag::Ground => LoweredTypeCheck::borrow(context, input).map(ValueCheckView::Ground),
+            ValueCheckTag::Materialization => {
+                let id = input.raw()?;
+                context.store.value_materializations.get(id as usize).ok_or_else(|| IrVerifyError::new("value materialization is out of bounds"))?;
+                Ok(ValueCheckView::Materialization(id))
+            }
+            ValueCheckTag::RecordConstructor => {
+                let id = super::schemes::FullSchemeSchemaExpectationId::from_raw(input.raw()?)?;
+                context.store.scheme_schema_expectations.get(id.index()).ok_or_else(|| IrVerifyError::new("record constructor schema is out of bounds"))?;
+                Ok(ValueCheckView::RecordConstructor(id))
+            }
+        }
+    }
+}
+
+impl FullCodec for LoweredValueCheck {
+    fn encode(&self, builder: &mut super::FullBuilder, output: &mut Vec<u32>) -> Result<(), super::IrBuildError> {
+        match self {
+            Self::MembershipKey(ordinal) => { output.push(ValueCheckTag::MembershipKey as u32); output.push(*ordinal); }
+            Self::Ground(check) => { output.push(ValueCheckTag::Ground as u32); check.encode(builder, output)?; }
+            Self::Materialization(plan) => { output.push(ValueCheckTag::Materialization as u32); output.push(builder.encode_value_materialization(plan)?); }
+            Self::RecordConstructor(schema) => { output.push(ValueCheckTag::RecordConstructor as u32); output.push(builder.encode_record_constructor(schema)?.raw()); }
+        }
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match ValueCheckTag::try_from(input.raw()?)? {
+            ValueCheckTag::MembershipKey => {
+                let ordinal = input.raw()?;
+                verify_membership_key_owner(decoder, ordinal)?;
+                Ok(Self::MembershipKey(ordinal))
+            }
+            ValueCheckTag::Ground => LoweredTypeCheck::decode(decoder, input).map(Self::Ground),
+            ValueCheckTag::Materialization => Err(IrVerifyError::new("owned materialization plans cannot be decoded from executable IR")),
+            ValueCheckTag::RecordConstructor => Err(IrVerifyError::new("scoped constructor contracts cannot be decoded from executable IR")),
+        }
+    }
+
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
+        match ValueCheckTag::try_from(input.raw()?)? {
+            ValueCheckTag::MembershipKey => verify_membership_key_owner(decoder, input.raw()?),
+            ValueCheckTag::Ground => LoweredTypeCheck::verify(decoder, input),
+            ValueCheckTag::Materialization => decoder.store.value_materializations.get(input.raw()? as usize).map(|_| ())
+                .ok_or_else(|| IrVerifyError::new("value materialization is out of bounds")),
+            ValueCheckTag::RecordConstructor => decoder.store.scheme_schema_expectations.get(super::schemes::FullSchemeSchemaExpectationId::from_raw(input.raw()?)?.index()).map(|_| ())
+                .ok_or_else(|| IrVerifyError::new("record constructor schema is out of bounds")),
+        }
+    }
+}
+
 struct_schema!(ScanBytes => ScanBytesView {
     line_slot: usize, block_depth_slot: usize, code_seen_slot: usize, comment_seen_slot: usize,
     in_string_slot: usize, string_delim_slot: usize, escaped_slot: usize, nested: bool, span: Span,

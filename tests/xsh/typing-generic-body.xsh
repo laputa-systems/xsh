@@ -155,27 +155,45 @@ let output = write(values, {key: -1, value: 0})
 
 }
 
-test test_typing_generic_body_rejects_mutable_state_and_local_mutation { |ctx|
-  test.expect(
+test test_typing_generic_body_captures_ground_mutable_state_independently { |ctx|
+  let output = test.run_xsh(
     ctx,
     r"""var marker = 5
-pure plus(value: Int, marker: Int) -> Int { value + marker }
-pure read(row) -> Int { plus(row.value, marker) }
-""",
-    status: 2,
-    stderr: ["[check.local-inference]"],
-  )?
-  test.expect(
-    ctx,
-    r"""pure item(value: Int) -> Int { value }
 pure read(row) -> Int {
-  var value = row.value
-  item(value)
+  let _ = row.value
+  marker
 }
+let integer = read({value: 42})
+marker = 6
+let text = read({value: "demo"})
+assert integer == 5
+assert text == 6
+print $integer
+print $text
 """,
-    status: 2,
-    stderr: ["[check.local-inference]"],
   )?
+  assert output.success, output.stderr
+  assert output.stdout == "5\n6\n"
+}
+
+test test_typing_generic_body_allows_activation_local_mutation_and_independent_calls { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure replace(row) {
+  var value = row.value
+  value = row.replacement
+  value
+}
+let number: Int = replace({value: 1, replacement: 2})
+let word: Str = replace({value: "old", replacement: "new"})
+assert number == 2
+assert word == "new"
+print $number
+print $word
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\nnew\n"
 }
 
 test test_typing_generic_body_keeps_host_ambiguity_and_effect_rejections { |ctx|

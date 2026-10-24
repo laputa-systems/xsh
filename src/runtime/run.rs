@@ -10,6 +10,20 @@ use crate::source::Span;
 use crate::syntax::node::RunKind;
 use std::sync::Arc;
 
+pub(crate) enum RunErrorBoundary {
+    Capture { kind: RunKind, propagate: bool },
+    Pipeline { head: RunKind },
+}
+
+impl RunErrorBoundary {
+    pub(crate) fn propagates(&self, accepted_exit_codes: bool) -> bool {
+        match *self {
+            Self::Capture { kind, propagate } => propagate || (matches!(kind, RunKind::Plain | RunKind::Status) && accepted_exit_codes),
+            Self::Pipeline { head } => matches!(head, RunKind::Plain | RunKind::Status) && accepted_exit_codes,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RunExecution {
     pub value: Result<Value, RuntimeError>,

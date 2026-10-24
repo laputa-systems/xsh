@@ -88,6 +88,147 @@ reconstruction and AST validation were reproduced for this audit: 1,040 removals
 recorded original and reduced digests above. No checker or runtime execution
 was performed in this follow-up.
 
+The frozen paired adapter accepts an explicit compiler product pair:
+
+```sh
+bash dev/performance/corpus/check_views.sh --frozen \
+  "$COMPILER_ROOT" "$COMPILER_REV" \
+  "$XSH_ROOT" ddc17d3d53c819c343f9ecaa738ac67d59e9033a \
+  "$LAPUTA_ROOT" ca658ce1da9d89c55209c25268dfdf687ff4fdc6 \
+  "$XSH_PRODUCT" "$XSHT_PRODUCT" "$XSH_SHA256" "$XSHT_SHA256" \
+  "$RETAINED" "$VIEWS" \
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes'
+```
+
+All source roots must be clean checkouts at their specified revisions. Products
+must reside under the compiler checkout's `.work/`. The retained table and views
+must reside under the invoking checkout's `.work/tmp/`. `VIEWS` contains
+`original/{xsh,laputa}` and `reduced/{xsh,laputa}`.
+
+The adapter reconstructs the accepted views with the witness-fixture correction
+and validates their frozen digests through `frozen_witnesses.py`. It reconstructs
+the candidate from the supplied retained table and compares both complete trees.
+The candidate may erase selected Proc parameter and return contracts from the
+accepted retained table. Every other retained row, including its reason, stays
+unchanged. All 202 effect clauses remain retained in this tranche.
+
+The adapter checks ten XSH roots and Laputa `pm/plan_json.xsh` in both views.
+Repeat `--selector PROJECT SELECTOR` for each affected behavior, where `PROJECT`
+is `xsh` or `laputa`. Each selector must pass exactly once with zero skips in
+each view. Source and product checks run before and after execution. The single
+selector above illustrates invocation; it does not qualify the whole cohort.
+Adapter tests use controlled products and earn no compiler or removal credit.
+
+The adapter compares checked interfaces across the same eleven root entries.
+It runs `xsht check --compare-with ORIGINAL_ROOT --candidate-root CANDIDATE_ROOT PATH...`
+from each reduced project root. One invocation compares the ten XSH roots. The
+other compares Laputa `pm/plan_json.xsh`. Each invocation must exit successfully
+without an error diagnostic. It must emit exactly one stdout line in this form:
+
+```text
+xsht check interface qualification: N callable, M CLI
+```
+
+At least one count must be nonzero for each project. The callable count reports
+unique merged callable declarations. The CLI count reports unique merged CLI
+parsing declarations. The adapter rejects a nonzero command status, an error
+diagnostic, and missing, duplicate, malformed, or zero-count summaries. After
+either comparison succeeds or fails, the exit guard rechecks the source
+revisions, product hashes, and both complete accepted view trees. It preserves
+the comparison's status if a guard also fails. Besides callable and CLI parsing
+interfaces, the comparison checks captured registered-operation selections,
+published elaborations and concrete per-declaration effect summaries. The
+stdout counts describe interfaces only. Built-in operator selections and
+symbolic callback-effect relations are not yet captured. Paired runtime
+selectors separately check their asserted behavior; help-text checks retain
+their own scope.
+
+Run the controlled frozen-adapter tests with
+`XSH_LAPUTA_CORPUS="$LAPUTA_ROOT" python3 dev/performance/corpus/test_check_views.py`.
+The tests check command roots and entries, rejected results, and cleanup guards.
+They do not build or qualify compiler products.
+
+### Proposed 758 Proc paired-behavior selection
+
+This source-reviewed list identifies exact selectors for a paired run of the
+proposed 758 Proc-signature view against the original through the frozen adapter.
+The list is not an execution result and earns no parity or removal credit. The
+accepted 1,040 evidence above remains historical. It records the R9 paired
+selection and the targeted `meminfo_issue` witness. Those executions do not
+count as runs of the proposed 758 view, even when a selector overlaps. All 21
+selector names below were checked against exact test definitions in the frozen
+original tree.
+
+Replace the sample selector pair in the frozen adapter command above with the
+pairs below. Each line is an argument-list fragment, not a standalone command.
+Combine the lines with the existing `--frozen` command. The adapter runs each
+selector once in each view.
+
+The `wc` selectors reach `posix_mode`, `read_file`, `files0_input`,
+`count_input`, and `count_one`. The `cut` selectors reach `bound`, `ranges`, and
+`charset`. The `tr` selectors reach `warnings`, `parse_set`, `set_error`,
+`repeat_count`, and `validate_classes`. The `date` selectors reach `parse_date`,
+`date_parse.relative`, `format_date`, `format_text`, `format_directive`,
+`format_nanoseconds`, and `locale_name`:
+
+```text
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes'
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_files0_processes_each_name_before_list_eof'
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_words_follow_unicode_white_space_unless_posix'
+  --selector xsh 'core/tests/test-cut.xsh::test_cut_keeps_adjacent_range_boundaries'
+  --selector xsh 'core/tests/test-cut.xsh::test_cut_unicode_field_delimiter'
+  --selector xsh 'core/tests/test-tr.xsh::test_tr_octal_warning_preserves_gnu_layout_and_precedes_set_errors'
+  --selector xsh 'core/tests/test-tr.xsh::test_tr_repeat_leaves_room_for_suffix_and_rejects_misaligned_classes'
+  --selector xsh 'core/tests/test-date.xsh::test_date_negative_relative_offset'
+  --selector xsh 'core/tests/test-date.xsh::test_date_format_modifiers_and_width_bounds'
+```
+
+The identity selector reaches `collect_identity`. The CPU selector reaches
+`collect_cpu`, `read_cpu_info`, `collect_frequency_policies`, and
+`read_effective_cgroup_cpuset`. The meminfo and cgroup selectors reach
+`collect_memory`, `read_value`, and `collect_cgroups`. The storage selector
+reaches `collect_storage`. The sensor and power selector reaches
+`collect_sensors` and `collect_power`. The process selector reaches
+`collect_processes` and `read_process`. The USB selector reaches `collect_usb`.
+The network-device selector reaches `link_network_device_sources`. The capture
+selector reaches `capture_metadata_bytes`, `replay_mountinfo_bundle`,
+`encode_replayed_report`, and the production storage collector:
+
+```text
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_live_collection_uses_explicit_root_and_redacts_by_default'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_memory_reports_malformed_and_oversized_meminfo_fields'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_sensor_units_and_powercap_ranges_are_bounded'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_process_collection_scales_pages_and_omits_private_sources'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_network_device_links_keep_absence_separate_from_failures'
+  --selector xsh 'dev/tests/test-system-report-check.xsh::test_system_report_mountinfo_capture_replays_production_storage_collector'
+```
+
+The plan JSON selector reaches `plan_json_write_dto`, `plan_json_from_dto`,
+`plan_json_node`, and `plan_json_dependency`. The recipe selector reaches
+`decode_filetree` and `decode_filetree_entry` for path validation:
+
+```text
+  --selector laputa 'tests/pm/pm_plan.xsh::test_build_plan_json_round_trip_and_detects_corruption'
+  --selector laputa 'tests/pm/pm_recipe.xsh::test_recipe_rejects_parent_filetree_traversal'
+```
+
+The plan JSON round-trip uses an empty remote snapshot. It does not exercise
+`plan_json_remote` or non-null remote retrieval serialization. The
+network-device test checks fixture symlink resolution. It does not exercise
+`collect_network` or live host network collection. The identity test also uses a
+temporary root. The dev selector covers mountinfo capture and replay. It does
+not cover dev CLI dispatch, gates, stage execution, or cargo orchestration.
+
+The `pm/generation.xsh` JSON selector in the practical current-source extension
+tests `GenerationPlanDto`. It does not exercise Laputa `pm/plan_json.xsh`. The
+extension's `sort` and `awk` selectors are unchanged by proposed 758. They are
+excluded from this proposed 758 selection only. Their practical-extension
+results do not qualify the proposed frozen view.
+
 The practical current-source extension has two paths. `check.sh` remains a
 behavior-only check for the XSH utility roots, `wc`, `sort`, `awk`, and Laputa
 plan and generation modules. `inventory.sh`, `prepare_views.sh`, and
@@ -115,21 +256,137 @@ to test the adapter's qualification guards and exact-output parser.
 
 The denominator remains the frozen 9,194-site inventory at `15243e97`. Its
 1,843 retained eligible rows are the exact `retained.tsv` at that checkpoint;
-the current 877 table is not a substitute. The rows include 758 Proc signature
-restrictions (549 non-default parameter types and 209 explicit non-Unit
-returns), 149 purposeful empty-Map annotations, the local annotation at site
-3598, and 202 private effect clauses. The 149 empty Maps preserve the requested
-distinction between a Map and an empty record. Site 3598 is a local type
-annotation for a nonempty Map literal; the eligibility inventory records it as
-`eligible-local`, and its source evidence says erasure leaves an unchecked
-dynamic Record. It is a local Map-selection requirement. The accepted 1,040
+the current 877 table is not a substitute. The rows include 758 historically
+retained Proc annotations (549 non-default parameter types and 209 explicit
+non-Unit returns), 150 local Map selectors, two `replace` ambiguity controls, one
+interpolation observation, 17 source-context observations, 713 rows with
+historical diagnostics only, and 202 effect clauses. These classes partition
+the denominator:
+
+| Retained class | Rows | Evidence and current status |
+|---|---:|---|
+| Historical Proc inference frontier | 758 | The checker at `15243e97` retained these parameter and explicit value-return annotations. They are an in-scope implementation frontier for the current campaign, not a permanent annotation floor; classify intentional contracts separately from missing inference. |
+| Local Map selector | 150 | 149 annotations select a Map for an empty literal; site 3598 selects a Map for a nonempty literal. The exact type annotation remains in the existing witness output. |
+| `replace` ambiguity control | 2 | The `Str` receiver distinguishes string replacement from Regex replacement; retain as negative controls. |
+| Interpolation observation | 1 | The body uses the parameter only in interpolation; whether a generalized display relationship suffices remains open. |
+| Source-context observations | 17 | The source shapes below are known; the cause for each retained annotation remains open. |
+| Historical diagnostics only | 713 | Diagnostic families and source shapes identify the old failure context, not the missing inference relationship. |
+| Joint effect proof pending | 202 | All clauses remain in the source; individual lint suggestions do not prove simultaneous removal. |
+| **Total** | **1,843** | |
+
+With source-qualified `654fe6e99` products, erasing all 202 effect clauses alone
+passes checks of `core/date.xsh` and `core/lib/system_report_live.xsh`.
+Adding fourteen Proc annotation erasures from the broader candidate makes
+both roots fail with unresolved Proc contracts and downstream unknown-effect
+diagnostics. The two local helper chains also pass when only their effect
+clauses are erased. These checks separate that Proc interaction from a
+standalone effect-summary failure; they earn no joint removal or runtime credit.
+Raw results are under
+`.work/wt/full-inference-effect-corpus/.work/tmp/effect-propagation-isolation-654-r2/runs-r2/`.
+
+### Bounded 20-site source relationship review
+
+`frozen_witnesses.py` identifies twelve Proc sites in this sample: 94, 95, 97,
+102, 104, 106–109, 111, 112, and 121. It identifies eight effect sites: 96,
+100, 103, 110, 120, 124, 135, and 439. The first nineteen sites are in
+`xsh/core/wc.xsh`. Site 439 is in `laputa/pm/plan_json.xsh`. This sample records
+source relationships and supports no cause or removal claim.
+
+The `wc.xsh` sites form one source-level helper chain. `main` calls
+`number_width` at line 656 and `posix_mode` at line 665. It calls
+`files0_input` at lines 639, 693, and 706. `count_one` calls `count_input` at
+line 497 and `write_streamed_line` at line 522. `main` calls `count_one` at
+lines 693, 706, and 710. `count_input` calls `read_file` at line 432.
+`number_width` consumes `List[Input]` and `Shown`, then returns a width used
+for output. `count_input` returns `InputResult`, whose fields `count_one` reads.
+`files0_input` constructs `Input` records that flow into the same loop. This
+review did not authenticate the lexical references as resolved declaration
+edges.
+
+The effect sites separate direct operations from called capabilities.
+`posix_mode` reads `POSIXLY_CORRECT` through `env.get`. `read_file` calls
+`Path.read_bytes` and `Path.bytes_lines` with `?`. `files0_input` calls
+`gnu.quote_maybe` on its diagnostic path, and that imported function has an
+`env` effect. `count_input` reads stdin and calls `read_file`; its `io` effect
+also covers `env` under SPEC 9.6. `write_streamed_line` writes and flushes
+output, while `count_one` combines it with `count_input`. `number_width` reads
+`Path.metadata` inside `if let Ok`, so its `fs` effect has a direct source
+operation and its `error` effect remains a negative inference control. These
+source facts do not establish whether a retained clause is an intentional
+capability contract.
+
+Three bounded annotation-pair probes against the matching `a57c981` source and
+products tested representative relationships. These results are diagnostic
+for that pair only. For `read_file`, both forms checked and revealed
+`Result[Bytes, Error]`; both preserved the caller's `?`, printed `4` for the
+same input, and rejected a pure caller. This demonstrates inference in the
+reduced body, not whole-`wc` equivalence. For `files0_input`, the erased effect
+clause still propagated the imported `gnu.quote_maybe` `env` effect: a caller
+restricted to `[error]` was rejected in both forms. The return pair differed:
+the annotated call revealed `Record`, while the erased call revealed
+`Result[Record, Error]`; direct field access succeeded only for the annotated
+form. Site 111 is therefore a current
+source meaning/elaboration selector, not evidence of a missing inference
+relationship. SPEC 9.3 says a private proc's plain value tail defaults to
+`Result[T]`, while an explicit `-> Input` preserves the direct record result.
+Deleting this annotation alone changes the return contract. The 209 retained
+Proc return annotations split into 170 outer `Result[...]` types and 39 plain
+value types. The plain types include aliases to records: `InputResult` at site
+121 resolves to the record declared in `core/wc.xsh`, and
+`collectors.SourceRead` at site 2061 resolves through
+`core/lib/system_report_collect.xsh` to the record in `core/lib/sys_source.xsh`.
+Under SPEC 9.3, these explicit plain return types select a direct value result
+where an inferred Proc value tail has a `Result[T]` envelope. This class is a
+source meaning/elaboration selector, not a missing inference relationship. It
+does not establish author intent or make plain return annotations an
+immutable floor. Site 110's `env` edge is independently inferable in this
+reduced probe, which does not classify the entire effect cohort.
+
+A separate diagnostic on compiler source `f87c6d69` used the canonical
+1,843-row retained table, so it included only the historical 1,040 removals.
+The original roots and first nine utility selectors passed; the reduced XSH
+root check then failed with seven diagnostics: one list-splice error at
+`cut.xsh` site 168, one `RecoveryType` error for `date_parse.xsh`'s `multiply`
+at sites 738–740, two `stream-sort` errors, and three indexed-build errors.
+The candidate retained all 758 Proc annotations and 202 effect clauses. The
+765 and 1,501 diagnostics from more-erased views are not independent counts of
+causes and cannot be attributed wholesale to the additional 719 Proc and 202
+effect erasures. This diagnostic ran no reduced selectors, Laputa checks, or
+interface comparisons and earns no removal or parity credit; the frozen
+9,194-site denominator and accepted 1,040 table are unchanged.
+
+For site 439, the reduced `plan_json_remote` pair checked with and without its
+annotations, the caller's `?` worked in both forms, and both printed the same
+target. Revealed output was `Result[Record, Error]` in both forms. This confirms
+the reduced structural result shape but does not prove nominal
+`RemoteRetrieval` identity or author intent. None of these probes is a full
+practical-root comparison or removal credit; remaining sample relationships
+stay unclassified until evidence establishes them.
+
+For the 149 empty Maps, the annotation bytes encode 145 single-argument forms
+and four explicit key/value forms.
+[XSH Map type syntax](SPEC.md#45-lists-maps-and-records) defines `Map[V]` as
+`Map[Str, V]`; the four two-argument forms use three `Str` keys and one `Int`
+key. Site 3598 is `Map[Str]` on a nonempty literal,
+also meaning `Map[Str, Str]`. Nineteen other retained parameter annotations
+are Maps: ten Proc parameters already counted among the 758 Proc rows, and
+nine pure-function parameters in the 713 diagnostic-only rows. These source
+shapes preserve Map-versus-record and key/value meaning; they do not show that
+a future inference rule could not select the same type. The frozen retained
+reason for site 3598 says erasure leaves an unchecked dynamic Record; that
+historical reason is not a current qualification result. The accepted 1,040
 README at `15243e97:dev/consolidation/typing-corpus/README.md` gives the source
 context.
+The current source records assign no historical diagnostic-only row to absent
+information, higher-rank use, or a missing in-scope relationship. Those causes
+remain unassigned within the 713 rows; the 17 source-context rows and site 2850
+also remain open, and no effect clause has joint-removal credit.
 
 Source review gives specific context for 19 retained sites. Of these, 17
-remain pending cause review; sites 3599 and 3665 are semantic restrictions
-described below. Site 2850 is classified separately as unavailable
-information. Site 2483 is `cgroup_maximum`'s `SourceRead` parameter.
+remain pending cause review; sites 3599 and 3665 are `replace` negative
+controls described below. Site 2850 is classified separately as an
+interpolation-only source observation pending contract review. Site 2483 is
+`cgroup_maximum`'s `SourceRead` parameter.
 Its body reads `source.observation.state` and `.value`, then passes `source` to
 `collectors.bounded_number`. The frozen retained reason says the inferred field
 shape disagrees with the original `SourceRead` schema. These facts identify a
@@ -140,16 +397,20 @@ inference chooses a different shape and, if so, why. Sites 2332, 2543, 3406,
 whether those joins should infer an Optional remains unresolved. Site 2285
 retains `MonitorBattery` field context, and site 6338 depends on a later USB
 endpoints producer; source order and intended context have not been separated
-from an inference limitation. Sites 973 and 3914 need nominal enum return
-context, but the evidence does not establish that inference should choose a
-variant without that context. Sites 9111 and 9112 are outside the checked
-membership body grammar, which records a capability boundary without proving
-that the annotations are semantically unnecessary. Keep these 17 sites pending
-with those source facts attached. Sites 3599 and 3665 need a Str anchor for
+from an inference limitation. Sites 973 and 3914 carry nominal enum return
+annotations. Site 973 constructs the `InvalidCpuList` variant; site 3914 uses the
+shorthand `.Invalid`, whose spelling appears in several nominal error families
+in the frozen source. That lexical difference does not establish whether either
+return annotation is needed for selection. Sites 9111 and 9112 use enum
+membership operands with typed call-site arguments, but the body shape does not
+identify which relationship is missing. Keep these 17 sites pending with these
+source shapes attached. Sites 3599 and 3665 need a `Str` anchor for
 `replace`, which also accepts Regex; the accepted negative-control contract
 requires this call to remain ambiguous without local evidence, so these two are
-semantic restrictions. Site 2850 is an unavailable-information case: its
-parameter is used only in interpolation, which does not constrain its type.
+negative controls. Site 2850's parameter is used only in interpolation in the
+observed body. That source fact does not establish that the parameter needs a
+ground type; a safe generalized variable with a sealed display relationship
+may satisfy the contract. Keep the site pending until that contract is tested.
 
 The 730 checker-restored rows split into 17 with source facts but unresolved
 causes and 713 with diagnostic-family evidence only. Removing 150 Map-selection
@@ -189,6 +450,32 @@ A historical diagnostic identifies where that earlier erasure failed. It does no
 whether the missing fact is unavailable, a semantic restriction, or a specific
 inference relationship. Keep these 713 rows pending source-level witnesses;
 do not assign a cause from the code alone.
+
+The validator's `source_shape` column groups sites by frozen owner and fixed
+lexical cue priority. These labels summarize source structure; they do not say
+that an annotation supplies a missing relationship or that inference should
+select one.
+
+| Source-body shape | Sites | Owner declarations |
+|---|---:|---:|
+| Coupled parameter and return annotations | 330 | 131 |
+| Mixed iteration, join, construction, or match cues | 116 | 89 |
+| Optional or row join cues | 80 | 55 |
+| Iteration or collection cues | 64 | 40 |
+| Record or variant construction cues | 39 | 16 |
+| Typed call or method cues | 38 | 29 |
+| Operator, member, or index cues | 17 | 8 |
+| Format interpolation cues | 13 | 4 |
+| Variant match cues | 7 | 7 |
+| Empty collection initializer | 8 | 8 |
+| Other typed initializer | 1 | 1 |
+
+These counts partition all 713 rows and 388 owner declarations. The 17
+source-context rows have their own shape partition: ten nullable branch joins;
+one each for an empty-list accumulator, later-produced nullable record state,
+schema projection with typed call, single visible variant spelling, and shared
+variant spelling; and two enum-membership operand sites. Those shapes keep the
+source distinctions inspectable without changing their pending status.
 
 Source review against R12 (`55032a7ee`) reconciles the two largest families.
 These are historical diagnostic groups, not annotation kinds or current failures:
@@ -365,7 +652,20 @@ grant clause-removal credit.
 TSV's call-site column records written call spellings, not checker-resolved
 dependencies. Those spellings contain no direct calls between two of the 60
 target names, but that lexical result does not rule out aliases or paths through
-other functions. No joint component or cycle is established by this query.
+other functions. For navigation, the validator also matches unqualified
+spellings from those 60 fact rows against the 202 frozen effect-clause owner
+names in the same file. It finds 42 distinct caller-to-owner spelling
+candidates whose target names belong to owners without an R6 fact. Their
+202-node candidate graph has 164 components: 157 singletons, four pairs, and components of sizes
+three, nine, and twenty-five. The
+`effect_spelling_candidate_component` field identifies these groups. The
+other 142 owners have no call-site fact rows; some are candidate targets of
+these spellings, and the rest are singleton nodes because their outgoing calls
+are unobserved. A same-file spelling can be
+shadowed or aliased, so these are navigation candidates, not confirmed edges or
+complete dependency components. They establish no cycle and do not narrow the
+all-202 joint proof group. The lexical scan still finds no direct call between
+two of the 60 fact owners.
 `compare_live_identity` at line 21766 shows source operations that account for
 its required filesystem, time, process, and error effects. `pm/plan.xsh`'s
 `require_supported_target` returns `Err` without propagating it, which matches
@@ -456,22 +756,295 @@ establishes none. The exact list of the 142 historical lint findings is at
 `15243e97` in
 `dev/consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv`.
 
-The accounting is 910 semantic restrictions/selections (758 Proc contracts,
-149 empty Maps, site 3598, and the two ambiguous `replace` receivers), one
-unavailable-information site, 730 checker-restored rows pending cause review,
-and 202 pending effects: 1,843 retained eligible sites. This classifies 911
-sites from direct source evidence; the other 932 remain pending. Of the 730
-checker-restored rows, 17 have the source facts above but unresolved causes; the
-other 713 have diagnostic-family evidence recorded in the retained table.
+The accounting is 910 source and selection records (758 historically retained
+Proc annotations, 149 empty Maps, site 3598, and the two `replace` negative
+controls), one interpolation-only source observation pending contract review,
+730 checker-restored rows pending cause review, and 202 pending effects: 1,843
+retained eligible sites. The 17 source-context records and 713
+diagnostic-family records remain pending; none is excluded from future
+capability rechecks.
 
-The frozen local target cannot be reached while preserving the 149 required
-empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
-removed, even if every other retained local became inferable. The 758 required
-Proc signatures cap internal removals at 1,432 of 2,190 (65.39%), below 85%;
-retaining all 202 effect clauses pending joint proof lowers that ceiling to
-1,230 of 2,190 (56.16%). These ceilings preserve the frozen denominator and
-make the existing 95% local and 85% internal goals unattainable under the
-established contract restrictions.
+### Private effect ceiling source classes
+
+This source review keeps the exact 202 effect sites and the existing
+`all-202-effect-clauses` proof group. It assigns no removal credit. The
+historical evidence partitions into 142 individual lint candidates and 60
+without a suggestion. Those 60 comprise ten Laputa helpers, 38
+`compare_live_*` helpers, and twelve other sites. Of the 38 comparisons, 37
+share the required set `[error,fs,process,time]`; site 8277,
+`compare_live_processes`, also requires `env`. Site 8274,
+`compare_live_cpu_sets`, belongs to the 142 historical candidates.
+
+The frozen source supports these more specific relationships:
+
+- Sites 3640, 3644, 3652, 3656, 3660, and 3671 are the six private tour renderers.
+  `item_html` calls `blocks_html`, which calls `block_html`, which calls
+  `item_html`. This three-function cycle also reaches `code_html` and then
+  `xsh_html`. The latter writes a source file, invokes the highlighter, and
+  propagates errors. `page_html` calls `block_html`. The `Highlighter` fields
+  are paths, and these calls refer to the same-file declarations without
+  local callable substitutions. Their filesystem, process, and error
+  relationships have body operations that anchor them; a generic callback
+  ceiling does not account for this group. These source calls supplement the
+  incomplete spelling graph above. Joint inference and interface comparison
+  remain required.
+- Laputa sites 439, 8311, 8337, 8350, 8376, 8414, 8460, 8508, 9071, and 9145
+  transform typed data, sort or hash in-memory bytes, or construct returned
+  errors. Their bodies contain no host operation or `?` propagation. For
+  example, `absolute_recipe_package` constructs a path without accessing the
+  filesystem; `require_supported_target` returns an error as data. These are
+  fixed-body effect-summary candidates with surplus declared permissions,
+  not evidence of an unknown callback effect. Keep the Proc kind and Result
+  behavior in their comparisons.
+- The 38 comparison helpers call concrete filesystem, process, and clock
+  operations and return through `validate_and_run`'s explicit exported
+  contract. Their printed diagnostics alone do not require `io`. The R6
+  facts have no unknown call chain. A decision about their surplus `io`
+  permission needs a joint interface comparison; an absent lint suggestion
+  does not establish a missing inference relationship or an intentional
+  generic capability restriction.
+
+The remaining twelve sites need the following distinctions:
+
+| Sites | Source relationship and remaining question |
+|---|---|
+| 96, 2552, 6434, 6486 | Filesystem results are handled or returned as data; the R6 body requirements contain `fs` without outward `error`. Distinguish returned failure data from propagation before deciding whether the extra declared permission is intentional. |
+| 120, 124 | `io` covers the differing `env` and `process` entries. Compare permission coverage as well as written sets; this difference alone is not an effect-inference failure. |
+| 592 | `size_is_reached` actually calls file-backed `bytes.read_at`. The old empty R6 requirement is a mapping defect, not a pure-body witness. Current `Effect::from_module_call` maps that operation to `fs`; transfer to the combined product still needs checking. |
+| 668 | `tab_error` calls the `[process]` `gnu.error` and exits. The extra `env` has no direct body source in this helper; retain the declared-contract comparison as migration work. |
+| 2564 | `collect_network` uses `linux.network_dump` and rooted filesystem collection. The R6 set is `[error,fs,process]`; the extra declared `env` needs contract review, not a guessed generic-effect explanation. |
+| 3259 | `execute_with` consumes command data and calls `process.run`. Its public wrappers and `StageRunner` module contract retain their explicit bounds. That separate interface promise does not classify this private ceiling as a generic callable restriction. |
+| 8044, 8300 | JSON propagation or fixture filesystem/process work accounts for the listed body effects; printing alone does not explain the extra `io`. Keep their permission and failure behavior in the joint comparison. |
+
+Effect site 2421, `collect_cpu`, has a separate body-publication prerequisite.
+A focused checker diagnostic at source `075882e1d`, using a byte-confirmed
+copy of the frozen reduced source, finds its first unsupported child at
+`system_report_live.xsh:2879`:
+`root.children(cpu_path, max_entries: 256)`. The result is already a closed
+Result of the directory-listing record and Error, but the call has neither
+checked-operation nor registered-call evidence. The later `linked_cpus`
+collector is not the observed first failure. This witness directs review to
+the known FsRoot call's publication authority; it does not demonstrate a
+missing effect summary or a necessary effect ceiling. It remains diagnostic
+evidence pending the combined compiler qualification.
+
+A genuine generic ceiling constrains a callable effect parameter. The existing
+`explicit_recursive_effect_bounds_accept_pure_and_empty_proc_callbacks`
+control has a recursive `left`/`right` pair whose explicit `[]` accepts pure
+and empty-effect callbacks and rejects an `io` callback. This review identifies
+no such restriction at a site in the frozen 202. The concrete `StageRunner`
+and `SystemReportModelEncoder` module contracts remain interface or schema
+annotations outside this class; their meaning cannot be assigned to an
+adjacent private clause. Opaque invocation, missing resolved effect evidence,
+and migration failures remain open wherever an actual witness establishes
+one.
+
+These source classes do not change the accepted 1,040-site boundary, the 149
+empty-Map selectors, or the 39 Proc return-wrapper selectors. In particular,
+effect site 96 and `number_width`'s explicit return site 97 are different
+contracts. Historical lint equality and the two-root effect-only checks above
+are not current joint qualification of the nullable-target and collector
+changes. Reuse the existing joint checker, lowering, interface, and native
+owners with their next matching source/product pair; no new solver or effect
+registry follows from this review.
+
+### Semantic joint candidate
+
+The current joint proposal retains the 39 plain Proc return selectors, removes
+the other 719 historically retained Proc annotations and all 202 effect clauses,
+and restores four annotations removed in the historical 1,040 view:
+
+| Site | Frozen source | Preserved return contract |
+|---|---|---|
+| 17 | `core/wc.xsh::byte_count` | `ByteCount` UInt fields and return schema |
+| 20 | `core/wc.xsh::add_bytes` | `ByteCount` UInt fields and return schema |
+| 79 | `core/wc.xsh::count_data` | `Counts` UInt fields and return schema |
+| 82 | `core/wc.xsh::add_counts` | `Counts` UInt fields and return schema |
+
+The matching `4de7c99e4` historical replay reaches all original and reduced root
+checks and 21 selectors in each view, then fails interface qualification. These
+four erased returns change UInt fields into inferred arithmetic results and lose
+their return schemas. They are meaning selectors for this proposal. Other
+interface mismatches, including identical printed nullable outputs, remain under
+comparison review; this profile adds no guessed nullable-output retainers.
+
+`frozen_witnesses.py FROZEN_VIEWS --prepare-semantic-candidate` produces the new
+retained table from validated `original` and `reduced-1040` views. The existing
+`cohort.py` and `validate.py` consume it without changing frozen source bytes,
+inventory, or denominators. Candidate validation permits only the complete four
+WC restorations with their explicit reasons; original retained reasons remain
+unchanged, and effect removal still selects zero or all 202 clauses.
+
+The generated table has 926 retainers: 194 local and 732 internal. Its source
+view has 1,957 proposed removals: 499 of 693 locals and 1,458 of 2,190 internal
+sites. Relative to the historical table, it adds 921 erasures and restores four
+annotations. The historical 1,843 retainers and accepted 1,040 removals are not
+revised. All 149 empty-Map selectors, the additional Map-literal selector, the
+39 plain Proc returns, and the remaining checker-restored classes retain their
+source. Missing in-scope inference remains open work.
+
+The candidate table and all 48 transformed source files validate; comparison
+with the existing `compare_tree.py` confirms the original copy is unchanged.
+Matching `4de7c99e4` interface-only attempts select ten XSH entries and Laputa's
+`pm/plan_json.xsh`, and both exit 2 before a qualification summary. The XSH
+attempt stops at `core/wc.xsh:445` in `count_input`:
+`counted ?? count_data(data, shown, posix, utf8)` cannot be lowered through the
+supported generic projection path. The Laputa attempt reports 204 checker
+diagnostics, beginning with the unannotated `validate_positive_release` body
+in `pm/recipe.xsh`; the later unresolved calls and material-type errors include
+cascades. These are diagnostic totals, not independent cause counts.
+The comparison loader labels candidate byte overrides with original source
+paths. Those path labels alone do not establish which preparation phase failed.
+
+Both container completions and cleanup were consumed. Source revision, product
+hashes, and source-view bytes match their preflight guards afterward. Neither
+project is interface-qualified by these attempts. The XSH generic-body
+relationship remains inference work. The Laputa diagnostics need source-cause
+review; this profile does not classify them as intentional retainers. These
+results grant no new removal, behavior, or paired-corpus credit.
+
+### Build source witness records
+
+`dev/performance/corpus/frozen_witnesses.py` reads the eligibility, retained,
+inventory, and 142-site effect tables from commit `15243e97`. It joins those
+tables to the R6 facts for the other 60 effect clauses. It fails if the frozen
+counts, site identities, or effect partition change.
+
+Pass the root containing the supplied `original` and `reduced-1040` views. The
+tool first runs the existing `view_digest.py` helper and requires the accepted
+14,287-entry view digests recorded above. It then compares every path and byte
+in both trees against the accepted 1,040 edits in memory. This rejects changed
+views, including matching edits to both trees. The tool then checks every
+retained annotation and its owner bytes at the shifted offset in each view.
+Source paths stay inside `xsh` or `laputa`. The tool rejects symlinks in
+selected source paths. It writes one minimal source record per retained site
+and does not edit either view.
+
+```sh
+VIEWS=/path/to/perf-effect-facts-r6/.work/tmp/effect-facts-r6
+PYTHONDONTWRITEBYTECODE=1 python3 dev/performance/corpus/frozen_witnesses.py \
+  "$VIEWS" > "$PWD/.work/tmp/f1-retained-witnesses.tsv"
+```
+
+The output selects 549 Proc parameter contracts and 209 explicit Proc returns
+by exact source site. It selects all 202 private effect clauses in one joint
+group. The group contains 142 historical individual lint findings and 60 R6
+source-fact rows. Neither evidence kind proves a joint effect removal. The
+remaining records split into 149 empty-Map literal selectors, one nonempty Map
+selector at site 3598, two `replace` negative controls, one interpolation-only
+parameter at site 2850 pending contract review, 17 source-context rows, and 713
+rows with historical diagnostic evidence only. The `source_shape` field groups
+the 17 source-context rows and the 713 diagnostic-only rows by source
+structure. The effect component field records only the spelling candidates
+described above; it does not resolve calls or change the all-202 joint group.
+
+These are source observations and witness selections. The 758 Proc rows remain
+in scope for capability-specific rechecks under the current inference rules.
+The 17 source-context rows still need cause review, and the 713
+diagnostic-only rows remain unclassified by cause. A historical diagnostic
+family does not establish why an annotation stays. The site records earn no
+removal or behavior-equivalence credit.
+
+Run the focused Python tests with:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 dev/performance/corpus/test_frozen_witnesses.py
+```
+
+The tests check the accepted denominator and effect partition, both source-shape
+partitions, the spelling-candidate graph counts, source review classification
+boundaries, exact span shifting, overlap rejection, path containment, and
+rejection of lockstep source-view mutation. They do not run a compiler or native
+test.
+
+The foundation receipt remains the planning evidence in
+`full-inference-campaign.md`. It records one pass with no failures or skips for
+`tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_and_open_record_projection`
+and for
+`tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable`.
+The second test preserves the old rejection as a frontier control. F1 did not
+rerun either foundation probe or build compiler products. The reference probes
+below use the combined-55032 canonical verification products.
+
+### Combined-55032 canonical baseline probes
+
+`dev/performance/corpus/witnesses/` keeps annotated and one-annotation-erased
+forms with the same bodies and calls. These paired probes add no corpus rows or
+removal credit. Each annotated form passed `xsht check` and normal `xsh`
+execution. The membership element and list erasures share one annotated
+control. `constructor-unique` and `constructor-shared-invalid` each have
+annotated and erased forms; `membership-element.annotated.xsh` is paired with
+each single-parameter membership erasure. `constructor-unique-qualified.xsh`
+is an explicit-family control. The erased results on the combined-55032
+canonical products were:
+
+| Retained source class | Erased check result | Successful output |
+|---|---|---|
+| Null/concrete return join | Passed; output matched the annotated form. | `7`, then `-1` |
+| Site 2850 interpolation-only parameter | Exit 2: `check.display-conversion` and `check.local-inference`. The inferred value needs an annotation for display, and the generic pure body fails the current local-inference rule. | `meminfo.MemTotal` |
+| Recursive pure parameter | Passed; output matched the annotated form. | `4` |
+| Recursive pure return | Exit 2: `check.required-return`; recursive pure `recursive_return` requires an explicit return annotation. | `4` |
+| Empty-List accumulator | Passed; output matched the annotated form. | `3 3 5 8` |
+| `SourceRead` parameter | Exit 2: `check.type-mismatch` at the `cgroup_maximum(source)` call. | `8` |
+| `SourceRead` structural-row alias | Passed and matched the `SourceRead` output. | `8` |
+| Site 973, unique `.InvalidCpuList` | Exit 2: `check.inferred-variant`: `.InvalidCpuList` has no expected enum or error-family type to select from. Cascades include `check.infer-return` and `check.field-access`. | Annotated stdout `b'invalid CPU list\n'`; erased form not run. |
+| Site 3914, reused `.Invalid` | Exit 2 with the same `check.inferred-variant` message as the unique label, plus `check.infer-return` and `check.field-access`. No separate ambiguity diagnostic. | Annotated stdout `b'invalid input\n'`; erased form not run. |
+| Site 9111, membership element | Passed after erasing `kind: DependencyKind`, with `kinds: List[DependencyKind]` retained; output matched. | `b'selected\n'` |
+| Site 9112, membership list | Exit 2: `check.membership-type` (“membership requires List, Set, Map, Record, Str, Bytes, Path, or env.PATH”) and `check.local-inference` after erasing `kinds: List[DependencyKind]`. | Not run after check failure. |
+
+The `SourceRead` structural-row case preserves the field reads and call to the
+typed `bounded_number` helper. It shows that this explicit row shape composes
+with the helper in this probe; it does not resolve the historical source site's
+cause. Site 2850's display failure does not show that a concrete parameter type
+is required. A later inference contract may generalize that parameter. These
+probes report compiler behavior and do not establish why historical source
+sites retain annotations. Keep the source classifications diagnostic-only;
+they establish no removal or behavior-equivalence credit.
+
+The two nominal probes use one family with a single `InvalidCpuList` label and
+two families that both declare `Invalid`. The erased forms fail with the same
+primary diagnostic: a target-typed variant has no expected enum or error-family
+type. A separate no-return-annotation control using the explicit
+`ProbeError.InvalidCpuList` constructor passes and prints the same
+`b'invalid CPU list\n'` bytes as the annotated form. This distinguishes the
+current unqualified-constructor behavior from source-level label uniqueness;
+it does not decide whether future inference should select a unique visible
+variant or generalize its nominal type.
+
+The membership element erasure shows that this baseline relates an unannotated
+element to an explicitly typed list in `kind in kinds`. The list erasure shows
+that the current checker does not select the collection shape from the
+annotated element alone. Neither result establishes a permanent annotation
+requirement or full-inference contract. The command stdout bytes above were
+captured unchanged between the adapter's readiness line and its final timing
+line. A source that failed `xsht check` was not executed.
+
+The probes used source checkout
+`.work/wt/perf-i1-combined-freeze-r12` at commit
+`55032a7ee2c4d340a6e5df9d4f362b0074d8a9e0`, tree
+`8255279c80818f3a159d2052f6eed102e0976938`. The canonical verification
+products were
+`.work/wt/perf-i1-combined-freeze-r12/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh`
+(`aa674a2899adc10a0e1cbe9810176821e4e3b6165f89910aadaf2f1c3e62023e`) and
+`.work/wt/perf-i1-combined-freeze-r12/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht`
+(`caaaf0b7555d9620c048c76027579eb716cc92da3df6297fd113945977c96437`). The
+canonical replay receipt at
+`.work/tmp/i1-combined-r12-55032a7ee/canonical-replay.json` records a passed
+canonical gate batch replay with no acceptance credit. It is not a
+functional-close receipt; its SHA-256 is
+`5495bc3fc2560295596529d893c2702d0d5853a9f0ef6b4a67b257b084ca8d87`. Each
+probe ran through the pinned offline adapter
+with two CPUs and 4 GiB of memory. No build or suite ran for these probes.
+
+If all 150 Map selectors remain annotated, at most 543 of 693 locals (78.35%)
+could be removed, even if every other retained local became inferable. If all
+758 historical Proc annotations remain, at most 1,432 of 2,190 internal sites
+(65.39%) could be removed. Retaining all 202 effect clauses pending joint
+proof would lower that conditional internal ceiling to 1,230 of 2,190
+(56.16%). These are conditional accounting scenarios, not language limits:
+the Proc annotations are in-scope for inference, and source meaning at Map
+selectors must be classified separately. The frozen denominator and historical
+95% local and 85% internal targets remain unchanged.
 
 ## Practical source-view preparation
 
@@ -494,7 +1067,47 @@ matched candidate products were `xsh`
 This focused I1 candidate is not a G1 baseline or full performance
 acceptance.
 
-The selected reduced view removes only four private pure-function return
+The practical source boundary is `core/wc.xsh`, `core/sort.xsh`,
+`core/awk.xsh`, and isolated Laputa `pm/generation.xsh`. `check_views.sh`
+checks 12 XSH roots and three Laputa roots so their imports resolve. It runs
+these exact behavior selectors in both original and reduced views:
+
+```text
+core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes
+core/tests/test-sort.xsh::test_sort_general_numeric_orders_past_double_precision
+core/tests/test-awk.xsh::test_awk_arrays_functions_and_loops
+core/tests/test-awk.xsh::test_awk_matrix_program_files_and_includes_shard_001
+tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
+tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
+```
+
+The changed-path selectors are the sort numeric-order test for
+`padded_decimal`, the awk program-files/includes shard for `directive_operand`
+and `newlines`, and the two generation tests for `generation_sorted_unique`.
+The awk shard covers directive parsing and source-line preservation after
+includes. The first generation test covers root sorting and deduplication; the
+JSON test exercises single-root plan creation and identity validation. The awk
+arrays/functions selector executes the no-directive path through
+`directive_operand`, but does not cover a parsed directive or include line
+preservation. The `wc` selector is an unrelated retained behavior control.
+
+The matching `d2c820629` per-root diagnostic replay ran only the original 12
+XSH roots: `date_parse` and `dev/docker` passed, and the other ten failed. It
+did not run reduced XSH, Laputa, interface, body, or runtime checks. A separate
+full practical replay with matching `e0f8cbfac` products passed source-view
+validation, then failed the original XSH check with six
+`compact.indexed-build` diagnostics; later stages did not run. Neither replay
+qualifies a selected erasure or the current six-selector matrix. Later accepted
+source updates do not yet have a matching product pair.
+
+`inventory.sh`, `prepare_views.sh`, and `check_views.sh` take explicit source
+revisions and reject dirty or mismatched checkouts. The adapter test's isolated
+Laputa revision `639184e65a712b9d33fa5033e045f8913cd04a5a` is a separate test
+input; it is not the practical generation corpus. F1 added no practical
+erasures and claims no new removal credit. The four-return I1 experiment below
+is a separate historical candidate.
+
+The earlier selected reduced view removes only four private pure-function return
 annotations for which `lint.prefer-inferred-pure-return` provided individual
 proofs:
 
@@ -502,15 +1115,16 @@ proofs:
 SITE_IDS='xsh|core/awk.xsh|return|154|pure directive_operand return,xsh|core/awk.xsh|return|166|pure newlines return,xsh|core/sort.xsh|return|183|pure padded_decimal return,laputa|pm/generation.xsh|return|76|pure generation_sorted_unique return'
 ```
 
-No `wc` annotation is removed. `byte_count` and `generation_plan_dto` remain
-unchanged signature probes; all six probed callable signatures, including
-those for the four selected functions, matched between the original and
-reduced views. The original and reduced views each passed checks for 12 XSH
-files and 3 Laputa files, plus all five exact runtime selectors described
-below. Removing only `data`'s parameter annotation from `wc.continuation`,
-`wc.within`, or `wc.byte_words` produces both `check.ambiguous-overload` and
-`check.result-fallback`. `wc.sequence_width.data` remains reserved and
-untouched.
+In that candidate, no `wc` annotation is removed. `byte_count` and
+`generation_plan_dto` remain unchanged signature probes. All six probed
+callable signatures, including those for the four selected functions, matched
+between the original and reduced views. The earlier five-selector F1 replay
+passed checks for 12 XSH and 3 Laputa files in each view. The current
+adapter adds the awk program-files/includes shard listed above; this selector
+is not covered by that historical five-selector result. Removing only `data`'s parameter
+annotation from `wc.continuation`, `wc.within`, or `wc.byte_words` produces
+both `check.ambiguous-overload` and `check.result-fallback`.
+`wc.sequence_width.data` remains reserved and untouched.
 
 The signature probes cover `byte_count`, `padded_decimal`,
 `directive_operand`, `newlines`, `generation_sorted_unique`, and
@@ -525,21 +1139,17 @@ annotation at a time in disposable copies produces both `check.ambiguous-overloa
 and `check.result-fallback`. Keep `wc.sequence_width.data` separate because
 typed helper calls may constrain it; it remains unclassified and untouched.
 
-The runtime pair is `test_wc_characters_and_invalid_bytes`,
-`test_sort_general_numeric_orders_past_double_precision`,
-`test_awk_arrays_functions_and_loops`,
-`test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates`,
-and `test_generation_plan_json_round_trips_and_rejects_changed_identity`.
-Run each exact selector against both source views; a pass is useful only when it
-selects one test and reports zero failures and skips. This pairs inferred
-signatures with retained diagnostics and observable command behavior without
-changing the frozen 48-file accounting.
+The current runtime pair uses the six exact selectors above against both
+source views; a pass is useful only when it selects one test and reports zero
+failures and skips. This pairs inferred signatures with retained diagnostics
+and observable command behavior without changing the frozen 48-file
+accounting.
 
 To reproduce the practical run from exact source commits, first write the AST
 inventory to `.work/tmp`, then build original and selected reduced trees with
 `prepare_views.sh`. `check_views.sh` recreates both trees from the pinned
 archives, verifies the selected spans byte-for-byte, runs the same checker and
-five exact runtime selectors on each view, and compares all six revealed
+six exact runtime selectors on each view, and compares all six revealed
 signatures. It also checks each of the three `wc` diagnostic controls after
 removing only that parameter annotation, and restores temporary probe lines
 before returning. Tree comparisons include symlink targets without following
@@ -831,11 +1441,12 @@ The following obligations are the minimum acceptance floor for a port:
 - Keep frontend-drop execution on both ordinary and lowered routes. A
   successful check alone does not establish that the indexed artifact owns
   enough scheme and capture evidence to execute after frontend state is gone.
-- Preserve Proc entry decoding, required Proc parameter types, non-Unit Proc
-  return rules, declared effect restrictions, and every `Map[...] = {}` record
-  interpretation. Individual effect-clause redundancy results do not prove
-  simultaneous removal through declared-call cycles; no one of the 202 effect
-  clauses is authorized for elision by this checkpoint.
+- Preserve Proc entry decoding and required/default/rest input behavior while
+  inferring parameter types where source determines them. Preserve non-Unit
+  return behavior, declared effect restrictions, and every `Map[...] = {}`
+  record interpretation. Individual effect-clause redundancy results do not
+  prove simultaneous removal through declared-call cycles; no one of the 202
+  effect clauses is authorized for elision by this checkpoint.
 
 The compact Rust selector names and their raw results are in
 `dev/consolidation/evidence/typing-host-obligations/README.md` and its

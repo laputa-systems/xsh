@@ -9,7 +9,17 @@ use std::sync::{Arc, Mutex};
 use super::module_record::{
     CheckedModuleFacts, ModuleRecord, ModuleRecordCache, ModuleRecordKey, ModuleRecords,
 };
-use super::infer_effects::{EffectDeclarationId, EffectGraph};
+use super::infer_effects::{EffectDeclarationId, EffectGraph, EffectScopeFailure};
+
+enum FileInferenceFailure {
+    Effects(EffectScopeFailure),
+    RejectedEffectInvocation(Vec<crate::diagnostic::Diagnostic>),
+    StreamOrigin(EffectDeclarationId),
+}
+
+impl From<EffectScopeFailure> for FileInferenceFailure {
+    fn from(failure: EffectScopeFailure) -> Self { Self::Effects(failure) }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -145,6 +155,7 @@ impl Checker {
                 summaries,
                 module_outputs,
                 suppressed_resource_transfers,
+                origin_summaries,
             ) = Self::check_modules(
                 view,
                 &active_records,
@@ -164,8 +175,8 @@ impl Checker {
                     embedded_bodies: true,
                     ..options
                 };
-                let (effect_graph, root_summaries) = Self::solve_file_effect_probes(
-                    |provisional| {
+                let effect_probe = Self::solve_file_effect_probes(
+                    |provisional, provisional_origins| {
                         let mut probe = Self::session_effect_checker(
                             record_options,
                             byte_script_arguments,
@@ -175,32 +186,29 @@ impl Checker {
                             true,
                         );
                         probe.effect_summaries.extend(provisional);
+                        probe.stream_origin_inputs = origin_summaries.clone();
+                        probe.stream_origin_inputs.extend(provisional_origins);
                         probe.check_program_arena_with_type_program_and_sources(
                             view,
                             source,
                             type_program.clone(),
                             &active_records,
                         );
-                        probe
+                        (probe, ())
                     },
                     &summaries,
+                    &origin_summaries,
                 );
-                let mut checker = Self::session_effect_checker(
-                    record_options,
-                    byte_script_arguments,
-                    &module_signatures,
-                    effect_graph,
-                    summaries,
-                    false,
-                );
-                checker.effect_summaries.extend(root_summaries);
-                checker.check_program_arena_with_type_program_and_sources(
-                    view,
-                    source,
-                    type_program,
-                    &active_records,
-                );
+                let (mut checker, ()) = match effect_probe {
+                    Ok(effects) => effects,
+                    Err(failure) => return Self::rejected_file_inference(failure),
+                };
                 checker.validate_deferred_effects();
+                checker.validate_stream_expression_origins(program);
+                let resource_check = super::resource::check_root_owner(&checker, view);
+                checker.diagnostics.extend(resource_check.diagnostics);
+                checker.resource_transfers = resource_check.transfers;
+                checker.same_scope_resource_assignments = resource_check.same_scope_assignments;
                 let facts = checker.effect_graph.facts(&checker.effect_summaries);
                 checker.finalize_function_declarations(view.program, &facts);
                 checker.publish_command_binding_sites();
@@ -234,13 +242,22 @@ impl Checker {
             output.embedded_bodies_checked = options.embedded_bodies;
             let root_diagnostic_count = output.diagnostics.len();
             // Whole-program checks publish imported-body facts before entry-body facts.
+            let mut module_diagnostics = Vec::new();
+            let destination = Arc::new(Mutex::new(crate::sema::scheme_callable::SchemeCallableTable::default()));
+            let mut relationships = crate::sema::scheme_callable::SchemeCallableRebaser::new(destination);
+            if let Err(error) = super::scheme_values::rebase::output(&mut output, &mut relationships) {
+                return CheckOutput { diagnostics: vec![crate::diagnostic::Diagnostic::error(format!("checked callable relationship cannot be published: {error:?}")).with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)], ..CheckOutput::default() };
+            }
             let root_annotation_facts = std::mem::take(&mut output.annotation_facts);
             let root_reveal_types = std::mem::take(&mut output.reveal_types);
-            let mut module_diagnostics = Vec::new();
             for mut module_output in module_outputs {
                 module_diagnostics.append(&mut module_output.diagnostics);
+                if let Err(error) = super::scheme_values::rebase::output(&mut module_output, &mut relationships) {
+                    return CheckOutput { diagnostics: vec![crate::diagnostic::Diagnostic::error(format!("checked module callable relationship cannot be published: {error:?}")).with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)], ..CheckOutput::default() };
+                }
                 output.merge_module_facts(module_output);
             }
+            output.scheme_callables = relationships.snapshot();
             output.resource_transfers.extend(suppressed_resource_transfers);
             // Keep declaration identities for suppressed embedded modules without
             // exposing their body-derived effect facts.
@@ -294,9 +311,11 @@ impl Checker {
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         Vec<CheckOutput>,
         ResourceTransferFacts,
+        super::stream_origins::StreamOriginSummaries,
     ) {
         let mut signatures = FxHashMap::default();
         let mut summaries = std::collections::BTreeMap::new();
+        let mut origin_summaries = super::stream_origins::StreamOriginSummaries::new();
         let mut outputs = FxHashMap::default();
         // Suppressed embedded outputs still need the transfer-site facts used by lowering.
         let mut suppressed_resource_transfers = ResourceTransferFacts::default();
@@ -322,19 +341,15 @@ impl Checker {
                     entry_source,
                     &signatures,
                     &summaries,
+                    &origin_summaries,
                 )
             });
             if !record.is_embedded() {
-                signatures.insert(
-                    module.key.clone(),
-                    checked
-                        .signature
-                        .as_ref()
-                        .expect("checked user module retains its exported signature")
-                        .clone(),
-                );
+                if let Some(signature) = &checked.signature { signatures.insert(module.key.clone(), signature.clone()); }
+                else { assert!(checked.output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "a rejected module reports a checking failure"); }
             }
             Self::extend_effect_summaries(&mut summaries, &checked.output.function_effect_facts);
+            origin_summaries.extend(checked.output.stream_origin_summaries.clone());
             if Self::publish_embedded_record(view.program, module, options) {
                 let mut output = checked.output.clone();
                 if !options.reveal_types {
@@ -360,7 +375,7 @@ impl Checker {
         let outputs = publication_order
             .filter_map(|key| outputs.remove(&key))
             .collect();
-        (signatures, summaries, outputs, suppressed_resource_transfers)
+        (signatures, summaries, outputs, suppressed_resource_transfers, origin_summaries)
     }
 
     fn check_module_record(
@@ -374,6 +389,7 @@ impl Checker {
         entry_source: &str,
         dependencies: &FxHashMap<String, UserModuleSig>,
         dependency_summaries: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+        dependency_origins: &super::stream_origins::StreamOriginSummaries,
     ) -> CheckedModuleFacts {
         let program = view.program;
         let module_view = CheckBundleView::for_module_owner(
@@ -389,8 +405,8 @@ impl Checker {
                 .text()
         });
         let byte_script_arguments = record.args_domain() == ArgsDomain::Bytes;
-        let (effect_graph, local_summaries) = Self::solve_file_effect_probes(
-            |provisional| {
+        let effect_probe = Self::solve_file_effect_probes(
+            |provisional, provisional_origins| {
                 let mut probe = Self::session_effect_checker(
                     options,
                     byte_script_arguments,
@@ -400,46 +416,30 @@ impl Checker {
                     true,
                 );
                 probe.effect_summaries.extend(provisional);
+                probe.stream_origin_inputs = dependency_origins.clone();
+                probe.stream_origin_inputs.extend(provisional_origins);
                 record.prepared_facts().install(&mut probe, program);
-                // Keep constructor lookup maps scoped to imports while sharing publication order.
                 probe.record_constructors.replace_instance_facts(
                     &bundle_record.prepared_facts().record_constructors,
                 );
                 probe.diagnostics.clear();
-                probe.check_user_module_arena(
+                let signature = probe.check_user_module_arena(
                     &module_view,
                     record,
                     type_program.clone(),
                     source,
                     module,
                 );
-                probe
+                (probe, signature)
             },
             dependency_summaries,
+            dependency_origins,
         );
+        let (mut checker, mut signature) = match effect_probe {
+            Ok(effects) => effects,
+            Err(failure) => return Self::rejected_file_inference(failure),
+        };
 
-        let mut checker = Self::session_effect_checker(
-            options,
-            byte_script_arguments,
-            dependencies,
-            effect_graph,
-            dependency_summaries.clone(),
-            false,
-        );
-        checker.effect_summaries.extend(local_summaries);
-        record.prepared_facts().install(&mut checker, program);
-        // Keep constructor lookup maps scoped to imports while sharing publication order.
-        checker.record_constructors.replace_instance_facts(
-            &bundle_record.prepared_facts().record_constructors,
-        );
-        checker.diagnostics.clear();
-        let signature = checker.check_user_module_arena(
-            &module_view,
-            record,
-            type_program,
-            source,
-            module,
-        );
         checker.resolve_checked_types();
         let instances = checker
             .record_constructor_instances
@@ -450,24 +450,75 @@ impl Checker {
             checker.publish_constructor_type_expressions(program, span, &fact);
         }
         checker.validate_deferred_effects();
+        checker.validate_stream_expression_origins(program);
         let mut resource_check = super::resource::check(&checker, &module_view);
         let suppressed_body_transfers =
             std::mem::take(&mut resource_check.suppressed_body_transfers);
         checker.diagnostics.extend(resource_check.diagnostics);
         checker.resource_transfers.extend(resource_check.transfers);
+        checker.same_scope_resource_assignments.extend(resource_check.same_scope_assignments);
         let facts = checker.effect_graph.facts(&checker.effect_summaries);
         checker.finalize_function_declarations(program, &facts);
-        let mut signature = signature;
         checker.finalize_user_module_functions(program, module, &mut signature);
         checker.publish_command_binding_sites();
         checker.record_constructors = record.prepared_facts().record_constructors.clone();
         let output = checker.into_output();
+        signature.scheme_callables = Some(Arc::clone(&output.scheme_callables));
         CheckedModuleFacts {
             signature: Some(signature),
             output,
             module_diagnostic_position: 0,
             suppressed_body_transfers,
         }
+    }
+
+    fn rejected_file_inference(failure: FileInferenceFailure) -> CheckedModuleFacts {
+        let failure = match failure {
+            FileInferenceFailure::Effects(failure) => failure,
+            FileInferenceFailure::RejectedEffectInvocation(diagnostics) => return CheckedModuleFacts {
+                signature: None,
+                output: CheckOutput { diagnostics, ..CheckOutput::default() },
+                module_diagnostic_position: 0,
+                suppressed_body_transfers: ResourceTransferFacts::default(),
+            },
+            FileInferenceFailure::StreamOrigin(owner) => {
+                let diagnostic = crate::diagnostic::Diagnostic::error("stream return provenance exceeds its checked projection boundary")
+                    .with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+                    .with_label(crate::diagnostic::Label::primary(owner.body, "stream origin application is not publishable"));
+                return CheckedModuleFacts {
+                    signature: None,
+                    output: CheckOutput { diagnostics: vec![diagnostic], ..CheckOutput::default() },
+                    module_diagnostic_position: 0,
+                    suppressed_body_transfers: ResourceTransferFacts::default(),
+                };
+            }
+        };
+        let note = match failure.cause {
+            crate::sema::constraints::SchemeOperationError::Resolution(_) => "an effect relationship escaped its bounded checking problem",
+            crate::sema::constraints::SchemeOperationError::Build(_) => "an effect parameter or call substitution is outside its declaration scope",
+            crate::sema::constraints::SchemeOperationError::Constraint(_) => "the selected call has incompatible type relationships",
+            crate::sema::constraints::SchemeOperationError::Application(_) => "the callable application has no checked invocation relationship",
+            crate::sema::constraints::SchemeOperationError::Effects(_) => "the invocation effect relationships cannot be resolved",
+            crate::sema::constraints::SchemeOperationError::Operation(_) => "the sealed arithmetic relationship cannot be resolved",
+            crate::sema::constraints::SchemeOperationError::Wrapper(_) => "the wrapper relationship cannot be resolved",
+        };
+        let diagnostic = crate::diagnostic::Diagnostic::error("effect contract cannot be bound to its checked declaration")
+            .with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+            .with_label(crate::diagnostic::Label::primary(failure.owner.body, "effect contract is not publishable"))
+            .with_note(note);
+        CheckedModuleFacts {
+            signature: None,
+            output: CheckOutput { diagnostics: vec![diagnostic], ..CheckOutput::default() },
+            module_diagnostic_position: 0,
+            suppressed_body_transfers: ResourceTransferFacts::default(),
+        }
+    }
+
+    fn failed_effect_scope(&self, failure: EffectScopeFailure) -> FileInferenceFailure {
+        if matches!(failure.cause, crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))
+            && let Some(diagnostics) = self.rejected_effect_invocation_diagnostics(failure.owner)
+        { FileInferenceFailure::RejectedEffectInvocation(diagnostics) }
+        else { FileInferenceFailure::Effects(failure) }
     }
 
     fn session_effect_checker(
@@ -493,23 +544,37 @@ impl Checker {
         checker
     }
 
-    fn solve_file_effect_probes(
+    fn solve_file_effect_probes<T>(
         mut probe: impl FnMut(
             std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-        ) -> Self,
+            super::stream_origins::StreamOriginSummaries,
+        ) -> (Self, T),
         external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-    ) -> (
-        EffectGraph,
-        std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-    ) {
+        external_origins: &super::stream_origins::StreamOriginSummaries,
+    ) -> Result<(Self, T), FileInferenceFailure> {
         let mut provisional = std::collections::BTreeMap::new();
+        let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
-            let checker = probe(provisional.clone());
-            let solved = checker.effect_graph.solve_with_external(external);
-            if !checker.provisional_effects_read.get() || solved == provisional {
-                return (checker.effect_graph, solved);
+            let (mut checker, output) = probe(provisional.clone(), provisional_origins.clone());
+            if let Err(failure) = checker.bind_effect_graph() {
+                return Err(checker.failed_effect_scope(failure));
+            }
+            let solved = checker.effect_graph.solve_with_external(external)?;
+            checker.normalize_stream_origin_applications()
+                .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
+            checker.validate_published_stream_origins()
+                .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
+            checker.settle_stream_origin_dependencies(external_origins);
+            if (!checker.provisional_effects_read.get() || solved == provisional)
+                && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
+            {
+                checker.effect_summaries.extend(solved);
+                checker.stream_origin_inputs = external_origins.clone();
+                checker.stream_origin_inputs.extend(checker.stream_origin_outputs.clone());
+                return Ok((checker, output));
             }
             provisional = solved;
+            provisional_origins = checker.stream_origin_outputs;
         }
     }
 
@@ -593,10 +658,7 @@ impl Checker {
         summaries.extend(facts.iter().map(|(&id, fact)| {
             (
                 id,
-                EffectSummary {
-                    known: fact.required.clone().unwrap_or_default(),
-                    unknown_chain: fact.unknown_chain.clone(),
-                },
+                EffectSummary::from_effect_fact(id, fact).expect("checked module facts retain their declaration effect scope"),
             )
         }));
     }
@@ -609,6 +671,7 @@ mod tests {
     use crate::sema::check::CheckOptions;
     use crate::sema::check::decl::USER_MODULE_CHECKS;
     use crate::sema::constraints::{ConstraintType, TypeConstraints};
+    use crate::sema::inference_work;
     use crate::sema::schemes::{SchemeRowTail, SchemeType, TypeScheme};
     use crate::sema::types::Type;
     use crate::source::Span;
@@ -655,6 +718,127 @@ mod tests {
         sources: Arc<SourceMap>,
         roots: Vec<(ArenaRange, SourceId)>,
         module_source: SourceId,
+    }
+
+    fn check_imported_effect_union(body: &str) -> CheckOutput {
+        let source = format!("use effects\nlet selected = effects.pair\nproc clock(value: Int) [time] -> Int {{ let _ = time.now(); value }}\nproc emit(value: Int) [io] -> Int {{ print \"callback\"; value }}\n{body}\n");
+        let module = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/modules/full-inference-effect-union/effects.xsh"));
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let source_id = sources.add_file("effect-bound.xsh", source.clone());
+        let parsed = Parser::parse_source_into_arena_builder(source_id, &source, &mut builder);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let module_id = sources.add_file("effects.xsh", module);
+        let imported = Parser::parse_source_into_arena_builder(module_id, module, &mut builder);
+        assert!(imported.diagnostics.is_empty(), "{:?}", imported.diagnostics);
+        let name = builder.symbol_owner().intern("effects");
+        builder.push_arena_module("effects".to_owned(), name, imported.statements);
+        for statement in builder.statement_ids(parsed.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("effects")); }
+        }
+        let program = Arc::new(builder.finish_with_statements(parsed.statements));
+        CheckSession::new(program, Arc::new(sources)).check(parsed.statements, source_id, CheckOptions::for_execution())
+    }
+
+    #[test]
+    fn inferred_row_alias_environment_effects_bind_to_their_declaration() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/guarded-row-null-input.xsh"));
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("guarded-row-null-input.xsh", source.to_owned());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let output = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions::for_check_cli());
+        assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error), "{:?}", output.diagnostics);
+        for invalid in [
+            source.replace("spec: 1", "spec: true"),
+            format!("{source}\nlet _ = execute(true)\n"),
+            source.replace("spec: 1", "spec: missing"),
+        ] {
+            let parsed = Parser::parse_source_arena_only(source_id, &invalid);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = Checker::check_arena_with_options(&parsed.arena, &invalid, CheckOptions::for_check_cli());
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{invalid}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn guarded_row_null_inputs_execute_after_frontend_disposal_on_both_routes() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/guarded-row-null-input.xsh"));
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("guarded-row-null-input.xsh", crate::loader::entry_source_from_text("guarded-row-null-input.xsh", source.to_owned()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+            for force_frames in [false, true] {
+                let result = prepared.eval_test("verify_guarded_row_null_input", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert_eq!(result.output.stdout, b"1\n2\n3\n4\n");
+                assert!(result.output.stderr.is_empty(), "{:?}", result.output.stderr);
+                assert!(matches!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)));
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn imported_effect_union_missing_bound_reports_the_actual_capability() {
+        let checked = check_imported_effect_union("proc denied() [io, error] { let _ = selected(clock, emit, 7)? }");
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(!errors.is_empty(), "missing Time must reject");
+        assert!(errors.iter().all(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{errors:?}");
+        assert!(errors.iter().any(|diagnostic| diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Secondary && label.message.as_deref().is_some_and(|message| message.contains("time")))), "{errors:?}");
+    }
+
+    #[test]
+    fn imported_effect_union_lexical_bound_reports_the_actual_capability() {
+        let checked = check_imported_effect_union("proc denied() [time, io, error] { without time { let _ = selected(clock, emit, 7)? } }");
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(!errors.is_empty(), "excluded Time must reject");
+        assert!(errors.iter().all(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{errors:?}");
+        assert!(errors.iter().any(|diagnostic| diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Secondary && label.message.as_deref().is_some_and(|message| message.contains("without time")))), "{errors:?}");
+    }
+
+    #[test]
+    fn imported_effect_union_rejection_retains_independent_errors_without_facts() {
+        let checked = check_imported_effect_union("proc denied() [io, error] { let _ = selected(clock, emit, 7)? }\nlet invalid: Int = \"wrong\"");
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
+        assert!(!checked.checked_declarations.functions.values().any(|function| function.name == "denied"));
+    }
+
+    #[test]
+    fn imported_effect_union_preserves_successful_promised_bounds() {
+        let checked = check_imported_effect_union("proc allowed() [time, io, error] { let _ = selected(clock, emit, 7)? }");
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(checked.checked_declarations.functions.values().any(|function| function.name == "allowed"));
+    }
+
+    #[test]
+    fn imported_effect_union_keeps_unknown_dynamic_callbacks_rejected() {
+        let checked = check_imported_effect_union("proc denied(callback: Proc) [] -> Int { let _ = callback.call(); 42 }");
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn imported_effect_union_unrelated_errors_do_not_hide_binding_faults() {
+        use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+        for code in [DiagnosticCode::CheckTypeMismatch, DiagnosticCode::CheckEffectViolation] {
+            let mut checker = Checker::new(CheckOptions::for_execution());
+            let owner = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 0, 20) };
+            checker.diagnostics.push(Diagnostic::error("independent checker failure").with_code(code).with_label(Label::primary(owner.body, "independent")));
+            let failure = EffectScopeFailure { owner, cause: crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects) };
+            let rejected = Checker::rejected_file_inference(checker.failed_effect_scope(failure));
+            assert!(rejected.signature.is_none());
+            assert!(rejected.output.checked_declarations.functions.is_empty());
+            assert_eq!(rejected.output.diagnostics.len(), 1);
+            assert_eq!(rejected.output.diagnostics[0].code, Some(DiagnosticCode::CheckLocalInference));
+        }
     }
 
     fn typing_workspace(root_sources: &[&str]) -> TypingWorkspace {
@@ -720,6 +904,75 @@ mod tests {
         record.check_once(None, || unreachable!("module check is cached"))
     }
 
+    #[test]
+    fn scheme_callable_nested_module_cache_rebases_fresh_entries_without_mutating_sources() {
+        let texts = [
+            ("first.xsh", "use bridge\nassert bridge.actions.apply(7) == 7\n"),
+            ("second.xsh", "use bridge\nassert bridge.actions.apply(\"demo\") == \"demo\"\n"),
+            ("bridge.xsh", "##! Forward callable data.\nuse leaf\n## Retained operations.\nexport let actions = leaf.actions\n"),
+            ("leaf.xsh", "##! Callable data.\n## Copy a value.\nexport pure identity(value) { value }\n## Retained operations.\nexport let actions = {apply: identity}\n"),
+        ];
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let mut parsed = Vec::new();
+        for (path, text) in texts {
+            let source = sources.add_file(path, text);
+            let result = Parser::parse_source_into_arena_builder(source, text, &mut builder);
+            assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+            parsed.push((result.statements, source));
+        }
+        for (index, name) in [(2, "bridge"), (3, "leaf")] {
+            let symbol = builder.symbol_owner().intern(name);
+            builder.push_arena_module(name.to_string(), symbol, parsed[index].0);
+        }
+        for (index, name) in [(0, "bridge"), (1, "bridge"), (2, "leaf")] {
+            for statement in builder.statement_ids(parsed[index].0) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from(name));
+                }
+            }
+        }
+        let actions_name = builder.symbol_owner().intern("actions");
+        let apply_name = builder.symbol_owner().intern("apply");
+        let program = Arc::new(builder.finish_with_statements(parsed[0].0));
+        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
+        USER_MODULE_CHECKS.with(|checks| checks.set(0));
+        let first = session.check(parsed[0].0, parsed[0].1, CheckOptions::for_execution());
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        let leaf = checked_module_facts(&session, parsed[3].1);
+        let bridge = checked_module_facts(&session, parsed[2].1);
+        let exported_handle = |facts: &CheckedModuleFacts| {
+            let signature = facts.signature.as_ref().unwrap();
+            assert!(Arc::ptr_eq(signature.scheme_callables.as_ref().unwrap(), &facts.output.scheme_callables));
+            let Type::Record(fields) = &signature.values[&actions_name] else { panic!("the export retains its record type"); };
+            let Type::SchemeCallable(handle) = fields[&apply_name] else { panic!("the record leaf retains its scheme"); };
+            assert!(facts.output.scheme_callables.get(handle).is_ok());
+            handle
+        };
+        let leaf_handle = exported_handle(&leaf);
+        let bridge_handle = exported_handle(&bridge);
+        assert_ne!(leaf_handle, bridge_handle);
+        let second = session.check(parsed[1].0, parsed[1].1, CheckOptions::for_execution());
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2, "both imported module checks are reused");
+        assert!(Arc::ptr_eq(&leaf, &checked_module_facts(&session, parsed[3].1)));
+        assert!(Arc::ptr_eq(&bridge, &checked_module_facts(&session, parsed[2].1)));
+        assert_eq!(exported_handle(&leaf), leaf_handle);
+        assert_eq!(exported_handle(&bridge), bridge_handle);
+        let entry_handle = |output: &CheckOutput, source| {
+            *output.scheme_callable_calls.iter().find(|(site, _)| site.source.source_id == source
+                && site.role == crate::sema::schemes::InstantiationRole::Call).unwrap().1
+        };
+        let first_handle = entry_handle(&first, parsed[0].1);
+        let second_handle = entry_handle(&second, parsed[1].1);
+        assert_ne!(first_handle, second_handle);
+        assert!(first.scheme_callables.get(first_handle).is_ok());
+        assert!(second.scheme_callables.get(second_handle).is_ok());
+        assert_eq!(first.scheme_callables.get(second_handle).unwrap_err(), crate::sema::scheme_callable::SchemeCallableError::ForeignOwner);
+        assert_eq!(second.scheme_callables.get(first_handle).unwrap_err(), crate::sema::scheme_callable::SchemeCallableError::ForeignOwner);
+    }
+
     fn exported_scheme(facts: &CheckedModuleFacts, name: &str) -> Arc<TypeScheme> {
         facts
             .signature
@@ -735,7 +988,13 @@ mod tests {
     fn assert_no_inference_in_scheme_type(ty: &SchemeType) {
         match ty {
             SchemeType::Ground(ty) => assert!(!ty.contains_inference(), "{ty:?}"),
-            SchemeType::Parameter(_) => {}
+            SchemeType::SchemeCallable(_) | SchemeType::Parameter(_) => {}
+            SchemeType::Callable { monotype, .. } => {
+                for parameter in monotype.params() {
+                    assert_no_inference_in_scheme_type(&parameter.ty);
+                }
+                assert_no_inference_in_scheme_type(monotype.return_type());
+            }
             SchemeType::List(inner)
             | SchemeType::Stream(inner)
             | SchemeType::Set(inner)
@@ -768,7 +1027,7 @@ mod tests {
         {
             assert!(!ty.contains_inference(), "{ty:?}");
         }
-        for instantiation in output.call_instantiations.values() {
+        for instantiation in output.call_instantiations.values().flat_map(|evidence| evidence.instances()) {
             for ty in instantiation.type_arguments().values() {
                 assert_no_inference_in_scheme_type(ty);
             }
@@ -813,12 +1072,22 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let program = &parsed.arena;
             program.symbol_owner().with_current(|| {
-                let output = Checker::check_arena_with_options(
-                    program,
-                    &source,
-                    CheckOptions::for_execution(),
-                );
+                let (work, output) = inference_work::collect(|| {
+                    Checker::check_arena_with_options(
+                        program,
+                        &source,
+                        CheckOptions::for_execution(),
+                    )
+                });
                 assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let identity = output.checked_declarations.functions.values()
+                    .find(|declaration| declaration.name.as_str().as_str() == "identity")
+                    .expect("the original identity declaration is published");
+                let scheme = identity.scheme.as_ref().expect("the original body has a checked scheme");
+                assert_eq!(scheme.params()[0].ty, *scheme.return_type());
+                assert!(matches!(scheme.return_type(), SchemeType::Parameter(_)));
+                let body = identity.scheme_body_facts.as_ref().expect("the original body retains its proof");
+                assert!(body.tail_types().values().any(|ty| ty == scheme.return_type()));
                 let body_entries = output.function_body_check_entries;
                 let call_facts = output.call_instantiations.len();
                 let declarations = Checker::compact_declarations(program, output);
@@ -828,6 +1097,7 @@ mod tests {
                     &source,
                 );
                 (
+                    work,
                     body_entries,
                     call_facts,
                     lowered.functions,
@@ -836,12 +1106,19 @@ mod tests {
             })
         };
 
-        let (one_body_checks, one_call_facts, one_functions, one_constructed) = check(1);
-        let (many_body_checks, many_call_facts, many_functions, many_constructed) = check(8);
+        let (one_work, one_body_checks, one_call_facts, one_functions, one_constructed) = check(1);
+        let (many_work, many_body_checks, many_call_facts, many_functions, many_constructed) =
+            check(8);
         assert_eq!(one_call_facts, 1);
         assert_eq!(many_call_facts, 8);
         assert_eq!(one_body_checks, many_body_checks);
         assert_eq!(one_body_checks, 2);
+        assert_eq!(one_work.function_body_check_entries, 2);
+        assert_eq!(
+            one_work.function_body_check_entries,
+            many_work.function_body_check_entries
+        );
+        assert!(many_work.scheme_instantiations > one_work.scheme_instantiations);
         assert_eq!(one_functions, 2);
         assert_eq!(many_functions, one_functions);
         assert_eq!(one_constructed, 2);
@@ -1082,7 +1359,7 @@ mod tests {
             .expect("first entry prepared the shared module")
             .clone();
         let second_output = session.check(second.statements, second_source, CheckOptions::for_check_cli());
-        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 1);
 
         assert!(first_output.diagnostics.is_empty(), "{:?}", first_output.diagnostics);
         assert!(second_output.diagnostics.is_empty(), "{:?}", second_output.diagnostics);
@@ -1103,18 +1380,16 @@ mod tests {
             .clone();
         assert!(Arc::ptr_eq(&first_record, &second_record));
         assert!(first_output.function_effect_facts.values().any(|fact| {
-            fact.effective
-                .as_ref()
+            fact.effective.concrete().expect("finite checked effect fixture")
                 .is_some_and(|effects| effects.contains(&crate::syntax::node::Effect::Time))
         }));
         assert!(second_output.function_effect_facts.values().any(|fact| {
-            fact.effective
-                .as_ref()
+            fact.effective.concrete().expect("finite checked effect fixture")
                 .is_some_and(|effects| effects.contains(&crate::syntax::node::Effect::Time))
         }));
         let byte_output = session.check(byte.statements, byte_source, CheckOptions::for_execution());
         assert!(byte_output.diagnostics.is_empty(), "{:?}", byte_output.diagnostics);
-        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 4);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
         assert_eq!(session.records.lock().expect("module record cache poisoned").len(), 5);
         let incoming = |output: &CheckOutput| {
             output
@@ -1197,7 +1472,7 @@ mod tests {
 
         assert!(first_output.diagnostics.is_empty(), "{:?}", first_output.diagnostics);
         assert!(second_output.diagnostics.is_empty(), "{:?}", second_output.diagnostics);
-        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 1);
         assert!(Arc::ptr_eq(&first_record, &second_record));
         assert!(Arc::ptr_eq(&first_checked, &second_checked));
         let first_scheme = first_checked
@@ -1230,12 +1505,12 @@ mod tests {
         let second_call = "shared.name_of({name: 42, enabled: true})";
         let first_instantiation = first_output
             .call_instantiations
-            .get(&call_span(first_source, first_text, first_call))
-            .expect("first root has a checked call instantiation");
+            .get(&crate::sema::schemes::InstantiationSite::call(call_span(first_source, first_text, first_call)))
+            .expect("first root has a checked call instantiation").invocation().expect("the first root site is a call");
         let second_instantiation = second_output
             .call_instantiations
-            .get(&call_span(second_source, second_text, second_call))
-            .expect("second root has a checked call instantiation");
+            .get(&crate::sema::schemes::InstantiationSite::call(call_span(second_source, second_text, second_call)))
+            .expect("second root has a checked call instantiation").invocation().expect("the second root site is a call");
         assert_eq!(
             first_instantiation.type_arguments().values().collect::<Vec<_>>(),
             [&SchemeType::Ground(crate::sema::check::Type::Str)]
@@ -1348,6 +1623,27 @@ mod tests {
     }
 
     #[test]
+    fn inference_work_counts_imported_module_body_checks() {
+        let workspace = typing_workspace(&[
+            "use shared\npure exercise() -> Int { shared.identity(42) }\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source) = workspace.roots[0];
+        let (work, output) = inference_work::collect(|| {
+            session.check(root, source, CheckOptions::default())
+        });
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.function_body_check_entries > 1);
+        assert!(work.function_body_check_entries >= output.function_body_check_entries as u64);
+        assert!(work.fresh_variables > 0);
+    }
+
+    #[test]
     fn scheme_instantiation_is_fresh_and_does_not_escape() {
         let workspace = typing_workspace(&[
             "use shared\nlet number: Int = shared.identity(42)\nlet text: Str = shared.identity(\"demo\")\n",
@@ -1411,12 +1707,195 @@ mod tests {
         let arguments = output
             .call_instantiations
             .values()
+            .flat_map(|evidence| evidence.instances())
             .flat_map(|instantiation| instantiation.type_arguments().values())
             .cloned()
             .collect::<Vec<_>>();
         assert_eq!(arguments.len(), 2);
         assert!(arguments.contains(&SchemeType::Ground(Type::Int)));
         assert!(arguments.contains(&SchemeType::Ground(Type::Str)));
+    }
+
+    #[test]
+    fn imported_generic_module_callables_survive_constant_projections() {
+        let source = concat!(
+            "use shared as models\n",
+            "const identity_name = \"identity\"\n",
+            "let by_field = models.identity\n",
+            "let by_get = models.get(identity_name)?\n",
+            "let by_index = models[identity_name]\n",
+            "let integer: Int = by_field(42)\n",
+            "let text: Str = by_get(\"demo\")\n",
+            "let boolean: Bool = by_index(false)\n",
+        );
+        let workspace = typing_workspace(&[source]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source_id) = workspace.roots[0];
+        let output = session.check(root, source_id, CheckOptions::for_execution());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.call_instantiations.len(), 3);
+        assert_eq!(output.projections.len(), 2);
+        assert!(output.projections.values().any(|projection| {
+            projection.field == crate::symbol::Name::intern("identity")
+                && projection.operation == crate::sema::check::ProjectionOperation::Get
+        }));
+        assert!(output.projections.values().any(|projection| {
+            projection.field == crate::symbol::Name::intern("identity")
+                && projection.operation == crate::sema::check::ProjectionOperation::Index
+        }));
+        let declarations = Checker::compact_declarations(&workspace.program, output);
+        crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
+            &workspace.program,
+            &declarations,
+            source,
+            Arc::clone(&workspace.sources),
+            source_id,
+        )
+        .expect("cold full builder and verifier accept constant generic projections");
+        drop(_symbols);
+
+        let dynamic_workspace = typing_workspace(&[
+            "use shared as models\npure select(key: Str) { models[key] }\n",
+        ]);
+        let _dynamic_symbols = dynamic_workspace.program.symbol_owner().enter();
+        let dynamic_session = CheckSession::new(
+            Arc::clone(&dynamic_workspace.program),
+            Arc::clone(&dynamic_workspace.sources),
+        );
+        let (dynamic_root, dynamic_source) = dynamic_workspace.roots[0];
+        let dynamic_output = dynamic_session.check(
+            dynamic_root,
+            dynamic_source,
+            CheckOptions::default(),
+        );
+        assert!(dynamic_output.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleMember)
+        }));
+    }
+
+    #[test]
+    fn generic_proc_effect_contracts_are_finite_and_checked() {
+        let helper = "proc mark(label: Str) [io] -> Int { print $label; 1 }\n";
+        let source = format!("{helper}proc traced(value, label: Str) [io] {{ let observed = mark(label); value }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let generic = checked.checked_declarations.functions.values().find(|declaration| declaration.scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty())).unwrap();
+        assert_eq!(generic.scheme.as_ref().unwrap().effects().concrete().unwrap(), Some(vec![crate::syntax::node::Effect::Io]));
+        assert!(generic.scheme_body_facts.is_some());
+        let source = "var shared = 1\nproc capture(value) { let observed = shared; value }\nlet integer: Result[Int] = capture(7)\nlet text: Result[Str] = capture(\"word\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let capture = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "capture").unwrap();
+        let scheme = capture.scheme.as_ref().unwrap();
+        assert_eq!(scheme.type_parameters().len(), 1);
+        let facts = capture.scheme_body_facts.as_ref().unwrap();
+        let shared_read = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression| {
+            let node = parsed.arena.arena.expr(expression);
+            node.span.start() == source.find("shared;").unwrap()
+                && matches!(node.kind, crate::syntax::arena::ArenaExprKind::Ident(name) if name == "shared")
+        }).unwrap();
+        assert_eq!(facts.expression_types()[&shared_read].closed_ground_type(), Some(Type::Int));
+        let arguments = checked.call_instantiations.values().flat_map(|evidence| evidence.instances()).flat_map(|instantiation| instantiation.type_arguments().values()).cloned().collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 2);
+        assert!(arguments.contains(&SchemeType::Ground(Type::Int)));
+        assert!(arguments.contains(&SchemeType::Ground(Type::Str)));
+        for (case, source, code) in [
+            ("explicit effect bound", format!("{helper}proc traced(value, label: Str) [] {{ let observed = mark(label); value }}\n"), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+            ("incompatible callback bound", "proc invoke(action: Proc) [] -> Int { let observed = action.call(); 42 }\n".to_string(), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedCall)), "{:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{case}: {source}: {:?}", checked.diagnostics);
+        }
+        let source = "proc invoke(value, action: Proc) { let observed = action.call(); value }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedCall)), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+                && diagnostic.message == "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects"
+        }), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_proc_result_contract_is_independent_of_callers() {
+        for calls in ["", concat!(
+            "let integer: Int = wrap(42)?\n",
+            "let text: Str = wrap(\"demo\")?\n",
+            "let nested: Result[Int] = wrap(Ok(7))?\n",
+        )] {
+            let source = format!("proc wrap(value) {{ value }}\n{calls}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            let scheme = declaration.scheme.as_ref().unwrap();
+            assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Proc);
+            let [binder] = scheme.type_parameters() else { panic!("one declaration-owned type parameter") };
+            assert_eq!(scheme.params()[0].ty, SchemeType::Parameter(*binder));
+            assert_eq!(scheme.return_type(), &SchemeType::Result(Box::new(SchemeType::Parameter(*binder)), Box::new(SchemeType::Ground(Type::Error))));
+            assert_eq!(scheme.effects().concrete().unwrap(), Some(vec![]));
+            assert!(declaration.scheme_body_facts.is_some());
+        }
+    }
+
+    #[test]
+    fn imported_generic_aliases_instantiate_independently_without_changing_exports() {
+        let workspace = typing_workspace(&[
+            "use shared\nlet identity = shared.identity\nlet project = shared.name_of\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\nlet name: Str = project({name: \"package\", version: 1})\n",
+            "use shared\nlet identity = shared.identity\nlet text: Str = identity(\"second\")\nlet number: Int = identity(7)\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let mut published = None;
+        for (index, &(root, source)) in workspace.roots.iter().enumerate() {
+            let output = session.check(root, source, CheckOptions::default());
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_no_inference_in_output(&output);
+            assert_call_type_arguments(&output, if index == 0 {
+                &[Type::Int, Type::Str, Type::Bool, Type::Str]
+            } else {
+                &[Type::Str, Type::Int]
+            });
+            let scheme = exported_scheme(
+                &checked_module_facts(&session, workspace.module_source),
+                "identity",
+            );
+            let text = workspace.sources.get(source).unwrap().text();
+            let start = text.find("shared.identity").unwrap();
+            let initializer = crate::source::Span::new(source, start, start + "shared.identity".len());
+            let selected = output.callable_value_contract_at(initializer).expect("generic alias initializer contract");
+            assert!(selected.is_generic());
+            let declaration = output.checked_declarations.functions.values()
+                .find(|declaration| declaration.name.as_str() == "identity").unwrap().callable_contract().unwrap();
+            assert!(selected.equivalent_to(&declaration));
+            if let Some(previous) = &published {
+                assert!(Arc::ptr_eq(previous, &scheme));
+            } else {
+                published = Some(scheme);
+            }
+        }
     }
 
     #[test]
@@ -1514,6 +1993,7 @@ mod tests {
         let mut actual = output
             .call_instantiations
             .values()
+            .flat_map(|evidence| evidence.instances())
             .flat_map(|instantiation| instantiation.type_arguments().values())
             .cloned()
             .collect::<Vec<_>>();
@@ -1531,7 +2011,7 @@ mod tests {
     fn module_index_distinguishes_concrete_generic_and_dynamic_keys() {
         let texts = [
             "use shared\nlet concrete = shared[\"false_value\"]\n",
-            "use shared\nlet generic = shared[\"identity\"]\n",
+            "use shared\nlet generic = shared[\"identity\"]\nlet number = generic(7)\nlet word = generic(\"ready\")\n",
             "use shared\npure lookup(key: Str) -> Any { shared[key] }\n",
             "use shared\nlet concrete = shared.get(\"false_value\")?\n",
         ];
@@ -1540,7 +2020,7 @@ mod tests {
         let session = CheckSession::new(workspace.program.clone(), workspace.sources.clone());
         for (index, &(statements, source)) in workspace.roots.iter().enumerate() {
             let checked = session.check(statements, source, CheckOptions::default());
-            if index == 1 || index == 2 {
+            if index == 2 {
                 assert!(checked.diagnostics.iter().any(|diagnostic| {
                     diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleMember)
                 }), "root {index}: {:?}", checked.diagnostics);
@@ -1554,7 +2034,7 @@ mod tests {
     fn recursive_inferred_parameters_share_provisional_types_in_both_orders() {
         for reverse in [false, true] {
             for argument in ["\"wrong\"", "value"] {
-                let first = format!("pure first(value) -> Int {{ second({argument}) + value }}\n");
+                let first = format!("pure first(value) -> Int {{ let fixed: Int = value; second({argument}) + fixed }}\n");
                 let second = "pure second(value) -> Int { first(value) }\n";
                 let source = if reverse {
                     format!("{second}{first}let answer: Int = first(1)\n")
@@ -1609,9 +2089,14 @@ mod tests {
                     &source,
                     CheckOptions::default(),
                 );
-                assert!(checked.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
-                }), "reverse {reverse}, caller_first {caller_first}: {:?}", checked.diagnostics);
+                assert!(checked.diagnostics.is_empty(), "reverse {reverse}, caller_first {caller_first}: {:?}", checked.diagnostics);
+                assert_eq!(checked.checked_declarations.functions.len(), 2);
+                for declaration in checked.checked_declarations.functions.values() {
+                    let scheme = declaration.scheme.as_ref().expect("a recursive declaration has a checked scheme");
+                    assert_eq!(scheme.type_parameters().len(), 1);
+                    assert!(matches!(scheme.params()[0].ty, SchemeType::Parameter(_)));
+                    assert_eq!(scheme.return_type(), &SchemeType::Ground(Type::Int));
+                }
             }
         }
     }
@@ -2180,7 +2665,7 @@ mod tests {
         let sources = Arc::new(sources);
         let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
         let view = session.view_for_root(root.statements, root_source);
-        let expected_module_checks = view.modules().count() * 2;
+        let expected_module_checks = view.modules().count();
         USER_MODULE_CHECKS.with(|checks| checks.set(0));
 
         let output = session.check_view(&view, CheckOptions::for_execution());
@@ -2252,8 +2737,7 @@ mod tests {
             .collect::<Vec<_>>(),
         );
         assert!(output.function_effect_facts.values().any(|fact| {
-            fact.effective
-                .as_ref()
+            fact.effective.concrete().expect("finite checked effect fixture")
                 .is_some_and(|effects| effects.contains(&crate::syntax::node::Effect::Io))
         }));
     }
@@ -2287,22 +2771,48 @@ mod tests {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
             output.callable_effects.get("observe"),
-            Some(&Some(vec![crate::syntax::node::Effect::Io]))
+            Some(&crate::sema::effects::CheckedEffects::finite([crate::syntax::node::Effect::Io]))
         );
         assert!(output.function_effect_facts.iter().any(|(identity, fact)| {
             identity.namespace.is_none()
                 && identity.body.source_id == root_source
-                && fact.effective.as_ref().is_some_and(|effects| {
+                && fact.effective.concrete().expect("finite checked effect fixture").is_some_and(|effects| {
                     effects.contains(&crate::syntax::node::Effect::Io)
                 })
         }));
         assert!(output.function_effect_facts.iter().any(|(identity, fact)| {
             identity.namespace == Some(helper_name)
                 && identity.body.source_id == helper_source
-                && fact.effective.as_ref().is_some_and(|effects| {
+                && fact.effective.concrete().expect("finite checked effect fixture").is_some_and(|effects| {
                     effects.contains(&crate::syntax::node::Effect::Time)
                 })
         }));
+    }
+
+    #[test]
+    fn guarded_bindings_keep_their_lexical_callable_capture_boundary() {
+        use crate::diagnostic::DiagnosticCode;
+        for source in [
+            "guard let selected = Ok(7) else { exit 3 }\npure read() -> Int { selected }\nassert read() == 7\n",
+            "let candidate: Int? = 7\nguard let selected = candidate else { exit 3 }\npure read() -> Int { selected }\nassert read() == 7\n",
+            "guard let {selected} = Ok({selected: 7}) else { exit 3 }\npure read() -> Int { selected }\nassert read() == 7\n",
+            "stream rows() [] -> Stream[Int] { yield 7 }\nlet initial = rows()\nguard let selected = Ok(initial) else { exit 3 }\npure read() -> Stream[Int] { selected }\n",
+            "stream rows() [] -> Stream[Int] { yield 7 }\nlet initial: Stream[Int]? = rows()\nguard let selected = initial else { exit 3 }\npure read() -> Stream[Int] { selected }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        }
+        for (source, expected) in [
+            ("pure read() -> Int { return selected }\nguard let selected = Ok(7) else { exit 3 }\n", DiagnosticCode::CheckUnresolvedName),
+            ("guard let selected = Ok(7) else { print \"missing\" }\npure read() -> Int { selected }\n", DiagnosticCode::CheckGuardFallthrough),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+        }
     }
 
     #[test]
@@ -2332,6 +2842,94 @@ mod tests {
                 assert_eq!(actual, expected.iter().map(|code| code.name()).collect(), "{source}: {:?}", output.diagnostics);
             }
         }
+    }
+
+    #[test]
+    fn rejected_interfaces_preserve_independent_generalization_diagnostics() {
+        use crate::diagnostic::{DiagnosticCode, LabelStyle};
+        let independent = "pure empty() { let state = {items: []}; state.items }\n";
+        for (rejected, expected) in [
+            ("pure rejected(value: Missing) -> Int { 0 }\n", DiagnosticCode::CheckUnknownType),
+            ("pure rejected(flag: Bool, value: Any) { if flag { null } else { value } }\n", DiagnosticCode::CheckInferReturn),
+        ] {
+            for reversed in [false, true] {
+                let source = if reversed { format!("{independent}{rejected}") } else { format!("{rejected}{independent}") };
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena(&parsed.arena, &source);
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{:?}", checked.diagnostics);
+                let start = source.find(independent).unwrap();
+                let end = start + independent.len();
+                assert!(checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                        && diagnostic.labels.iter().any(|label| label.style == LabelStyle::Primary
+                            && label.span.start() >= start && label.span.end() <= end)
+                }), "independent generic inference diagnostic is retained: {:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_generalization_does_not_hide_independent_inference_errors() {
+        use crate::diagnostic::{DiagnosticCode, LabelStyle};
+        let continuation = "pure continuation(data, at: Int) -> Bool {\n  let byte = data.byte_at(at) ?? 0\n  byte >= 128 and byte < 192\n}\n\npure use_bytes(data: Bytes, at: Int) -> Bool {\n  continuation(data, at)\n}\n";
+        let independent = "pure empty() { let state = {items: []}; state.items }\n";
+
+        for reversed in [false, true] {
+            let source = if reversed {
+                format!("{independent}{continuation}")
+            } else {
+                format!("{continuation}{independent}")
+            };
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+
+            assert!(checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
+            }), "{:?}", checked.diagnostics);
+            let continuation_start = source.find("pure continuation").unwrap();
+            let continuation_end = continuation_start + continuation.len();
+            assert!(!checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.message.contains("callable generalization failed: Build(RecoveryType)")
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == LabelStyle::Primary
+                            && label.span.start() >= continuation_start
+                            && label.span.end() <= continuation_end
+                    })
+            }), "the reported operation errors already explain this recovery: {:?}", checked.diagnostics);
+
+            let independent_start = source.find(independent).unwrap();
+            let independent_end = independent_start + independent.len();
+            assert!(checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == LabelStyle::Primary
+                            && label.span.start() >= independent_start
+                            && label.span.end() <= independent_end
+                    })
+            }), "independent generic inference diagnostic is retained: {:?}", checked.diagnostics);
+        }
+
+        let same_body = "pure continuation(data, at: Int) -> Bool {\n  let byte = data.byte_at(at) ?? 0\n  let state = {items: []}\n  let _ = state.items\n  byte >= 128 and byte < 192\n}\n\npure use_bytes(data: Bytes, at: Int) -> Bool {\n  continuation(data, at)\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), same_body);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, same_body);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
+        }), "{:?}", checked.diagnostics);
+        let state_start = same_body.find("{items: []}").unwrap();
+        let state_end = state_start + "{items: []}".len();
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                && diagnostic.message == "local type needs an annotation"
+                && diagnostic.labels.iter().any(|label| {
+                    label.style == LabelStyle::Primary
+                        && label.span.start() >= state_start
+                        && label.span.end() <= state_end
+                })
+        }), "same-body local inference diagnostic is retained: {:?}", checked.diagnostics);
     }
 
     #[test]

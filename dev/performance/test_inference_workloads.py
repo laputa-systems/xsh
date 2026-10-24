@@ -20,6 +20,8 @@ def semantic_stdout(case):
         return f'{2 * case.size}\n'.encode()
     if case.family == 'finite-overload-chain':
         return b'1\n'
+    if case.family == 'named-generic-constructors':
+        return b'9\n' if case.shape == 'shared-default' else b'7\n'
     raise AssertionError(f'unexpected inference family: {case.family}')
 
 
@@ -28,19 +30,19 @@ class InferenceWorkloadTests(unittest.TestCase):
     def setUpClass(cls):
         cls.workloads = fixed_inference_workloads()
 
-    def test_eight_fixed_families_retain_every_requested_size(self):
-        self.assertEqual(len(set(FAMILIES)), 8)
+    def test_existing_families_and_named_constructors_retain_every_requested_size(self):
+        self.assertEqual(len(set(FAMILIES)), 9)
         self.assertEqual(tuple(SCALING_SIZES), EXPECTED_UNITS)
-        self.assertEqual(len(self.workloads), 36)
+        self.assertEqual(len(self.workloads), 52)
         for size in EXPECTED_UNITS:
             cases = [case for case in self.workloads if case.size == size]
             self.assertEqual({case.family for case in cases}, set(FAMILIES))
             records = [case for case in cases if case.family == 'records']
             self.assertEqual({case.shape for case in records}, {'wide', 'deep'})
-            self.assertEqual(len(cases), 9)
+            self.assertEqual(len(cases), 13)
             for family in FAMILIES:
                 family_cases = [case for case in cases if case.family == family]
-                self.assertEqual(len(family_cases), 2 if family == 'records' else 1)
+                self.assertEqual(len(family_cases), 2 if family == 'records' else 4 if family == 'named-generic-constructors' else 1)
                 for case in family_cases:
                     self.assertEqual(case.expected_units, size)
 
@@ -146,6 +148,30 @@ class InferenceWorkloadTests(unittest.TestCase):
                 elif case.family == 'finite-overload-chain':
                     self.assertEqual(annotated.count('|> map(identity)'), case.size)
                     self.assertEqual(reduced.count('|> map(identity)'), case.size)
+
+    def test_named_constructors_keep_independent_binders_and_observable_values(self):
+        for case in self.workloads:
+            if case.family != 'named-generic-constructors':
+                continue
+            for source in (case.annotated_sources['main.xsh'], case.reduced_sources['main.xsh']):
+                with self.subTest(name=case.name):
+                    constructor = {'independent': 'Box(value: value_', 'shared-default': 'Box(value:)',
+                                   'ground-carrier': 'Branded(payload:', 'phantom-context': 'Phantom(value:'}[case.shape]
+                    self.assertEqual(source.count(constructor), case.size)
+                    if case.shape == 'independent':
+                        signature = next(line for line in source.splitlines() if line.startswith('pure build('))
+                        self.assertEqual(len(re.findall(r'value_\d+', signature)), case.size)
+                        self.assertEqual(len(re.findall(r'^assert result.box_\d+\.value ==', source, re.MULTILINE)), case.size)
+                        self.assertIn('== "kept"', source)
+                    elif case.shape == 'shared-default':
+                        self.assertEqual(source.count('.items.len() == 0'), case.size)
+                        self.assertEqual(source.count('.extra == 9'), case.size)
+                    elif case.shape == 'ground-carrier':
+                        self.assertEqual(source.count('tag: closed_brand()'), case.size)
+                        self.assertEqual(source.count('.tag.value == 7'), case.size)
+                    else:
+                        self.assertEqual(source.count(': Phantom[Int] ='), case.size)
+                        self.assertEqual(len(re.findall(r'assert item_\d+\.value ==', source)), case.size)
 
     def test_module_diamonds_are_sourcefile_maps_with_shared_imports(self):
         for case in self.workloads:

@@ -475,6 +475,7 @@ impl TracebackName {
 pub enum TracebackFrameKind {
     Proc,
     Pure,
+    Stream,
 }
 
 impl TracebackFrameKind {
@@ -482,6 +483,7 @@ impl TracebackFrameKind {
         match self {
             Self::Proc => "proc",
             Self::Pure => "pure",
+            Self::Stream => "stream",
         }
     }
 }

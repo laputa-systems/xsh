@@ -25,17 +25,20 @@ pub(super) fn expected_set_element(expected: Option<&Type>) -> Option<&Type> {
 }
 
 impl Checker {
-    /// Reports an element type a set cannot hold. The types are the ones a
-    /// map key can have, since a set is ordered and compared the same way.
     pub(super) fn require_set_element_type(&mut self, element: &Type, span: Span) {
-        if !element.is_map_key() && !element.is_recovery() && !element.contains_inference() {
-            self.error(
-                span,
-                &format!(
-                    "Set elements require Str, Int, UInt, Bool, Bytes, Path, or Duration, not {element}"
-                ),
-                DiagnosticCode::CheckSetElementType,
-            );
+        if element.is_recovery() { return; }
+        match self.type_constraints.require_map_key(element, span) {
+            Ok(()) => {}
+            Err(crate::sema::constraints::MapKeyConstraintError::Resolution(error)) => {
+                let message = match error {
+                    crate::sema::constraints::ConstraintResolutionError::ForeignVariable => "Set element inference does not belong to this checking problem",
+                    crate::sema::constraints::ConstraintResolutionError::TypeDepth => "Set element inference exceeds the supported nesting depth",
+                };
+                self.error(span, message, DiagnosticCode::CheckLocalInference);
+            }
+            Err(crate::sema::constraints::MapKeyConstraintError::Invalid(actual)) => {
+                self.error(span, &format!("Set elements require Str, Int, UInt, Bool, Bytes, Path, or Duration, not {actual}"), DiagnosticCode::CheckSetElementType);
+            }
         }
     }
 
@@ -343,8 +346,6 @@ impl Checker {
         }
     }
 
-    /// `left | right` and `left & right`. Both operands are sets of one
-    /// element type, which is the result's.
     pub(super) fn check_set_operator_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -392,6 +393,7 @@ impl Checker {
             }
             return left_ty;
         }
+        if let Some(result) = left_ty.set_operator_result(op, &right_ty) { return result; }
         self.expect_type(&left_ty, &right_ty, right_span);
         left_ty
     }

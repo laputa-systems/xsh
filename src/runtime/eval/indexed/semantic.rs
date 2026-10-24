@@ -10,6 +10,46 @@ use std::mem::size_of;
 const PARAM_DEFAULTED: u32 = 1;
 const PARAM_REST: u32 = 1 << 1;
 const MODULE_EXPORT_OPTIONAL: u32 = 1 << 2;
+const MODULE_EXPORT_CALLABLE: u32 = 1 << 3;
+const MODULE_EXPORT_CALLABLE_KIND_SHIFT: u32 = 4;
+const MODULE_EXPORT_CALLABLE_KIND_MASK: u32 = 0b11 << MODULE_EXPORT_CALLABLE_KIND_SHIFT;
+
+#[derive(Clone, Copy)]
+enum ModuleExportHeader {
+    Value { optional: bool },
+    Callable { kind: crate::sema::types::CallableKind, optional: bool },
+    GenericCallable { optional: bool },
+}
+
+impl ModuleExportHeader {
+    fn decode(flags: u32) -> Result<Self, IrVerifyError> {
+        let optional = flags & MODULE_EXPORT_OPTIONAL != 0;
+        let tag = flags & !(MODULE_EXPORT_OPTIONAL | MODULE_EXPORT_CALLABLE_KIND_MASK);
+        match tag {
+            0 if flags & MODULE_EXPORT_CALLABLE_KIND_MASK == 0 => Ok(Self::Value { optional }),
+            3 if flags & MODULE_EXPORT_CALLABLE_KIND_MASK == 0 => Ok(Self::GenericCallable { optional }),
+            MODULE_EXPORT_CALLABLE => {
+                let kind = crate::sema::types::CallableKind::from_encoded((flags & MODULE_EXPORT_CALLABLE_KIND_MASK) >> MODULE_EXPORT_CALLABLE_KIND_SHIFT)
+                    .ok_or_else(|| IrVerifyError::new("module callable kind is invalid"))?;
+                Ok(Self::Callable { kind, optional })
+            }
+            _ => Err(IrVerifyError::new("module export flags are invalid")),
+        }
+    }
+
+    fn encode(self) -> u32 {
+        match self {
+            Self::Value { optional } => u32::from(optional) * MODULE_EXPORT_OPTIONAL,
+            Self::Callable { kind, optional } => MODULE_EXPORT_CALLABLE | ((kind as u32) << MODULE_EXPORT_CALLABLE_KIND_SHIFT) | (u32::from(optional) * MODULE_EXPORT_OPTIONAL),
+            Self::GenericCallable { optional } => 3 | (u32::from(optional) * MODULE_EXPORT_OPTIONAL),
+        }
+    }
+
+    fn optional(self) -> bool {
+        match self { Self::Value { optional } | Self::Callable { optional, .. } | Self::GenericCallable { optional } => optional }
+    }
+}
+
 const MAX_SEMANTIC_TYPE_DEPTH: usize = 256;
 const MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK: usize = 100_000;
 
@@ -65,8 +105,7 @@ pub(super) enum TypeTag {
     ErrorVariant,
     ErrorFacet,
     ProcessError,
-    Pure,
-    Proc,
+    Function,
     Command,
     ProcessHandle,
     NetJob,
@@ -83,10 +122,7 @@ pub(super) enum TypeTag {
     // A closed union. `lhs` is the member count and `rhs` the offset of the
     // member type ids in `type_extra`, in the order the union lists them.
     Union,
-    // A callable with a checked signature. `lhs` is the signature id; the
-    // signature has no defaulted or rest parameter.
-    TypedProc,
-    TypedPure,
+    Callable,
     // A base type narrowed by a validation. `lhs` is the base type id and
     // `rhs` the validation's code.
     Validated,
@@ -100,6 +136,7 @@ pub(super) enum TypeTag {
     // then the high 32 bits of the lower bound, then of the upper bound.
     Bounded,
     FsLock,
+    SchemeCallable,
 }
 
 impl TypeTag {
@@ -124,8 +161,6 @@ impl TypeTag {
                 | Self::EnvPathList
                 | Self::Error
                 | Self::ProcessError
-                | Self::Pure
-                | Self::Proc
                 | Self::Command
                 | Self::ProcessHandle
                 | Self::NetJob
@@ -146,6 +181,8 @@ impl TypeTag {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct SemanticPools {
+    scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner,
+    scheme_callable_count: u32,
     type_tags: Vec<TypeTag>,
     type_data: Vec<IrData>,
     type_extra: Vec<u32>,
@@ -156,6 +193,24 @@ pub(super) struct SemanticPools {
 }
 
 impl SemanticPools {
+    pub(super) fn register_scheme_callable(&mut self) -> Result<crate::sema::types::SchemeCallableId, IrBuildError> {
+        let index = self.scheme_callable_count;
+        self.scheme_callable_count = index.checked_add(1).ok_or_else(|| IrBuildError::format("scheme_callable_overflow", None, 0, 0))?;
+        Ok(self.scheme_callable_owner.id(index))
+    }
+
+    pub(super) fn scheme_callable_index(&self, id: crate::sema::types::SchemeCallableId) -> Result<u32, IrVerifyError> {
+        let index = id.index_in(self.scheme_callable_owner).map_err(|_| IrVerifyError::new("semantic scheme callable belongs to another owner"))?;
+        if index >= self.scheme_callable_count { return Err(IrVerifyError::new("semantic scheme callable index is out of bounds")); }
+        Ok(index)
+    }
+
+    pub(super) fn scheme_callable_count(&self) -> usize { self.scheme_callable_count as usize }
+
+    pub(super) fn scheme_callable_id(&self, index: u32) -> Result<crate::sema::types::SchemeCallableId, IrVerifyError> {
+        if index >= self.scheme_callable_count { return Err(IrVerifyError::new("semantic scheme callable index is out of bounds")); }
+        Ok(self.scheme_callable_owner.id(index))
+    }
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.type_tags.capacity() * size_of::<TypeTag>()
@@ -192,6 +247,31 @@ impl SemanticPools {
             .get(id.index())
             .copied()
             .ok_or_else(|| IrVerifyError::new("type id is out of bounds"))
+    }
+
+    pub(super) fn unvalidated_type_id(&self, mut id: TypeId) -> Result<TypeId, IrVerifyError> {
+        for _ in 0..=MAX_SEMANTIC_TYPE_DEPTH {
+            match self.type_tag(id)? {
+                TypeTag::Validated | TypeTag::Nominal | TypeTag::Bounded => id = verify_type_raw(self, self.type_data[id.index()].lhs, Some(id.index()))?,
+                _ => return Ok(id),
+            }
+        }
+        Err(IrVerifyError::new("semantic type nesting is too deep"))
+    }
+
+    pub(super) fn map_key_type_id(&self, id: TypeId) -> Result<Option<TypeId>, IrVerifyError> {
+        let id = self.unvalidated_type_id(id)?;
+        if self.type_tag(id)? != TypeTag::Map { return Ok(None); }
+        verify_type_raw(self, self.type_data[id.index()].lhs, Some(id.index())).map(Some)
+    }
+
+    pub(super) fn is_generic_error_result(&self, id: TypeId) -> Result<bool, IrVerifyError> {
+        if self.type_tag(id)? != TypeTag::Result {
+            return Ok(false);
+        }
+        let error = TypeId::from_raw(self.type_data[id.index()].rhs)
+            .ok_or_else(|| IrVerifyError::new("result error type id is invalid"))?;
+        Ok(self.type_tag(error)? == TypeTag::Error)
     }
 
     #[cfg(test)]
@@ -234,8 +314,30 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
     }
 
-    pub(super) fn signature_effects_empty(&self, id: SignatureId) -> Result<bool, IrVerifyError> {
-        Ok(signature_effect_count(self.signature_payload(id)?)? == 0)
+    pub(super) fn signature_effects(&self, id: SignatureId) -> Result<Option<Vec<Effect>>, IrVerifyError> {
+        let payload = self.signature_payload(id)?;
+        if payload[1] == IR_NONE { return Ok(None); }
+        let effect_count = signature_effect_count(payload)?;
+        if effect_count > Effect::ALL.len() {
+            return Err(IrVerifyError::new("signature effects exceed the capability set"));
+        }
+        let effects = payload.get(3..3 + effect_count)
+            .ok_or_else(|| IrVerifyError::new("signature effects are out of bounds"))?;
+        let mut seen = 0u32;
+        effects.iter().map(|raw| {
+            let bit = 1u32.checked_shl(*raw).ok_or_else(|| IrVerifyError::new("signature effect is invalid"))?;
+            if seen & bit != 0 { return Err(IrVerifyError::new("signature effect is repeated")); }
+            seen |= bit;
+            Ok(match *raw {
+            value if value == EffectCode::Fs as u32 => Effect::Fs,
+            value if value == EffectCode::Net as u32 => Effect::Net,
+            value if value == EffectCode::Process as u32 => Effect::Process,
+            value if value == EffectCode::Env as u32 => Effect::Env,
+            value if value == EffectCode::Time as u32 => Effect::Time,
+            value if value == EffectCode::Error as u32 => Effect::Error,
+            value if value == EffectCode::Io as u32 => Effect::Io,
+            _ => return Err(IrVerifyError::new("signature effect is invalid")),
+        }) }).collect::<Result<Vec<_>, _>>().map(Some)
     }
 
     pub(super) fn signature_has_error_effect(
@@ -261,12 +363,12 @@ impl SemanticPools {
     pub(super) fn signature_fits_callable(
         &self,
         id: SignatureId,
-        actual_pure: bool,
+        actual_kind: crate::sema::types::CallableKind,
         expected: &crate::sema::types::TypedCallable,
     ) -> Result<bool, IrVerifyError> {
         let actual = self.to_signature(id, 0)?;
         Ok(expected
-            .mismatch(actual_pure, &actual, true)
+            .mismatch(actual_kind, &actual, true)
             .is_none())
     }
 
@@ -275,7 +377,7 @@ impl SemanticPools {
         actual: &crate::sema::types::TypedCallable,
         expected: &crate::sema::types::TypedCallable,
     ) -> bool {
-        expected.mismatch(actual.pure, &actual.sig, true).is_none()
+        expected.mismatch(actual.kind, &actual.sig, true).is_none()
     }
 
     pub(super) fn signature_param_count(&self, id: SignatureId) -> Result<usize, IrVerifyError> {
@@ -322,6 +424,28 @@ impl SemanticPools {
             .get(start..end)
             .ok_or_else(|| IrVerifyError::new("record type payload is out of bounds"))?;
         Ok((fields, types))
+    }
+
+    pub(super) fn typed_callee_field_type(&self, id: TypeId, field: Name) -> Result<Option<TypeId>, IrVerifyError> {
+        let Type::Module(module) = self.to_type(id)?.into_unvalidated() else {
+            return self.field_type(id, field);
+        };
+        let Some(export @ ModuleExportType::Callable { .. }) = module.exports.get(&field) else {
+            return self.field_type(id, field);
+        };
+        let Some(Type::Callable(callable)) = export.static_callable_value_type() else {
+            return Ok(None);
+        };
+        for (index, tag) in self.type_tags.iter().enumerate() {
+            if *tag != TypeTag::Callable { continue; }
+            let data = self.type_data[index];
+            if data.rhs != callable.kind as u32 { continue; }
+            let signature = SignatureId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("module callable type signature is invalid"))?;
+            if self.signature_matches_callable(signature, &callable.sig)? {
+                return TypeId::new(index).map(Some).map_err(|_| IrVerifyError::new("module callable type id overflows"));
+            }
+        }
+        Ok(None)
     }
 
     /// Resolves checked fields on records and statically typed module exports.
@@ -371,29 +495,25 @@ impl SemanticPools {
                         .type_extra
                         .get(offset..end)
                         .ok_or_else(|| IrVerifyError::new("module export is out of bounds"))?;
-                    if export[0] & MODULE_EXPORT_OPTIONAL != 0 {
+                    let header = ModuleExportHeader::decode(export[0])?;
+                    if header.optional() {
                         return Ok(None);
                     }
-                    return match export[0] & 0b11 {
-                        0 => TypeId::from_raw(export[1])
+                    return match header {
+                        ModuleExportHeader::Value { .. } => TypeId::from_raw(export[1])
                             .map(Some)
                             .ok_or_else(|| IrVerifyError::new("module export type id is invalid")),
-                        kind @ (1 | 2) => {
+                        ModuleExportHeader::Callable { kind: callable_kind, .. } => {
                             let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
                                 IrVerifyError::new("module export signature id is invalid")
                             })?;
-                            let callable_tag = if kind == 1 {
-                                TypeTag::TypedProc
-                            } else {
-                                TypeTag::TypedPure
-                            };
                             let Some(index) = self.type_tags.iter().enumerate().find_map(
                                 |(index, tag)| {
-                                    (*tag == callable_tag
+                                    (*tag == TypeTag::Callable
                                         && self
                                             .type_data
                                             .get(index)
-                                            .is_some_and(|data| data.lhs == signature.raw()))
+                                            .is_some_and(|data| data.lhs == signature.raw() && data.rhs == callable_kind as u32))
                                     .then_some(index)
                                 },
                             ) else {
@@ -403,8 +523,10 @@ impl SemanticPools {
                                 IrVerifyError::new("module callable type id overflows")
                             })
                         }
-                        3 if export[1] == IR_NONE => Ok(None),
-                        _ => Err(IrVerifyError::new("module export kind is invalid")),
+                        ModuleExportHeader::GenericCallable { .. } => {
+                            crate::sema::types::CallableKind::from_encoded(export[1]).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
+                            Ok(None)
+                        }
                     }
                 }
                 _ => return Ok(None),
@@ -458,7 +580,7 @@ impl SemanticPools {
         &self,
         id: TypeId,
     ) -> Result<SignatureId, IrVerifyError> {
-        if !matches!(self.type_tag(id)?, TypeTag::TypedProc | TypeTag::TypedPure) {
+        if !matches!(self.type_tag(id)?, TypeTag::Callable) {
             return Err(IrVerifyError::new(
                 "type id does not denote a typed callable",
             ));
@@ -473,9 +595,10 @@ impl SemanticPools {
         Ok(signature)
     }
 
-    pub(super) fn typed_callable_is_pure(&self, id: TypeId) -> Result<bool, IrVerifyError> {
+    pub(super) fn typed_callable_kind(&self, id: TypeId) -> Result<crate::sema::types::CallableKind, IrVerifyError> {
         self.typed_callable_signature(id)?;
-        Ok(self.type_tag(id)? == TypeTag::TypedPure)
+        crate::sema::types::CallableKind::from_encoded(self.type_data[id.index()].rhs)
+            .ok_or_else(|| IrVerifyError::new("typed callable kind is invalid"))
     }
 
     /// The member type ids of a union, in the order the union lists them.
@@ -549,7 +672,7 @@ impl SemanticPools {
         let Some(index) = self
             .type_tags
             .iter()
-            .position(|tag| matches!(tag, TypeTag::TypedProc | TypeTag::TypedPure))
+            .position(|tag| matches!(tag, TypeTag::Callable))
         else {
             return false;
         };
@@ -663,37 +786,18 @@ impl SemanticPools {
                     .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
                 let mut fields = BTreeMap::new();
                 for (name, export) in names.iter().copied().zip(exports.as_chunks::<2>().0) {
-                    let optional = export[0] & MODULE_EXPORT_OPTIONAL != 0;
-                    let value = match export[0] & 0b11 {
-                        0 => ModuleExportType::Value {
-                            ty: self.to_type_child(export[1], depth, budget)?,
+                    let value = match ModuleExportHeader::decode(export[0])? {
+                        ModuleExportHeader::Value { optional } => ModuleExportType::Value {
+                            ty: self.to_type_child(export[1], depth, budget)?, optional,
+                        },
+                        ModuleExportHeader::Callable { kind, optional } => ModuleExportType::Callable {
+                            kind,
+                            sig: self.to_signature_with_budget(SignatureId::from_raw(export[1]).ok_or_else(|| IrVerifyError::new("module callable signature id is invalid"))?, depth + 1, budget)?,
                             optional,
                         },
-                        1 => ModuleExportType::Proc {
-                            sig: self.to_signature_with_budget(
-                                SignatureId::from_raw(export[1]).ok_or_else(|| {
-                                    IrVerifyError::new("module proc signature id is invalid")
-                                })?,
-                                depth + 1,
-                                budget,
-                            )?,
-                            optional,
-                        },
-                        2 => ModuleExportType::Pure {
-                            sig: self.to_signature_with_budget(
-                                SignatureId::from_raw(export[1]).ok_or_else(|| {
-                                    IrVerifyError::new("module pure signature id is invalid")
-                                })?,
-                                depth + 1,
-                                budget,
-                            )?,
-                            optional,
-                        },
-                        3 if export[1] == IR_NONE => {
-                            ModuleExportType::GenericPure { optional }
-                        }
-                        _ => {
-                            return Err(IrVerifyError::new("module export kind is invalid"));
+                        ModuleExportHeader::GenericCallable { optional } => {
+                            let kind = crate::sema::types::CallableKind::from_encoded(export[1]).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
+                            ModuleExportType::GenericCallable { kind, optional }
                         }
                     };
                     fields.insert(name, value);
@@ -719,11 +823,15 @@ impl SemanticPools {
             },
             TypeTag::ErrorFacet => Type::ErrorFacet(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::ProcessError => Type::ProcessError,
-            TypeTag::Pure => Type::Pure,
-            TypeTag::Proc => Type::Proc,
-            TypeTag::TypedProc | TypeTag::TypedPure => {
+            TypeTag::Function => Type::Function(crate::sema::types::CallableKind::from_encoded(data.lhs)
+                .ok_or_else(|| IrVerifyError::new("function kind is invalid"))?),
+            TypeTag::SchemeCallable => {
+                if data.rhs != 0 { return Err(IrVerifyError::new("semantic scheme callable has invalid reserved data")); }
+                Type::SchemeCallable(self.scheme_callable_id(data.lhs)?)
+            }
+            TypeTag::Callable => {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-                    pure: tag == TypeTag::TypedPure,
+                    kind: self.typed_callable_kind(id)?,
                     sig: self.to_signature_with_budget(
                         self.typed_callable_signature(id)?,
                         depth + 1,
@@ -798,7 +906,7 @@ impl SemanticPools {
         self.to_signature_with_budget(id, depth, &mut TypeMaterializationBudget::default())
     }
 
-    fn to_signature_with_budget(
+    pub(super) fn to_signature_with_budget(
         &self,
         id: SignatureId,
         depth: usize,
@@ -813,24 +921,7 @@ impl SemanticPools {
                 .checked_add(param_count)
                 .ok_or_else(|| IrVerifyError::new("semantic signature expansion overflows"))?,
         )?;
-        let effects = if payload[1] == IR_NONE {
-            None
-        } else {
-            let mut effects = Vec::with_capacity(effect_count);
-            for raw in &payload[3..3 + effect_count] {
-                effects.push(match *raw {
-                    value if value == EffectCode::Fs as u32 => Effect::Fs,
-                    value if value == EffectCode::Net as u32 => Effect::Net,
-                    value if value == EffectCode::Process as u32 => Effect::Process,
-                    value if value == EffectCode::Env as u32 => Effect::Env,
-                    value if value == EffectCode::Time as u32 => Effect::Time,
-                    value if value == EffectCode::Error as u32 => Effect::Error,
-                    value if value == EffectCode::Io as u32 => Effect::Io,
-                    _ => return Err(IrVerifyError::new("signature effect is invalid")),
-                });
-            }
-            Some(effects)
-        };
+        let effects = self.signature_effects(id)?;
         let mut params = Vec::with_capacity(param_count);
         for raw in payload[3 + effect_count..].as_chunks::<3>().0 {
             params.push(CallableParamType {
@@ -855,7 +946,7 @@ impl SemanticPools {
                     budget,
                 )?,
             ),
-            effects,
+            effects: crate::sema::types::CallableEffects::from_clause(effects),
         })
     }
 
@@ -887,8 +978,7 @@ impl SemanticPools {
             TypeTag::EnvPathList => Some("EnvPathList"),
             TypeTag::Error => Some("Error"),
             TypeTag::ProcessError => Some("ProcessError"),
-            TypeTag::Pure => Some("Pure"),
-            TypeTag::Proc => Some("Proc"),
+            TypeTag::Function => None,
             TypeTag::Command => Some("Command"),
             TypeTag::ProcessHandle => Some("ProcessHandle"),
             TypeTag::NetJob => Some("NetJob"),
@@ -959,7 +1049,7 @@ impl SemanticPools {
                 }
                 Ok(format!("Union[{}]", members.join(", ")))
             }
-            TypeTag::TypedProc | TypeTag::TypedPure => {
+            TypeTag::Function | TypeTag::Callable | TypeTag::SchemeCallable => {
                 Ok(self
                     .to_type_inner(id, depth, &mut TypeMaterializationBudget::default())?
                     .to_string())
@@ -1195,47 +1285,42 @@ impl SemanticPools {
                         .get(start..end)
                         .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
                     for export in exports.as_chunks::<2>().0 {
-                        let kind = export[0] & 0b11;
-                        if export[0] & !(0b11 | MODULE_EXPORT_OPTIONAL) != 0 {
-                            return Err(IrVerifyError::new("module export flags are invalid"));
-                        }
-                        if kind == 3 {
-                            if export[1] != IR_NONE {
-                                return Err(IrVerifyError::new(
-                                    "generic pure module export has a payload",
-                                ));
+                        match ModuleExportHeader::decode(export[0])? {
+                            ModuleExportHeader::GenericCallable { .. } => {
+                                crate::sema::types::CallableKind::from_encoded(export[1]).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
                             }
-                        } else if kind == 0 {
-                            verify_type_raw(self, export[1], Some(index))?;
-                        } else {
-                            let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
-                                IrVerifyError::new("module export signature id is invalid")
-                            })?;
-                            if signature.index() >= self.signature_data.len() {
-                                return Err(IrVerifyError::new(
-                                    "module export signature id is out of bounds",
-                                ));
+                            ModuleExportHeader::Value { .. } => { verify_type_raw(self, export[1], Some(index))?; }
+                            ModuleExportHeader::Callable { .. } => {
+                                let signature = SignatureId::from_raw(export[1]).ok_or_else(|| IrVerifyError::new("module export signature id is invalid"))?;
+                                if signature.index() >= self.signature_data.len() { return Err(IrVerifyError::new("module export signature id is out of bounds")); }
                             }
                         }
                     }
                 }
-                // A call through a typed callable supplies exactly the
-                // parameters its signature lists, so a signature that would
-                // let one be omitted or collected was not produced by
-                // lowering.
-                TypeTag::TypedProc | TypeTag::TypedPure => {
+                TypeTag::Function => {
+                    if data.rhs != 0 || crate::sema::types::CallableKind::from_encoded(data.lhs).is_none() {
+                        return Err(IrVerifyError::new("function marker kind is invalid"));
+                    }
+                }
+                TypeTag::SchemeCallable => {
+                    if data.rhs != 0 { return Err(IrVerifyError::new("semantic scheme callable has invalid reserved data")); }
+                    self.scheme_callable_id(data.lhs)?;
+                }
+                TypeTag::Callable => {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
                     let signature = self.typed_callable_signature(id)?;
-                    if data.rhs != 0 {
-                        return Err(IrVerifyError::new("typed callable type has invalid data"));
-                    }
-                    for param in 0..self.signature_param_count(signature)? {
-                        if self.signature_param(signature, param)?.2 != 0 {
-                            return Err(IrVerifyError::new(
-                                "typed callable signature has a defaulted or rest parameter",
-                            ));
-                        }
+                    self.typed_callable_kind(id)?;
+                    let count = self.signature_param_count(signature)?;
+                    let mut defaulted = false;
+                    for param in 0..count {
+                        let (_, ty, flags) = self.signature_param(signature, param)?;
+                        if flags & PARAM_REST != 0 {
+                            if param + 1 != count || flags & PARAM_DEFAULTED != 0 || self.list_item_type_id(ty)?.is_none() {
+                                return Err(IrVerifyError::new("typed callable rest parameter has an invalid layout"));
+                            }
+                        } else if flags & PARAM_DEFAULTED != 0 { defaulted = true; }
+                        else if defaulted { return Err(IrVerifyError::new("typed callable required parameter follows a default")); }
                     }
                 }
                 _ => return Err(IrVerifyError::new("type tag has no verification schema")),
@@ -1305,7 +1390,9 @@ enum TypeKey {
     Aggregate(TypeTag, ShapeId, Box<[u32]>),
     /// Member type ids in the order the union lists them.
     Union(Box<[u32]>),
-    Callable(TypeTag, SignatureId),
+    Callable(crate::sema::types::CallableKind, SignatureId),
+    SchemeCallable(u32),
+    Function(crate::sema::types::CallableKind),
     /// A validation code and the base type it narrows.
     Validated(u32, TypeId),
     /// A nominal declaration's name and the record type it names.
@@ -1338,6 +1425,7 @@ struct SignatureKey {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct SemanticCheckpoint {
+    scheme_callables: u32,
     types: usize,
     type_extra: usize,
     signatures: usize,
@@ -1356,6 +1444,7 @@ pub(super) struct SemanticPoolBuilder {
 impl SemanticPoolBuilder {
     pub(super) fn checkpoint(&self, pools: &SemanticPools) -> SemanticCheckpoint {
         SemanticCheckpoint {
+            scheme_callables: pools.scheme_callable_count,
             types: pools.type_tags.len(),
             type_extra: pools.type_extra.len(),
             signatures: pools.signature_data.len(),
@@ -1366,6 +1455,7 @@ impl SemanticPoolBuilder {
     }
 
     pub(super) fn rewind(&mut self, pools: &mut SemanticPools, checkpoint: SemanticCheckpoint) {
+        pools.scheme_callable_count = checkpoint.scheme_callables;
         pools.type_tags.truncate(checkpoint.types);
         pools.type_data.truncate(checkpoint.types);
         pools.type_extra.truncate(checkpoint.type_extra);
@@ -1435,20 +1525,16 @@ impl SemanticPoolBuilder {
                 for export in exports.values() {
                     match export {
                         ModuleExportType::Value { ty, optional } => {
-                            words.push(u32::from(*optional) * MODULE_EXPORT_OPTIONAL);
+                            words.push(ModuleExportHeader::Value { optional: *optional }.encode());
                             words.push(self.intern_type(pools, ty)?.raw());
                         }
-                        ModuleExportType::Proc { sig, optional } => {
-                            words.push(1 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
+                        ModuleExportType::Callable { kind, sig, optional } => {
+                            words.push(ModuleExportHeader::Callable { kind: *kind, optional: *optional }.encode());
                             words.push(self.intern_signature(pools, sig)?.raw());
                         }
-                        ModuleExportType::Pure { sig, optional } => {
-                            words.push(2 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
-                            words.push(self.intern_signature(pools, sig)?.raw());
-                        }
-                        ModuleExportType::GenericPure { optional } => {
-                            words.push(3 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
-                            words.push(IR_NONE);
+                        ModuleExportType::GenericCallable { kind, optional } => {
+                            words.push(ModuleExportHeader::GenericCallable { optional: *optional }.encode());
+                            words.push(*kind as u32);
                         }
                     }
                 }
@@ -1482,8 +1568,7 @@ impl SemanticPoolBuilder {
             ),
             Type::ErrorFacet(name) => named(TypeTag::ErrorFacet, *name),
             Type::ProcessError => scalar(TypeTag::ProcessError),
-            Type::Pure => scalar(TypeTag::Pure),
-            Type::Proc => scalar(TypeTag::Proc),
+            Type::Function(kind) => (TypeKey::Function(*kind), IrData::new(*kind as u32, 0), Vec::new()),
             Type::Command => scalar(TypeTag::Command),
             Type::ProcessHandle => scalar(TypeTag::ProcessHandle),
             Type::NetJob => scalar(TypeTag::NetJob),
@@ -1539,16 +1624,16 @@ impl SemanticPoolBuilder {
             }
             Type::Callable(callable) => {
                 let signature = self.intern_signature(pools, &callable.sig)?;
-                let tag = if callable.pure {
-                    TypeTag::TypedPure
-                } else {
-                    TypeTag::TypedProc
-                };
                 (
-                    TypeKey::Callable(tag, signature),
-                    IrData::new(signature.raw(), 0),
+                    TypeKey::Callable(callable.kind, signature),
+                    IrData::new(signature.raw(), callable.kind as u32),
                     Vec::new(),
                 )
+            }
+            Type::SchemeCallable(id) => {
+                let index = id.index_in(pools.scheme_callable_owner).map_err(|_| IrBuildError::format("foreign_scheme_callable_owner", None, 0, 0))?;
+                if index >= pools.scheme_callable_count { return Err(IrBuildError::format("unknown_scheme_callable", None, 0, 0)); }
+                (TypeKey::SchemeCallable(index), IrData::new(index, 0), Vec::new())
             }
         };
         if let Some(id) = self.types.get(&key) {
@@ -1563,7 +1648,9 @@ impl SemanticPoolBuilder {
             | TypeKey::NamedPair(tag, _, _)
             | TypeKey::Aggregate(tag, _, _) => *tag,
             TypeKey::Union(_) => TypeTag::Union,
-            TypeKey::Callable(tag, _) => *tag,
+            TypeKey::Callable(_, _) => TypeTag::Callable,
+            TypeKey::SchemeCallable(_) => TypeTag::SchemeCallable,
+            TypeKey::Function(_) => TypeTag::Function,
             TypeKey::Validated(_, _) => TypeTag::Validated,
             TypeKey::Nominal(_, _) => TypeTag::Nominal,
             TypeKey::Bounded(_, _, _) => TypeTag::Bounded,
@@ -1590,7 +1677,9 @@ impl SemanticPoolBuilder {
                 rest: param.rest,
             }));
         }
-        let effects = normalized_effects(signature.effects.as_deref());
+        let concrete_effects = signature.effects.concrete()
+            .map_err(|_| IrBuildError::format("unresolved_effects", None, 0, 0))?;
+        let effects = normalized_effects(concrete_effects.as_deref());
         self.intern_signature_key(
             pools,
             SignatureKey {
@@ -1732,6 +1821,28 @@ fn checked_u32(value: usize, construct: &'static str) -> Result<u32, IrBuildErro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scheme_callable_pools_reject_foreign_handles_and_decode_destination_owners() {
+        let mut source = super::SemanticPools::default();
+        let mut destination = super::SemanticPools::default();
+        let source_callable = source.register_scheme_callable().unwrap();
+        let destination_callable = destination.register_scheme_callable().unwrap();
+        assert_ne!(source_callable, destination_callable);
+        assert_eq!(source.scheme_callable_index(source_callable).unwrap(), 0);
+        assert_eq!(destination.scheme_callable_index(destination_callable).unwrap(), 0);
+        assert!(source.scheme_callable_index(destination_callable).is_err());
+        assert!(destination.scheme_callable_index(source_callable).is_err());
+        let mut builder = super::SemanticPoolBuilder::default();
+        let foreign = crate::sema::types::Type::SchemeCallable(source_callable);
+        assert!(builder.intern_type(&mut destination, &foreign).is_err());
+        let local = crate::sema::types::Type::SchemeCallable(destination_callable);
+        let physical = builder.intern_type(&mut destination, &local).unwrap();
+        assert_eq!(destination.to_type(physical).unwrap(), local);
+        assert_ne!(destination.to_type(physical).unwrap(), foreign);
+        assert!(destination.scheme_callable_id(1).is_err());
+        destination.verify().unwrap();
+    }
+
     #[test]
     fn typed_map_keys_semantic_pool_retains_both_types_and_rejects_float_keys() {
         let mut pools = super::SemanticPools::default();
@@ -1989,8 +2100,75 @@ mod tests {
                 },
             ],
             return_ty: Box::new(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
-            effects: Some(vec![Effect::Fs, Effect::Error]),
+            effects: crate::sema::types::CallableEffects::finite([Effect::Fs, Effect::Error]),
         }
+    }
+
+    #[test]
+    fn callable_kind_codec_preserves_markers_contracts_and_rejects_foreign_tags() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut pools = SemanticPools::default();
+            let mut builder = SemanticPoolBuilder::default();
+            for kind in [crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Stream] {
+                let marker = Type::Function(kind);
+                let marker_id = builder.intern_type(&mut pools, &marker).unwrap();
+                let mut signature = callable();
+                if kind == crate::sema::types::CallableKind::Stream {
+                    signature.return_ty = Box::new(Type::Stream(Box::new(Type::Int)));
+                    signature.effects = crate::sema::types::CallableEffects::finite([]);
+                }
+                let typed = Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable { kind, sig: signature }));
+                let typed_id = builder.intern_type(&mut pools, &typed).unwrap();
+                pools.verify().unwrap();
+                assert_eq!(pools.to_type(marker_id).unwrap(), marker);
+                assert_eq!(pools.to_type(typed_id).unwrap(), typed);
+                assert_eq!(pools.typed_callable_kind(typed_id).unwrap(), kind);
+                let mut invalid = pools.clone();
+                invalid.type_data[marker_id.index()].lhs = 3;
+                assert!(invalid.verify().unwrap_err().message.contains("function marker kind"));
+                let mut invalid = pools.clone();
+                invalid.type_data[typed_id.index()].rhs = 3;
+                assert!(invalid.verify().unwrap_err().message.contains("callable kind"));
+            }
+        });
+    }
+
+    #[test]
+    fn module_callee_projection_uses_exact_invocation_contracts() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for kind in [crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc] {
+                let name = Name::intern("forwarded");
+                let invocation = CallableType {
+                    params: vec![CallableParamType { name: Name::intern("value"), ty: Type::Int, defaulted: false, rest: false }],
+                    return_ty: Box::new(Type::Int),
+                    effects: if kind == crate::sema::types::CallableKind::Pure { crate::sema::types::CallableEffects::finite([]) } else { crate::sema::types::CallableEffects::finite([Effect::Io, Effect::Error]) },
+                };
+                let mut declaration = invocation.clone();
+                if kind == crate::sema::types::CallableKind::Pure { declaration.effects = crate::sema::types::CallableEffects::unknown(); }
+                let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(BTreeMap::from([(name, ModuleExportType::Callable { kind, sig: declaration, optional: false })]))));
+                let mut pools = SemanticPools::default();
+                let mut builder = SemanticPoolBuilder::default();
+                let module_id = builder.intern_type(&mut pools, &module).unwrap();
+                for mutation in 0..7 {
+                    let mut wrong = crate::sema::types::TypedCallable { kind, sig: invocation.clone() };
+                    match mutation {
+                        0 => wrong.kind = if kind == crate::sema::types::CallableKind::Pure { crate::sema::types::CallableKind::Proc } else { crate::sema::types::CallableKind::Pure },
+                        1 => wrong.sig.params[0].name = Name::intern("other"),
+                        2 => wrong.sig.params[0].ty = Type::Str,
+                        3 => wrong.sig.params[0].defaulted = true,
+                        4 => { wrong.sig.params[0].rest = true; wrong.sig.params[0].ty = Type::List(Box::new(Type::Int)); },
+                        5 => wrong.sig.return_ty = Box::new(Type::Str),
+                        6 => wrong.sig.effects = if kind == crate::sema::types::CallableKind::Pure { crate::sema::types::CallableEffects::finite([Effect::Io]) } else { crate::sema::types::CallableEffects::finite([]) },
+                        _ => unreachable!(),
+                    }
+                    builder.intern_type(&mut pools, &Type::Callable(std::sync::Arc::new(wrong))).unwrap();
+                    assert_eq!(pools.typed_callee_field_type(module_id, name).unwrap(), None, "{kind:?} mutation={mutation}");
+                }
+                let expected = builder.intern_type(&mut pools, &Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable { kind, sig: invocation }))).unwrap();
+                pools.verify().unwrap();
+                assert_eq!(pools.typed_callee_field_type(module_id, name).unwrap(), Some(expected));
+            }
+        });
     }
 
     #[test]
@@ -1999,11 +2177,11 @@ mod tests {
             let callable = CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
-                effects: Some(Vec::new()),
+                effects: crate::sema::types::CallableEffects::finite([]),
             };
             let typed = |pure| {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-                    pure,
+                    kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                     sig: callable.clone(),
                 }))
             };
@@ -2025,14 +2203,14 @@ mod tests {
                     ),
                     (
                         Name::intern("proc_export"),
-                        ModuleExportType::Proc {
+                        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                             sig: callable.clone(),
                             optional: false,
                         },
                     ),
                     (
                         Name::intern("pure_export"),
-                        ModuleExportType::Pure {
+                        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                             sig: callable.clone(),
                             optional: false,
                         },
@@ -2085,7 +2263,7 @@ mod tests {
         let second_signature = builder.intern_signature(&mut pools, &signature).unwrap();
         assert_eq!(first_signature, second_signature);
         let mut reordered_effects = signature.clone();
-        reordered_effects.effects = Some(vec![Effect::Error, Effect::Fs, Effect::Fs]);
+        reordered_effects.effects = crate::sema::types::CallableEffects::finite([Effect::Error, Effect::Fs, Effect::Fs]);
         assert_eq!(
             builder
                 .intern_signature(&mut pools, &reordered_effects)
@@ -2103,7 +2281,7 @@ mod tests {
             ),
             (
                 Name::intern("name"),
-                ModuleExportType::Pure {
+                ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                     sig: callable(),
                     optional: false,
                 },
@@ -2140,7 +2318,7 @@ mod tests {
 
         let mut corrupted = pools.clone();
         let payload = corrupted.type_data[exact_id.index()].rhs as usize;
-        corrupted.type_extra[payload] = 1 << 3;
+        corrupted.type_extra[payload] = 1 << 6;
         assert!(
             corrupted
                 .verify()
@@ -2151,12 +2329,43 @@ mod tests {
     }
 
     #[test]
-    fn generic_pure_module_exports_reject_payloads() {
+    fn module_callable_exports_round_trip_actual_kinds_and_reject_invalid_headers() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for kind in [crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Stream] {
+                let name = Name::intern("create");
+                let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(BTreeMap::from([(
+                    name, ModuleExportType::Callable { kind, sig: callable(), optional: false },
+                )]))));
+                let mut pools = SemanticPools::default();
+                let mut builder = SemanticPoolBuilder::default();
+                let id = builder.intern_type(&mut pools, &module).unwrap();
+                let expected = builder.intern_type(&mut pools, &Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable { kind, sig: callable() }))).unwrap();
+                pools.verify().unwrap();
+                assert_eq!(pools.to_type(id).unwrap(), module);
+                assert_eq!(pools.field_type(id, name).unwrap(), Some(expected));
+                let payload = pools.type_data[id.index()].rhs as usize;
+                for invalid in [1, 2, MODULE_EXPORT_CALLABLE | (3 << MODULE_EXPORT_CALLABLE_KIND_SHIFT), MODULE_EXPORT_CALLABLE | (1 << 6)] {
+                    let mut forged = pools.clone();
+                    forged.type_extra[payload] = invalid;
+                    assert!(forged.verify().is_err());
+                    assert!(forged.to_type(id).is_err());
+                    assert!(forged.field_type(id, name).is_err());
+                }
+                let mut optional = pools.clone();
+                optional.type_extra[payload] |= MODULE_EXPORT_OPTIONAL;
+                optional.verify().unwrap();
+                assert_eq!(optional.field_type(id, name).unwrap(), None);
+            }
+        });
+    }
+
+    #[test]
+    fn generic_callable_module_exports_reject_invalid_kinds() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(
                 BTreeMap::from([(
                     Name::intern("identity"),
-                    ModuleExportType::GenericPure { optional: false },
+                    ModuleExportType::GenericCallable { kind: crate::sema::types::CallableKind::Pure, optional: false },
                 )]),
             )));
             let mut pools = SemanticPools::default();
@@ -2166,12 +2375,12 @@ mod tests {
             assert_eq!(pools.to_type(id).unwrap(), module);
 
             let payload = pools.type_data[id.index()].rhs as usize + 1;
-            assert_eq!(pools.type_extra[payload], IR_NONE);
+            assert_eq!(pools.type_extra[payload], crate::sema::types::CallableKind::Pure as u32);
             let mut corrupted = pools.clone();
-            corrupted.type_extra[payload] = 0;
+            corrupted.type_extra[payload] = IR_NONE;
             assert_eq!(
                 corrupted.verify().unwrap_err().message,
-                "generic pure module export has a payload"
+                "generic module callable kind is invalid"
             );
         });
     }

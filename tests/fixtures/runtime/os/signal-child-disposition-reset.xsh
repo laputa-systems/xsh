@@ -1,7 +1,7 @@
 let helper = fp"{args[0]}"
 let marker = fp"{args[1]}"
 
-on USR1 [] {
+on USR1 [process] {
   exit 99
 }
 
