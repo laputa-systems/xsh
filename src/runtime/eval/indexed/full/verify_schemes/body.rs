@@ -4428,6 +4428,34 @@ test verify_completion_cleanup {
         }
     }
     #[test]
+    fn generic_known_tag_predicates_authenticate_physical_families() {
+        let mut program = prepare("enum Block {\nPara(Str),\nStop,\n}\nenum Other {\nOtherPara(Str),\nOtherStop,\n}\npure selected(value: Block, marker) -> Bool { let _ = marker; value is Para(_) }\npure other(value: Other, marker) -> Bool { let _ = marker; value is OtherPara(_) }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (block_name, other_name) = program.symbol_owner().with_current(|| (Name::intern("Block"), Name::intern("Other")));
+        let mut selected = None;
+        let mut foreign = None;
+        for pattern in 0..program.store.patterns.len() {
+            if let schema::PatternView::TagTest { type_name, .. } | schema::PatternView::Tag { type_name, .. } = decoder.checked_pattern_view(pattern as u32).unwrap() {
+                if type_name == block_name { selected = Some(pattern); }
+                if type_name == other_name { foreign = Some(pattern); }
+            }
+        }
+        let selected = selected.expect("the generic Block predicate retains its physical tag pattern");
+        let foreign = foreign.expect("the generic Other predicate retains its physical tag pattern");
+        assert_eq!(program.store.patterns[selected], program.store.patterns[foreign]);
+        let mut changed = program.clone();
+        assert!(changed.store.in_place.get().is_none());
+        changed.store.pattern_data[selected] = program.store.pattern_data[foreign];
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "tag pattern disagrees with its checked subject type");
+    }
+
+    #[test]
     fn ordinary_generic_body_patterns_authenticate_the_actual_subject() {
         let program = prepare("pure choose(flag: Bool, value) { let _ = match 1 { 1 => value; _ => value }; match flag { true => value; false => value } }");
         let (owner, _) = generic_owner(&program);

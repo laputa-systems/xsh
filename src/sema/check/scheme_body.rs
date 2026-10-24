@@ -645,7 +645,7 @@ pub(super) fn is_body_expression(
                 }
                 pending.push(else_value);
             }
-            ArenaExprKind::PatternCondition { value, arms } => {
+            ArenaExprKind::PatternCondition { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
                 if types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type) != Some(crate::sema::types::Type::Bool) { return false; }
                 pending.push(value);
                 for arm in program.arena.match_expr_arms(arms) {

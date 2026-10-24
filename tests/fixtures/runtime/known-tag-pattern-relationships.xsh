@@ -25,7 +25,10 @@ pure ignored(block, marker) -> Bool {
   false
 }
 
-pure stopped(block) -> Bool { block is Stop }
+pure stopped(block: Block, marker) -> Bool {
+  let _ = marker
+  block is Stop
+}
 
 pure dynamic(block: Any) -> Bool {
   if let Para(_) = block { return true }
@@ -42,5 +45,13 @@ assert ignored(Para("unused"), 1)
 assert !ignored(Stop, "marker")
 assert dynamic(Para("dynamic"))
 assert !dynamic(11)
-assert stopped(Stop)
-assert !stopped(Para("other"))
+assert stopped(Stop, 1)
+assert !stopped(Para("other"), "marker")
+
+pure dynamic_predicate(block: Any, marker) -> Bool {
+  let _ = marker
+  block is Para(_)
+}
+
+assert dynamic_predicate(Para("dynamic predicate"), 1)
+assert !dynamic_predicate(17, "marker")

@@ -5326,7 +5326,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::Loop { body, span })
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 let mut lowered = Vec::new();
                 for arm in self.program.arena.match_expr_arms(arms).to_vec() {

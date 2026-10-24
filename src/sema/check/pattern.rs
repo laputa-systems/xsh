@@ -1230,6 +1230,7 @@ mod known_tag_relationship_tests {
     fn resolved_tag_patterns_preserve_family_and_payload_boundaries() {
         for (body, expected) in [
             ("pure wrong(value: Other) -> Str { if let Para(text) = value { return text }; \"stop\" }", DiagnosticCode::CheckPatternType),
+            ("pure wrong(value: Other, marker) -> Bool { let _ = marker; value is Para(_) }", DiagnosticCode::CheckPatternType),
             ("pure wrong(value) -> Str { if let Para() = value { return \"bad\" }; \"stop\" }", DiagnosticCode::CheckPatternArity),
             ("pure wrong(value) -> Str { if let Pair(name, name) = value { return name }; \"stop\" }", DiagnosticCode::CheckPatternBinding),
             ("pure wrong(value) -> Str { if let .Para(text) = value { return text }; \"stop\" }", DiagnosticCode::CheckInferredVariant),
@@ -1242,6 +1243,18 @@ mod known_tag_relationship_tests {
             let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
             assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
         }
+    }
+
+
+    #[test]
+    fn known_tag_predicates_admit_resolved_subjects_in_generic_bodies() {
+        let source = "enum Block {\nPara(Str),\nStop,\n}\npure stopped(block: Block, marker) -> Bool {\nlet _ = marker\nblock is Stop\n}\n";
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("known-tag-predicate.xsh", source.to_string());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
 }
