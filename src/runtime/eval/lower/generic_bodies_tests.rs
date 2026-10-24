@@ -5504,6 +5504,41 @@ fn generic_proc_bare_returns_run_native_unit_assertions_on_both_routes() {
 }
 
 #[test]
+fn generic_proc_statement_bodies_run_native_assertions_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/xsh/generic-proc-statement-bodies.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-proc-statement-bodies.xsh", crate::loader::entry_source_from_text("generic-proc-statement-bodies.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for name in ["generic_proc_statement_tails_preserve_unit", "generic_proc_command_bindings_preserve_outputs"] {
+            for force_frames in [false, true] {
+                let result = prepared.eval_test(name, Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "{name}, frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "{name}, frames={force_frames}: {:?}", result.result);
+            }
+        }
+    });
+}
+
+#[test]
+fn generic_statement_completion_requires_checked_control_flow() {
+    let source = "proc finish(payload) { let _ = payload; for item in [1] { let _ = item } }\n";
+    let mut sources = SourceMap::default();
+    let source_id = sources.add_file("generic-statement-flow.xsh", source);
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let mut checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.bodies.checked_control_flow.is_complete());
+    checked.bodies.checked_control_flow = Default::default();
+    FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id)
+        .expect_err("an unpublished control-flow proof cannot authorize an implicit completion");
+}
+
+#[test]
 fn generic_proc_bare_returns_preserve_cleanup_and_inferred_io() {
     on_scoped_body_test_stack(|| {
         for typed in [true, false] {

@@ -3172,6 +3172,27 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() + facts.noncompleting_expressions().len() { return self.block_scheme_lowering(block); }
             return Some((body, lowered_types, BTreeMap::new()));
         }
+        if facts.scheme().kind() == CallableKind::Proc && statements.last().is_none_or(|&tail| {
+            !crate::sema::check::proc_tail_requires_value_checking(self.program, self.program.arena.core_stmt_id(tail))
+        }) {
+            if !self.bodies.checked_control_flow.is_complete() { return self.block_scheme_lowering(block); }
+            let mut body = Vec::new();
+            for &statement in &statements {
+                self.lower_scheme_statement(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+            }
+            if !block_callable_body_cannot_fall_through_arena(self.program, block, false, &self.bodies.expr_types,
+                &self.declarations.tag_variants_by_name, &self.bodies.conversions, &self.bodies.argument_bindings,
+                &self.bodies.checked_control_flow, &self.bodies.resolved_bindings)
+            {
+                let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                let (returned, _) = self.lower_scheme_completion_return(value, self.program.arena.span(block_data.span),
+                    ResourceTransferSite::BlockValue(block), None, facts, &mut lowered_types)?;
+                body.push(returned);
+            }
+            if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() + facts.noncompleting_expressions().len() { return self.block_scheme_lowering(block); }
+            return Some((body, lowered_types, BTreeMap::new()));
+        }
         let (&tail, prefix) = statements.split_last()?;
         if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
             && (matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
@@ -3694,8 +3715,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let statement = self.program.arena.core_stmt_id(statement);
         let node = self.program.arena.stmt(statement);
         let declaration = match node.kind {
-            ArenaStmtKind::Let { target, ty, initializer: ArenaExprOrRun::Expr(expression) } => Some((target, ty, expression, super::SchemeLocalMutability::Immutable)),
-            ArenaStmtKind::Var { target, ty, initializer: ArenaExprOrRun::Expr(expression) } => Some((target, ty, expression, super::SchemeLocalMutability::Mutable)),
+            ArenaStmtKind::Let { target, ty, initializer } => Some((target, ty, initializer, super::SchemeLocalMutability::Immutable)),
+            ArenaStmtKind::Var { target, ty, initializer } => Some((target, ty, initializer, super::SchemeLocalMutability::Mutable)),
             _ => None,
         };
         if declaration.is_none() {
@@ -3956,8 +3977,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             body.push(lowered);
             return Some(());
         }
-        let (target, annotation, expression, mutability) = declaration?;
-        if facts.noncompleting_expressions().contains(&expression) {
+        let (target, annotation, initializer, mutability) = declaration?;
+        if let ArenaExprOrRun::Expr(expression) = initializer && facts.noncompleting_expressions().contains(&expression) {
             let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
             let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind else { return None; };
             if !is_discard_name(name) {
@@ -3978,8 +3999,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(());
         }
 
+        let value = match initializer {
+            ArenaExprOrRun::Expr(expression) => self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
+            ArenaExprOrRun::Run(run) => {
+                let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
+            }
+        };
         if matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Record { .. }) {
-            let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
             let source_type = lowered_types.get(&value)?.clone();
             let stored_type = self.declarations.local_binding_types.get(&node.span).filter(|ty| !ty.contains_inference() && !ty.contains_recovery()).cloned().or_else(|| source_type.closed_ground_type());
             let checked = self.lower_binding_storage_value(annotation, stored_type.as_ref(), lowered_scheme_physical_type(&source_type), value, node.span)?;
@@ -3992,7 +4019,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(());
         }
         let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind else { return None; };
-        let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
         if is_discard_name(name) {
             body.push(push_build_row!(self, stmt, BuildStmtRow::LetRecord { source: value, target: LoweredCompTarget::Discard, span: node.span }));
             return Some(());

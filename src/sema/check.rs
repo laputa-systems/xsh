@@ -404,7 +404,7 @@ pub use resource::{ResourceTransferFacts, ResourceTransferSite};
 mod set;
 #[path = "check/stmt.rs"]
 mod stmt;
-pub(crate) use stmt::block_callable_body_cannot_fall_through_arena;
+pub(crate) use stmt::{block_callable_body_cannot_fall_through_arena, proc_tail_requires_value_checking};
 #[path = "check/stream.rs"]
 mod stream;
 mod stream_origins;

@@ -25991,6 +25991,84 @@ pure invoke_plain() -> Command { build_plain(p"/not-launched", [p"/not-launched"
     }
 
     #[test]
+    fn generic_statement_completions_and_run_bindings_require_physical_producers() {
+        let mut program = fixture("generic-statement-body-producers.xsh", r#"const INITIAL = {number: 0}
+proc unit_tail(flag: Bool, payload, wrong: Result[Int]) {
+  var initial = INITIAL
+  let _ = initial
+  let _ = payload
+  let _ = wrong
+  if flag { print "selected" }
+}
+proc text_binding(binary: Str, payload) {
+  let output = run.text $binary fixed
+  {output, payload}
+}
+proc capture_binding(binary: Str, payload) {
+  var captured = run.capture --text $binary fixed
+  {captured, payload}
+}
+"#);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        let cold = || {
+            let mut program = program.clone();
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            program
+        };
+        let unit_owner = scheme_fixture_root_function(&program, "unit_tail");
+        let FullCallableContract::Scheme(unit_scheme) = program.store.functions[unit_owner].contract else { panic!("the statement body retains its generic input") };
+        let parameters = program.store.schemes[unit_scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let mut wrong_success = cold();
+        wrong_success.store.schemes[unit_scheme.index()].return_type = program.store.scheme_params[parameters.start + 2].ty;
+        let error = FullVerifier::verify(&wrong_success).expect_err("actual Unit fallthrough cannot provide an Int success contract");
+        assert!(!error.message.contains("work bound"), "{error:?}");
+        let unit = function_instruction_indices(&program, "unit_tail", FullTag::ExprUnit)[0];
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == unit
+            && matches!(fact.value, schemes::FullSchemeBodyFactValue::Expression(_))).unwrap();
+        let mut no_completion = cold();
+        no_completion.store.scheme_body_facts[fact].value = schemes::FullSchemeBodyFactValue::NoCompletion;
+        let error = FullVerifier::verify(&no_completion).expect_err("a completing Unit producer cannot claim NoCompletion");
+        assert!(!error.message.contains("work bound"), "{error:?}");
+        let literal = function_instruction_indices(&program, "unit_tail", FullTag::ExprPreparedConstant)[0];
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == literal
+            && matches!(fact.value, schemes::FullSchemeBodyFactValue::Expression(_))).unwrap();
+        let mut wrong_literal = cold();
+        wrong_literal.store.scheme_body_facts[fact].value = schemes::FullSchemeBodyFactValue::Expression(program.store.scheme_params[parameters.start].ty);
+        let error = FullVerifier::verify(&wrong_literal).expect_err("a data-only prepared literal must still prove its actual closed type");
+        assert!(!error.message.contains("work bound"), "{error:?}");
+
+        let text_owner = scheme_fixture_root_function(&program, "text_binding");
+        let capture = function_instruction_indices(&program, "text_binding", FullTag::ExprRunCapture)[0];
+        let mut wrong_output = cold();
+        let kind = wrong_output.store.run_kinds.len() as u32;
+        wrong_output.store.run_kinds.push(RunKind::CaptureBytes);
+        wrong_output.store.extra[program.store.data[capture].range().start as usize] = kind;
+        let error = FullVerifier::verify(&wrong_output).expect_err("a text initializer must prove its actual captured output kind");
+        assert!(!error.message.contains("work bound"), "{error:?}");
+        let decoder = function_view_decoder(&program.store, text_owner);
+        let target = function_instruction_indices(&program, "text_binding", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(0))
+        }).unwrap();
+        let mut wrong_target = cold();
+        wrong_target.store.extra[program.store.data[target].range().start as usize] = 1;
+        let error = FullVerifier::verify(&wrong_target).expect_err("a command target must retain its actual declared word domain");
+        assert!(!error.message.contains("work bound"), "{error:?}");
+        let capture_owner = scheme_fixture_root_function(&program, "capture_binding");
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function == IrFunctionId::new(capture_owner).unwrap()
+            && matches!(fact.value, schemes::FullSchemeBodyFactValue::LocalMutable(_))).unwrap();
+        let declaration = program.store.scheme_body_facts[fact].instruction as usize;
+        assert_eq!(program.store.tags[declaration], FullTag::StmtLet);
+        assert_eq!(program.store.scheme_body_facts[fact].function, IrFunctionId::new(capture_owner).unwrap());
+        let mut foreign_writer = cold();
+        foreign_writer.store.scheme_body_facts[fact].function = IrFunctionId::new(text_owner).unwrap();
+        let error = FullVerifier::verify(&foreign_writer).expect_err("a command initializer must retain its actual declaration owner");
+        assert!(!error.message.contains("work bound"), "{error:?}");
+    }
+
+    #[test]
     fn strict_result_producers_preserve_process_capture_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("strict-process-results.xsh", r#"

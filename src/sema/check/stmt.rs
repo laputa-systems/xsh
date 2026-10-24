@@ -2288,6 +2288,25 @@ pub(super) fn if_stmt_may_produce_value(arena: &ArenaProgram, id: StmtId) -> boo
         || else_block.is_some_and(ends_in_value)
 }
 
+fn tail_if_is_valueless(arena: &ArenaProgram, tail: StmtId, purpose: TailCheckingPurpose) -> bool {
+    match arena.arena.stmt(tail).kind {
+        ArenaStmtKind::If { else_block, .. } => !if_stmt_may_produce_value(arena, tail)
+            || (purpose == TailCheckingPurpose::ProcCompletion && else_block.is_none()),
+        _ => false,
+    }
+}
+
+fn tail_stmt_requires_value_checking(arena: &ArenaProgram, tail: StmtId, purpose: TailCheckingPurpose) -> bool {
+    !tail_if_is_valueless(arena, tail, purpose) && matches!(arena.arena.stmt(tail).kind,
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::Command(_) | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { .. } | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Exit(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue)
+}
+
+pub(crate) fn proc_tail_requires_value_checking(arena: &ArenaProgram, tail: StmtId) -> bool {
+    tail_stmt_requires_value_checking(arena, tail, TailCheckingPurpose::ProcCompletion)
+}
+
 /// Returns true if the block can break the current loop, explicitly exit, or
 /// propagate an error. Flow is read from the AST, without recovered types.
 #[allow(dead_code)]
@@ -6673,24 +6692,8 @@ impl Checker {
             .collect();
         let previous_reachable = self.inference_reachable;
         let result = if let Some((&tail, non_tail)) = stmt_ids.split_last() {
-            let valueless_if = match arena.arena.stmt(tail).kind {
-                ArenaStmtKind::If { else_block, .. } => !if_stmt_may_produce_value(arena, tail)
-                    || (purpose == TailCheckingPurpose::ProcCompletion && else_block.is_none()),
-                _ => false,
-            };
-            let tail_producing = !valueless_if
-                && matches!(
-                    arena.arena.stmt(tail).kind,
-                    ArenaStmtKind::Expr(_)
-                        | ArenaStmtKind::Command(_)
-                        | ArenaStmtKind::TailBareIdent(_)
-                        | ArenaStmtKind::Match { .. }
-                        | ArenaStmtKind::If { .. }
-                        | ArenaStmtKind::Return(_)
-                        | ArenaStmtKind::Exit(_)
-                        | ArenaStmtKind::Break { .. }
-                        | ArenaStmtKind::Continue
-                );
+            let valueless_if = tail_if_is_valueless(arena, tail, purpose);
+            let tail_producing = tail_stmt_requires_value_checking(arena, tail, purpose);
             for &stmt_id in non_tail {
                 let previous_tail = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);

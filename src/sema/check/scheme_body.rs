@@ -47,7 +47,10 @@ pub(super) fn supports_generalized_body(
     let block = program.arena.block(body);
     if !program.arena.block_params(block.params).iter().all(|parameter| parameter.name.as_str() == "_" || bindings.declaration_sites.get(&(program.arena.span(parameter.span), parameter.name)).is_some_and(|binding| parameters.contains(binding))) { return false; }
     let statements = program.arena.stmt_ids(block.statements).map(|statement| program.arena.core_stmt_id(statement)).collect::<Vec<_>>();
-    let Some((&tail, prefix)) = statements.split_last() else { return matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) };
+    let Some((&tail, prefix)) = statements.split_last() else {
+        return matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer)
+            || owner_kind == crate::sema::types::CallableKind::Proc && matches!(completion, BodyCompletion::Procedure);
+    };
     let mut available = parameters.clone();
     let terminal_command = matches!(completion, BodyCompletion::Procedure)
         && owner_kind == crate::sema::types::CallableKind::Proc
@@ -55,13 +58,26 @@ pub(super) fn supports_generalized_body(
     let terminal_unit_statement = matches!(program.arena.stmt(tail).kind,
         ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. }
             | ArenaStmtKind::Defer(..) | ArenaStmtKind::Assert { .. });
-    let prefix = if terminal_command || terminal_unit_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
+    let terminal_proc_statement = owner_kind == crate::sema::types::CallableKind::Proc
+        && matches!(completion, BodyCompletion::Procedure) && !super::stmt::proc_tail_requires_value_checking(program, tail);
+    let prefix = if terminal_command || terminal_unit_statement || terminal_proc_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
     for &statement in prefix {
         let node = program.arena.stmt(statement);
         match node.kind {
             ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. }
             | ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(value), .. } => {
                 if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, value)
+                    || !declare_target_bindings(program, bindings, target, &mut available)
+                { return false; }
+            }
+            ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Run(_), .. } => {
+                if owner_kind == crate::sema::types::CallableKind::Pure { return false; }
+                let mut children = Vec::new();
+                program.arena.for_each_stmt_child(statement, crate::syntax::arena::SugarView::Core, |child| {
+                    if !matches!(child, crate::syntax::arena::ArenaChild::BindingTarget(_) | crate::syntax::arena::ArenaChild::TypeExpr(_)) { children.push(child); }
+                });
+                if !command_children_are_available(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, node.span, children, nested_completion)
                     || !declare_target_bindings(program, bindings, target, &mut available)
                 { return false; }
             }
@@ -178,7 +194,7 @@ pub(super) fn supports_generalized_body(
             _ => return false,
         }
     }
-    if terminal_command || terminal_unit_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { return true; }
+    if terminal_command || terminal_unit_statement || terminal_proc_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { return true; }
     let tail_statement = program.arena.stmt(tail);
     if positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
         match tail_statement.kind {
@@ -454,11 +470,10 @@ pub(super) fn is_body_expression(
 ) -> bool {
     let mut pending = vec![expression];
     while let Some(expression) = pending.pop() {
-        if prepared.values.contains_key(&expression) {
+        if let Some(value) = prepared.values.get(&expression) {
             let Some(expected) = prepared.types.get(&expression) else { return false };
-            let nullary_tag = matches!(prepared.values.get(&expression), Some(crate::sema::constants::LiteralConstant::Tag { family, fields, .. })
-                if fields.is_empty() && expected == &crate::sema::types::Type::Tag(*family));
-            if expected.may_hold_resource() && !nullary_tag || types.get(&expression).and_then(|ty| ty.closed_ground_type()).as_ref() != Some(expected) { return false; }
+            if expected.may_hold_resource() && !value.matches_data_type(expected)
+                || types.get(&expression).and_then(|ty| ty.closed_ground_type()).as_ref() != Some(expected) { return false; }
             continue;
         }
         if let Some(&kind) = constructor_producers.get(&expression) {
@@ -1825,6 +1840,47 @@ mod tests {
                 super::BodyCompletion::Function,
             )
         })
+    }
+
+    #[test]
+    fn prepared_literal_records_require_closed_matching_data_contracts() {
+        use crate::sema::schemes::{SchemeRowParameterId, SchemeRowTail, SchemeType};
+        use crate::sema::types::Type;
+        use std::collections::BTreeMap;
+        let source = "const DATA = {number: 0}\npure read(marker) { let _ = marker; let copy = DATA; copy }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let expression = (0..parsed.arena.arena.expr_tags.len()).map(crate::syntax::arena::ExprId::from_index).find(|&expression| {
+                matches!(parsed.arena.arena.expr(expression).kind, ArenaExprKind::Ident(name) if name.as_str() == "DATA")
+                    && checked.prepared_constants.values.contains_key(&expression)
+            }).unwrap();
+            let bindings = ResolvedBindings::collect(&parsed.arena);
+            let expected = checked.prepared_constants.types[&expression].clone();
+            let Type::Record(fields) = &expected else { panic!("the constant retains its record data type") };
+            let fields = fields.iter().map(|(&name, ty)| (name, SchemeType::Ground(ty.clone()))).collect::<BTreeMap<_, _>>();
+            let mut types = BTreeMap::from([(expression, SchemeType::Record { fields: fields.clone(), tail: SchemeRowTail::Closed })]);
+            let accepts = |prepared: &crate::sema::constants::PreparedConstants, types: &BTreeMap<_, _>| super::is_body_expression(
+                &parsed.arena, crate::sema::types::CallableKind::Pure, prepared, &BTreeMap::new(), &bindings,
+                &FxHashSet::default(), &super::CapturedBindings::default(), &BTreeMap::new(), &BTreeMap::new(),
+                &FxHashSet::default(), &BTreeMap::new(), types, &BTreeMap::new(), &std::collections::BTreeSet::new(),
+                &BTreeMap::new(), &BTreeMap::new(), expression,
+            );
+            assert!(accepts(&checked.prepared_constants, &types));
+            for leaf in [Type::Bool, Type::FsRoot, Type::Any] {
+                let mut prepared = checked.prepared_constants.clone();
+                let wrong = Type::Record(fields.keys().map(|&name| (name, leaf.clone())).collect::<BTreeMap<_, _>>().into());
+                prepared.types.insert(expression, wrong.clone());
+                let wrong_types = BTreeMap::from([(expression, SchemeType::Ground(wrong))]);
+                assert!(!accepts(&prepared, &wrong_types));
+            }
+            types.insert(expression, SchemeType::Record { fields, tail: SchemeRowTail::Parameter(SchemeRowParameterId(0)) });
+            assert!(!accepts(&checked.prepared_constants, &types));
+            types.insert(expression, SchemeType::Ground(Type::Any));
+            assert!(!accepts(&checked.prepared_constants, &types));
+        });
     }
 
     #[test]
