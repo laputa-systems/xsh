@@ -290,6 +290,10 @@ Typed named callbacks retain their canonical call substitutions even when the
 return type is concrete. Concrete item arguments derive from the scoped
 pipeline prefix and retain its source and writer proof obligations.
 
+Arguments read from ordinary line loops use the existing iteration-binding proof.
+Their item type comes from the actual text or byte source and registered `lines`
+contract; source and writer proof obligations remain mandatory.
+
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
 bindings enter a child lexical frame. Filters use the checked control-condition

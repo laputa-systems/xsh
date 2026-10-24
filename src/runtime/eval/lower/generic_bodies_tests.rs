@@ -4678,3 +4678,31 @@ fn generic_pipeline_table_fixture_executes_after_frontend_disposal() {
         assert_eq!(outputs[0], outputs[1]);
     });
 }
+
+fn verify_line_loop_argument_program(typed: bool) {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-line-loop-arguments.xsh");
+    let source = if typed { source.replace("pure line_identity(value)", "pure line_identity(value: Str) -> Str") } else { source.to_owned() };
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-line-loop-arguments.xsh", crate::loader::entry_source_from_text("generic-line-loop-arguments.xsh", source), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("verify_line_loop_arguments", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+    }
+}
+
+#[test]
+fn typed_line_loop_arguments_preserve_source_items_after_frontend_disposal() {
+    verify_line_loop_argument_program(true);
+}
+
+#[test]
+fn inferred_line_loop_arguments_preserve_source_items_after_frontend_disposal() {
+    verify_line_loop_argument_program(false);
+}
