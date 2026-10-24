@@ -366,7 +366,10 @@ impl TypeConstraints {
                     .map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
                 self.apply_journaled(|this, changes| {
                 let view = this.instantiate_scheme_type(&template.view, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
-                this.constrain_wrapper_projection(&view, payload, template.subject, changes)?;
+                let owned_rows = template.row_parameters.iter().map(|parameter| instance.row_arguments.get(&parameter.id).copied().map(|row| (parameter.id, row)).ok_or(ConstraintResolutionError::ForeignVariable)).collect::<Result<BTreeMap<_, _>, _>>()?;
+                if !this.constrain_closed_record_input(&view, payload, &owned_rows, template.subject, changes)
+                    .map_err(|(expected, actual, resolution_error)| WrapperConstraintError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: template.subject, initializer: None, established: None }))?
+                { this.constrain_wrapper_projection(&view, payload, template.subject, changes)?; }
                 for read in &template.reads {
                     let source = this.instantiate_scheme_type(&read.source, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
                     let view = this.instantiate_scheme_type(&read.view, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
@@ -1236,12 +1239,17 @@ impl TypeConstraints {
     }
 
     pub(super) fn validate_generalized_wrappers(&self, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Vec<WrapperOperationId>, SchemeOperationError> {
-        let mut wrappers = scope.wrappers.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+        let view = self.generalized_requirement_view(scope.owner, callable, scope)?;
+        self.validate_generalized_wrappers_view(callable, scope, &view)
+    }
+
+    pub(super) fn validate_generalized_wrappers_view(&self, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope, view: &super::GeneralizedRequirementView<'_>) -> Result<Vec<WrapperOperationId>, SchemeOperationError> {
+        let mut wrappers = view.wrappers.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
         wrappers.sort_unstable();
-        if wrappers.len() != callable.requirements().wrappers.len() { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)); }
-        let mut generalization = self.callable_generalization(callable, scope);
+        if wrappers.len() != view.requirements.wrappers.len() { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)); }
+        let mut generalization = self.requirement_generalization(callable, scope, view);
         for (index, &(ordinal, id)) in wrappers.iter().enumerate() {
-            if index != ordinal as usize || self.generalize_wrapper(id, 0, &mut generalization)? != callable.requirements().wrappers[index] { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)); }
+            if index != ordinal as usize || self.generalize_wrapper(id, 0, &mut generalization)? != view.requirements.wrappers[index] { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)); }
         }
         if generalization.type_ids != scope.types || generalization.row_ids != scope.rows || generalization.effect_ids != scope.effects { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::BodyTypeNotBound)); }
         Ok(wrappers.into_iter().map(|(_, id)| id).collect())
@@ -1249,9 +1257,10 @@ impl TypeConstraints {
 
     pub(crate) fn generalized_wrapper_ordinal(&self, id: WrapperOperationId, owner: crate::sema::check::EffectDeclarationId, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, SchemeOperationError> {
         let entry = self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-        if entry.owner != CallableApplicationScope::Declaration(owner) || scope.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
-        self.validate_generalized_wrappers(callable, scope)?;
-        Ok(scope.wrappers.get(&id).copied())
+        if scope.owner != CallableApplicationScope::Declaration(owner) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let view = self.generalized_requirement_view(entry.owner, callable, scope)?;
+        self.validate_generalized_wrappers_view(callable, scope, &view)?;
+        Ok(view.wrappers.get(&id).copied())
     }
 
     fn group_wrapper_id(&self, group: WrapperGroupId, owner: CallableApplicationScope) -> Result<WrapperOperationId, ConstraintResolutionError> {

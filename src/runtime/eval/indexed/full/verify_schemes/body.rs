@@ -6783,6 +6783,103 @@ observe()?
     }
 
     #[test]
+    fn guarded_runtime_packets_reject_other_callables_and_absent_scopes() {
+        let mut program = prepare(r#"
+pure first(value) -> Path { if value == null { p"/absent" } else { value.parent() } }
+pure second(value) -> Path { if value == null { p"/absent" } else { value.parent() } }
+proc observe() -> Result[Unit] {
+    assert first(p"/first/child") == p"/first"
+    assert second(p"/second/child") == p"/second"
+    assert first(null) == p"/absent"
+    Ok()
+}
+observe()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = |name| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let first = owner("first");
+        let second = owner("second");
+        let method = |owner| {
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Method { .. }))).unwrap() as u32
+        };
+        let calls = |target| program.store.checked_call_targets.iter().filter(|site| site.function.index() == target).map(|site| site.instruction).collect::<Vec<_>>();
+        let mut first_packets = calls(first).into_iter().map(|call| program.invocation_applications(call, first, &super::super::super::PreparedInvocationBindings::default()).unwrap()).collect::<Vec<_>>();
+        assert_eq!(first_packets.len(), 2);
+        let second_packets = calls(second).into_iter().map(|call| program.invocation_applications(call, second, &super::super::super::PreparedInvocationBindings::default()).unwrap()).collect::<Vec<_>>();
+        assert_eq!(second_packets.len(), 1);
+        let scope = crate::sema::guarded_requirements::GuardScopeId::from_index(0).unwrap();
+        let live = first_packets.iter().position(|packet| packet.layouts.guards[&scope].is_some()).unwrap();
+        let live = first_packets.swap_remove(live);
+        let absent = first_packets.pop().unwrap();
+        program.invocation_at(IrFunctionId::new(first).unwrap().raw(), method(first), &live).unwrap();
+        program.invocation_at(IrFunctionId::new(second).unwrap().raw(), method(second), &second_packets[0]).unwrap();
+        let mut swapped = live.clone();
+        let foreign_local = second_packets[0].layouts.guards[&scope].clone();
+        assert!(foreign_local.is_some());
+        Arc::make_mut(&mut swapped.layouts).guards.insert(scope, foreign_local);
+        assert_eq!(program.invocation_at(IrFunctionId::new(first).unwrap().raw(), method(first), &swapped).unwrap_err().message, "prepared local invocation belongs to another callable or guard");
+        assert_eq!(program.invocation_at(IrFunctionId::new(first).unwrap().raw(), method(first), &second_packets[0]).unwrap_err().message, "prepared invocation belongs to another callable or root");
+        assert_eq!(program.invocation_at(IrFunctionId::new(first).unwrap().raw(), method(first), &absent).unwrap_err().message, "prepared guard scope is absent");
+        let local = live.layouts.guards[&scope].as_ref().unwrap();
+        assert_eq!(program.invocation_at(IrFunctionId::new(first).unwrap().raw(), method(first), local).unwrap_err().message, "prepared invocation belongs to another callable or root");
+    }
+
+    #[test]
+    fn actual_record_row_evidence_rejects_opaque_field_type_forgery() {
+        let mut program = prepare(r#"
+type OpaqueRow = {name: Str, opaque: Any}
+pure name(row) -> Str { row.name }
+pure guarded_name(row) -> Str { if row == null { "absent" } else { row.name } }
+proc observe() -> Result[Unit] {
+    let opaque: Any = true
+    let left: OpaqueRow = {name: "left", opaque}
+    let right = {name: "right", opaque: 7}
+    assert name(left) == "left"
+    assert name(right) == "right"
+    assert guarded_name(left) == "left"
+    assert guarded_name(right) == "right"
+    Ok()
+}
+observe()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        for (name, guarded, expected) in [("name", false, "generic call argument does not match its checked parameter slot"), ("guarded_name", true, "guard local payload disagrees with its actual source")] {
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let fields = program.store.checked_call_targets.iter().filter(|site| site.function.index() == owner).map(|site| {
+                let mut arguments = program.store.call_instantiations.iter().find(|instance| instance.instruction == site.instruction).unwrap().arguments;
+                if guarded {
+                    let bindings = arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap();
+                    let super::super::super::guard_schemes::FullGuardBinding::NonNull(local) = program.store.call_guard_bindings[bindings.start] else { panic!("actual records are live non-null sources") };
+                    arguments = local;
+                }
+                let rows = arguments.row_arguments.bounds(program.store.call_row_arguments.len()).unwrap();
+                assert_eq!(rows.len(), 1);
+                let fields = program.store.call_row_arguments[rows.start].fields.bounds(program.store.call_row_fields.len()).unwrap();
+                fields.into_iter().find(|index| program.store.string(program.store.call_row_fields[*index].name).unwrap() == "opaque").unwrap()
+            }).collect::<Vec<_>>();
+            assert_eq!(fields.len(), 2);
+            let first = program.store.call_row_fields[fields[0]].ty;
+            let second = program.store.call_row_fields[fields[1]].ty;
+            assert_ne!(first, second);
+            let mut changed = program.clone();
+            assert!(changed.store.in_place.get().is_none());
+            changed.store.call_row_fields[fields[0]].ty = second;
+            changed.store.call_row_fields[fields[1]].ty = first;
+            let error = FullVerifier::verify(&changed).expect_err("actual opaque row fields cannot be forged as typed data");
+            assert_eq!(error.message, expected, "{name}: {error:?}");
+        }
+    }
+
+    #[test]
     fn guarded_opaque_records_preserve_typed_fields_and_reject_opaque_refinement() {
         let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-opaque-records.xsh")).unwrap();
         let mut program = prepare(&source);

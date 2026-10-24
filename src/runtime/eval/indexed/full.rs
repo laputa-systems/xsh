@@ -1379,7 +1379,14 @@ pub(in crate::runtime::eval) enum PreparedProcReturn { Wrap, Preserve }
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::runtime::eval) struct PreparedInvocationBindings {
     substitution: Arc<verify_schemes::CallSubstitution>,
-    layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
+    layouts: Arc<PreparedInvocationLayouts>,
+}
+
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct PreparedInvocationLayouts {
+    arguments: Vec<Arc<crate::sema::arguments::StaticArgumentBinding>>,
+    guards: BTreeMap<crate::sema::guarded_requirements::GuardScopeId, Option<PreparedInvocationBindings>>,
 }
 
 
@@ -1417,6 +1424,26 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullStore {
+    fn requirement_pack_at(&self, owner: u32, instruction: u32) -> Result<Option<(schemes::FullSchemeId, Option<crate::sema::guarded_requirements::GuardScopeId>, schemes::FullRequirementRanges)>, IrVerifyError> {
+        let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Ok(None); };
+        let declaration = self.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("prepared requirement owner is out of bounds"))?;
+        let FullCallableContract::Scheme(id) = declaration.contract else { return Ok(None); };
+        if !self.function_instruction_range(function.index())?.contains(&(instruction as usize)) { return Err(IrVerifyError::new("prepared requirement instruction belongs to another function")); }
+        let scheme = self.scheme(id)?;
+        let facts = &self.scheme_body_facts[scheme.body_facts.bounds(self.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("prepared requirement facts are invalid"))?];
+        let key = (instruction, schemes::FullSchemeBodyFactKind::GuardScope as u8);
+        if let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) {
+            let fact = facts[index];
+            if fact.function != function { return Err(IrVerifyError::new("prepared guard belongs to another callable")); }
+            let schemes::FullSchemeBodyFactValue::GuardScope(scope) = fact.value else { return Err(IrVerifyError::new("prepared guard membership is invalid")); };
+            let guard_range = scheme.guards.bounds(self.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared guard range is invalid"))?;
+            let guard = self.scheme_guards[guard_range].get(scope as usize).filter(|guard| guard.id == scope).ok_or_else(|| IrVerifyError::new("prepared guard scope is outside its callable"))?;
+            let id_scope = crate::sema::guarded_requirements::GuardScopeId::from_index(scope as usize).map_err(|_| IrVerifyError::new("prepared guard id is invalid"))?;
+            return Ok(Some((id, Some(id_scope), schemes::FullRequirementRanges { effect_predicates: guard.effect_predicates, applications: guard.applications, operations: guard.operations, methods: guard.methods, wrappers: guard.wrappers })));
+        }
+        Ok(Some((id, None, schemes::FullRequirementRanges { effect_predicates: scheme.effect_predicates, applications: scheme.applications, operations: scheme.operations, methods: scheme.methods, wrappers: scheme.wrappers })))
+    }
+
     fn sealed_operation_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullSealedOperation>, IrVerifyError> {
         let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Ok(None); };
         let FullCallableContract::Scheme(id) = self.functions[function.index()].contract else { return Ok(None); };
@@ -1426,7 +1453,8 @@ impl FullStore {
         let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(None); };
         if facts[index].function != function { return Err(IrVerifyError::new("operation body fact belongs to another function")); }
         let schemes::FullSchemeBodyFactValue::Operation(ordinal) = facts[index].value else { return Err(IrVerifyError::new("operation body fact has no requirement")); };
-        let range = scheme.operations.bounds(self.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("operation range is invalid"))?;
+        let (_, _, pack) = self.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("operation has no prepared owner"))?;
+        let range = pack.operations.bounds(self.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("operation range is invalid"))?;
         self.scheme_operations[range].get(ordinal as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("operation ordinal is out of bounds"))
     }
 
@@ -1440,19 +1468,38 @@ impl FullStore {
         let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(None); };
         if facts[index].function != function { return Err(IrVerifyError::new("wrapper body fact belongs to another function")); }
         let schemes::FullSchemeBodyFactValue::Wrapper(ordinal) = facts[index].value else { return Err(IrVerifyError::new("wrapper body fact has no relationship")); };
-        let range = scheme.wrappers.bounds(self.scheme_wrappers.len()).ok_or_else(|| IrVerifyError::new("wrapper relationship range is invalid"))?;
+        let (_, _, pack) = self.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("wrapper has no prepared owner"))?;
+        let range = pack.wrappers.bounds(self.scheme_wrappers.len()).ok_or_else(|| IrVerifyError::new("wrapper relationship range is invalid"))?;
         self.scheme_wrappers[range].get(ordinal as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("wrapper relationship ordinal is out of bounds"))
     }
 }
 
 impl FullProgram {
+    fn invocation_at<'a>(&self, owner: u32, instruction: u32, invocation: &'a PreparedInvocationBindings) -> Result<&'a PreparedInvocationBindings, IrVerifyError> {
+        let Some((scheme, scope, _)) = self.store.requirement_pack_at(owner, instruction)? else { return Ok(invocation); };
+        if !invocation.substitution.owns_prepared_scope(scheme, None) { return Err(IrVerifyError::new("prepared invocation belongs to another callable or root")); }
+        let Some(scope) = scope else { return Ok(invocation); };
+        let local = invocation.layouts.guards.get(&scope).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("prepared guard scope is absent"))?;
+        if !local.substitution.owns_prepared_scope(scheme, Some(scope)) { return Err(IrVerifyError::new("prepared local invocation belongs to another callable or guard")); }
+        Ok(local)
+    }
+
+    fn invocation_at_source<'a>(&self, instruction: u32, invocation: &'a PreparedInvocationBindings) -> Result<&'a PreparedInvocationBindings, IrVerifyError> {
+        let Some(owner) = invocation.substitution.prepared_owner() else { return Ok(invocation); };
+        let scheme = self.store.scheme(owner)?;
+        let facts = &self.store.scheme_body_facts[scheme.body_facts.bounds(self.store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("prepared source facts are invalid"))?];
+        let position = facts.partition_point(|fact| fact.instruction < instruction);
+        let fact = facts.get(position).filter(|fact| fact.instruction == instruction).ok_or_else(|| IrVerifyError::new("prepared source instruction has no callable-owned fact"))?;
+        self.invocation_at(fact.function.raw(), instruction, invocation)
+    }
+
     fn invocation_index_receiver(&self, mut receiver: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexReceiver, IrVerifyError> {
         use schema::FullSchemeTypeTag as S;
         use super::semantic::TypeTag as T;
         for _ in 0..=128 {
             let node = self.store.scheme_type(receiver)?;
             return Ok(match node.tag {
-                S::Parameter => match invocation.substitution.types.get(node.first as usize)
+                S::Parameter => match invocation.substitution.type_argument(node.first as usize)
                     .ok_or_else(|| IrVerifyError::new("index receiver has no actual binding"))?.unvalidated()
                 {
                     Type::List(_) => PreparedIndexReceiver::List,
@@ -1487,11 +1534,13 @@ impl FullProgram {
         Err(IrVerifyError::new("index receiver nesting is too deep"))
     }
 
-    fn membership_key_check(&self, owner: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+    fn membership_key_check(&self, owner: u32, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Err(IrVerifyError::new("membership check has no function owner")); };
         let FullCallableContract::Scheme(id) = self.store.functions[function.index()].contract else { return Err(IrVerifyError::new("membership check has no scoped contract")); };
-        let scheme = self.store.scheme(id)?;
-        let operations = scheme.operations.bounds(self.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
+        let (actual, _, pack) = self.store.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("membership check has no prepared owner"))?;
+        if actual != id { return Err(IrVerifyError::new("membership check belongs to another callable")); }
+        let operations = pack.operations.bounds(self.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
         let Some(schemes::FullSealedOperation::Membership { container, .. }) = self.store.scheme_operations[operations].get(ordinal as usize) else { return Err(IrVerifyError::new("membership check names another operation")); };
         self.invocation_membership_key_check(*container, invocation)
     }
@@ -1503,7 +1552,7 @@ impl FullProgram {
             let node = self.store.scheme_type(container)?;
             return Ok(match node.tag {
                 S::Parameter => {
-                    let actual = invocation.substitution.types.get(node.first as usize).ok_or_else(|| IrVerifyError::new("membership container has no actual binding"))?;
+                    let actual = invocation.substitution.type_argument(node.first as usize).ok_or_else(|| IrVerifyError::new("membership container has no actual binding"))?;
                     match crate::sema::sealed_operation::membership_domain(actual) {
                         Some(crate::sema::sealed_operation::MembershipDomain::UnsignedMap) => PreparedIndexKeyCheck::UInt,
                         Some(_) => PreparedIndexKeyCheck::Ordinary,
@@ -1538,6 +1587,7 @@ impl FullProgram {
     }
 
     fn index_contract(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<(PreparedIndexReceiver, crate::sema::sealed_operation::IndexSyntax)>, IrVerifyError> {
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
         let Some(operation) = self.store.sealed_operation_site(owner, instruction)? else { return Ok(None); };
         let schemes::FullSealedOperation::Index { receiver, syntax, .. } = operation else { return Err(IrVerifyError::new("index site has another operation requirement")); };
         Ok(Some((self.invocation_index_receiver(receiver, invocation)?, syntax)))
@@ -1586,6 +1636,7 @@ impl FullProgram {
             return Ok(PreparedInvocationBindings::default());
         };
         let instance = self.store.call_instantiations[index];
+        let caller = self.invocation_at_source(instruction, caller)?;
         let relationship = self.store.scheme_callable_calls.binary_search_by_key(&instruction, |call| call.instruction).ok()
             .map(|index| self.store.scheme_callable_calls[index].relationship);
         self.invocation_payload(&instance.arguments, relationship, target, caller)
@@ -1605,19 +1656,66 @@ impl FullProgram {
                 .ok_or_else(|| IrVerifyError::new("value-call actual target is not a member"))?;
             (value.canonical.index(), Some(selected))
         } else { (target, None) };
-        let FullCallableContract::Scheme(id) = self.store.functions.get(contract_target)
+        let FullCallableContract::Scheme(mut id) = self.store.functions.get(contract_target)
             .ok_or_else(|| IrVerifyError::new("invocation target is out of bounds"))?.contract
         else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
         let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
         let mut substitution = verify_schemes::instantiate_invocation(
-            &self.store, self.store.scheme(id)?, instance, &caller.substitution, &mut budget,
+            &self.store, id, self.store.scheme(id)?, instance, &caller.substitution, &mut budget,
         )?;
         if let Some(selected) = selected {
             substitution.types = scheme_values::reorder_binders(&self.store, selected.types, substitution.types, &mut budget)?;
             substitution.rows = scheme_values::reorder_binders(&self.store, selected.rows, substitution.rows, &mut budget)?;
             substitution.effects = scheme_values::reorder_binders(&self.store, selected.effects, substitution.effects, &mut budget)?;
+            let FullCallableContract::Scheme(actual) = self.store.functions[target].contract else { return Err(IrVerifyError::new("selected invocation target has no scheme")); };
+            id = actual;
+            substitution.retarget_prepared_root(id)?;
         }
-        let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
+        let substitution = Arc::new(substitution);
+        let mut layouts = self.invocation_layouts(instance.application_bindings, caller, &mut budget)?;
+        let scheme = self.store.scheme(id)?;
+        let guards = scheme.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared guard range is invalid"))?;
+        if guards.is_empty() {
+            if instance.guard_bindings.len != 0 { return Err(IrVerifyError::new("unguarded prepared invocation has guard bindings")); }
+            return Ok(PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) });
+        }
+        let mut frames = vec![(IR_NONE, instance.guard_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared guard bindings are invalid"))?, Some(Arc::clone(&substitution)))];
+        let mut ordinals = (scheme.type_parameters.len as usize, scheme.row_parameters.len as usize, scheme.effect_parameters.len as usize);
+        for guard in &self.store.scheme_guards[guards] {
+            budget.charge(1)?;
+            while frames.last().is_some_and(|frame| frame.0 != guard.parent) {
+                let (_, remaining, parent) = frames.pop().ok_or_else(|| IrVerifyError::new("prepared guard parent is absent"))?;
+                if parent.is_some() && !remaining.is_empty() { return Err(IrVerifyError::new("prepared guard has extra child bindings")); }
+            }
+            let (_, remaining, parent) = frames.last_mut().ok_or_else(|| IrVerifyError::new("prepared guard parent is absent"))?;
+            let local_ordinals = ordinals;
+            ordinals = (ordinals.0 + guard.type_parameters.len as usize, ordinals.1 + guard.row_parameters.len as usize, ordinals.2 + guard.effect_parameters.len as usize);
+            let guard_id = crate::sema::guarded_requirements::GuardScopeId::from_index(guard.id as usize).map_err(|_| IrVerifyError::new("prepared guard id is invalid"))?;
+            let Some(parent) = parent else {
+                layouts.guards.insert(guard_id, None);
+                frames.push((guard.id, 0..0, None));
+                continue;
+            };
+            let binding = remaining.next().and_then(|index| self.store.call_guard_bindings.get(index)).ok_or_else(|| IrVerifyError::new("prepared guard binding is absent"))?;
+            match binding {
+                guard_schemes::FullGuardBinding::Null => {
+                    layouts.guards.insert(guard_id, None);
+                    frames.push((guard.id, 0..0, None));
+                }
+                guard_schemes::FullGuardBinding::NonNull(local) | guard_schemes::FullGuardBinding::Optional(local) => {
+                    let local_substitution = Arc::new(verify_schemes::instantiate_guard_invocation(&self.store, id, guard, local, &caller.substitution, Arc::clone(parent), local_ordinals, &mut budget)?);
+                    let local_layouts = self.invocation_layouts(local.application_bindings, caller, &mut budget)?;
+                    layouts.guards.insert(guard_id, Some(PreparedInvocationBindings { substitution: Arc::clone(&local_substitution), layouts: Arc::new(local_layouts) }));
+                    frames.push((guard.id, local.guard_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared child guard bindings are invalid"))?, Some(local_substitution)));
+                }
+            }
+        }
+        if frames.into_iter().any(|(_, remaining, parent)| parent.is_some() && !remaining.is_empty()) { return Err(IrVerifyError::new("prepared guard has extra child bindings")); }
+        Ok(PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) })
+    }
+
+    fn invocation_layouts(&self, bindings: IrRange, caller: &PreparedInvocationBindings, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<PreparedInvocationLayouts, IrVerifyError> {
+        let range = bindings.bounds(self.store.call_application_bindings.len())
             .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
         budget.charge(range.len())?;
         let mut layouts = Vec::with_capacity(range.len());
@@ -1634,12 +1732,12 @@ impl FullProgram {
                         omitted_slots: self.store.call_application_slots[omitted].iter().map(|slot| *slot as usize).collect(),
                     })
                 }
-                schemes::FullApplicationBinding::Forwarded(ordinal) => caller.layouts.get(*ordinal as usize).cloned()
+                schemes::FullApplicationBinding::Forwarded(ordinal) => caller.layouts.arguments.get(*ordinal as usize).cloned()
                     .ok_or_else(|| IrVerifyError::new("invocation has no actual forwarded application"))?,
             };
             layouts.push(layout);
         }
-        Ok(PreparedInvocationBindings { substitution: Arc::new(substitution), layouts: layouts.into() })
+        Ok(PreparedInvocationLayouts { arguments: layouts, guards: BTreeMap::new() })
     }
 
     pub(in crate::runtime::eval) fn normalizes_result_error_payload(
@@ -1693,6 +1791,7 @@ impl FullProgram {
     }
 
     fn expression_return_type(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<Type>, IrVerifyError> {
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
         let owner = ExecutableOwner::from_raw(owner)?;
         let range = match owner {
             ExecutableOwner::Function(function) => self.store.function_instruction_range(function.index())?,
@@ -1719,6 +1818,7 @@ impl FullProgram {
     }
 
     fn expression_has_generic_error_result(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<bool, IrVerifyError> {
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
         let owner = ExecutableOwner::from_raw(owner)?;
         let range = match owner {
             ExecutableOwner::Function(function) => self.store.function_instruction_range(function.index())?,
@@ -1798,7 +1898,7 @@ impl FullProgram {
                 let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("invocation ground type is invalid"))?;
                 Ok(match self.store.semantic.type_tag(id)? { super::semantic::TypeTag::Optional => PreparedTypeConstructor::Optional, super::semantic::TypeTag::Result => PreparedTypeConstructor::Result, _ => PreparedTypeConstructor::Other })
             }
-            schema::FullSchemeTypeTag::Parameter => invocation.substitution.types.get(node.first as usize)
+            schema::FullSchemeTypeTag::Parameter => invocation.substitution.type_argument(node.first as usize)
                 .map(|ty| match ty { Type::Optional(_) => PreparedTypeConstructor::Optional, Type::Result(..) => PreparedTypeConstructor::Result, _ => PreparedTypeConstructor::Other })
                 .ok_or_else(|| IrVerifyError::new("invocation type parameter has no actual binding")),
             schema::FullSchemeTypeTag::Optional => Ok(PreparedTypeConstructor::Optional),
@@ -1808,6 +1908,7 @@ impl FullProgram {
     }
 
     fn invocation_wrapper_mode(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<crate::sema::wrapper_operation::WrapperMode>, IrVerifyError> {
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
         let Some(wrapper) = self.store.wrapper_site(owner, instruction)? else { return Ok(None); };
         let source = match &wrapper {
             schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
@@ -1834,7 +1935,7 @@ impl FullProgram {
                 schema::FullSchemeTypeTag::Optional if !optional => { optional = true; ty = schemes::SchemeTypeId::from_raw(node.first)?; continue; }
                 schema::FullSchemeTypeTag::Result => if optional { PreparedReturnEnvelope::OptionalResult } else { PreparedReturnEnvelope::Result },
                 schema::FullSchemeTypeTag::Parameter => {
-                    let actual = invocation.substitution.types.get(node.first as usize)
+                    let actual = invocation.substitution.type_argument(node.first as usize)
                         .ok_or_else(|| IrVerifyError::new("invocation return parameter has no actual binding"))?.unvalidated();
                     match actual {
                         Type::Result(..) => if optional { PreparedReturnEnvelope::OptionalResult } else { PreparedReturnEnvelope::Result },
@@ -1873,7 +1974,10 @@ impl FullProgram {
         let site = self.store.scheme_application_returns[index];
         let FullCallableContract::Scheme(id) = self.store.functions[site.function.index()].contract
             else { return Err(IrVerifyError::new("application return has no generic owner")); };
-        let applications = self.store.scheme(id)?.applications.bounds(self.store.scheme_applications.len())
+        let invocation = self.invocation_at(site.function.raw(), instruction, invocation)?;
+        let (actual, _, pack) = self.store.requirement_pack_at(site.function.raw(), instruction)?.ok_or_else(|| IrVerifyError::new("application return has no prepared owner"))?;
+        if actual != id { return Err(IrVerifyError::new("application return belongs to another callable")); }
+        let applications = pack.applications.bounds(self.store.scheme_applications.len())
             .ok_or_else(|| IrVerifyError::new("application return range is invalid"))?;
         let application = self.store.scheme_applications[applications].get(site.application as usize)
             .and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
@@ -1888,7 +1992,8 @@ impl FullProgram {
     ) -> Result<Option<Arc<crate::sema::arguments::StaticArgumentBinding>>, IrVerifyError> {
         let Ok(index) = self.store.scheme_application_calls.binary_search_by_key(&instruction, |site| site.instruction) else { return Ok(None); };
         let ordinal = self.store.scheme_application_calls[index].application;
-        invocation.layouts.get(ordinal as usize).cloned().map(Some)
+        let invocation = self.invocation_at_source(instruction, invocation)?;
+        invocation.layouts.arguments.get(ordinal as usize).cloned().map(Some)
             .ok_or_else(|| IrVerifyError::new("application call has no actual invocation layout"))
     }
 
@@ -6349,7 +6454,9 @@ impl<'p> FullExecution<'p> {
         let schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value else {
             return Err(IrVerifyError::new("generic method fact has an invalid kind"));
         };
-        let method_range = scheme.methods.bounds(self.store().scheme_methods.len())
+        let invocation = self.program().invocation_at(self.owner, instruction, invocation)?;
+        let (_, _, pack) = self.store().requirement_pack_at(self.owner, instruction)?.ok_or_else(|| IrVerifyError::new("generic method has no prepared owner"))?;
+        let method_range = pack.methods.bounds(self.store().scheme_methods.len())
             .ok_or_else(|| IrVerifyError::new("generic method range is invalid"))?;
         let method = self.store().scheme_methods[method_range].get(ordinal as usize)
             .copied()
@@ -6427,8 +6534,8 @@ impl<'p> FullExecution<'p> {
         self.program().index_literal_mode(self.owner, instruction, distance, invocation)
     }
 
-    pub(in crate::runtime::eval) fn membership_key_check(&self, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
-        self.program().membership_key_check(self.owner, ordinal, invocation)
+    pub(in crate::runtime::eval) fn membership_key_check(&self, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        self.program().membership_key_check(self.owner, instruction, ordinal, invocation)
     }
 
     pub(in crate::runtime::eval) fn index_key_check(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
@@ -21600,8 +21707,8 @@ macro_rules! impl_build_id_codec {
                 if let Some(method) = method {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_method_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_method_owner", None, 0, instruction))?;
-                    let scheme = builder.active_scheme.ok_or_else(|| IrBuildError::format("sealed_method_owner", None, 0, instruction))?;
-                    if builder.store.tags[instruction] != FullTag::ExprMethod || method >= builder.store.schemes[scheme.index()].methods.len {
+                    let requirements = builder.active_requirement_ranges(scheme_guard_scope)?;
+                    if builder.store.tags[instruction] != FullTag::ExprMethod || method >= requirements.methods.len {
                         return Err(IrBuildError::format("sealed_method_owner", None, 0, instruction));
                     }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact {

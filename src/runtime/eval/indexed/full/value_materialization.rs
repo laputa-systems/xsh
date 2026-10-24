@@ -133,6 +133,7 @@ impl super::FullProgram {
         caller: &super::PreparedInvocationBindings,
         mut value: super::LoweredValue,
     ) -> Result<(super::LoweredValue, super::Type), super::IrVerifyError> {
+        let caller = self.invocation_at_source(instruction, caller)?;
         let plan = self.store.value_materializations.get(id as usize).ok_or_else(materialization_verify_error)?;
         if plan.instruction != instruction { return Err(materialization_verify_error()); }
         let mut budget = super::verify_schemes::SchemeInstantiationBudget::new(&self.store);

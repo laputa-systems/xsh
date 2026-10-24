@@ -104,6 +104,16 @@ impl FullBuilder {
         Ok(index)
     }
 
+    pub(super) fn active_requirement_ranges(&self, scope: Option<crate::sema::guarded_requirements::GuardScopeId>) -> Result<FullRequirementRanges, IrBuildError> {
+        if let Some(scope) = scope {
+            let guard = self.store.scheme_guards[self.guard_row(scope)?];
+            return Ok(FullRequirementRanges { effect_predicates: guard.effect_predicates, applications: guard.applications, operations: guard.operations, methods: guard.methods, wrappers: guard.wrappers });
+        }
+        let owner = self.active_scheme.ok_or_else(|| IrBuildError::format("requirement_pack_owner", None, 0, 0))?;
+        let root = self.store.schemes.get(owner.index()).ok_or_else(|| IrBuildError::format("requirement_pack_owner", None, 0, owner.index()))?;
+        Ok(FullRequirementRanges { effect_predicates: root.effect_predicates, applications: root.applications, operations: root.operations, methods: root.methods, wrappers: root.wrappers })
+    }
+
     pub(super) fn record_guard_membership(&mut self, scope: crate::sema::guarded_requirements::GuardScopeId, instruction: usize) -> Result<(), IrBuildError> {
         self.guard_row(scope)?;
         let function = self.current_owner.and_then(super::IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("guard_membership_owner", None, 0, instruction))?;

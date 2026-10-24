@@ -789,12 +789,17 @@ impl TypeConstraints {
     }
 
     pub(super) fn validate_generalized_operations(&self, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Vec<SealedOperationId>, super::SchemeOperationError> {
-        let mut operations = scope.operations.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+        let view = self.generalized_requirement_view(scope.owner, callable, scope)?;
+        self.validate_generalized_operations_view(callable, scope, &view)
+    }
+
+    pub(super) fn validate_generalized_operations_view(&self, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope, view: &super::GeneralizedRequirementView<'_>) -> Result<Vec<SealedOperationId>, super::SchemeOperationError> {
+        let mut operations = view.operations.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
         operations.sort_unstable();
-        if operations.len() != callable.requirements().operations.len() { return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation)); }
-        let mut generalization = self.callable_generalization(callable, scope);
+        if operations.len() != view.requirements.operations.len() { return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation)); }
+        let mut generalization = self.requirement_generalization(callable, scope, view);
         for (index, &(ordinal, id)) in operations.iter().enumerate() {
-            if index != ordinal as usize || self.generalize_sealed_operation(id, 0, &mut generalization)? != callable.requirements().operations[index] {
+            if index != ordinal as usize || self.generalize_sealed_operation(id, 0, &mut generalization)? != view.requirements.operations[index] {
                 return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
             }
         }
@@ -804,9 +809,10 @@ impl TypeConstraints {
 
     pub(crate) fn generalized_operation_ordinal(&self, id: SealedOperationId, owner: crate::sema::check::EffectDeclarationId, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, super::SchemeOperationError> {
         let entry = self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-        if entry.owner != super::CallableApplicationScope::Declaration(owner) || scope.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
-        self.validate_generalized_operations(callable, scope)?;
-        Ok(scope.operations.get(&id).copied())
+        if scope.owner != super::CallableApplicationScope::Declaration(owner) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let view = self.generalized_requirement_view(entry.owner, callable, scope)?;
+        self.validate_generalized_operations_view(callable, scope, &view)?;
+        Ok(view.operations.get(&id).copied())
     }
 
     pub(super) fn sealed_operation_bindings(&self, instance: &super::InstantiatedRequirements, generalization: &super::Generalization) -> Result<Vec<crate::sema::schemes::SealedOperationBinding>, super::SchemeOperationError> {

@@ -4714,9 +4714,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
         body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
+        let requirements = facts.requirement_pack_at(expression).ok()?;
         if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
         if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none_or(|ordinal| {
-            facts.scheme().callable().requirements().wrappers.get(ordinal as usize).is_some_and(|requirement| matches!(requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation { .. }))
+            requirements.wrappers.get(ordinal as usize).is_some_and(|requirement| matches!(requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation { .. }))
         }) {
             let base = match self.program.arena.expr(expression).kind {
                 ArenaExprKind::NullSafeField { base, .. }
@@ -4939,7 +4940,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                 }
                 if let Some(ordinal) = facts.operation_site(expression)
-                    && let crate::sema::sealed_operation::SealedOperation::Index { syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance), .. } = facts.scheme().callable().requirements().operations.get(ordinal as usize)?
+                    && let crate::sema::sealed_operation::SealedOperation::Index { syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance), .. } = requirements.operations.get(ordinal as usize)?
                 {
                     let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
                     if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
@@ -5072,7 +5073,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     _ => false,
                 };
                 let membership_operation = match facts.operation_site(expression) {
-                    Some(ordinal) if matches!(facts.scheme().callable().requirements().operations.get(ordinal as usize)?, crate::sema::sealed_operation::SealedOperation::Membership { .. }) => Some(ordinal),
+                    Some(ordinal) if matches!(requirements.operations.get(ordinal as usize)?, crate::sema::sealed_operation::SealedOperation::Membership { .. }) => Some(ordinal),
                     _ => None,
                 };
                 let left_span = self.program.arena.expr(left).span;
@@ -5216,7 +5217,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             ArenaRecordFieldKind::Shorthand { name, span } => {
                                 let field_type = match facts.operation_site(expression) {
                                     Some(ordinal) => {
-                                        let crate::sema::sealed_operation::SealedOperation::RecordOverride { overrides, .. } = facts.scheme().callable().requirements().operations.get(ordinal as usize)? else { return None };
+                                        let crate::sema::sealed_operation::SealedOperation::RecordOverride { overrides, .. } = requirements.operations.get(ordinal as usize)? else { return None };
                                         let field = overrides.get(index.checked_sub(1)?)?;
                                         if field.name != name { return None; }
                                         field.ty.clone()
@@ -5488,7 +5489,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
                 if let Some(ordinal) = facts.method_site(expression) {
-                    let Some(requirement) = facts.scheme().callable().requirements().methods.get(ordinal as usize) else {
+                    let Some(requirement) = requirements.methods.get(ordinal as usize) else {
                         return self.block_scheme_lowering_expr(expression);
                     };
                     let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else {

@@ -429,7 +429,7 @@ pub(super) fn finish_checked_value(
 ) -> Result<CheckedValueOutcome, RuntimeError> {
     match check {
         IndexedValueCheck::MembershipKey(ordinal) => {
-            if execution.membership_key_check(*ordinal, invocation).map_err(|error| indexed_error(error, span))? == crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt {
+            if execution.membership_key_check(instruction, *ordinal, invocation).map_err(|error| indexed_error(error, span))? == crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt {
                 let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
                 return Ok(CheckedValueOutcome::Propagate(crate::runtime::eval::require::require_value(evaluator, value, &check, span)));
             }

@@ -386,12 +386,13 @@ impl Checker {
         if name == "_" {
             return self.report_missing_identifier(name, span);
         }
-        let selected = self.scopes.iter().rev().find_map(|scope| {
-            scope.get(&name).filter(|binding| match binding_id {
-                Some(id) => binding.id == Some(id),
-                None => binding.recovery,
-            }).map(|binding| (binding, scope.guard))
-        });
+        let selected = match binding_id {
+            Some(id) => self.scopes.iter().rev().find_map(|scope| {
+                scope.get(&name).filter(|binding| binding.id == Some(id)).map(|binding| (binding, scope.guard))
+            }),
+            None => self.scopes.iter().rev().find_map(|scope| scope.get(&name).map(|binding| (binding, scope.guard)))
+                .filter(|(binding, _)| binding.recovery),
+        };
         if binding_id.is_some() && selected.is_none() {
             return self.report_missing_identifier(name, span);
         }
