@@ -451,6 +451,33 @@ impl ProducerPrefixContext<'_> {
         self.evidence.work.borrow_mut().charge(amount)
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn guard_value_expression(
+        &self, decoder: &FullDecoder<'_>, mut instruction: usize, use_site: usize,
+        target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("guard value context disagrees with its owner"));
+        }
+        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
+        for _ in self.evidence.range.clone() {
+            charge(1)?;
+            if !self.evidence.range.contains(&instruction) { return Err(IrVerifyError::new("guard value leaves its owner range")); }
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::ValueBlock { mut body, .. } => {
+                    charge(body.len())?;
+                    instruction = decoder.checked_block_tail_expression(&mut body)?;
+                }
+                schema::ExprView::Param(slot) => {
+                    if self.evidence.binding(decoder.store, decoder.owner, instruction, slot)? == protected { return Ok(Some(instruction)); }
+                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, charge)? else { return Ok(None) };
+                    instruction = initializer;
+                }
+                _ => return Ok(Some(instruction)),
+            }
+        }
+        Err(IrVerifyError::new("guard value has a cyclic initializer path"))
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn guard_value_binding_path(
         &self, decoder: &FullDecoder<'_>, mut instruction: usize, use_site: usize,
         target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
@@ -458,28 +485,21 @@ impl ProducerPrefixContext<'_> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
             return Err(IrVerifyError::new("condition value context disagrees with its owner"));
         }
-        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         let mut fields = Vec::new();
         for _ in self.evidence.range.clone() {
             charge(1)?;
             if !self.evidence.range.contains(&instruction) { return Err(IrVerifyError::new("condition value leaves its owner range")); }
+            let Some(value) = self.guard_value_expression(decoder, instruction, use_site, target, charge)? else { return Ok(None) };
+            instruction = value;
             match decoder.expression_view(instruction)? {
-                schema::ExprView::ValueBlock { mut body, .. } => {
-                    charge(body.len())?;
-                    instruction = decoder.checked_block_tail_expression(&mut body)?;
-                }
                 schema::ExprView::Field { base, name, .. } if fields.len() < 128 => {
                     fields.push(Name::intern(name));
                     instruction = base.raw() as usize;
                 }
-                schema::ExprView::Param(slot) => {
-                    if self.evidence.binding(decoder.store, decoder.owner, instruction, slot)? == protected {
-                        charge(fields.len())?;
-                        fields.reverse();
-                        return Ok(Some((target.0, fields)));
-                    }
-                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, charge)? else { return Ok(None) };
-                    instruction = initializer;
+                schema::ExprView::Param(slot) if slot == target.0 => {
+                    charge(fields.len())?;
+                    fields.reverse();
+                    return Ok(Some((target.0, fields)));
                 }
                 _ => return Ok(None),
             }

@@ -10416,8 +10416,7 @@ impl<'a> FullDecoder<'a> {
             charge(1)?;
             stored = payload;
         }
-        if !matches!(stored, Type::Record(_)) || actual.contains_any()
-            || actual.contains_inference() || actual.contains_recovery()
+        if !matches!(stored, Type::Record(_)) || actual.contains_inference() || actual.contains_recovery()
         { return Ok(false); }
         if let Some(prefix) = prefix {
             return prefix.guarded_record_read_matches_type(self, instruction, actual, expected, charge);
@@ -13964,7 +13963,7 @@ impl<'a> FullDecoder<'a> {
         Ok(None)
     }
 
-    fn checked_condition_pair_proves_nonnull(
+    fn checked_condition_pair_proves_nonnull_with_prefix(
         &self,
         use_site: usize,
         left: usize,
@@ -13975,6 +13974,8 @@ impl<'a> FullDecoder<'a> {
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
         stability: GuardPathStability,
+        prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
+        source: Option<&GuardedRecordSource<'_>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
@@ -13984,7 +13985,7 @@ impl<'a> FullDecoder<'a> {
             self.checked_expression_preserves_binding_path(right, target, charge)?
         };
         let mut proves = |condition, outcome| {
-            self.checked_condition_proves_nonnull(
+            self.checked_condition_proves_nonnull_with_prefix(
                 condition,
                 outcome,
                 is_boolean,
@@ -13992,7 +13993,7 @@ impl<'a> FullDecoder<'a> {
                 target,
                 expected_payload,
                 stability,
-                charge,
+                prefix, source, charge,
             )
         };
         if is_and {
@@ -14140,20 +14141,6 @@ impl<'a> FullDecoder<'a> {
         Ok(matches!(source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten(), Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
     }
 
-    fn checked_condition_proves_nonnull(
-        &self,
-        condition: usize,
-        when_true: bool,
-        is_boolean: bool,
-        use_site: usize,
-        target: &(usize, Vec<Name>),
-        expected_payload: &Type,
-        stability: GuardPathStability,
-        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<bool, IrVerifyError> {
-        self.checked_condition_proves_nonnull_with_prefix(condition, when_true, is_boolean, use_site, target, expected_payload, stability, self.producer_prefix.as_ref(), None, charge)
-    }
-
     fn checked_condition_proves_nonnull_with_prefix(
         &self, condition: usize, when_true: bool, is_boolean: bool, use_site: usize,
         target: &(usize, Vec<Name>), expected_payload: &Type, stability: GuardPathStability,
@@ -14162,6 +14149,10 @@ impl<'a> FullDecoder<'a> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
+        let condition = if !is_boolean && let Some(prefix) = prefix {
+            let Some(condition) = prefix.guard_value_expression(self, condition, use_site, target, charge)? else { return Ok(false) };
+            condition
+        } else { condition };
         if !is_boolean && let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(condition)? {
             charge(6)?;
             if !when_true || arms.len() != 3 { return Ok(false); }
@@ -14188,11 +14179,11 @@ impl<'a> FullDecoder<'a> {
             };
             return match schema::BoolView::decode_from_decoder(self, tag, payload)? {
                 schema::BoolView::Slot(slot) => {
-                    let Some(prefix) = &self.producer_prefix else { return Ok(false) };
-                    let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
-                    self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, stability, charge)
+                    let Some(active_prefix) = prefix else { return Ok(false) };
+                    let Some((initializer, boolean)) = active_prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+                    self.checked_condition_proves_nonnull_with_prefix(initializer, when_true, boolean, use_site, target, expected_payload, stability, Some(active_prefix), source, charge)
                 }
-                schema::BoolView::Not(value) => self.checked_condition_proves_nonnull(
+                schema::BoolView::Not(value) => self.checked_condition_proves_nonnull_with_prefix(
                     value.raw() as usize,
                     !when_true,
                     true,
@@ -14200,10 +14191,10 @@ impl<'a> FullDecoder<'a> {
                     target,
                     expected_payload,
                     stability,
-                    charge,
+                    prefix, source, charge,
                 ),
                 schema::BoolView::And(left, right) => self
-                    .checked_condition_pair_proves_nonnull(
+                    .checked_condition_pair_proves_nonnull_with_prefix(
                         use_site,
                         left.raw() as usize,
                         right.raw() as usize,
@@ -14213,10 +14204,10 @@ impl<'a> FullDecoder<'a> {
                         target,
                         expected_payload,
                         stability,
-                        charge,
+                        prefix, source, charge,
                     ),
                 schema::BoolView::Or(left, right) => self
-                    .checked_condition_pair_proves_nonnull(
+                    .checked_condition_pair_proves_nonnull_with_prefix(
                         use_site,
                         left.raw() as usize,
                         right.raw() as usize,
@@ -14226,7 +14217,7 @@ impl<'a> FullDecoder<'a> {
                         target,
                         expected_payload,
                         stability,
-                        charge,
+                        prefix, source, charge,
                     ),
                 schema::BoolView::LiteralCompareSlot { op, slot, value }
                     if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
@@ -14259,13 +14250,13 @@ impl<'a> FullDecoder<'a> {
                 (self.expression_view(value.raw() as usize)?, self.expression_view(else_value.raw() as usize)?)
             else { return Ok(false) };
             if yes == no { return Ok(false); }
-            return self.checked_condition_proves_nonnull(nested.raw() as usize, when_true == yes, false,
-                use_site, target, expected_payload, stability, charge);
+            return self.checked_condition_proves_nonnull_with_prefix(nested.raw() as usize, when_true == yes, false,
+                use_site, target, expected_payload, stability, prefix, source, charge);
         }
         if let schema::ExprView::Param(slot) = self.expression_view(condition)? {
-            let Some(prefix) = &self.producer_prefix else { return Ok(false) };
-            let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
-            return self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, stability, charge);
+            let Some(active_prefix) = prefix else { return Ok(false) };
+            let Some((initializer, boolean)) = active_prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+            return self.checked_condition_proves_nonnull_with_prefix(initializer, when_true, boolean, use_site, target, expected_payload, stability, Some(active_prefix), source, charge);
         }
         let schema::ExprView::Binary {
             op,
@@ -14278,35 +14269,18 @@ impl<'a> FullDecoder<'a> {
         };
         match op {
             BinaryOp::Eq | BinaryOp::Ne => {
-                let subject = if matches!(
-                    self.expression_view(left.raw() as usize)?,
-                    schema::ExprView::Null
-                ) {
-                    right.raw() as usize
-                } else if matches!(
-                    self.expression_view(right.raw() as usize)?,
-                    schema::ExprView::Null
-                ) {
-                    left.raw() as usize
-                } else {
-                    return Ok(false);
+                let mut normalize = |value| match prefix {
+                    Some(prefix) => prefix.guard_value_expression(self, value, use_site, target, charge),
+                    None => Ok(Some(value)),
                 };
-                charge(target.1.len())?;
-                if self.checked_binding_path(subject, charge)?.as_ref() != Some(target) {
-                    return Ok(false);
-                }
-                let subject_type = match self.checked_physical_field_type(subject, charge)? {
-                    Some(ty) => Some(ty),
-                    None => self.checked_binding_path_type(use_site, target, charge)?,
-                };
-                let Some(subject_type) = subject_type else { return Ok(false) };
-                let Type::Optional(payload) = subject_type.into_unvalidated() else {
-                    return Ok(false);
-                };
-                Ok(payload.as_ref() == expected_payload
-                    && (op == BinaryOp::Ne) == when_true)
+                let (Some(left), Some(right)) = (normalize(left.raw() as usize)?, normalize(right.raw() as usize)?) else { return Ok(false) };
+                let subject = if matches!(self.expression_view(left)?, schema::ExprView::Null) { right }
+                    else if matches!(self.expression_view(right)?, schema::ExprView::Null) { left }
+                    else { return Ok(false); };
+                Ok((op == BinaryOp::Ne) == when_true
+                    && self.checked_optional_value_matches_path(subject, use_site, target, expected_payload, prefix, source, charge)?)
             }
-            BinaryOp::And | BinaryOp::Or => self.checked_condition_pair_proves_nonnull(
+            BinaryOp::And | BinaryOp::Or => self.checked_condition_pair_proves_nonnull_with_prefix(
                 use_site,
                 left.raw() as usize,
                 right.raw() as usize,
@@ -14316,7 +14290,7 @@ impl<'a> FullDecoder<'a> {
                 target,
                 expected_payload,
                 stability,
-                charge,
+                prefix, source, charge,
             ),
             _ => Ok(false),
         }
