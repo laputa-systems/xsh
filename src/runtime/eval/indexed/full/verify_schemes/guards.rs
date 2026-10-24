@@ -215,24 +215,61 @@ pub(super) fn authenticates_read(
     let GuardScopes::Scoped(census) = &scope.guards else { return Ok(false); };
     let Some(prefix) = prefix else { return Ok(false); };
     let mut active = scope.active_guard;
+    let mut ancestry = Vec::new();
     while let Some(id) = active {
         budget.charge(1)?;
+        ancestry.push(id);
+        if ancestry.len() > crate::sema::constraints::MAX_TYPE_DEPTH { return Err(IrVerifyError::new("guard read ancestry is too deep")); }
+        active = census.parent(id)?;
+    }
+    for &id in ancestry.iter().rev() {
+        let pack = census.scope(id)?;
+        let parent_scope = scope.with_guard(census.parent(id)?)?;
+        let local_scope = scope.with_guard(Some(id))?;
+        for read in super::bounded(pack.metadata.reads, &store.scheme_guard_reads, "guard read range is invalid")? {
+            budget.charge(1)?;
+            let view = super::decode_scheme_type(store, &local_scope, read.view, budget, 0)?;
+            if !super::body_types_equal(claimed, &view) { continue; }
+            let source = super::decode_scheme_type(store, &parent_scope, read.source, budget, 0)?;
+            if super::body_types_equal(actual, &source) && (instruction == read.instruction as usize
+                || prefix.guard_identity_read_source(decoder, instruction, read.instruction as usize, &mut |amount| budget.charge(amount))?)
+            { return Ok(true); }
+        }
+    }
+    budget.charge_scheme_clone(actual)?;
+    let mut proven = vec![actual.clone()];
+    let mut source_identities = BTreeMap::<usize, Vec<(super::SchemeType, super::SchemeType)>>::new();
+    for id in ancestry.into_iter().rev() {
         let pack = census.scope(id)?;
         let parent_scope = scope.with_guard(census.parent(id)?)?;
         let local_scope = scope.with_guard(Some(id))?;
         let source = super::decode_scheme_type(store, &parent_scope, pack.metadata.source, budget, 0)?;
         let view = super::decode_scheme_type(store, &local_scope, pack.metadata.view, budget, 0)?;
-        if super::body_types_equal(actual, &source) && super::body_types_equal(claimed, &view)
+        let identities = source_identities.get(&(pack.metadata.source_instruction as usize)).map(Vec::as_slice).unwrap_or(&[]);
+        budget.charge(proven.len().saturating_mul(identities.len() + 1))?;
+        let known_source = proven.iter().any(|actual| super::body_types_equal(actual, &source))
+            || identities.iter().any(|(original, view)| super::body_types_equal(view, &source)
+                && proven.iter().any(|actual| super::body_types_equal(actual, original)));
+        if known_source
             && prefix.guarded_nonnull_read(decoder, instruction, pack.metadata.source_instruction as usize, &mut |amount| budget.charge(amount))?
-        { return Ok(true); }
+        {
+            if super::body_types_equal(claimed, &view) { return Ok(true); }
+            proven.push(view);
+        }
         for read in super::bounded(pack.metadata.reads, &store.scheme_guard_reads, "guard read range is invalid")? {
             budget.charge(1)?;
-            if instruction != read.instruction as usize { continue; }
             let source = super::decode_scheme_type(store, &parent_scope, read.source, budget, 0)?;
             let view = super::decode_scheme_type(store, &local_scope, read.view, budget, 0)?;
-            if super::body_types_equal(actual, &source) && super::body_types_equal(claimed, &view) { return Ok(true); }
+            if super::body_types_equal(claimed, &view) && (instruction == read.instruction as usize
+                || prefix.guard_identity_read_source(decoder, instruction, read.instruction as usize, &mut |amount| budget.charge(amount))?) {
+                budget.charge(proven.len())?;
+                if proven.iter().any(|actual| super::body_types_equal(actual, &source)) {
+                    return Ok(true);
+                }
+            }
+            budget.charge(1)?;
+            source_identities.entry(read.instruction as usize).or_default().push((source, view));
         }
-        active = census.parent(id)?;
     }
     Ok(false)
 }

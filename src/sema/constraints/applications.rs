@@ -206,7 +206,7 @@ mod tests {
             let types = [first_callback, first_value, second_callback, second_value, Type::Int];
             let build = |constraints: &TypeConstraints, owner, types: &[Type]| {
                 let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls_in_component::<crate::source::Span>(
-                    types, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, owner, &owners,
+                    types, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, owner, &owners, &|_| CallableApplicationScope::Declaration(owner),
                 ).unwrap();
                 let mut types = generalized.types;
                 let result = types.pop().unwrap();

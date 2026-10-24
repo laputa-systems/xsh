@@ -105,6 +105,8 @@ struct ProducerOwner {
     completed_optional_reads: RefCell<BTreeMap<usize, CompletedOptionalRead>>,
     completed_union_reads: RefCell<BTreeMap<(usize, TypeId), super::super::LoweredType>>,
     snapshot_predicates: RefCell<BTreeMap<(usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>>>,
+    immutable_initializers: RefCell<BTreeMap<ImmutableInitializerQuery, Vec<(Vec<Name>, (usize, bool))>>>,
+    guard_scope_conditions: RefCell<BTreeMap<GuardScopeCondition, Vec<Vec<Name>>>>,
     declarations: BTreeMap<usize, Vec<usize>>,
     following_declarations: BTreeMap<usize, Vec<usize>>,
     region_bindings: BTreeMap<(usize, usize), ProducerBinding>,
@@ -435,6 +437,14 @@ impl ProducerPrefixContext<'_> {
             || !self.evidence.range.contains(&condition) || !self.evidence.range.contains(&use_site)
         { return Err(IrVerifyError::new("condition value context disagrees with its owner")); }
         let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
+        let query = ImmutableInitializerQuery { read: condition, slot, target: target.0, binding: protected };
+        charge(1)?;
+        if let Some(values) = self.evidence.immutable_initializers.borrow().get(&query) {
+            for (path, initializer) in values {
+                charge(1 + target.1.len())?;
+                if path == &target.1 { return Ok(Some(*initializer)); }
+            }
+        }
         let binding = self.evidence.binding(decoder.store, decoder.owner, condition, slot)?;
         let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None) };
         charge(1)?;
@@ -459,6 +469,8 @@ impl ProducerPrefixContext<'_> {
             charge(roots.len())?;
             if !decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), condition, target, charge)? { return Ok(None); }
         }
+        charge(1 + target.1.len())?;
+        self.evidence.immutable_initializers.borrow_mut().entry(query).or_default().push((target.1.clone(), initializer));
         Ok(Some(initializer))
     }
 
@@ -568,6 +580,52 @@ impl ProducerPrefixContext<'_> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("guard scope context disagrees with its owner"));
+        }
+        let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
+        let binding = self.evidence.binding(decoder.store, decoder.owner, source, target.0)?;
+        if self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)? != binding { return Ok(false); }
+        let proves = |condition, when_true, is_boolean, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| {
+            if self.evidence.visible_binding(decoder.store, decoder.owner, condition, target.0)? != Some(binding) { return Ok(false); }
+            let query = GuardScopeCondition { condition, when_true, is_boolean, target: target.0, binding };
+            charge(1)?;
+            if let Some(paths) = self.evidence.guard_scope_conditions.borrow().get(&query) {
+                for path in paths {
+                    charge(1 + target.1.len())?;
+                    if path == &target.1 { return Ok(true); }
+                }
+            }
+            let proved = decoder.checked_condition_proves_nonnull_with_prefix(condition, when_true, is_boolean, condition, &target,
+                super::super::GuardedReadContract::NonNullRead, super::super::GuardPathStability::MayChange, Some(self), None, charge)?;
+            if proved {
+                charge(1 + target.1.len())?;
+                self.evidence.guard_scope_conditions.borrow_mut().entry(query).or_default().push(target.1.clone());
+            }
+            Ok(proved)
+        };
+        let mut active = |parent, child, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| {
+            if let Some((condition, when_true, is_boolean, _)) = decoder.checked_short_circuit_path_for_child(parent, child, charge)?
+                && proves(condition, when_true, is_boolean, charge)?
+            { return Ok(true); }
+            if let Some((conditions, _)) = decoder.checked_branch_conditions_for_child_with(parent, child,
+                |child, roots| Ok(roots.contains(&child)), &mut *charge)? {
+                for (condition, when_true, is_boolean) in conditions {
+                    if proves(condition, when_true, is_boolean, charge)? { return Ok(true); }
+                }
+            }
+            Ok(false)
+        };
+        self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
+            |guard, charge| match guard {
+                BindingReadGuard::Condition { condition, when_true, is_boolean, .. } => proves(condition, when_true, is_boolean, charge),
+                BindingReadGuard::OptionalPresence { .. } => Ok(false),
+            }, Some(&mut active), charge)
+    }
+
+    fn guarded_nonnull_read_scope(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
             return Err(IrVerifyError::new("guarded read context disagrees with its owner"));
         }
         let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
@@ -582,7 +640,14 @@ impl ProducerPrefixContext<'_> {
         let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
         let Some(read) = self.guard_value_binding_path(decoder, instruction, instruction, &target, charge)? else { return Ok(false); };
         if read != target { return Ok(false); }
-        self.guarded_nonnull_scope(decoder, instruction, source, charge)
+        self.guarded_nonnull_read_scope(decoder, instruction, source, charge)
+    }
+
+    pub(super) fn guard_identity_read_source(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(target) = self.guard_source_binding_path(decoder, instruction, instruction, charge)? else { return Ok(false); };
+        Ok(self.guard_value_expression(decoder, source, source, &target, charge)? == Some(instruction))
     }
 
     pub(super) fn actual_null_comparison(&self, decoder: &FullDecoder<'_>, comparison: usize, source: usize,
@@ -900,6 +965,23 @@ enum ProducerBinding {
     HeaderCapture(u32),
     ScopedDeclaration(usize, usize),
     DriverBinding(usize),
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct ImmutableInitializerQuery {
+    read: usize,
+    slot: usize,
+    target: usize,
+    binding: ProducerBinding,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct GuardScopeCondition {
+    condition: usize,
+    when_true: bool,
+    is_boolean: bool,
+    target: usize,
+    binding: ProducerBinding,
 }
 
 #[derive(Clone, Copy)]
@@ -1523,7 +1605,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), immutable_initializers: RefCell::default(), guard_scope_conditions: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -2020,6 +2102,8 @@ impl GroundProducerIndex {
                     + owner.parents.capacity() * size_of::<Option<usize>>() + owner.statements.capacity() * size_of::<Option<usize>>() + owner.returns.capacity() * size_of::<usize>()
                     + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
                     + owner.snapshot_predicates.borrow().values().map(|paths| size_of::<((usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
+                    + owner.immutable_initializers.borrow().values().map(|values| size_of::<(ImmutableInitializerQuery, Vec<(Vec<Name>, (usize, bool))>)>() + values.capacity() * size_of::<(Vec<Name>, (usize, bool))>() + values.iter().map(|(path, _)| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
+                    + owner.guard_scope_conditions.borrow().values().map(|paths| size_of::<(GuardScopeCondition, Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.block_can_complete.len() * size_of::<(usize, bool)>()
                     + owner.completed_optional_reads.borrow().values().map(|proof| size_of::<(usize, CompletedOptionalRead)>() + match proof {

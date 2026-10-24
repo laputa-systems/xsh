@@ -920,6 +920,8 @@ fn verify_scheme_tables(
     for plan in &store.value_materializations {
         let caller = caller_scheme_for_instruction(store, plan.instruction as usize, scopes)?;
         let (owner, scope) = caller.map_or((scopes.len() + store.scheme_schema_definitions.len(), &empty_scope), |(id, scope)| (id.index(), scope));
+        let active = scope.at_instruction(plan.instruction as usize)?;
+        let scope = &active;
         for endpoint in [plan.source, plan.destination] {
             visit_scheme_type(store, owner, endpoint, scope, &mut type_owners, &mut type_states,
                 &mut field_coverage, &mut child_coverage, &mut validation_coverage, &mut validation_references,
@@ -953,15 +955,15 @@ fn verify_scheme_tables(
         for binding in mark_range(arguments.operation_bindings, &store.call_operation_bindings, &mut operation_binding_coverage, "generic call operation binding range is invalid or overlaps")? {
             application_budget.charge(1)?;
             if let super::schemes::FullOperationBinding::Forwarded(ordinal) = *binding {
-                let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards an operation requirement")); };
-                if ordinal >= store.scheme(caller)?.operations.len { return Err(IrVerifyError::new("generic call operation ordinal is out of scope")); }
+                if caller.is_none() { return Err(IrVerifyError::new("ground generic call forwards an operation requirement")); }
+                if ordinal >= scope.operations.len { return Err(IrVerifyError::new("generic call operation ordinal is out of scope")); }
             }
         }
         for binding in mark_range(arguments.method_bindings, &store.call_method_bindings, &mut method_binding_coverage, "generic call method binding range is invalid or overlaps")? {
             application_budget.charge(1)?;
             if let super::schemes::FullMethodBinding::Forwarded(ordinal) = *binding {
-                let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards a method family")); };
-                if ordinal >= store.scheme(caller)?.methods.len { return Err(IrVerifyError::new("generic call method ordinal is out of scope")); }
+                if caller.is_none() { return Err(IrVerifyError::new("ground generic call forwards a method family")); }
+                if ordinal >= scope.methods.len { return Err(IrVerifyError::new("generic call method ordinal is out of scope")); }
             }
         }
         application_budget.charge(arguments.application_bindings.len as usize)?;
@@ -978,10 +980,10 @@ fn verify_scheme_tables(
                     }
                 }
                 super::schemes::FullApplicationBinding::Forwarded(ordinal) => {
-                    let Some((caller, _)) = caller else {
+                    if caller.is_none() {
                         return Err(IrVerifyError::new("ground generic call forwards an application requirement"));
-                    };
-                    if ordinal >= store.scheme(caller)?.applications.len {
+                    }
+                    if ordinal >= scope.applications.len {
                         return Err(IrVerifyError::new("generic call application ordinal is out of scope"));
                     }
                 }
@@ -3085,8 +3087,8 @@ fn verify_body_expression(
 pub(super) fn materialization_contract(
     store: &FullStore, scopes: &VerifiedSchemeScopes, id: u32, instruction: usize, budget: &mut SchemeInstantiationBudget,
 ) -> Result<(SchemeType, SchemeType), IrVerifyError> {
-    let scope = caller_scheme_for_instruction(store, instruction, &scopes.scopes)?.map(|(_, scope)| scope);
-    materializations::endpoints(store, id, instruction, scope, budget)
+    let scope = caller_scheme_for_instruction(store, instruction, &scopes.scopes)?.map(|(_, scope)| scope.at_instruction(instruction)).transpose()?;
+    materializations::endpoints(store, id, instruction, scope.as_ref(), budget)
 }
 
 pub(super) fn materialization_endpoints(
@@ -3190,6 +3192,8 @@ fn verify_call_instantiations(
         if let Some((caller_scheme, caller_scope)) =
             caller_scheme_for_instruction(store, instruction, scopes)?
         {
+            let active = caller_scope.at_instruction(instruction)?;
+            let caller_scope = &active;
             let substitution = build_symbolic_substitution(
                 store,
                 scope,
