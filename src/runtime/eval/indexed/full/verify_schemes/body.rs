@@ -2008,6 +2008,55 @@ mod tests {
         program
     }
 
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn record_list_conditionals_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/record-list-conditionals.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("record-list-conditionals.xsh", crate::loader::entry_source_from_text("record-list-conditionals.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("record_list_conditionals", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn record_list_conditionals_authenticate_unknown_arms() {
+        let mut program = prepare(r#"type Row = {value: Str}
+pure values(rows: List[Row]) -> List[Str] { [row.value for row in rows] }
+proc choose(stored: Record, erased: Any, numbers: List[Int]) -> Result[List[Str]] {
+    let rows = if "rows" in stored { stored.get("rows")?.require(List[Row])? } else {
+        let spare_record: Any = stored
+        let spare_erased: Any = erased
+        let spare_numbers: Any = numbers
+        []
+    }
+    Ok(values(rows))
+}
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+        let empty = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprList).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        for slot in [0, 1, 2] {
+            let spare = program.store.function_instruction_range(owner).unwrap().filter(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).last().unwrap();
+            let mut changed = program.clone();
+            changed.store.tags.swap(empty, spare);
+            changed.store.data.swap(empty, spare);
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("producer") && error.message.contains("contract"), "header slot {slot}: {error:?}");
+        }
+    }
+
     #[test]
     fn generic_pattern_conditions_authenticate_captures_and_branch_scopes() {
         let program = prepare(r#"

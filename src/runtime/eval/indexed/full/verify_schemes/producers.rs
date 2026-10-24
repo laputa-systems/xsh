@@ -2929,7 +2929,9 @@ impl<'a> ProducerProof<'a> {
         let (candidate, unknown) = joined.finish(&mut self.budget)?;
         let Some(candidate) = candidate else { return Ok(None) };
         if unknown {
-            ensure_substitution_type(&candidate)?;
+            if matches!(candidate.as_ref(), Type::List(_)) {
+                ensure_closed_type(&candidate)?;
+            } else { ensure_substitution_type(&candidate)?; }
             self.expression(decoder.owner, instruction, Arc::clone(&candidate), false);
         }
         Ok(Some(candidate))

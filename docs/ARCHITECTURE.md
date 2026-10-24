@@ -889,6 +889,9 @@ outer scope and its failure binding. A Guard handler must diverge before success
 bindings become visible. The body and producer verifiers preserve these same
 regions. Argument queries sample actual checked guards and closed conditional
 arms; incomplete runtime guards still require independent proof of their inputs.
+A closed List type from an actual arm can supply another arm's missing producer
+context, including erased record items. The producer proof still authenticates
+every arm, condition, and writer.
 
 Generalized captured runs, retry attempts, error contexts, and restored context
 scopes use the existing command and scoped-block executor. Retry preserves an
