@@ -4903,13 +4903,7 @@ impl<'a> ProducerProof<'a> {
                 && matches!(actual.as_ref(), Type::Record(_) | Type::ErasedRecord) && matches!(container, Type::Record(_));
             let record_branches = actual.as_ref() == &Type::ErasedRecord && matches!(container, Type::Record(_))
                 && self.is_conditional_record_source(&decoder, instruction)?;
-            let checked_comprehension = if matches!((self.store.tags[instruction], container),
-                (FullTag::ExprListComp, Type::List(_)) | (FullTag::ExprMapComp, Type::Map(_, _)))
-                && let Some(parent) = decoder.instruction_parent_of(instruction)?
-                && self.store.tags[parent].kind() == schema::InstructionKind::Expr
-                && let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)?
-                && value.raw() as usize == instruction && check.schema.is_none()
-            { self.contract_type(check.ty.id)?.as_ref() == container } else { false };
+            let checked_comprehension = self.runtime_checked_comprehension(&decoder, instruction, container)?;
             let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
                 if decoder.checked_guarded_record_read_matches_type(instruction, actual, container, &mut |amount| self.budget.charge(amount))? {
                     true
@@ -5313,7 +5307,7 @@ impl<'a> ProducerProof<'a> {
                             source_validation = source.validated().map(|validated| validated.validation());
                             self.budget.charge_clone(&source)?;
                             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
-                            self.verify_comprehension_target(target, &item)?;
+                            self.verify_comprehension_target(&decoder, iter.raw() as usize, target, &item)?;
                             self.expression(owner, iter.raw() as usize, source, false);
                         }
                         super::super::decode::CompQualifierView::If { condition, .. } => self.verify_condition(owner, condition.raw() as usize, ConditionRole::Control)?,
@@ -5325,8 +5319,7 @@ impl<'a> ProducerProof<'a> {
                 {
                     return Err(IrVerifyError::new("ground list comprehension does not preserve its validation"));
                 }
-                self.expression(owner, value.raw() as usize, Arc::new((**item).clone()), false);
-                Ok(())
+                self.comprehension_output(&decoder, instruction, &expected, value.raw() as usize, Arc::new((**item).clone()))
             }
             schema::ExprView::MapComp { key, value, mut qualifiers, .. } => {
                 let Type::Map(key_type, value_type) = expected.unvalidated() else { return Err(IrVerifyError::new("ground map comprehension has no map contract")) };
@@ -5336,15 +5329,14 @@ impl<'a> ProducerProof<'a> {
                             let source = self.comprehension_source_type(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
                             self.budget.charge_clone(&source)?;
                             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
-                            self.verify_comprehension_target(target, &item)?;
+                            self.verify_comprehension_target(&decoder, iter.raw() as usize, target, &item)?;
                             self.expression(owner, iter.raw() as usize, source, false);
                         }
                         super::super::decode::CompQualifierView::If { condition, .. } => self.verify_condition(owner, condition.raw() as usize, ConditionRole::Control)?,
                     }
                 }
-                self.expression(owner, key.raw() as usize, Arc::new((**key_type).clone()), false);
-                self.expression(owner, value.raw() as usize, Arc::new((**value_type).clone()), false);
-                Ok(())
+                self.comprehension_output(&decoder, instruction, &expected, key.raw() as usize, Arc::new((**key_type).clone()))?;
+                self.comprehension_output(&decoder, instruction, &expected, value.raw() as usize, Arc::new((**value_type).clone()))
             }
             schema::ExprView::RecordUpdate { base, mut updates, .. } => {
                 let source = self.need_context(&decoder, base.raw() as usize)?
@@ -7530,15 +7522,44 @@ impl<'a> ProducerProof<'a> {
         Ok(Some(Arc::new(projected)))
     }
 
-    fn verify_comprehension_target(&mut self, target: super::super::decode::CompTargetView<'_>, item: &Type) -> Result<(), IrVerifyError> {
+    fn runtime_checked_comprehension(&mut self, decoder: &FullDecoder<'a>, instruction: usize, container: &Type) -> Result<bool, IrVerifyError> {
+        if !matches!((self.store.tags[instruction], container),
+            (FullTag::ExprListComp, Type::List(_)) | (FullTag::ExprMapComp, Type::Map(_, _)))
+        { return Ok(false); }
+        let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(false) };
+        if self.store.tags[parent].kind() != schema::InstructionKind::Expr { return Ok(false); }
+        let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)? else { return Ok(false) };
+        if value.raw() as usize != instruction || check.schema.is_some() { return Ok(false); }
+        Ok(self.contract_type(check.ty.id)?.as_ref() == container)
+    }
+
+    fn comprehension_output(&mut self, decoder: &FullDecoder<'a>, comprehension: usize, container: &Type, output: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {
+        if matches!(decoder.expression_view(output)?, schema::ExprView::Field { .. })
+            && !expected.contains_any()
+            && self.need_context(decoder, output)?.is_none()
+            && !self.runtime_checked_comprehension(decoder, comprehension, container)?
+        { return Err(IrVerifyError::new("ground comprehension field output has no static contract or runtime check")); }
+        self.expression(decoder.owner, output, expected, false);
+        Ok(())
+    }
+
+    fn verify_comprehension_target(&mut self, decoder: &FullDecoder<'a>, iter: usize, target: super::super::decode::CompTargetView<'_>, item: &Type) -> Result<(), IrVerifyError> {
+        let mut slots = Vec::new();
         FullDecoder::visit_comp_target_evidence(target, item,
             |source| if matches!(source.unvalidated(), Type::Record(_)) { Ok(()) } else { Err(IrVerifyError::new("ground comprehension record target has a non-record item")) },
             |source, name| Ok(match (*source).unvalidated() {
                 Type::Record(fields) => fields.get(&name),
                 _ => None,
             }),
-            |_, _| Ok(()),
-            |amount| self.budget.charge(amount))
+            |slot, _| { slots.push(slot); Ok(()) },
+            |amount| self.budget.charge(amount))?;
+        for slot in slots {
+            if let Some(fact) = decoder.checked_slot_type(slot)? {
+                let fact = self.contract_type(fact)?;
+                self.binding_slot(decoder.owner, ProducerBinding::ScopedDeclaration(iter, slot), slot, fact)?;
+            }
+        }
+        Ok(())
     }
 
     fn comprehension_source_type(&mut self, decoder: &FullDecoder<'a>, iter: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {

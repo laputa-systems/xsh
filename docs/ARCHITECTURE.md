@@ -784,8 +784,17 @@ declaration and complete append-writer census. Every nonempty append must
 independently produce the same closed list type. The proof charges traversal of
 that source type and retains every writer obligation. The loop variable uses the
 actual qualifier target and source item. Checked slot facts do not establish that
-relationship. A fresh list receiver can obtain a set element contract only
-when the selected registered method returns exactly the gate's set contract.
+relationship; a present slot-type row for any target slot, read or not, must be a
+contract the type projected from the actual iterable item satisfies, and an absent
+row makes no claim.
+A field read that is a comprehension output needs a contract derived from its
+actual receiver unless the comprehension is the direct operand of a ground checked
+value for exactly its own contract; a dynamic receiver supplies neither. The
+verifier does not authenticate which of several bindings with the same type a read
+names, or which of several iterables with the same item type is iterated: that IR
+is the IR of another well-typed program. A fresh list receiver can obtain a set
+element contract only when the selected registered method returns exactly the
+gate's set contract.
 Stored collection contracts and nominal validation remain independent.
 Generic shared-state restrictions remain separate.
 Checked storage authenticates a generated collect accumulator through its fresh

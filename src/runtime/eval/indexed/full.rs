@@ -57149,6 +57149,224 @@ assert identity(produce_tasks(["one", "two"]).deps) == ["one", "two"]
         }).unwrap().join().unwrap();
     }
 
+    const LABELS: &str = r#"
+type Row = {name: Str, size: Int}
+type Wrong = {name: Str, size: Str}
+pure labels(rows: List[Row], other: List[Wrong], loose: List[Record], config: Row, dynamic: Record, anything: Any, same: List[Row]) -> RESULT {
+    let _ = other
+    let _ = loose
+    let _ = config
+    let _ = dynamic
+    let _ = anything
+    let _ = same
+    BODY
+}
+pure identity(value) { value }
+assert identity(labels([{name: "a", size: 1}], [{name: "w", size: "2"}], [{name: "l"}], {name: "c", size: 3}, {name: "d"}, 5, [{name: "s", size: 4}]))EXPECTED
+"#;
+
+    struct Anchors {
+        owner: usize,
+        base: Option<usize>,
+        iter: usize,
+        bound: usize,
+        reads: Vec<usize>,
+    }
+
+    fn labels(body: &str, result: &str, expected: &str) -> super::FullProgram {
+        prepare(&LABELS.replace("BODY", body).replace("RESULT", result).replace("EXPECTED", expected))
+    }
+
+    fn anchors(program: &super::FullProgram) -> Anchors {
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "labels").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = super::function_view_decoder(&program.store, owner);
+        let comprehension = range.clone().find(|&instruction| matches!(program.store.tags[instruction], super::FullTag::ExprListComp | super::FullTag::ExprMapComp)).unwrap();
+        let (mut qualifiers, base) = match decoder.expression_view(comprehension).unwrap() {
+            super::schema::ExprView::ListComp { value, qualifiers, .. } => match decoder.expression_view(value.raw() as usize).unwrap() {
+                super::schema::ExprView::Field { base, .. } => (qualifiers, Some(base.raw() as usize)),
+                _ => (qualifiers, None),
+            },
+            super::schema::ExprView::MapComp { qualifiers, .. } => (qualifiers, None),
+            _ => unreachable!(),
+        };
+        let super::decode::CompQualifierView::For { target: super::decode::CompTargetView::Slot(bound), iter, .. } = qualifiers.next().unwrap().unwrap() else { unreachable!() };
+        let reads = (0..7).map(|slot| range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::Param(read)) if read == slot)).unwrap()).collect();
+        Anchors { owner, base, iter: iter.raw() as usize, bound, reads }
+    }
+
+    fn cold(program: &super::FullProgram) -> super::FullProgram {
+        let mut cold = program.clone();
+        cold.store.in_place.take();
+        cold
+    }
+
+    fn execute(program: &super::FullProgram) {
+        let program = std::sync::Arc::new(program.clone());
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(std::sync::Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+    }
+
+    fn rejection(label: &str, forged: &super::FullProgram) -> String {
+        super::FullVerifier::verify(forged).expect_err(label).message
+    }
+
+    fn parameter_slot(program: &super::FullProgram, owner: usize, instruction: usize) -> usize {
+        let super::schema::ExprView::Param(slot) = super::function_view_decoder(&program.store, owner).expression_view(instruction).unwrap() else { unreachable!() };
+        slot
+    }
+
+    fn with_stack(check: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(check).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn appended_comprehensions_authenticate_header_reads_iterables_and_slot_facts() {
+        with_stack(|| {
+            for annotation in ["", ": List[Task]"] {
+                let program = prepare(&SOURCE.replace("ANNOTATION", annotation));
+                let _symbols = program.symbol_owner().enter();
+                super::FullVerifier::verify(&program).unwrap();
+                let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "produce_tasks").unwrap();
+                let range = program.store.function_instruction_range(owner).unwrap();
+                let decoder = super::function_view_decoder(&program.store, owner);
+                let comprehension = range.clone().find(|&instruction| program.store.tags[instruction] == super::FullTag::ExprListComp).unwrap();
+                let super::schema::ExprView::ListComp { value, mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+                let super::schema::ExprView::Field { base, .. } = decoder.expression_view(value.raw() as usize).unwrap() else { unreachable!() };
+                let super::decode::CompQualifierView::For { target: super::decode::CompTargetView::Slot(bound), iter, .. } = qualifiers.next().unwrap().unwrap() else { unreachable!() };
+                let header = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::Param(0)))).unwrap();
+                let function = program.store.functions[owner];
+                let fact = function.slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap().start + bound;
+                for (label, target) in [("header read", base.raw() as usize), ("iterable", iter.raw() as usize)] {
+                    let mut forged = cold(&program);
+                    forged.store.data[target] = program.store.data[header];
+                    let message = rejection(&format!("{annotation}: {label}"), &forged);
+                    assert!(message.contains("field output has no static contract") || message.contains("binding disagrees with its producer contract"), "{annotation}: {label}: {message}");
+                }
+                let mut wrong_fact = cold(&program);
+                wrong_fact.store.slot_type_facts[fact] = function.checked_return_type;
+                assert!(rejection(annotation, &wrong_fact).contains("binding disagrees with its producer contract"), "{annotation}");
+            }
+        });
+    }
+
+    #[test]
+    fn ground_comprehensions_accept_checked_programs_and_equivalent_substitutions() {
+        with_stack(|| {
+            for body in [
+                "let names = [row.name for row in rows]\n    names",
+                "let names: List[Str] = [row.name for row in rows]\n    names",
+                "[row.name for row in rows]",
+            ] {
+                let program = labels(body, "List[Str]", " == [\"a\"]");
+                let _symbols = program.symbol_owner().enter();
+                super::FullVerifier::verify(&program).unwrap();
+                execute(&program);
+                let anchors = anchors(&program);
+                let sibling = labels(&body.replace("row.name", "config.name"), "List[Str]", " == [\"c\"]");
+                let mut header_read = cold(&program);
+                header_read.store.data[anchors.base.unwrap()] = program.store.data[anchors.reads[3]];
+                super::FullVerifier::verify(&header_read).unwrap();
+                let range = program.store.function_instruction_range(anchors.owner).unwrap();
+                assert_eq!(header_read.store.tags[range.clone()], sibling.store.tags[range.clone()]);
+                let legitimate = self::anchors(&sibling);
+                assert_eq!(parameter_slot(&header_read, anchors.owner, anchors.base.unwrap()), parameter_slot(&sibling, legitimate.owner, legitimate.base.unwrap()));
+                let mut same_item_type = cold(&program);
+                same_item_type.store.data[anchors.iter] = program.store.data[anchors.reads[6]];
+                super::FullVerifier::verify(&same_item_type).unwrap();
+            }
+            let dynamic = labels("[row.name for row in loose]", "List[Any]", ".len() == 1");
+            let _symbols = dynamic.symbol_owner().enter();
+            super::FullVerifier::verify(&dynamic).unwrap();
+            execute(&dynamic);
+        });
+    }
+
+    #[test]
+    fn ground_comprehensions_keep_runtime_checked_dynamic_outputs() {
+        with_stack(|| {
+            let body = "let names: List[Str] = [row.name for row in rows]\n    names";
+            let source = LABELS.replace("BODY", body).replace("RESULT", "List[Str]").replace("EXPECTED", " == [\"a\"]").replace("{name: \"d\"}", "{name: 5}");
+            let program = prepare(&source);
+            let _symbols = program.symbol_owner().enter();
+            super::FullVerifier::verify(&program).unwrap();
+            let anchors = anchors(&program);
+            let mut forged = cold(&program);
+            forged.store.data[anchors.base.unwrap()] = program.store.data[anchors.reads[4]];
+            super::FullVerifier::verify(&forged).unwrap();
+            let forged = std::sync::Arc::new(forged);
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*forged.sources).clone());
+            evaluator.indexed_program = Some(std::sync::Arc::clone(&forged));
+            let outcomes = (0..forged.driver_step_count().unwrap())
+                .map(|step| evaluator.eval_indexed_driver_step(step, crate::source::Span::at(forged.store.source_id, 0)).unwrap())
+                .collect::<Vec<_>>();
+            assert!(outcomes.iter().any(|outcome| matches!(outcome, Err(error) if error.message.contains("violates List[Str]"))), "{outcomes:?}");
+        });
+    }
+
+    #[test]
+    fn ground_comprehensions_reject_dynamic_field_outputs() {
+        with_stack(|| {
+            for body in [
+                "let names = [row.name for row in rows]\n    names",
+                "[row.name for row in rows]",
+            ] {
+                let program = labels(body, "List[Str]", " == [\"a\"]");
+                let _symbols = program.symbol_owner().enter();
+                super::FullVerifier::verify(&program).unwrap();
+                let anchors = anchors(&program);
+                for (label, target, source) in [
+                    ("erased record header read", anchors.base.unwrap(), anchors.reads[4]),
+                    ("any header read", anchors.base.unwrap(), anchors.reads[5]),
+                    ("erased record iterable", anchors.iter, anchors.reads[2]),
+                ] {
+                    let mut forged = cold(&program);
+                    forged.store.data[target] = program.store.data[source];
+                    let message = rejection(&format!("{body}: {label}"), &forged);
+                    assert!(message.contains("field output has no static contract") || message.contains("binding disagrees with its producer contract"), "{label}: {message}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn ground_comprehensions_authenticate_unused_binder_facts() {
+        with_stack(|| {
+            for (body, result, expected) in [
+                ("let names = [config.name for row in rows]\n    names", "List[Str]", " == [\"c\"]"),
+                ("let names: List[Str] = [config.name for row in rows]\n    names", "List[Str]", " == [\"c\"]"),
+                ("[config.name for row in rows]", "List[Str]", " == [\"c\"]"),
+                ("{[config.name]: config.size for row in rows}", "Map[Int]", ".get(\"c\")? == 3"),
+            ] {
+                let program = labels(body, result, expected);
+                let _symbols = program.symbol_owner().enter();
+                super::FullVerifier::verify(&program).unwrap();
+                execute(&program);
+                let anchors = anchors(&program);
+                let function = program.store.functions[anchors.owner];
+                let fact = function.slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap().start + anchors.bound;
+                let mut other_item = cold(&program);
+                other_item.store.data[anchors.iter] = program.store.data[anchors.reads[1]];
+                assert!(rejection(body, &other_item).contains("binding disagrees with its producer contract"), "{body}");
+                let mut erased_item = cold(&program);
+                erased_item.store.data[anchors.iter] = program.store.data[anchors.reads[2]];
+                assert!(rejection(body, &erased_item).contains("binding disagrees with its producer contract"), "{body}");
+                let mut wrong_fact = cold(&program);
+                wrong_fact.store.slot_type_facts[fact] = function.checked_return_type;
+                assert!(rejection(body, &wrong_fact).contains("binding disagrees with its producer contract"), "{body}");
+                let mut absent_fact = cold(&program);
+                absent_fact.store.slot_type_facts[fact] = super::IR_NONE;
+                super::FullVerifier::verify(&absent_fact).unwrap();
+            }
+        });
+    }
+
 }
 
 #[cfg(all(test, feature = "native-tests"))]
