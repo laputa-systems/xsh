@@ -8027,6 +8027,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.bodies.call_instantiations.get(site)?.invocation()
     }
 
+    fn negates_float(&self, negation: ExprId, operand: ExprId) -> bool {
+        matches!(self.program.arena.expr(operand).kind, ArenaExprKind::Float(_))
+            || self.checked_expr_type(operand) == Some(Type::Float)
+            || self.checked_expr_type(negation) == Some(Type::Float)
+    }
+
     fn lower_expr_attempt(
         &mut self,
         id: ExprId,
@@ -8694,7 +8700,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr,
-            } if self.checked_expr_type(expr) == Some(Type::Float) => Some(push_build_row!(
+            } if self.negates_float(id, expr) => Some(push_build_row!(
                 self,
                 expr,
                 BuildExprRow::Binary {
