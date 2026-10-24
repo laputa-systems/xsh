@@ -600,6 +600,10 @@ Runtime consumers select the verified local packet from the physical instruction
 guard membership; they do not infer bindings during execution. Closed record input
 evidence preserves opaque fields in row data and proves every required typed field
 independently. Static row binding still rejects opaque substitution domains.
+Callable contract comparison preserves each guard's source, view, local domains,
+and nested requirements under a separate ancestor-visible binder map. Physical
+source positions do not determine contract equivalence. A target correspondence
+that carries only root binders rejects distinct guarded packs.
 Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the
