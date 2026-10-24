@@ -311,6 +311,7 @@ impl Checker {
                 .reject_generalization();
             return None;
         }
+        if self.has_diagnosed_rejected_effect_invocation(declaration.effect_declaration()) { return None; }
         if let Err(error) = self.type_constraints.solve_callable_applications() {
             self.error(body_span, &format!("callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
             return None;

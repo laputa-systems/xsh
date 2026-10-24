@@ -819,6 +819,10 @@ Application requirements refer to the actual callable type variable and use
 the canonical argument binder, preserving authored labels, defaults, and rest
 layout through aliases and returned values.
 `CallableScheme` owns the bound effect scope and application requirements.
+An already-rejected callable application retains its source effect diagnostic
+when that same invocation prevents its owner's effect scope from publishing.
+The invalid file publishes diagnostics only, with no partial signature or facts;
+independent diagnostics and unrelated scope failures remain distinct.
 Generalization includes obligation-only result binders before freezing the body
 scope. Instantiation allocates one type, row, and effect substitution and retains
 the selected argument layouts. An unresolved nested invocation instead retains

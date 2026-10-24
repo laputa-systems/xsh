@@ -20,6 +20,12 @@ pub(super) struct ExcludedEffect {
     head: Span,
 }
 
+impl ExcludedEffect {
+    pub(super) fn diagnostic_label(&self) -> Label {
+        Label::secondary(self.head, format!("`without {}` excludes this capability", self.effect.as_str()))
+    }
+}
+
 impl Checker {
     /// Enters `block`'s `without` bound, if it has one. The result restores
     /// the enclosing bound through [`Checker::leave_block_effect_bound`].

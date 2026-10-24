@@ -914,6 +914,33 @@ mod deferred_invocation_tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn rejected_effect_diagnostics_require_the_same_invocation_owner_and_span() {
+        use crate::diagnostic::{Diagnostic, Label};
+        let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+        let owner = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 0, 20) };
+        let other = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 30, 50) };
+        let call = Span::new(SourceId::new(0), 5, 10);
+        checker.deferred_effect_checks.push(DeferredEffectCheck {
+            context: DeferredEffectContext { position: 0, owner: Some(owner), caller: Some(vec![Effect::Io]), excluded: Vec::new(), in_pure: false, retry_attempt_depth: 0 },
+            span: call,
+            kind: DeferredEffectKind::Invocation { effects: super::super::InvocationEffects::Checked(crate::sema::types::CallableEffects::finite([Effect::Time])), validation: InvocationEffectValidation::Pending, instance: None, flow: InvocationFlow::Rejected, unknown_chain: Vec::new(), name: "selected".to_owned() },
+            notes: Vec::new(),
+        });
+        checker.diagnostics.push(Diagnostic::error("independent type failure").with_code(DiagnosticCode::CheckTypeMismatch).with_label(Label::primary(call, "independent")));
+        assert!(!checker.has_diagnosed_rejected_effect_invocation(owner));
+        checker.diagnostics.push(Diagnostic::error("another effect failure").with_code(DiagnosticCode::CheckEffectViolation).with_label(Label::primary(other.body, "another call")));
+        assert!(!checker.has_diagnosed_rejected_effect_invocation(owner));
+        checker.diagnostics.push(Diagnostic::error("rejected application effects").with_code(DiagnosticCode::CheckEffectViolation).with_label(Label::primary(call, "rejected call")));
+        assert!(checker.has_diagnosed_rejected_effect_invocation(owner));
+        assert!(!checker.has_diagnosed_rejected_effect_invocation(other));
+        let diagnostics = checker.rejected_effect_invocation_diagnostics(owner).unwrap();
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics[0], checker.diagnostics[0]);
+        assert_eq!(diagnostics[1], checker.diagnostics[1]);
+        assert!(checker.rejected_effect_invocation_diagnostics(other).is_none());
+    }
+
+    #[test]
     fn source_owned_invocation_close_preserves_pending_return_flows() {
         let source = concat!(
             "proc scalar() -> Int { assert false; 7 }\n",
@@ -1385,6 +1412,39 @@ impl Checker {
             check.span == span && check.context.owner == self.boundary.effect_owner
                 && matches!(check.kind, DeferredEffectKind::Invocation { flow: InvocationFlow::Rejected, .. })
         })
+    }
+
+    fn rejected_effect_violation(&self, owner: EffectDeclarationId, diagnostic: &crate::diagnostic::Diagnostic) -> Option<&DeferredEffectCheck> {
+        if diagnostic.severity != crate::diagnostic::Severity::Error || diagnostic.code != Some(DiagnosticCode::CheckEffectViolation) { return None; }
+        self.deferred_effect_checks.iter().find(|check| {
+            check.context.owner == Some(owner)
+                && matches!(check.kind, DeferredEffectKind::Invocation { flow: InvocationFlow::Rejected, .. })
+                && diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Primary && label.span == check.span)
+        })
+    }
+
+    pub(super) fn has_diagnosed_rejected_effect_invocation(&self, owner: EffectDeclarationId) -> bool {
+        self.diagnostics.iter().any(|diagnostic| self.rejected_effect_violation(owner, diagnostic).is_some())
+    }
+
+    pub(super) fn rejected_effect_invocation_diagnostics(&self, owner: EffectDeclarationId) -> Option<Vec<crate::diagnostic::Diagnostic>> {
+        if !self.has_diagnosed_rejected_effect_invocation(owner) { return None; }
+        let mut diagnostics = self.diagnostics.clone();
+        for diagnostic in &mut diagnostics {
+            let Some(check) = self.rejected_effect_violation(owner, diagnostic) else { continue; };
+            if let Some(caller) = &check.context.caller {
+                diagnostic.notes.push(format!("caller declares effects [{}]", caller.iter().map(Effect::as_str).collect::<Vec<_>>().join(", ")));
+            }
+            diagnostic.labels.extend(check.context.excluded.iter().map(ExcludedEffect::diagnostic_label));
+            for (&span, ty) in &self.expr_types {
+                if span.source_id != check.span.source_id || span.start() < check.span.start() || span.end() > check.span.end() { continue; }
+                let Ok(ty) = self.type_constraints.resolve(ty) else { continue; };
+                if matches!(ty, Type::Callable(_)) && !ty.contains_inference() && !ty.contains_recovery() {
+                    diagnostic.labels.push(crate::diagnostic::Label::secondary(span, format!("checked callable argument: {ty}")));
+                }
+            }
+        }
+        Some(diagnostics)
     }
 
     pub(super) fn constrain_pending_component_invocations(

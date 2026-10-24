@@ -2058,6 +2058,27 @@ mod tests {
         program
     }
 
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn imported_effect_union_executes_after_frontend_disposal_on_both_routes() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let source = std::fs::read_to_string(fixtures.join("runtime/exported-effect-union.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("exported-effect-union.xsh", crate::loader::entry_source_from_text("exported-effect-union.xsh", source), vec![fixtures.join("modules/full-inference-effect-union")]);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_effect_union", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?}", result.output.diagnostics);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert_eq!(result.output.stdout, b"integer callback\ntext callback\nunion preserved\n");
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{force_frames}: {:?}", result.result);
+        }
+    }
+
     #[test]
     fn retry_no_completion_accepts_the_original_imperative_source() {
         prepare("proc spin() { loop { let attempt = retry [] { assert false }; break } }\n");
