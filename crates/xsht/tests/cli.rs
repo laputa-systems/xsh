@@ -1348,8 +1348,8 @@ fn xsht_check_compare_rejects_changed_required_effects_with_same_interface() {
     let old_effects = effects(original);
     let new_effects = effects(candidate);
     assert_eq!(old_effects.effective, new_effects.effective);
-    assert_eq!(old_effects.required, Some(vec![Effect::Time]));
-    assert_eq!(new_effects.required, Some(Vec::new()));
+    assert_eq!(old_effects.required.concrete(), Ok(Some(vec![Effect::Time])));
+    assert_eq!(new_effects.required.concrete(), Ok(Some(Vec::new())));
     for source in [original, candidate] {
         let control = compare_fixture(&[("main.xsh", source)], &[("main.xsh", source)]);
         assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
