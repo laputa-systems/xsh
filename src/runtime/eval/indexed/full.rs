@@ -46917,22 +46917,57 @@ assert unrelated("kept") == "kept"
                     let function = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "increment").unwrap();
                     let text = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "text").unwrap();
                     let mut wrong_signature = (*program).clone();
+                    wrong_signature.store.in_place.take();
+                    assert!(wrong_signature.store.in_place.get().is_none());
                     wrong_signature.store.functions[function].contract = program.store.functions[text].contract;
                     assert!(FullVerifier::verify(&wrong_signature).is_err());
                     let mut wrong_target = (*program).clone();
+                    wrong_target.store.in_place.take();
+                    assert!(wrong_target.store.in_place.get().is_none());
                     for reference in references { wrong_target.store.data[reference] = program.store.data[unrelated.instruction as usize]; }
                     assert!(FullVerifier::verify(&wrong_target).is_err());
                     let candidate = program.store.tags.iter().position(|tag| *tag == FullTag::StmtLet).unwrap();
                     let slot = program.store.extra[program.store.data[candidate].range().start as usize];
                     let assignment = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssign).unwrap();
                     let mut mutable_source = (*program).clone();
+                    mutable_source.store.in_place.take();
+                    assert!(mutable_source.store.in_place.get().is_none());
                     mutable_source.store.extra[program.store.data[assignment].range().start as usize] = slot;
-                    assert!(FullVerifier::verify(&mutable_source).is_err());
-                    for force_frames in [false, true] {
-                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                        evaluator.force_frames = force_frames;
-                        evaluator.indexed_program = Some(Arc::clone(&program));
-                        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+                    let step = (0..program.store.driver_steps.len()).find(|&step| program.store.driver_instruction_range(step).unwrap().contains(&assignment)).unwrap();
+                    let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                    let schema::StmtView::Assign { slot: original_slot, value: assigned, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+                    assert_ne!(original_slot, slot as usize);
+                    assert!(matches!(decoder.expression_view(assigned.raw() as usize).unwrap(), schema::ExprView::FunctionRef { .. }));
+                    let assigned = assigned.raw() as usize;
+                    let mut incompatible_writer = mutable_source.clone();
+                    incompatible_writer.store.in_place.take();
+                    assert!(incompatible_writer.store.in_place.get().is_none());
+                    incompatible_writer.store.data[assigned] = program.store.data[unrelated.instruction as usize];
+                    assert!(!program.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == assigned), "the assignment derives its source from the actual function reference");
+                    for target in &mut incompatible_writer.store.checked_call_targets {
+                        if target.instruction as usize == assigned { target.function = IrFunctionId::new(text).unwrap(); }
+                    }
+                    let error = FullVerifier::verify(&incompatible_writer).expect_err("an actual incompatible assignment cannot replace the callable slot contract");
+                    assert_eq!(error.message, "local slot type fact disagrees with its initializer IR representation");
+                    let expected_instruction = program.store.tags.iter().enumerate().filter_map(|(instruction, tag)| {
+                        (*tag == FullTag::ExprInt && matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(value)) if value == i64::from(expected))).then_some(instruction)
+                    }).collect::<Vec<_>>();
+                    assert_eq!(expected_instruction.len(), 1);
+                    let replacement = if second == "increment" { 4 } else { 2 };
+                    let expected_payload = program.store.data[expected_instruction[0]].range().bounds(program.store.extra.len()).unwrap();
+                    assert_eq!(&program.store.extra[expected_payload.clone()], &[expected as u32, 0]);
+                    mutable_source.store.extra[expected_payload.start] = replacement;
+                    FullVerifier::verify(&mutable_source).unwrap();
+                    for executed in [Arc::clone(&program), Arc::new(mutable_source)] {
+                        for force_frames in [false, true] {
+                            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*executed.sources).clone());
+                            evaluator.force_frames = force_frames;
+                            evaluator.indexed_program = Some(Arc::clone(&executed));
+                            for step in 0..executed.driver_step_count().unwrap() {
+                                let completion = evaluator.eval_indexed_driver_step(step, Span::at(executed.store.source_id, 0)).unwrap().unwrap();
+                                assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {completion:?}");
+                            }
+                        }
                     }
                 }
             }

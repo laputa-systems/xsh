@@ -646,7 +646,10 @@ proc call_rest(raw: Any) [error] -> Int {
                 let (first, second) = if reverse { ("right", "left") } else { ("left", "right") };
                 let source = format!("{left}\n{right}\nlet selected = if true {{ let candidate = {first}; candidate }} else {{ let candidate = {second}; candidate }}\nlet invalid = selected(42)\n");
                 let output = checked(&source);
-                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)), "{source}\n{:?}", output.diagnostics);
+                let candidate = source.rfind("candidate").unwrap();
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)
+                    && diagnostic.labels.iter().any(|label| label.span.range() == (candidate..candidate + "candidate".len())
+                        && label.message.as_ref().is_some_and(|message| message.starts_with("expected ") && message.contains(", found ")))), "{source}\n{:?}", output.diagnostics);
                 assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedCall)), "{source}\n{:?}", output.diagnostics);
             }
         }
