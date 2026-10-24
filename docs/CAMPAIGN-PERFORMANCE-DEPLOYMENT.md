@@ -27,48 +27,51 @@ focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration is `85788b7d6` (2026-10-24). It includes
-reviewed ground and scoped constructors, generic error constructors, actual
-imported declaration relationships, JSON encoding, immutable Optional guards,
-Each/Tee, four adapters, table printing and keyed reductions. Focused results
-remain provisional until the next combined qualification. Mutable Optional guard
-relationships, Sum/Min/Max, closed Null arguments and the remaining corpus
-failures have separate expert owners. No mandatory item is waived.
+Current provisional integration is the reviewed all-stage source plus the
+context, verifier-oracle, closed-fallback, public-name and Proc-completion
+repairs integrated through `89bd87511` on 2026-10-24. All 35 pipeline stages
+have focused proof and runtime controls. Remaining work follows actual corpus
+failures: generic membership-container inference, a guarded record refinement,
+complete interface/migration qualification, and inherited performance/deployment
+gates. No mandatory item is waived.
 
-The failed combined library source `8a417a9e3` reported 2,402 passes, four
-failures and three ignored tests. All four failures are repaired and their exact
-controls pass together on immutable `fa7fa2124497c539ffd1a9b41c85eff84b54aab7`.
-Its matching verification products build without warnings. Normal and forced
-native routes each pass 173 selectors; six API selectors also pass, with no
-failures or skips. These results qualify that source, not subsequent edits.
-Products and logs remain in `.work/wt/full-inference-fixed-wave-qualification/`.
-The last complete passing Rust library run remains `c0e6e773f` below.
+Immutable `c7617a979` passes the exact canonical workspace warning gate through
+the pinned launcher. Its full Rust library run reports 2,476 passes, 19 failures
+and three ignored tests. The Result/context regressions are repaired with 113
+focused controls; the verifier subgroup passes 18 distinct controls after stale
+assertions are corrected without relaxing production checks. Those repairs
+still need the next combined full-library boundary. The last complete passing
+library checkpoint remains `c0e6e773f` below.
 
-The `fa7fa2124` historical replay passes original roots and runtime selectors,
-then fails the reduced system-report root at a guarded Optional relationship.
-The reviewed immutable-guard repair advances the focused source past that
-failure; complete paired replay and interface qualification remain pending.
-There is no new annotation-removal credit. Explicit dynamic output contracts,
-149 empty Map meaning selectors and intentional effect restrictions stay in
-the accounting; percentages do not justify changing source meaning.
+Immutable `4de7c99e4a518a2bf685860fe110d385aebe17ee` passes six combined
+regression controls and builds matching verification products. With the reviewed
+three-line fixture-only input repair `a9d52d29d`, strict normal and forced native
+routes each pass 184 selectors in 22 batches; source/list rosters agree on all
+161 primary-family declarations. Six API selectors pass. These products predate
+Null and the final aggregate stages, so no native credit transfers to that later
+code. Logs and products remain in
+`.work/wt/full-inference-regression-wave-qualification/`.
 
-The `0c2cd81a7` combined workspace all-target/all-feature Clippy check passes
-with `--no-deps -D warnings` in the bounded development launcher. The exact
-canonical pre-freeze launcher remains required. The next immutable combined
-library source `69ac216f1` reports 2,456 passes, four failures and three ignored
-tests. Three failures share a Tokei checking error; the fourth rejects an
-imported generic procedure's structural field fact. Separate owners are
-repairing the two classes. Its dependent product build did not run. Logs remain
-in `.work/wt/full-inference-wide-wave-qualification/`. The line-loop repair
-`85788b7d6` additionally prepares both historical system-report source views
-in focused checks, without new matching-product or interface credit.
+The next semantic corpus proposal retains 926 annotations and proposes 1,957
+removals: 499 of 693 locals and 1,458 of 2,190 internal sites. It erases 719
+historical Proc restrictions and all 202 eligible effects jointly, while restoring
+four verified WC return-meaning selectors. Historical 1,040-site evidence,
+denominators and source views stay unchanged. Matching interface attempts have
+not qualified: normalized original paths may label candidate byte overrides,
+and cascaded reports are not independent causes. A local `List[Str]` comparison
+false rejection is repaired; the WC probe advances through closed fallback and
+Proc completion to a separate guarded-record proof. No new removal credit is
+awarded.
 
-The canonical warning boundary precedes the next combined library/product run.
-Runtime and checker lint repairs have disjoint owners; the coordinator owns
-registry, networking and census repairs. Existing physical leases still limit
-the host to two Cargo jobs and one native job. Ready source reviews and
-integration run while those checks execute. The next native roster also adds
-the adapter, observer, table and keyed-reduction fixtures on both routes.
+Laputa's isolated kernel-discovery source is reviewed, but its tests remain
+blocked before execution by the old product's producer/type-context checks.
+Recheck it with the next matching compiler before committing or claiming
+behavioral, Scenario or P0 acceptance. Pyramid closure still follows inference
+acceptance, local master integration and completed-worktree cleanup.
+
+Physical limits remain two ordinary Cargo jobs and one native job. Canonical
+12-CPU/24-GiB gates run alone; timing windows require readiness on both sides
+and exclude competing work. All pushes remain forbidden.
 
 F6 preparation adds six raw counters and four named-constructor workload
 shapes without changing the previous eight families or census denominators.
