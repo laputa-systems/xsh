@@ -14125,6 +14125,21 @@ impl<'a> FullDecoder<'a> {
         Err(IrVerifyError::new("type-test condition has a cyclic initializer path"))
     }
 
+    fn checked_optional_value_matches_path(
+        &self, value: usize, use_site: usize, target: &(usize, Vec<Name>), expected_payload: &Type,
+        prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>, source: Option<&GuardedRecordSource<'_>>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let path = match prefix { Some(prefix) => prefix.guard_value_binding_path(self, value, use_site, target, charge)?, None => self.checked_binding_path(value, charge)? };
+        if path.as_ref() != Some(target) { return Ok(false); }
+        let subject_type = match self.checked_physical_field_type(value, charge)? {
+            Some(ty) => Some(ty),
+            None => self.checked_binding_path_type(use_site, target, charge)?,
+        };
+        if let Some(subject_type) = subject_type { return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload)); }
+        Ok(matches!(source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten(), Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
+    }
+
     fn checked_condition_proves_nonnull(
         &self,
         condition: usize,
@@ -14160,14 +14175,8 @@ impl<'a> FullDecoder<'a> {
                 || !matches!(self.expression_view(absent_value.raw() as usize)?, schema::ExprView::Bool(false))
                 || !matches!(self.expression_view(present_value.raw() as usize)?, schema::ExprView::Bool(true))
                 || !matches!(self.expression_view(fallback_value.raw() as usize)?, schema::ExprView::Bool(false))
-                || match prefix { Some(prefix) => prefix.guard_value_binding_path(self, value.raw() as usize, use_site, target, charge)?, None => self.checked_binding_path(value.raw() as usize, charge)? }.as_ref() != Some(target)
             { return Ok(false); }
-            let subject_type = match self.checked_physical_field_type(value.raw() as usize, charge)? {
-                Some(ty) => Some(ty),
-                None => self.checked_binding_path_type(use_site, target, charge)?,
-            };
-            if let Some(subject_type) = subject_type { return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload)); }
-            return Ok(matches!(source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten(), Some(Type::Optional(payload)) if payload.as_ref() == expected_payload));
+            return self.checked_optional_value_matches_path(value.raw() as usize, use_site, target, expected_payload, prefix, source, charge);
         }
         if is_boolean {
             let tag = *self.store.tags.get(condition).ok_or_else(|| {

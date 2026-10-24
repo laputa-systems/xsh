@@ -5780,6 +5780,121 @@ test verify_completion_cleanup {
         }
     }
 
+
+    fn record_continuation_fixture() -> FullProgram {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let source = format!("{}\n{}", std::fs::read_to_string(root.join("tests/fixtures/runtime/generic-record-field-guards.xsh")).unwrap(), std::fs::read_to_string(root.join("tests/fixtures/runtime/generic-record-guard-continuations.xsh")).unwrap());
+        prepare(&source)
+    }
+
+    #[test]
+    fn generic_record_guard_continuations_authenticate_source_and_role() {
+        let program = record_continuation_fixture();
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "guarded_record_continuation").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let field = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Field { name: "diagnostic", .. }))).unwrap();
+        let schema::ExprView::Field { base, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+        let other = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "other").unwrap().0 as u32 + 1;
+        let mut wrong_field = program.clone();
+        wrong_field.store.in_place.take();
+        let words = wrong_field.store.data[field].range().bounds(wrong_field.store.extra.len()).unwrap();
+        wrong_field.store.extra[words.start + 1] = other;
+        assert!(matches!(decoder_for_function(&wrong_field.store, owner).unwrap().expression_view(field).unwrap(), schema::ExprView::Field { name: "other", .. }));
+        assert!(FullVerifier::verify(&wrong_field).is_err());
+        let mut wrong_source = program.clone();
+        wrong_source.store.in_place.take();
+        let words = wrong_source.store.data[base.raw() as usize].range().bounds(wrong_source.store.extra.len()).unwrap();
+        wrong_source.store.extra[words.start] = 2;
+        assert!(matches!(decoder_for_function(&wrong_source.store, owner).unwrap().expression_view(base.raw() as usize).unwrap(), schema::ExprView::Param(2)));
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+        let guard = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtGuard).unwrap();
+        let mut wrong_role = program.clone();
+        wrong_role.store.in_place.take();
+        let words = wrong_role.store.data[guard].range().bounds(wrong_role.store.extra.len()).unwrap();
+        assert_eq!(wrong_role.store.extra[words.end - 1], 1);
+        wrong_role.store.extra[words.end - 1] = 0;
+        assert!(matches!(decoder_for_function(&wrong_role.store, owner).unwrap().statement_view(guard).unwrap(), schema::StmtView::Guard { optional: false, .. }));
+        assert!(FullVerifier::verify(&wrong_role).is_err());
+    }
+
+    #[test]
+    fn generic_record_guard_continuations_authenticate_handler_scope_and_divergence() {
+        let mut program = record_continuation_fixture();
+        program.store.in_place.take();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "handler_record_continuation").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let bases = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Field { base, name: "flush", .. }) => Some(base.raw() as usize),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(bases.len(), 2);
+        let (handler, source, handler_slot) = guarded_record_carriers(&program, owner, bases[0]);
+        let (success, actual_source, success_slot) = guarded_record_carriers(&program, owner, bases[1]);
+        assert_eq!(source, actual_source);
+        assert_ne!(handler_slot, success_slot);
+        let handler_diagnostic = record_field_type(&program.store, program.store.scheme_body_facts[handler[0]].ty().unwrap(), "diagnostic");
+        let success_diagnostic = record_field_type(&program.store, program.store.scheme_body_facts[success[0]].ty().unwrap(), "diagnostic");
+        assert_eq!(program.store.scheme_types[handler_diagnostic.index()].tag, FullSchemeTypeTag::Optional);
+        assert_eq!(program.store.scheme_types[success_diagnostic.index()].tag, FullSchemeTypeTag::Ground);
+        let mut escaped = program.clone();
+        escaped.store.in_place.take();
+        for (handler, success) in handler.into_iter().zip(success) {
+            let value = escaped.store.scheme_body_facts[handler].value;
+            escaped.store.scheme_body_facts[handler].value = escaped.store.scheme_body_facts[success].value;
+            escaped.store.scheme_body_facts[success].value = value;
+        }
+        let failure = FullVerifier::verify(&escaped).expect_err("a guard failure handler cannot borrow the success refinement");
+        assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+        let returned = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Guard { mut else_body, .. }) => else_body.find_map(|statement| {
+                let instruction = statement.unwrap().raw() as usize;
+                (program.store.tags[instruction] == FullTag::StmtReturn).then_some(instruction)
+            }),
+            _ => None,
+        }).unwrap();
+        let mut completing = program.clone();
+        completing.store.in_place.take();
+        completing.store.tags[returned] = FullTag::StmtValue;
+        let failure = FullVerifier::verify(&completing).expect_err("the guard failure branch must terminate");
+        assert_eq!(failure.message, "generic guard failure branch can complete");
+    }
+
+    #[test]
+    fn generic_record_guard_continuations_reject_written_and_stale_sources() {
+        let mut program = record_continuation_fixture();
+        program.store.in_place.take();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        for name in ["written_record_continuation", "stale_record_continuation"] {
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let bases = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::Field { base, name: "flush", .. }) => Some(base.raw() as usize),
+                _ => None,
+            }).collect::<Vec<_>>();
+            assert_eq!(bases.len(), 2);
+            let (before, source, earlier_slot) = guarded_record_carriers(&program, owner, bases[0]);
+            let (after, actual_source, later_slot) = guarded_record_carriers(&program, owner, bases[1]);
+            assert_eq!(source, actual_source);
+            assert_ne!(earlier_slot, later_slot);
+            let mut stale = program.clone();
+            stale.store.in_place.take();
+            for (before, after) in before.into_iter().zip(after) {
+                let value = stale.store.scheme_body_facts[before].value;
+                stale.store.scheme_body_facts[before].value = stale.store.scheme_body_facts[after].value;
+                stale.store.scheme_body_facts[after].value = value;
+            }
+            let failure = FullVerifier::verify(&stale).expect_err("a write invalidates the original record field refinement");
+            assert_eq!(failure.message, "generic body expression disagrees with its checked type", "{name}");
+        }
+    }
+
 }
 
 #[cfg(test)]

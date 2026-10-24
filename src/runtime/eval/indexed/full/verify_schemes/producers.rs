@@ -326,7 +326,8 @@ impl ProducerPrefixContext<'_> {
         if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? { return Ok(None); }
         let mut matched = None;
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
-            |condition, when_true, is_boolean, _, charge| {
+            |guard, charge| {
+                let BindingReadGuard::Condition { condition, when_true, is_boolean, .. } = guard else { return Ok(false) };
                 matched = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)?
                     .and_then(|(ty, outcome)| (outcome == super::super::TypeTestOutcome::Accepted).then_some(ty));
                 Ok(matched.is_some())
@@ -374,7 +375,8 @@ impl ProducerPrefixContext<'_> {
         }
         let mut narrowed = None;
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
-            |condition, when_true, is_boolean, _, charge| {
+            |guard, charge| {
+                let BindingReadGuard::Condition { condition, when_true, is_boolean, .. } = guard else { return Ok(false) };
                 let Some((tested, outcome)) = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)? else { return Ok(false) };
                 let mut work = self.evidence.work.borrow_mut();
                 let tested = decoder.store.semantic.to_type_with_budget(tested, &mut work.semantic_types)?;
@@ -803,6 +805,12 @@ enum ProducerBinding {
     DriverBinding(usize),
 }
 
+#[derive(Clone, Copy)]
+enum BindingReadGuard<'a> {
+    Condition { condition: usize, when_true: bool, is_boolean: bool, preceding: Option<(usize, usize, usize, &'a [usize])> },
+    OptionalPresence { source: usize, anchor: usize, roots: &'a [usize] },
+}
+
 impl ProducerOwner {
     fn optional_binding_read_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize, binding: ProducerBinding,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError> {
@@ -819,7 +827,10 @@ impl ProducerOwner {
             return Ok(false);
         }
         self.guarded_binding_read_is_narrowed(decoder, instruction, slot, binding,
-            |condition, when_true, is_boolean, _, charge| decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, charge), None, charge)
+            |guard, charge| match guard {
+                BindingReadGuard::Condition { condition, when_true, is_boolean, .. } => decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, charge),
+                BindingReadGuard::OptionalPresence { .. } => Ok(false),
+            }, None, charge)
     }
 
     fn binding_path_is_snapshot(&self, decoder: &FullDecoder<'_>, binding: ProducerBinding, slot: usize,
@@ -857,7 +868,20 @@ impl ProducerOwner {
                 &mut |parent, roots, charge| if snapshot { Ok(true) } else { decoder.checked_branch_preserves_binding_path(parent, roots, instruction, target, charge) }, charge)
         };
         self.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
-            |condition, when_true, is_boolean, preceding, charge| {
+            |guard, charge| {
+                let BindingReadGuard::Condition { condition, when_true, is_boolean, preceding } = guard else {
+                    let BindingReadGuard::OptionalPresence { source: value, anchor, roots } = guard else { unreachable!() };
+                    if !decoder.checked_optional_value_matches_path(value, instruction, target, payload, prefix, source, charge)?
+                        || self.visible_binding(decoder.store, decoder.owner, value, target.0)? != Some(binding)
+                    { return Ok(false); }
+                    if snapshot { return Ok(true); }
+                    if !decoder.checked_expression_preserves_binding_path(value, target, charge)?
+                        || decoder.checked_child_is_in_repeatable_loop_body(anchor, instruction, charge)?
+                        || decoder.checked_parent_path_crosses_repeatable_loop(instruction, anchor, charge)?
+                    { return Ok(false); }
+                    charge(roots.len())?;
+                    return decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), instruction, target, charge);
+                };
                 let Some((guard, branch_index, anchor, roots)) = preceding else { return Ok(false) };
                 let key = snapshot.then(|| (self.statement_positions[&anchor].0, guard, branch_index, condition, when_true, is_boolean, binding));
                 if let Some(key) = key {
@@ -933,7 +957,7 @@ impl ProducerOwner {
     }
 
     fn guarded_binding_read_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize, binding: ProducerBinding,
-        mut proves: impl FnMut(usize, bool, bool, Option<(usize, usize, usize, &[usize])>, &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
+        mut proves: impl FnMut(BindingReadGuard<'_>, &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
         mut active: Option<&mut dyn FnMut(usize, usize, &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
@@ -985,11 +1009,15 @@ impl ProducerOwner {
                             charge(1)?;
                             conditions.push((value.raw() as usize, true, false, 0));
                         }
+                        schema::StmtView::Guard { value, else_body, optional: true, .. }
+                            if !self.block_can_complete[&else_body.block_identity().index()] => {
+                            if proves(BindingReadGuard::OptionalPresence { source: value.raw() as usize, anchor: at, roots: &self.block_statements[&block][index + 1..position] }, charge)? { return Ok(true); }
+                        }
                         _ => {}
                     }
                     for (condition, when_true, is_boolean, branch_index) in conditions {
                         charge(1)?;
-                        if proves(condition, when_true, is_boolean, Some((preceding, branch_index, at, &self.block_statements[&block][index + 1..position])), charge)?
+                        if proves(BindingReadGuard::Condition { condition, when_true, is_boolean, preceding: Some((preceding, branch_index, at, &self.block_statements[&block][index + 1..position])) }, charge)?
                             && self.visible_binding(decoder.store, decoder.owner, condition, slot)? == Some(binding)
                         { return Ok(true); }
                     }
@@ -1003,7 +1031,7 @@ impl ProducerOwner {
             {
                 for (condition, when_true, is_boolean) in conditions {
                     charge(1)?;
-                    if proves(condition, when_true, is_boolean, None, charge)?
+                    if proves(BindingReadGuard::Condition { condition, when_true, is_boolean, preceding: None }, charge)?
                         && self.visible_binding(decoder.store, decoder.owner, condition, slot)? == Some(binding)
                     { return Ok(true); }
                 }
@@ -1461,7 +1489,7 @@ impl GroundProducerIndex {
                     complete_statement_positions &= range.contains(&statement)
                         && decoder.store.tags.get(statement).is_some_and(|tag| tag.kind() == schema::InstructionKind::Stmt);
                     complete_statement_positions &= owner.statement_positions.insert(statement, (block, position)).is_none();
-                    if matches!(decoder.store.tags[statement], FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtAssert) {
+                    if matches!(decoder.store.tags[statement], FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtAssert | FullTag::StmtGuard) {
                         work.borrow_mut().charge(1)?;
                         guards.push((position, statement));
                     }

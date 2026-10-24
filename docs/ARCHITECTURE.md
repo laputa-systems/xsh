@@ -580,6 +580,11 @@ the read. A temporary alias of a mutable source also proves that the source
 path is preserved between its initializer and the condition read within the
 same statement block; aliases across blocks require a protected snapshot.
 The complete condition body still executes and is verified.
+Optional guard continuations use that same guard ledger with a distinct presence
+role. The actual guard must unwrap an optional and its failure handler must not
+complete. The evaluated source and successful continuation preserve the same
+binding path; handler reads keep their original scope. Result guards and Boolean
+type tests gain no optional-presence authority from this role.
 Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
 exact owner, source, pattern, and slot identities. Every proposing use must agree
