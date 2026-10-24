@@ -2029,7 +2029,7 @@ impl FullProgram {
         let invocation = self.invocation_at(owner, instruction, invocation)?;
         let Some(wrapper) = self.store.wrapper_site(owner, instruction)? else { return Ok(None); };
         let source = match &wrapper {
-            schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
+            schemes::FullWrapper::Propagation { source, .. } | schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
             schemes::FullWrapper::Capture { .. } | schemes::FullWrapper::KeyValidation { .. } => return Err(IrVerifyError::new("wrapper relationship has no source mode")),
             schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no source mode")),
         };

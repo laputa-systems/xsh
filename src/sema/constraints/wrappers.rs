@@ -652,7 +652,7 @@ impl TypeConstraints {
         Some(match &entry.requirement.kind {
             WrapperRequirementKind::Field { result, .. } | WrapperRequirementKind::Fallback { result, .. }
             | WrapperRequirementKind::Handler { result, .. } | WrapperRequirementKind::Capture { result, .. } => result,
-            WrapperRequirementKind::KeyValidation { .. } => return None,
+            WrapperRequirementKind::Propagation { .. } | WrapperRequirementKind::KeyValidation { .. } => return None,
             WrapperRequirementKind::ProcCompletion { returned, .. } => returned,
         })
     }
@@ -1027,6 +1027,12 @@ impl TypeConstraints {
                 let resolved = requirement.try_map(&mut (&mut *this, &mut *changes), |context, ty| context.0.resolve_with_changes(ty, 0, context.1).map_err(WrapperConstraintError::Resolution), |context, contract| context.0.resolve_effect(contract).map_err(WrapperConstraintError::Resolution))?;
                 let invalid = |message: String| WrapperConstraintError::Invalid { message, operation: requirement.operation_kind() };
                 let selected = match &resolved.kind {
+                    WrapperRequirementKind::Propagation { source, returned } => {
+                        if source.contains_inference() || returned.contains_inference() { continue; }
+                        crate::sema::wrapper_operation::closed_wrapper_selection(&resolved)
+                            .map_err(|error| invalid(format!("propagated error is outside the return contract: {error:?}")))?
+                            .ok_or_else(|| invalid("propagated error contract remains unresolved".into()))?
+                    }
                     WrapperRequirementKind::Field { source, name, result, boundary, effects } => {
                         if matches!(source, Type::Inference(_)) { continue; }
                         let projection = fallback_projection(source, FallbackKind::Value).map_err(|error| invalid(format!("guarded field source is invalid: {error:?}")))?;
@@ -1413,6 +1419,35 @@ impl TypeConstraints {
 mod tests {
     use super::*;
     use crate::symbol::{Name, SymbolOwner};
+
+    #[test]
+    fn propagation_consumers_preserve_actual_errors_and_transactional_wakeups() {
+        SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let actual_error = Type::ErrorFamily(Name::intern("ObservedError"));
+            let mut constraints = TypeConstraints::default();
+            let error = constraints.fresh(span);
+            let source = Type::Result(Box::new(Type::Int), Box::new(error.clone()));
+            let id = constraints.register_wrapper(CallableApplicationScope::Invocation, WrapperRequirement {
+                kind: WrapperRequirementKind::Propagation { source: source.clone(), returned: Type::Result(Box::new(Type::Unit), Box::new(Type::Error)) }, span,
+            }).unwrap();
+            constraints.solve_wrapper_operations().unwrap();
+            assert_eq!(constraints.resolve(&error).unwrap(), error);
+            assert!(constraints.wrappers.entries[&id].selection.is_none());
+            let before = constraints.wrappers.clone();
+            let rejected = constraints.commit_constraint_transaction(|trial| {
+                trial.constrain(&error, &Type::Str, span).map_err(WrapperConstraintError::Constraint)?;
+                trial.solve_wrapper_operations()
+            });
+            assert!(rejected.is_err());
+            assert_eq!(constraints.resolve(&error).unwrap(), error);
+            assert_eq!(constraints.wrappers, before);
+            constraints.constrain(&error, &actual_error, span).unwrap();
+            constraints.solve_wrapper_operations().unwrap();
+            assert_eq!(constraints.resolve(&error).unwrap(), actual_error);
+            assert_eq!(constraints.wrappers.entries[&id].selection, Some(WrapperSelection::Result));
+        });
+    }
 
     #[test]
     fn guard_instances_allocate_and_validate_only_live_payload_packets() {

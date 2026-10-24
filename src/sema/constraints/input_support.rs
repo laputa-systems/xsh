@@ -90,6 +90,7 @@ impl TypeConstraints {
                 if wrappers.contains(&id) || !scopes.contains(&entry.owner) { continue; }
                 use crate::sema::wrapper_operation::{WrapperRequirementKind, WrapperErrorContribution, WrapperCompletionContribution, WrapperCompletionContributions};
                 let (inputs, outputs) = match &entry.requirement.kind {
+                    WrapperRequirementKind::Propagation { source, returned } => (vec![source.clone(), returned.clone()], Vec::new()),
                     WrapperRequirementKind::Field { source, result, .. } => (vec![source.clone()], vec![result.clone()]),
                     WrapperRequirementKind::Fallback { source, fallback, result } => (vec![source.clone()], vec![result.clone(), fallback.clone()]),
                     WrapperRequirementKind::Handler { source, result, error, handler } => (vec![source.clone()], vec![result.clone(), error.clone(), handler.clone()]),

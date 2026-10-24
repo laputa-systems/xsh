@@ -2018,6 +2018,42 @@ mod tests {
         program
     }
 
+    #[test]
+    fn propagation_relationships_authenticate_actual_sources_and_whole_return_consumers() {
+        let mut program = prepare(r#"
+proc observe(value: Int) [error] -> Result[Int, Error] { Ok(value) }
+proc apply(action, value: Int) [error] -> Result[Unit, Error] { let _ = action(value)?; Ok() }
+proc driver() [error] -> Result[Unit, Error] {
+  let observer: proc(value: Int) [error] -> Result[Int, Error] = observe
+  apply(observer, 5)
+}
+driver()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "apply").unwrap();
+        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("the callback body retains its quantified application contract") };
+        let wrappers = program.store.scheme(id).unwrap().wrappers.bounds(program.store.scheme_wrappers.len()).unwrap();
+        let index = wrappers.clone().find(|&index| matches!(program.store.scheme_wrappers[index], super::super::super::schemes::FullWrapper::Propagation { .. })).unwrap();
+        let super::super::super::schemes::FullWrapper::Propagation { source, returned } = program.store.scheme_wrappers[index] else { unreachable!() };
+        assert_ne!(source, returned);
+        let integer = (0..program.store.semantic.type_count()).map(|index| super::super::super::TypeId::new(index).unwrap())
+            .find(|id| program.store.semantic.to_type(*id).unwrap() == Type::Int).unwrap();
+        for root in [source, returned] {
+            let node = program.store.scheme_types[root.index()];
+            assert_eq!(node.tag, super::super::super::schema::FullSchemeTypeTag::Result);
+            let leaf = node.first as usize;
+            assert!(matches!(program.store.scheme_types[leaf].tag, super::super::super::schema::FullSchemeTypeTag::Parameter | super::super::super::schema::FullSchemeTypeTag::Ground));
+            let mut changed = program.clone();
+            assert!(changed.store.in_place.get().is_none());
+            changed.store.scheme_types[leaf].tag = super::super::super::schema::FullSchemeTypeTag::Ground;
+            changed.store.scheme_types[leaf].first = integer.raw();
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "propagation relationship disagrees with its physical source or authored return");
+        }
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn fresh_result_context_accepts_written_return_consumers() {
