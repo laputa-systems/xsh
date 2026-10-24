@@ -21,6 +21,7 @@ pub(crate) struct CallableGeneralizationScope {
     pub(super) methods: BTreeMap<super::SealedMethodId, u32>,
     pub(super) wrappers: BTreeMap<super::WrapperOperationId, u32>,
     pub(super) guards: BTreeMap<super::WrapperOperationId, crate::sema::guarded_requirements::GuardScopeId>,
+    pub(super) guard_calls: BTreeMap<super::WrapperOperationId, crate::sema::guarded_requirements::GuardCallId>,
     pub(super) guard_ordinals: BTreeMap<crate::sema::guarded_requirements::GuardScopeId, super::GuardRequirementOrdinals>,
 }
 

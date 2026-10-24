@@ -6830,6 +6830,128 @@ observe()?
     }
 
     #[test]
+    fn forwarded_guard_requirements_authenticate_call_origins_and_actual_absence() {
+        let mut program = prepare(r#"
+pure render(value) -> Str { if value == null { "" } else { f"{value}" } }
+pure relay(left, right) -> Str {
+    let first = render(left)
+    let second = render(right)
+    let _ = render("known")
+    first + second
+}
+pure peer(left, right) -> Str {
+    let first = render(left)
+    let second = render(right)
+    first + second
+}
+proc observe() -> Result[Unit] {
+    assert relay("kept", null) == "kept"
+    assert relay(null, "tail") == "tail"
+    assert peer("left", "right") == "leftright"
+    Ok()
+}
+observe()?
+"#);
+        use super::super::super::guard_schemes::{FullGuardBinding, FullGuardCallTarget};
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let scheme = |name| {
+            let function = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let FullCallableContract::Scheme(id) = function.contract else { panic!("generic relay retains its source contract") };
+            id
+        };
+        let relay_id = scheme("relay");
+        let peer_id = scheme("peer");
+        let relay = *program.store.scheme(relay_id).unwrap();
+        let peer = *program.store.scheme(peer_id).unwrap();
+        let calls = relay.guard_calls.bounds(program.store.scheme_guard_calls.len()).unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(peer.guard_calls.len, 2);
+        let origins = [program.store.scheme_guard_calls[calls.start], program.store.scheme_guard_calls[calls.start + 1]];
+        assert_ne!(origins[0].instruction, origins[1].instruction);
+        let source_binding = |instruction| {
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == instruction).unwrap();
+            let bindings = instance.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap();
+            assert_eq!(bindings.len(), 1);
+            bindings.start
+        };
+        let links = [source_binding(origins[0].instruction), source_binding(origins[1].instruction)];
+        assert_eq!(program.store.call_guard_bindings[links[0]], FullGuardBinding::Call(0));
+        assert_eq!(program.store.call_guard_bindings[links[1]], FullGuardBinding::Call(1));
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "relay").unwrap();
+        let constant = program.store.call_instantiations.iter().find(|instance| {
+            program.store.function_instruction_range(owner).unwrap().contains(&(instance.instruction as usize))
+                && instance.instruction != origins[0].instruction && instance.instruction != origins[1].instruction
+                && instance.arguments.guard_bindings.len == 1
+        }).unwrap().instruction;
+        assert!(matches!(program.store.call_guard_bindings[source_binding(constant)], FullGuardBinding::NonNull(_)));
+        let cold = || { let changed = program.clone(); assert!(changed.store.in_place.get().is_none()); changed };
+        let rejects = |label, changed: FullProgram, expected: &str| {
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert_eq!(error.message, expected, "{label}: {error:?}");
+        };
+        let mut wrong_source = cold();
+        wrong_source.store.scheme_guard_calls[calls.start].instruction = constant;
+        rejects("another actual call cannot replace the residual source", wrong_source, "guard call origin disagrees with its actual target binding");
+        let mut wrong_role = cold();
+        wrong_role.store.scheme_guard_calls[calls.start].role = crate::sema::schemes::InstantiationRole::Value;
+        rejects("an invocation cannot claim a value materialization origin", wrong_role, "guard call source has another physical role");
+        let mut wrong_target = cold();
+        wrong_target.store.scheme_guard_calls[calls.start].target = FullGuardCallTarget::Call(0);
+        rejects("a physical callee guard cannot become a residual callee call", wrong_target, "guard call target call is out of bounds");
+        let mut swapped_source = cold();
+        swapped_source.store.scheme_guard_calls[calls.start].instruction = origins[1].instruction;
+        swapped_source.store.scheme_guard_calls[calls.start + 1].instruction = origins[0].instruction;
+        swapped_source.store.call_guard_bindings.swap(links[0], links[1]);
+        rejects("coherent origin links cannot move a live packet onto actual Null", swapped_source, "guard call binding disagrees with its actual source classification");
+        let mut foreign = cold();
+        foreign.store.schemes[relay_id.index()].guard_calls = peer.guard_calls;
+        foreign.store.schemes[peer_id.index()].guard_calls = relay.guard_calls;
+        rejects("same call ordinals remain owned by their actual callable", foreign, "guard call source belongs to another callable or requirement scope");
+    }
+
+    #[test]
+    fn forwarded_runtime_guard_packets_retain_caller_and_callsite_provenance() {
+        let program = prepare(r#"
+pure render(value) -> Str { if value == null { "" } else { f"{value}" } }
+pure first(value) -> Str { render(value) }
+pure second(value) -> Str { render(value) }
+proc observe() -> Result[Unit] {
+    assert first("same") == "same"
+    assert second("same") == "same"
+    Ok()
+}
+observe()?
+"#);
+        let owner = |name| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let first = owner("first");
+        let second = owner("second");
+        let packet = |target| {
+            let sites = program.store.checked_call_targets.iter().filter(|site| site.function.index() == target).collect::<Vec<_>>();
+            assert_eq!(sites.len(), 1);
+            program.invocation_applications(sites[0].instruction, target, &super::super::super::PreparedInvocationBindings::default()).unwrap()
+        };
+        let first_packet = packet(first);
+        let second_packet = packet(second);
+        assert_eq!(first_packet.layouts.guard_calls.len(), 1);
+        assert_eq!(second_packet.layouts.guard_calls.len(), 1);
+        let first_call = first_packet.layouts.guard_calls[0].origin.source;
+        let second_call = second_packet.layouts.guard_calls[0].origin.source;
+        assert_ne!(first_call, second_call);
+        assert_eq!(first_packet.layouts.guard_calls[0].owner, second_packet.layouts.guard_calls[0].owner);
+        assert_eq!(first_packet.layouts.guard_calls[0].scope, second_packet.layouts.guard_calls[0].scope);
+        program.forwarded_guard_call(&first_packet, 0, first_call).unwrap();
+        program.forwarded_guard_call(&second_packet, 0, second_call).unwrap();
+        let mut changed = first_packet.clone();
+        Arc::make_mut(&mut changed.layouts).guard_calls[0] = second_packet.layouts.guard_calls[0].clone();
+        assert_eq!(program.forwarded_guard_call(&changed, 0, first_call).unwrap_err().message, "prepared forwarded guard call belongs to another caller, scope, or source");
+        assert_eq!(program.forwarded_guard_call(&first_packet, 0, second_call).unwrap_err().message, "prepared forwarded guard call belongs to another caller, scope, or source");
+    }
+
+    #[test]
     fn actual_record_row_evidence_rejects_opaque_field_type_forgery() {
         let mut program = prepare(r#"
 type OpaqueRow = {name: Str, opaque: Any}

@@ -26,6 +26,7 @@ pub(super) struct GuardCensus {
     pub(super) root_operations: IrRange,
     pub(super) root_methods: IrRange,
     pub(super) root_wrappers: IrRange,
+    pub(super) root_guard_calls: IrRange,
     pub(super) scopes: Vec<GuardPack>,
     pub(super) memberships: BTreeMap<usize, GuardScopeId>,
     pub(super) children: BTreeMap<Option<GuardScopeId>, Vec<GuardScopeId>>,
@@ -80,14 +81,14 @@ impl SchemeScope {
     pub(super) fn owned_requirements(&self, root: &super::FullScheme) -> Result<super::super::schemes::FullRequirementRanges, IrVerifyError> {
         if let GuardScopes::Scoped(census) = &self.guards {
             if root.applications != census.root_applications || root.operations != census.root_operations
-                || root.methods != census.root_methods || root.wrappers != census.root_wrappers
+                || root.methods != census.root_methods || root.wrappers != census.root_wrappers || root.guard_calls != census.root_guard_calls
             { return Err(IrVerifyError::new("guard requirement pack belongs to another callable")); }
             if let Some(id) = self.active_guard {
                 let metadata = census.scope(id)?.metadata;
-                return Ok(super::super::schemes::FullRequirementRanges { applications: metadata.applications, operations: metadata.operations, methods: metadata.methods, wrappers: metadata.wrappers, effect_predicates: metadata.effect_predicates });
+                return Ok(super::super::schemes::FullRequirementRanges { applications: metadata.applications, operations: metadata.operations, methods: metadata.methods, wrappers: metadata.wrappers, effect_predicates: metadata.effect_predicates, guard_calls: metadata.guard_calls });
             }
         }
-        Ok(super::super::schemes::FullRequirementRanges { applications: root.applications, operations: root.operations, methods: root.methods, wrappers: root.wrappers, effect_predicates: root.effect_predicates })
+        Ok(super::super::schemes::FullRequirementRanges { applications: root.applications, operations: root.operations, methods: root.methods, wrappers: root.wrappers, effect_predicates: root.effect_predicates, guard_calls: root.guard_calls })
     }
 
     pub(super) fn binding_pack(&self) -> Result<BinderPack, IrVerifyError> {
@@ -109,11 +110,11 @@ impl SchemeScope {
                 let ranges = match guard {
                     Some(id) => {
                         let scope = census.scope(id)?;
-                        (scope.metadata.applications, scope.metadata.operations, scope.metadata.methods, scope.metadata.wrappers)
+                        (scope.metadata.applications, scope.metadata.operations, scope.metadata.methods, scope.metadata.wrappers, scope.metadata.guard_calls)
                     }
-                    None => (census.root_applications, census.root_operations, census.root_methods, census.root_wrappers),
+                    None => (census.root_applications, census.root_operations, census.root_methods, census.root_wrappers, census.root_guard_calls),
                 };
-                (view.applications, view.operations, view.methods, view.wrappers) = ranges;
+                (view.applications, view.operations, view.methods, view.wrappers, view.guard_calls) = ranges;
             }
         }
         view.active_guard = guard;
@@ -238,38 +239,75 @@ pub(super) fn authenticates_read(
 
 pub(super) fn verify_ground_bindings(
     store: &super::FullStore, root: &super::FullScheme, scope: &SchemeScope,
+    scopes: &[Option<SchemeScope>],
     arguments: super::super::schemes::FullInstantiation, substitution: &super::CallSubstitution,
     type_coverage: &mut [bool], row_coverage: &mut [bool], field_coverage: &mut [bool],
     budget: &mut super::SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
-    use super::super::guard_schemes::FullGuardBinding;
-    use crate::sema::guarded_requirements::{non_null_source, NonNullSource};
     let GuardScopes::Scoped(census) = &scope.guards else {
-        return if arguments.guard_bindings.len == 0 { Ok(()) } else { Err(IrVerifyError::new("unguarded callable has guard bindings")) };
+        return if arguments.guard_bindings.len == 0 && arguments.guard_call_bindings.len == 0 { Ok(()) } else { Err(IrVerifyError::new("unguarded callable has guard bindings")) };
     };
+    scope.owned_requirements(root)?;
     budget.charge(substitution.types.len() + substitution.rows.iter().map(BTreeMap::len).sum::<usize>() + substitution.effects.len())?;
-    let mut pending = vec![(None, arguments.guard_bindings, Arc::new(substitution.clone()))];
-    while let Some((parent_id, encoded, parent)) = pending.pop() {
+    let mut pending = vec![(census.owner, None, arguments, Arc::new(substitution.clone()))];
+    while let Some((owner, parent_id, arguments, parent)) = pending.pop() {
+        budget.charge(1)?;
+        let root = store.scheme(owner)?;
+        let scope = scopes.get(owner.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("guard target has no verified callable scope"))?;
+        let GuardScopes::Scoped(census) = &scope.guards else { return Err(IrVerifyError::new("guard target has no callable-owned census")); };
+        if census.owner != owner { return Err(IrVerifyError::new("guard target belongs to another callable")); }
+        let active = scope.with_guard(parent_id)?;
+        let calls = super::bounded(active.guard_calls, &store.scheme_guard_calls, "guard call requirement range is invalid")?;
+        let call_bindings = super::bounded(arguments.guard_call_bindings, &store.call_guard_bindings, "guard call binding range is invalid")?;
+        if calls.len() != call_bindings.len() { return Err(IrVerifyError::new("guard call bindings are incomplete")); }
+        for (ordinal, (call, binding)) in calls.iter().zip(call_bindings).enumerate() {
+            let resolved = super::guard_calls::resolve(store, *call, u32::try_from(ordinal).map_err(|_| IrVerifyError::new("guard call ordinal is invalid"))?, Arc::clone(&parent), budget)?;
+            let target_root = store.scheme(resolved.owner)?;
+            let target_scope = scopes.get(resolved.owner.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("guard call target has no verified scope"))?;
+            if let Some((arguments, local)) = verify_ground_slot(store, target_root, target_scope, resolved.scope, resolved.metadata, *binding, resolved.parent, type_coverage, row_coverage, field_coverage, budget)? {
+                pending.push((resolved.owner, Some(resolved.scope), arguments, local));
+            }
+        }
         let children = census.children.get(&parent_id).map(Vec::as_slice).unwrap_or(&[]);
-        let bindings = super::bounded(encoded, &store.call_guard_bindings, "guard binding range is invalid")?;
+        let bindings = super::bounded(arguments.guard_bindings, &store.call_guard_bindings, "guard binding range is invalid")?;
         if children.len() != bindings.len() { return Err(IrVerifyError::new("guard call bindings are incomplete")); }
         for (&id, binding) in children.iter().zip(bindings) {
-            budget.charge(1)?;
-            let pack = census.scope(id)?;
-            let source = super::instantiate_bound_type(store, pack.metadata.source, &parent, budget, 0)?;
-            let actual = non_null_source(&source).map_err(|_| IrVerifyError::new("guard call source has no closed non-null classification"))?;
-            let (local_arguments, payload) = match (actual, binding) {
-                (NonNullSource::Null, FullGuardBinding::Null) => continue,
-                (NonNullSource::NonNull(payload), FullGuardBinding::NonNull(local))
-                | (NonNullSource::Optional(payload), FullGuardBinding::Optional(local)) => (*local, payload),
-                _ => return Err(IrVerifyError::new("guard call binding disagrees with its actual source classification")),
-            };
+            let metadata = census.scope(id)?.metadata;
+            if let Some((arguments, local)) = verify_ground_slot(store, root, scope, id, metadata, *binding, Arc::clone(&parent), type_coverage, row_coverage, field_coverage, budget)? {
+                pending.push((owner, Some(id), arguments, local));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_ground_slot(
+    store: &super::FullStore, root: &super::FullScheme, scope: &SchemeScope,
+    id: GuardScopeId, metadata: FullGuardScope, binding: super::super::guard_schemes::FullGuardBinding,
+    parent: Arc<super::CallSubstitution>, type_coverage: &mut [bool], row_coverage: &mut [bool], field_coverage: &mut [bool],
+    budget: &mut super::SchemeInstantiationBudget,
+) -> Result<Option<(super::super::schemes::FullInstantiation, Arc<super::CallSubstitution>)>, IrVerifyError> {
+    use super::super::guard_schemes::FullGuardBinding;
+    use crate::sema::guarded_requirements::{non_null_source, NonNullSource};
+    let GuardScopes::Scoped(census) = &scope.guards else { return Err(IrVerifyError::new("guard slot has no callable-owned census")); };
+    let pack = census.scope(id)?;
+    if pack.metadata != metadata { return Err(IrVerifyError::new("guard slot metadata belongs to another callable")); }
+    let parent_id = census.parent(id)?;
+    budget.charge(1)?;
+    let source = super::instantiate_bound_type(store, metadata.source, &parent, budget, 0)?;
+    let actual = non_null_source(&source).map_err(|_| IrVerifyError::new("guard call source has no closed non-null classification"))?;
+    let (local_arguments, payload) = match (actual, binding) {
+        (NonNullSource::Null, FullGuardBinding::Null) => return Ok(None),
+        (NonNullSource::NonNull(payload), FullGuardBinding::NonNull(local))
+        | (NonNullSource::Optional(payload), FullGuardBinding::Optional(local)) => (local, payload),
+        _ => return Err(IrVerifyError::new("guard call binding disagrees with its actual source classification")),
+    };
             let local_scope = scope.with_guard(Some(id))?;
             let types = super::mark_range(local_arguments.type_arguments, &store.call_type_arguments, type_coverage, "guard type arguments are invalid or overlap")?;
             let rows = super::mark_range(local_arguments.row_arguments, &store.call_row_arguments, row_coverage, "guard row arguments are invalid or overlap")?;
             let effects = super::bounded(local_arguments.effect_arguments, &store.call_effect_arguments, "guard effect arguments are invalid")?;
             let local = super::build_pack_substitution(store, &local_scope, types, rows, effects, field_coverage, Some(Arc::clone(&parent)))?;
-            let actual_view = super::instantiate_bound_type(store, pack.metadata.view, &local, budget, 0)?;
+            let actual_view = super::instantiate_bound_type(store, metadata.view, &local, budget, 0)?;
             if &actual_view != payload { return Err(IrVerifyError::new("guard local payload disagrees with its actual source")); }
             let mut evidence = super::SchemeBinderEvidence::default();
             let mut ancestor = parent_id;
@@ -281,8 +319,8 @@ pub(super) fn verify_ground_bindings(
                 evidence.rows.extend(ancestor_pack.bindings.rows.clone());
                 ancestor = census.parent(ancestor_id)?;
             }
-            super::verify_scheme_argument_evidence(store, &local_scope, pack.metadata.view, payload, &local, &mut evidence, budget, 0)?;
-            for read in super::bounded(pack.metadata.reads, &store.scheme_guard_reads, "guard read range is invalid")? {
+            super::verify_scheme_argument_evidence(store, &local_scope, metadata.view, payload, &local, &mut evidence, budget, 0)?;
+            for read in super::bounded(metadata.reads, &store.scheme_guard_reads, "guard read range is invalid")? {
                 let actual = super::instantiate_bound_type(store, read.source, &parent, budget, 0)?;
                 let view = super::instantiate_bound_type(store, read.view, &local, budget, 0)?;
                 if actual != view { return Err(IrVerifyError::new("guard identity read changes its actual source type")); }
@@ -302,8 +340,5 @@ pub(super) fn verify_ground_bindings(
             if !pack.bindings.types.clone().all(|binder| evidence.types.contains(&binder))
                 || !pack.bindings.rows.clone().all(|binder| evidence.rows.contains(&binder))
             { return Err(IrVerifyError::new("guard local substitution has no independently checked input evidence")); }
-            pending.push((Some(id), local_arguments.guard_bindings, Arc::new(local)));
-        }
-    }
-    Ok(())
+    Ok(Some((local_arguments, Arc::new(local))))
 }

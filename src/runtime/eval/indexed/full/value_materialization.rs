@@ -105,7 +105,7 @@ impl super::FullBuilder {
         Ok(id)
     }
 
-    pub(super) fn attach_value_materialization(&mut self, instruction: usize) -> Result<(), super::IrBuildError> {
+    pub(super) fn attach_value_materialization(&mut self, instruction: usize, scope: Option<crate::sema::guarded_requirements::GuardScopeId>) -> Result<(), super::IrBuildError> {
         if self.store.tags.get(instruction) != Some(&super::FullTag::ExprCheckedValue) { return Ok(()); }
         let payload = self.store.payload(self.store.data[instruction].range()).map_err(|_| materialization_build_error())?;
         if payload.get(1) != Some(&(super::decode::ValueCheckTag::Materialization as u32)) { return Ok(()); }
@@ -113,6 +113,16 @@ impl super::FullBuilder {
         let plan = self.store.value_materializations.get_mut(id as usize).ok_or_else(materialization_build_error)?;
         if plan.instruction != super::IR_NONE { return Err(materialization_build_error()); }
         plan.instruction = materialization_index(instruction)?;
+        let mut pending = vec![plan.root];
+        while let Some(node) = pending.pop() {
+            let node = *self.store.materialization_nodes.get(node as usize).ok_or_else(materialization_build_error)?;
+            let children = node.children.bounds(self.store.materialization_edges.len()).ok_or_else(materialization_build_error)?;
+            pending.extend(self.store.materialization_edges[children].iter().map(|child| child.node));
+            if node.kind == FullMaterializationKind::Callable {
+                let leaf = self.store.materialization_leaves.get(node.leaf as usize).copied().ok_or_else(materialization_build_error)?;
+                self.record_guard_call_origins(scope, instruction, node.leaf, crate::sema::schemes::InstantiationRole::Value, leaf.instance)?;
+            }
+        }
         Ok(())
     }
 }
@@ -138,7 +148,7 @@ impl super::FullProgram {
         if plan.instruction != instruction { return Err(materialization_verify_error()); }
         let mut budget = super::verify_schemes::SchemeInstantiationBudget::new(&self.store);
         let destination = super::verify_schemes::instantiate_bound_type(&self.store, plan.destination, &caller.substitution, &mut budget, 0)?;
-        self.materialize_value_node(plan.root, &mut value, caller, 0)?;
+        self.materialize_value_node(plan.root, &mut value, caller, 0, instruction)?;
         Ok((value, destination))
     }
 
@@ -148,6 +158,7 @@ impl super::FullProgram {
         value: &mut super::LoweredValue,
         caller: &super::PreparedInvocationBindings,
         depth: usize,
+        source_instruction: u32,
     ) -> Result<(), super::IrVerifyError> {
         use super::LoweredValue as V;
         if depth > 128 { return Err(materialization_verify_error()); }
@@ -158,14 +169,14 @@ impl super::FullProgram {
         match (node.kind, value) {
             (FullMaterializationKind::Callable, value) => {
                 let leaf = self.store.materialization_leaves.get(node.leaf as usize).ok_or_else(materialization_verify_error)?;
-                self.materialize_callable_leaf(leaf, value, caller)?;
+                self.materialize_callable_leaf(leaf, value, caller, super::PreparedCallSource::Materialization { instruction: source_instruction, leaf: node.leaf })?;
             }
             (FullMaterializationKind::Record, V::Record(fields) | V::Module(fields)) => {
                 for child in children {
                     if self.store.materialization_nodes.get(child.node as usize).is_some_and(|node| node.kind == FullMaterializationKind::Keep) { continue; }
                     let name = self.store.string(child.name)?;
                     let field = std::sync::Arc::make_mut(fields).get_mut(name).ok_or_else(materialization_verify_error)?;
-                    self.materialize_value_node(child.node, field, caller, depth + 1)?;
+                    self.materialize_value_node(child.node, field, caller, depth + 1, source_instruction)?;
                 }
             }
             (FullMaterializationKind::Record, V::RecordVec(fields)) => {
@@ -177,7 +188,7 @@ impl super::FullProgram {
                 let mut converted = 0;
                 for (name, field) in std::sync::Arc::make_mut(fields) {
                     if let Some(&node) = selected.get(name.as_str().as_str()) {
-                        self.materialize_value_node(node, field, caller, depth + 1)?;
+                        self.materialize_value_node(node, field, caller, depth + 1, source_instruction)?;
                         converted += 1;
                     }
                 }
@@ -185,28 +196,28 @@ impl super::FullProgram {
             }
             (FullMaterializationKind::List, V::List(items)) => {
                 let child = children.first().ok_or_else(materialization_verify_error)?;
-                for item in items { self.materialize_value_node(child.node, item, caller, depth + 1)?; }
+                for item in items { self.materialize_value_node(child.node, item, caller, depth + 1, source_instruction)?; }
             }
             (FullMaterializationKind::List, V::SharedList(items)) => {
                 let child = children.first().ok_or_else(materialization_verify_error)?;
-                for item in std::sync::Arc::make_mut(items) { self.materialize_value_node(child.node, item, caller, depth + 1)?; }
+                for item in std::sync::Arc::make_mut(items) { self.materialize_value_node(child.node, item, caller, depth + 1, source_instruction)?; }
             }
             (FullMaterializationKind::MapValues, V::Map(items)) => {
                 let child = children.first().ok_or_else(materialization_verify_error)?;
-                for item in std::sync::Arc::make_mut(items).values_mut() { self.materialize_value_node(child.node, item, caller, depth + 1)?; }
+                for item in std::sync::Arc::make_mut(items).values_mut() { self.materialize_value_node(child.node, item, caller, depth + 1, source_instruction)?; }
             }
             (FullMaterializationKind::Optional, V::Null) => {}
             (FullMaterializationKind::Optional, value) => {
-                self.materialize_value_node(children.first().ok_or_else(materialization_verify_error)?.node, value, caller, depth + 1)?;
+                self.materialize_value_node(children.first().ok_or_else(materialization_verify_error)?.node, value, caller, depth + 1, source_instruction)?;
             }
             (FullMaterializationKind::Result, V::ResultOk(value)) => {
-                self.materialize_value_node(children.first().ok_or_else(materialization_verify_error)?.node, value, caller, depth + 1)?;
+                self.materialize_value_node(children.first().ok_or_else(materialization_verify_error)?.node, value, caller, depth + 1, source_instruction)?;
             }
             (FullMaterializationKind::Result, V::ResultErr(value)) => {
                 let child = children.get(1).ok_or_else(materialization_verify_error)?;
                 if self.store.materialization_nodes.get(child.node as usize).is_none_or(|node| node.kind != FullMaterializationKind::Keep) {
                     let mut payload = crate::runtime::eval::lowered_ops::lowered_value_from_runtime_any(value).ok_or_else(materialization_verify_error)?;
-                    self.materialize_value_node(child.node, &mut payload, caller, depth + 1)?;
+                    self.materialize_value_node(child.node, &mut payload, caller, depth + 1, source_instruction)?;
                     **value = payload.into_value();
                 }
             }
@@ -220,6 +231,7 @@ impl super::FullProgram {
         leaf: &FullMaterializationLeaf,
         value: &mut super::LoweredValue,
         caller: &super::PreparedInvocationBindings,
+        call_source: super::PreparedCallSource,
     ) -> Result<(), super::IrVerifyError> {
         use crate::runtime::eval::{PreparedCallable, PreparedCallableState};
         let super::LoweredValue::Callable(callable) = value else { return Err(materialization_verify_error()); };
@@ -230,7 +242,7 @@ impl super::FullProgram {
         self.validate_scheme_callable_target(*source, target, prepared.kind)?;
         let relationship = leaf.relationship;
         self.validate_scheme_callable_target(relationship, target, prepared.kind)?;
-        let bindings = self.invocation_payload(&leaf.instance, Some(relationship), target, caller)?;
+        let bindings = self.invocation_payload(&leaf.instance, Some(relationship), target, caller, call_source)?;
         *value = super::LoweredValue::Callable(crate::runtime::value::CallableValue::prepared(callable.identity(), std::sync::Arc::new(PreparedCallable {
             program: std::sync::Arc::clone(&prepared.program), function: prepared.function, kind: prepared.kind,
             state: PreparedCallableState::Instance(bindings),

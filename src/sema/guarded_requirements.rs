@@ -16,6 +16,49 @@ impl GuardScopeId {
     pub(crate) fn raw(self) -> u32 { self.0 }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct GuardCallId(u32);
+
+impl GuardCallId {
+    pub(crate) fn from_index(index: usize) -> Result<Self, SchemeBuildError> {
+        u32::try_from(index).map(Self).map_err(|_| SchemeBuildError::UnresolvedGuardScope)
+    }
+
+    pub(crate) fn index(self) -> usize { self.0 as usize }
+
+    pub(crate) fn raw(self) -> u32 { self.0 }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GuardCallTarget { Scope(GuardScopeId), Call(GuardCallId) }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GuardCallRequirement {
+    pub(crate) source: super::schemes::InstantiationSite<crate::source::Span>,
+    pub(crate) target: GuardCallTarget,
+    pub(crate) callee: std::sync::Arc<super::schemes::CallableScheme>,
+    pub(crate) template: std::sync::Arc<GuardRequirements>,
+    pub(crate) type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
+    pub(crate) row_arguments: BTreeMap<SchemeRowParameterId, super::schemes::RowEvidence>,
+    pub(crate) effect_arguments: BTreeMap<SchemeEffectParameterId, super::effects::EffectContract<SchemeEffectParameterId>>,
+}
+
+impl GuardCallRequirement {
+    pub(crate) fn validate_target(&self) -> Result<(), SchemeBuildError> {
+        let actual = match self.target {
+            GuardCallTarget::Scope(scope) => self.callee.requirements().guard(scope),
+            GuardCallTarget::Call(call) => self.callee.requirements().guard_calls.get(call.index()).map(|call| call.template.as_ref()),
+        }.ok_or(SchemeBuildError::UnresolvedGuardScope)?;
+        if actual != self.template.as_ref() { return Err(SchemeBuildError::UnresolvedGuardScope); }
+        let free = self.template.free_parameters()?;
+        if self.type_arguments.keys().copied().collect::<BTreeSet<_>>() != free.types
+            || self.row_arguments.keys().copied().collect::<BTreeSet<_>>() != free.rows
+            || self.effect_arguments.keys().copied().collect::<BTreeSet<_>>() != free.effects
+        { return Err(SchemeBuildError::UnresolvedGuardScope); }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GuardRequirements {
     pub(crate) scope: GuardScopeId,
@@ -96,6 +139,7 @@ impl GuardRequirements {
                 match term {
                     super::schemes::RequirementTerm::Type(ty) => dependencies.add_type(ty),
                     super::schemes::RequirementTerm::Parameter(id) => { dependencies.types.insert(id); },
+                    super::schemes::RequirementTerm::RowParameter(id) => { dependencies.rows.insert(id); },
                     super::schemes::RequirementTerm::Effects(contract) => dependencies.add_effects(contract),
                 }
                 Ok(())
@@ -128,6 +172,13 @@ pub(crate) enum GuardBinding {
     NonNull(Box<CallInstantiation>),
     Optional(Box<CallInstantiation>),
     Null,
+    Call(GuardCallId),
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct GuardBindings {
+    pub(crate) scopes: Vec<GuardBinding>,
+    pub(crate) calls: Vec<GuardBinding>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

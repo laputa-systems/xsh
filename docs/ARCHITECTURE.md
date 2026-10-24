@@ -633,6 +633,16 @@ Callable contract comparison preserves each guard's source, view, local domains,
 and nested requirements under a separate ancestor-visible binder map. Physical
 source positions do not determine contract equivalence. A target correspondence
 that carries only root binders rejects distinct guarded packs.
+Generic calls retain residual guarded requirements under a distinct call ordinal.
+Each residual identifies the actual call or materialization, its checked callee,
+and that callee's physical guard or residual call. It reuses the same call's root
+substitution; callee-local binders never enter the caller's binder census. Cold
+verification follows this bounded chain to classify the actual source and prove
+the complete live pack or exact Null absence. Prepared residual packets retain
+the caller, lexical scope, call ordinal, and physical source alongside the final
+callee and guard. Forwarding checks both origins before transferring a packet.
+Pending source relationships rediscover canonical type, row, and effect watchers
+through the existing wrapper journal after aliases resolve.
 Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the

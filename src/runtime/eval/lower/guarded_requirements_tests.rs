@@ -61,3 +61,8 @@ fn inferred_guarded_local_reads_retain_arithmetic_paths_and_opaque_record_fields
 fn inferred_root_record_rows_preserve_opaque_fields_from_actual_closed_sources() {
     on_scoped_body_test_stack(|| verify_imported_guarded_program("generic-opaque-record-rows.xsh", "verify_opaque_record_rows"));
 }
+
+#[test]
+fn imported_guarded_requirements_forward_through_generic_calls() {
+    on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-forwarding.xsh", "verify_guarded_forwarding"));
+}
