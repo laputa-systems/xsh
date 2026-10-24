@@ -39,7 +39,8 @@ reassign diagnosis, not reasons to waive the deliverable.
 
 Keep at least four lanes active when four disjoint assignments are ready,
 with a ceiling of eight after the owner's repeated 2026-10-23 acceleration request.
-All delegated lanes use experts. The two-build and single-native limits remain.
+All delegated lanes use experts. The active campaign permits three ordinary
+builds with disjoint outputs and one native job, retaining the host reserve.
 Use the follow-up task operation for approvals and next assignments so completed
 lanes resume immediately; messages alone do not restart them.
 When fewer are ready, use every disjoint assignment
@@ -57,7 +58,7 @@ with `perf-gate-ready -s`. Preserve the active campaign's allocations:
 
 | Work | CPU/jobs limit | Memory limit | Concurrency |
 |---|---|---|---|
-| Ordinary compiler build | 2 CPUs, 2 jobs | 8 GiB | At most two, with disjoint Cargo outputs and available leases |
+| Ordinary compiler build | 2 CPUs, 2 jobs | 8 GiB | At most three, with disjoint Cargo outputs and available leases |
 | Lightweight focused check | 2 CPUs | 4 GiB | Up to the admitted disjoint lane count |
 | Inherited final/release build or native observer | 12 CPUs, 12 build jobs | 24 GiB | Alone |
 | Inherited scheduler pair | 32 CPUs | 40 GiB | Alone |

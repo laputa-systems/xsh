@@ -30,63 +30,60 @@ repairs continue on their own branches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-The latest combined inference source is `65629e7cf`, tree
-`199a430cf1af76d573878eb4a27b4c7ec3ff1c33`. All 48 selected integration
-controls pass after reconciling the four reviewed guard checkpoints with
-pipeline noncompletion, imported aliases and managed resource cleanup. The
-source is frozen in `.work/wt/full-inference-guarded-wave-qualification/` for
-matching tool products and the full library boundary. Focused evidence is in
-`.work/tmp/guard-integrated-reconciled-focus.log`; it does not qualify the
-complete campaign or a master merge.
+The latest combined inference source is `853b7c829`, tree
+`5583df1d94c4023be35a26d3ab7e3b9f4d436fdf`. Its complete Rust library run
+passes 2,694 tests, with zero failures and three ignored tests. Matching
+verification products build without warnings. Strict native qualification
+passes all 249 selectors in both normal and forced modes, plus six API cases.
+Every previous 246-selector case remains selected; the three added cases cover
+conditional callback effects and inferred declaration effects. Source, product,
+roster and cleanup guards pass. These results qualify those boundaries; the
+canonical workspace boundary and a compiler-prefix merge remain pending.
 
 Guard requirements now execute imported rendering, Env preload, arithmetic,
 Path methods and closed records with opaque fields. Generic relays, repeated
 relays, and calls using local or ancestor guard binders execute on both routes
-after frontend disposal. Cold controls cover source, polarity, stale reads,
-post-guard writes, row data, sibling scopes and same-numbered foreign callable
-packets. Root binder requirements remain total. Conditional callback effects,
-error propagation relationships, output joins, captures and complete exported
-signature rendering remain open. Those implementation classes are mandatory.
+after frontend disposal. Conditional callback effects flow from the actual
+local contribution through a parent-owned output; Null absence invokes nothing.
+Cold controls cover source, polarity, stale reads, post-guard writes, row data,
+sibling scopes, foreign callable packets and omitted effect contributions.
+Root binder requirements remain total. Conditional error propagation, value
+joins, captures and complete exported signature rendering remain open. Those
+implementation classes are mandatory.
 
-The latest completed full library run is the earlier `dd32a29d6`: 2,623 passes,
-five failures and three ignored tests. All five now have reviewed focused
-repairs or corrected test protocols on the combined source. Compatible typed
-callable replacement is tested by executing its actual target; incompatible
-writers still fail. Generic host-entry tests now use authored checked wrappers
-rather than inventing runtime generic bindings. The full run remains failed;
-matching combined qualification must replace it. The last fully green library
-source remains `9df3bf21e` with 2,547 passes and three ignored tests.
+Matching documentation checks pass, including SPEC examples, rejected programs,
+the user tour and the documentation project. The earlier duplicate splice
+diagnostic is repaired without weakening the fixed-arity restriction. The
+full Rust run also closes all fourteen failures from the previous `6c00aef63`
+run: recursive peer application scopes, checked finite effect contributions
+and pending guarded declaration effects. Earlier failed runs remain failed.
+
+The 926-retainer corpus proposal still has no new removal credit. On the
+matching source, all eleven original program roots and all twenty-one original
+runtime cases pass. The annotation-reduced XSH view then fails before reduced
+runtime or interface comparison. Primary causes are body eligibility in
+`tr.validate_classes` and `tour_html.xsh_html`, target-typed enum relationships
+in `docker.host_link_tools`, and effect publication in `cargo_steps.execute`.
+Separate experts own these classes. The former original-view imported callable
+and compound Boolean guard failures are repaired. No annotation restoration or
+classification excludes a compiler defect.
 
 Matching early Pyramid source `c7b9b7b29` passes 64 focused Python controls,
-five exact event/selection CLI tests, and verification product builds. Strict
-native replay runs 234 selectors on each route: 232 pass, with the same two
-failures in both modes; API replay passes all six selectors. All nineteen added
-cases pass. The remaining diagnostic-oracle and resource-return causes are
-repaired on `65629e7cf`, but native credit does not transfer to that source.
+five exact event/selection CLI tests, and verification product builds. Its
+public PM adapter passes the schema-1 fresh/reuse/root case with clean Laputa
+source `6830500`: selected one, passed one, complete coverage, child status zero,
+no unresolved result. Actual package builds, dependency reuse, root inventory,
+ownership, links, payloads and cleanup are checked. Laputa's four prepared
+kernel-discovery cases also pass on both routes against earlier `abb1c8b82`
+products and are integrated into its isolated Pyramid branch at `9fa862c`.
+These early results establish neither post-inference P0 nor world, VM or
+performance acceptance. Pyramid qualification still waits for accepted inference
+integration and cleanup.
 
-The public Pyramid PM adapter passes its schema-1 fresh/reuse/root case with
-those matching products and clean Laputa source `6830500`: selected one,
-passed one, complete coverage, child status zero, no unresolved result. Actual
-package builds, dependency reuse, root inventory, ownership, links, payloads and
-cleanup are checked. Laputa's four prepared kernel-discovery cases also pass
-on both routes against earlier `abb1c8b82` products and are integrated into its
-isolated Pyramid branch at `9fa862c`. Neither result establishes world, VM,
-performance, P0 or deployment acceptance.
-
-The current 926-retainer corpus proposal still has no new removal credit.
-The last replay on `c7b9b7b29` stops in the original annotated view before
-runtime or interface comparison. Captured imported callable publication is
-repaired and original `dev/internal.xsh` prepares; original `dev/main.xsh`
-exposes a separate compound Boolean guard relationship. Its diagnosed ordering
-fix closes the full entry, while the faithful small witness still exhausts the
-unchanged proof-work bound. An expert owns that remaining common proof cost.
-No annotation restoration or classification excludes the defect.
-
-Independent Pyramid qualification remains provisional until accepted inference
-is integrated. Scaling preparation has identified repeated generalization map
-copies; implementation waits for settled guard contracts. Final canonical
-warnings, documentation, corpus/interface parity, performance and inherited
-Laputa world/Asterinas acceptance remain required. No mandatory item is waived.
+Scaling preparation has identified repeated generalization map copies;
+implementation waits for settled guard contracts. Final canonical warnings,
+corpus/interface parity, performance and inherited Laputa world/Asterinas
+acceptance remain required. No mandatory item is waived.
 
 Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
 verification products. With the precise native-input correction `1c9694a3c`,
