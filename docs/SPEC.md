@@ -2029,7 +2029,9 @@ An Optional source supplies its potential live payload type, even for a null val
 callable materialization. Their `callee.` names belong to that callee, with
 explicit bindings to the enclosing signature. Conditional effects show their
 local and outward contracts, including the empty outward contract for `null`.
-`unknown` preserves an unresolved published effect contract.
+`unknown` preserves an unresolved published effect contract. Guard output relations
+show the outward result, the non-null and null branch types, and their canonical
+join for an Optional source; local branch binders remain inside the guard.
 
 ### 5.5 Target-typed variants
 

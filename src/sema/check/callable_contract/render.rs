@@ -64,6 +64,10 @@ impl BinderNames<'_> {
             self.visit_scheme_type(&guard.source);
             for read in &guard.reads { self.visit_scheme_type(&read.source); }
             if let Some(effects) = &guard.effects { self.visit_effects(&effects.outward); }
+            if let Some(output) = &guard.output {
+                self.visit_scheme_type(&output.outward);
+                self.visit_scheme_type(&output.absent);
+            }
         }
         for call in &requirements.guard_calls {
             for ty in call.type_arguments.values() { self.visit_scheme_type(ty); }
@@ -379,7 +383,7 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
 
 fn render_guard(guard: &crate::sema::guarded_requirements::GuardRequirements, parent: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let crate::sema::guarded_requirements::GuardRequirements {
-        scope: _, source, view, subject: _, comparison: _, reads, effects,
+        scope: _, source, view, subject: _, comparison: _, reads, effects, output,
         type_parameters: _, row_parameters: _, requirements,
     } = guard;
     let source = render_scheme_type(source, parent, identities, context);
@@ -394,6 +398,12 @@ fn render_guard(guard: &crate::sema::guarded_requirements::GuardRequirements, pa
     if let Some(effects) = effects {
         parts.push(format!("effects(local={}, outward={}, null=[])", render_bound_effects(&effects.local, &names), render_bound_effects(&effects.outward, parent)));
     }
+    if let Some(output) = output {
+        let outward = render_scheme_type(&output.outward, parent, identities, context);
+        let present = render_scheme_type(&output.present, &names, identities, context);
+        let absent = render_scheme_type(&output.absent, parent, identities, context);
+        parts.push(format!("output(outward={outward}, non-null={present}, null={absent}, optional=join({present}, {absent}))"));
+    }
     parts.extend(render_requirement_parts(requirements, None, &names, identities, context));
     format!("when-non-null({source}) {{ {} }}", parts.join(" "))
 }
@@ -404,6 +414,10 @@ fn render_guard_call(call: &crate::sema::guarded_requirements::GuardCallRequirem
     callee.visit_scheme_type(&call.template.source);
     for read in &call.template.reads { callee.visit_scheme_type(&read.source); }
     if let Some(effects) = &call.template.effects { callee.visit_effects(&effects.outward); }
+    if let Some(output) = &call.template.output {
+        callee.visit_scheme_type(&output.outward);
+        callee.visit_scheme_type(&output.absent);
+    }
     for &id in call.type_arguments.keys() {
         let next = callee.types.len();
         callee.types.entry(id).or_insert(next);
@@ -781,6 +795,36 @@ mod tests {
             assert!(declaration.is_exported());
             declaration.callable_contract().unwrap()
         })
+    }
+
+    #[test]
+    fn exported_guarded_outputs_show_null_live_and_optional_relationships() {
+        let source = "export pure describe(value) { if value != null { value.name } else { null } }\n";
+        let contract = exported_contract(source);
+        assert!(contract.to_string().contains("output(outward=T1, non-null=T2, null=Null, optional=join(T2, Null))"), "{contract}");
+        let relocated = exported_contract(&format!("pure unrelated(input) {{ [input] }}\n{}", source.replace(" { ", " {\n ")));
+        assert!(contract.equivalent_to(&relocated));
+        assert_eq!(contract.to_string(), relocated.to_string());
+        let probe = format!("{source}type Row = {{name: Str}}\nlet row: Row? = {{name: \"live\"}}\nlet exact: Str = describe({{name: \"live\"}})\nlet absent: Null = describe(null)\nlet optional: Str? = describe(row)\nreveal_type(describe)\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &probe);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &probe, CheckOptions::for_check_cli());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.reveal_types.len(), 1);
+        assert!(checked.reveal_types[0].message.contains(&contract.to_string()), "{:?}", checked.reveal_types);
+    }
+
+    #[test]
+    fn exported_guarded_outputs_keep_selected_method_results_local() {
+        let source = "export pure describe(value) { if value == null { null } else { value.parent() } }\n";
+        let contract = exported_contract(source);
+        assert!(contract.to_string().contains("output(outward=T1, non-null=T2, null=Null, optional=join(T2, Null))"), "{contract}");
+        assert!(contract.to_string().contains("method-family(PathParent, receiver=T3, args=[]) -> T2"), "{contract}");
+        let probe = format!("{source}let relative: RelPath = p\"a/b\"\nlet maybe: Path? = p\"/a/b\"\nlet exact: Path = describe(p\"/a/b\")\nlet relative_parent: RelPath = describe(relative)\nlet absent: Null = describe(null)\nlet optional: Path? = describe(maybe)\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &probe);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &probe, CheckOptions::for_check_cli());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
     #[test]
