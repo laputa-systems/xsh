@@ -10,7 +10,7 @@ fn verify_imported_guarded_program(file: &str, function: &str) {
 fn verify_guarded_source(path: &std::path::Path, source: String, function: &str) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let modules = root.join("tests/fixtures/modules/guarded-requirements");
-    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path.to_str().unwrap(), crate::loader::entry_source_from_text(path.to_str().unwrap(), source), vec![modules]);
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path.to_str().unwrap(), crate::loader::entry_source_from_text(path.to_str().unwrap(), source), vec![modules, root.join("tests/fixtures/modules")]);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let source_id = parsed.arena.source_text_source_id().unwrap();
     let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
@@ -260,5 +260,34 @@ fn imported_guarded_outputs_forward_their_precise_results() {
             ("guarded_name_output(", "guarded_outputs.relay_name("),
         ]);
         verify_guarded_source(&path, source, "verify_guarded_outputs");
+    });
+}
+
+#[test]
+fn typed_guarded_observables_preserve_callback_results_errors_and_retained_values() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-observables.xsh");
+        let source = std::fs::read_to_string(&path).unwrap()
+            .replace("use guarded-observables as guarded", "use guarded-observables-typed as guarded")
+            .replace("guarded.arithmetic(", "guarded.typed_arithmetic(")
+            .replace("guarded.parent(", "guarded.typed_parent(")
+            .replace("guarded.invoke(", "guarded.typed_invoke(")
+            .replace("guarded.capture(", "guarded.typed_capture(")
+            .replace("let plain: Int =", "let plain: Int? =")
+            .replace("let missing: Null =", "let missing: Int? =")
+            .replace("let plain_path: Path =", "let plain_path: Path? =")
+            .replace("let missing_parent: Null =", "let missing_parent: Path? =")
+            .replace("let missing_result: Null =", "let missing_result: Int? =");
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp/guarded-observables-entry.xsh");
+        verify_guarded_source(&entry, source, "verify_guarded_observables");
+    });
+}
+
+#[test]
+fn inferred_guarded_observables_preserve_callback_results_errors_and_retained_values() {
+    on_scoped_body_test_stack(|| {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let source = std::fs::read_to_string(root.join("tests/fixtures/runtime/guarded-observables.xsh")).unwrap();
+        verify_guarded_source(&root.join(".work/tmp/guarded-observables-entry.xsh"), source, "verify_guarded_observables");
     });
 }

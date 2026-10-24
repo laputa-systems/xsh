@@ -55,7 +55,7 @@ proc verify_typed_guarded_observables() [io, error] -> Result[Unit, Error] {
   reset()
   let failure = guarded.typed_invoke(observe, argument(-1))
   match failure {
-    Err(problem) => assert problem.message == "observer failed"
+    Err(problem) => assert problem.message == "observer failed (guarded-observer: guarded observer)"
     Ok(_) => assert false
   }
   assert snapshot() == {events: ["argument", "callback", "defer"], calls: 1, cleaned: 1}
@@ -105,7 +105,7 @@ proc verify_guarded_observables() [io, error] -> Result[Unit, Error] {
   reset()
   let failure = guarded.invoke(observe, argument(-1))
   match failure {
-    Err(problem) => assert problem.message == "observer failed"
+    Err(problem) => assert problem.message == "observer failed (guarded-observer: guarded observer)"
     Ok(_) => assert false
   }
   assert snapshot() == {events: ["argument", "callback", "defer"], calls: 1, cleaned: 1}
