@@ -6,6 +6,7 @@ mod effects;
 mod guards;
 mod guard_calls;
 pub(super) use guard_calls::{resolve as resolve_guard_call, ResolvedGuardCall};
+pub(super) use guard_calls::source_target as guard_call_source_target;
 mod applications;
 mod operations;
 mod methods;
@@ -88,6 +89,44 @@ enum CallSubstitutionOrigin {
 }
 
 impl CallSubstitution {
+    pub(super) fn rekey_prepared_scope(&self, store: &FullStore, mapping: super::scheme_values::NamespaceCorrespondence,
+        scope: Option<crate::sema::guarded_requirements::GuardScopeId>, parent: Option<Arc<CallSubstitution>>, budget: &mut SchemeInstantiationBudget,
+    ) -> Result<Self, IrVerifyError> {
+        let invalid = || IrVerifyError::new("scheme callable prepared scope has another owner or parent");
+        if !self.owns_prepared_scope(mapping.canonical, scope) { return Err(invalid()); }
+        let source = store.scheme(mapping.canonical)?;
+        let actual = store.scheme(mapping.actual)?;
+        let pack = |scheme: &FullScheme, scope: Option<crate::sema::guarded_requirements::GuardScopeId>| -> Result<(guards::BinderPack, Option<crate::sema::guarded_requirements::GuardScopeId>), IrVerifyError> {
+            if let Some(scope) = scope {
+                let rows = bounded(scheme.guards, &store.scheme_guards, "prepared correspondence guards are invalid")?;
+                let guard = rows.get(scope.index()).filter(|guard| guard.id == scope.raw()).ok_or_else(invalid)?;
+                let starts = guard.binding_starts.map(|start| start as usize);
+                let parent = if guard.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(guard.parent as usize).map_err(|_| invalid())?) };
+                Ok((guards::BinderPack { types: starts[0]..starts[0] + guard.type_parameters.len as usize, rows: starts[1]..starts[1] + guard.row_parameters.len as usize, effects: starts[2]..starts[2] + guard.effect_parameters.len as usize }, parent))
+            } else {
+                Ok((guards::BinderPack { types: 0..scheme.type_parameters.len as usize, rows: 0..scheme.row_parameters.len as usize, effects: 0..scheme.effect_parameters.len as usize }, None))
+            }
+        };
+        let (source_pack, source_parent) = pack(source, scope)?;
+        let (actual_pack, actual_parent) = pack(actual, scope)?;
+        let origin = match (&self.origin, scope, parent) {
+            (CallSubstitutionOrigin::Root, None, None) => CallSubstitutionOrigin::Root,
+            (CallSubstitutionOrigin::Guard { scope: old, parent: old_parent, pack, .. }, Some(scope), Some(parent))
+                if *old == scope && *pack == source_pack
+                    && old_parent.owns_prepared_scope(mapping.canonical, source_parent)
+                    && parent.owns_prepared_scope(mapping.actual, actual_parent) => CallSubstitutionOrigin::Guard { scope, pack: actual_pack.clone(), parent },
+            _ => return Err(invalid()),
+        };
+        budget.charge(self.types.len() + self.rows.len() + self.effects.len())?;
+        for ty in &self.types { budget.charge_clone(ty)?; }
+        for row in &self.rows { budget.charge(row.len())?; for ty in row.values() { budget.charge_clone(ty)?; } }
+        for effects in &self.effects { if let EffectContract::Known(expression) = effects { budget.charge(expression.variables().count())?; } }
+        let types = super::scheme_values::reorder_scoped_binders(store, mapping.types, source_pack.types, actual_pack.types, self.types.clone(), budget)?;
+        let rows = super::scheme_values::reorder_scoped_binders(store, mapping.rows, source_pack.rows, actual_pack.rows, self.rows.clone(), budget)?;
+        let effects = super::scheme_values::reorder_scoped_binders(store, mapping.effects, source_pack.effects, actual_pack.effects, self.effects.clone(), budget)?;
+        Ok(Self { owner: Some(mapping.actual), origin, types, rows, effects })
+    }
+
     pub(super) fn type_argument(&self, ordinal: usize) -> Option<&Type> {
         match &self.origin {
             CallSubstitutionOrigin::Root => self.types.get(ordinal),
@@ -109,12 +148,6 @@ impl CallSubstitution {
 
     pub(super) fn prepared_guard(&self) -> Option<crate::sema::guarded_requirements::GuardScopeId> {
         match self.origin { CallSubstitutionOrigin::Root => None, CallSubstitutionOrigin::Guard { scope, .. } => Some(scope) }
-    }
-
-    pub(super) fn retarget_prepared_root(&mut self, owner: FullSchemeId) -> Result<(), IrVerifyError> {
-        if !matches!(self.origin, CallSubstitutionOrigin::Root) { return Err(IrVerifyError::new("prepared target mapping has a guard-local substitution")); }
-        self.owner = Some(owner);
-        Ok(())
     }
 
     pub(super) fn inherits_prepared_parent(&self, expected: &CallSubstitution) -> bool {
@@ -2579,12 +2612,19 @@ fn verify_body_expression(
                 if !body_types_equal(&child(value, budget)?, selected) || !body_types_equal(&child(else_value, budget)?, fallback) { return Err(IrVerifyError::new("guarded output branches disagree with their actual producers")); }
                 ty.clone()
             } else {
+            let matches_value = |actual: &SchemeType, budget: &mut SchemeInstantiationBudget| {
+                match (actual, ty) {
+                    (SchemeType::SchemeCallable(actual) | SchemeType::Ground(Type::SchemeCallable(actual)), SchemeType::SchemeCallable(expected) | SchemeType::Ground(Type::SchemeCallable(expected))) =>
+                        super::scheme_values::relationship_type_fits(store, &Type::SchemeCallable(*actual), &Type::SchemeCallable(*expected), budget, 0),
+                    _ => body_type_matches(actual, ty, budget),
+                }
+            };
             for branch in &mut branches {
                 let (condition, value) = branch?;
                 if !matches!(child(condition, budget)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("generic branch condition has no checked boolean contract")); }
-                if !body_type_matches(&child(value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic branch value disagrees with its checked contract")); }
+                if !matches_value(&child(value, budget)?, budget)? { return Err(IrVerifyError::new("generic branch value disagrees with its checked contract")); }
             }
-            if !body_type_matches(&child(else_value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
+            if !matches_value(&child(else_value, budget)?, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
             ty.clone()
             }
         }

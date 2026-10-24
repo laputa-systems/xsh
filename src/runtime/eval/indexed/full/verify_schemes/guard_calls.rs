@@ -13,6 +13,13 @@ pub(in crate::runtime::eval::indexed::full) struct ResolvedGuardCall {
 }
 
 pub(super) fn source(store: &FullStore, call: FullGuardCall, budget: &mut SchemeInstantiationBudget) -> Result<(FullInstantiation, FullSchemeId), IrVerifyError> {
+    let (arguments, target) = source_target(store, call, budget)?;
+    let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("guard call target is out of bounds"))?;
+    let FullCallableContract::Scheme(owner) = function.contract else { return Err(IrVerifyError::new("guard call target has no scoped requirement contract")); };
+    Ok((arguments, owner))
+}
+
+pub(in crate::runtime::eval::indexed::full) fn source_target(store: &FullStore, call: FullGuardCall, budget: &mut SchemeInstantiationBudget) -> Result<(FullInstantiation, super::IrFunctionId), IrVerifyError> {
     budget.charge(1)?;
     let instruction = call.instruction as usize;
     let arguments;
@@ -51,9 +58,7 @@ pub(super) fn source(store: &FullStore, call: FullGuardCall, budget: &mut Scheme
             store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("guard call source relationship is invalid"))?.canonical
         };
     }
-    let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("guard call target is out of bounds"))?;
-    let FullCallableContract::Scheme(owner) = function.contract else { return Err(IrVerifyError::new("guard call target has no scoped requirement contract")); };
-    Ok((arguments, owner))
+    Ok((arguments, target))
 }
 
 pub(super) fn verify_origin(store: &FullStore, call: FullGuardCall, ordinal: u32, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {

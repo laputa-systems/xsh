@@ -336,6 +336,38 @@ mod tests {
     }
 
     #[test]
+    fn independent_guarded_handlers_execute_after_frontend_and_module_disposal() {
+        use crate::runtime::value::{ResultValue, Value};
+        let directory = tempfile::Builder::new().prefix("guarded-correspondence-").tempdir_in(".work/tmp").unwrap();
+        for (name, source) in [
+            ("left_handler", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/modules/guarded-correspondence/left_handler.xsh"))),
+            ("right_handler", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/modules/guarded-correspondence/right_handler.xsh"))),
+        ] {
+            std::fs::write(directory.path().join(format!("{name}.xsh")), source).unwrap();
+        }
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/guarded-correspondence.xsh"));
+        let path = directory.path().canonicalize().unwrap().join("entry.xsh");
+        let file = path.to_str().unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        drop(directory);
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_guarded_correspondence", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(result.output.stdout.is_empty(), "{:?}", result.output.stdout);
+            assert!(result.output.stderr.is_empty(), "{:?}", result.output.stderr);
+            assert!(matches!(result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(*value, Value::Unit)));
+        }
+    }
+
+    #[test]
     fn rebase_preserves_nested_factory_relationships_and_rejects_foreign_mismatch() {
         fn checked_factory(target: &str) -> (crate::sema::check::CheckOutput, crate::source::Span) {
             let source = format!(

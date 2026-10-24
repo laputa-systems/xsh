@@ -1684,28 +1684,92 @@ impl FullProgram {
                 .ok_or_else(|| IrVerifyError::new("value-call actual target is not a member"))?;
             (value.canonical.index(), Some(selected))
         } else { (target, None) };
-        let FullCallableContract::Scheme(mut id) = self.store.functions.get(contract_target)
+        let FullCallableContract::Scheme(id) = self.store.functions.get(contract_target)
             .ok_or_else(|| IrVerifyError::new("invocation target is out of bounds"))?.contract
         else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
         let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
-        let mut substitution = verify_schemes::instantiate_invocation(
+        let substitution = verify_schemes::instantiate_invocation(
             &self.store, id, self.store.scheme(id)?, instance, &caller.substitution, &mut budget,
         )?;
-        if let Some(selected) = selected {
-            substitution.types = scheme_values::reorder_binders(&self.store, selected.types, substitution.types, &mut budget)?;
-            substitution.rows = scheme_values::reorder_binders(&self.store, selected.rows, substitution.rows, &mut budget)?;
-            substitution.effects = scheme_values::reorder_binders(&self.store, selected.effects, substitution.effects, &mut budget)?;
-            let FullCallableContract::Scheme(actual) = self.store.functions[target].contract else { return Err(IrVerifyError::new("selected invocation target has no scheme")); };
-            id = actual;
-            substitution.retarget_prepared_root(id)?;
-        }
         let substitution = Arc::new(substitution);
         let scheme = self.store.scheme(id)?;
         let mut layouts = self.invocation_layouts(instance.application_bindings, caller, &mut budget)?;
         layouts.guard_calls = self.prepare_guard_calls(scheme.guard_calls, instance.guard_call_bindings, Arc::clone(&substitution), caller, source, &mut budget)?;
         let guards = scheme.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared guard range is invalid"))?;
         layouts.guards = self.prepare_physical_guards(id, &self.store.scheme_guards[guards], IR_NONE, instance.guard_bindings, Arc::clone(&substitution), caller, source, &mut budget)?;
-        Ok(PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) })
+        let prepared = PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) };
+        if let Some(selected) = selected && target != contract_target {
+            let namespaces = scheme_values::correspondence_namespaces(&self.store, IrFunctionId::new(contract_target).map_err(|_| IrVerifyError::new("canonical callable is out of bounds"))?, selected, &mut budget)?;
+            let mapping = *namespaces.first().ok_or_else(|| IrVerifyError::new("selected callable has no root correspondence"))?;
+            self.rekey_prepared_invocation(&prepared, mapping, None, &namespaces, &mut BTreeMap::new(), &mut budget, 0)
+        } else { Ok(prepared) }
+    }
+
+    fn rekey_prepared_invocation(&self, prepared: &PreparedInvocationBindings, mapping: scheme_values::NamespaceCorrespondence,
+        parent: Option<Arc<verify_schemes::CallSubstitution>>, namespaces: &[scheme_values::NamespaceCorrespondence],
+        completed: &mut BTreeMap<(usize, usize, usize, schemes::FullSchemeId, Option<crate::sema::guarded_requirements::GuardScopeId>), PreparedInvocationBindings>,
+        budget: &mut verify_schemes::SchemeInstantiationBudget, depth: usize,
+    ) -> Result<PreparedInvocationBindings, IrVerifyError> {
+        let invalid = || IrVerifyError::new("selected callable packet has no authenticated scoped correspondence");
+        budget.charge(1)?;
+        if depth > crate::sema::constraints::MAX_TYPE_DEPTH { return Err(invalid()); }
+        let scope = prepared.substitution.prepared_guard();
+        let key = (Arc::as_ptr(&prepared.substitution) as usize, Arc::as_ptr(&prepared.layouts) as usize, parent.as_ref().map_or(0, |parent| Arc::as_ptr(parent) as usize), mapping.actual, scope);
+        if let Some(prepared) = completed.get(&key) { return Ok(prepared.clone()); }
+        let substitution = Arc::new(prepared.substitution.rekey_prepared_scope(&self.store, mapping, scope, parent, budget)?);
+        let requirements = |owner, scope: Option<crate::sema::guarded_requirements::GuardScopeId>| -> Result<IrRange, IrVerifyError> {
+            let scheme = self.store.scheme(owner)?;
+            if let Some(scope) = scope {
+                let guards = scheme.guards.bounds(self.store.scheme_guards.len()).ok_or_else(invalid)?;
+                Ok(self.store.scheme_guards[guards].get(scope.index()).filter(|guard| guard.id == scope.raw()).ok_or_else(invalid)?.guard_calls)
+            } else { Ok(scheme.guard_calls) }
+        };
+        let source_calls = requirements(mapping.canonical, scope)?.bounds(self.store.scheme_guard_calls.len()).ok_or_else(invalid)?;
+        let actual_calls = requirements(mapping.actual, scope)?.bounds(self.store.scheme_guard_calls.len()).ok_or_else(invalid)?;
+        if source_calls.len() != actual_calls.len() || source_calls.len() != prepared.layouts.guard_calls.len() { return Err(invalid()); }
+        budget.charge(source_calls.len() + prepared.layouts.arguments.len() + prepared.layouts.guards.len())?;
+        let mut guard_calls = Vec::with_capacity(source_calls.len());
+        for (ordinal, ((source_call, actual_call), packet)) in self.store.scheme_guard_calls[source_calls].iter()
+            .zip(&self.store.scheme_guard_calls[actual_calls]).zip(&prepared.layouts.guard_calls).enumerate()
+        {
+            if packet.origin != self.guard_call_origin(&prepared.substitution, ordinal, *source_call)? { return Err(invalid()); }
+            let ordinal = u32::try_from(ordinal).map_err(|_| invalid())?;
+            let source_target = verify_schemes::resolve_guard_call(&self.store, *source_call, ordinal, Arc::clone(&prepared.substitution), budget)?;
+            let actual_target = verify_schemes::resolve_guard_call(&self.store, *actual_call, ordinal, Arc::clone(&substitution), budget)?;
+            self.forwarded_guard_scope(packet, source_target.owner, source_target.metadata, &source_target.parent, budget)?;
+            let target_mapping = *namespaces.iter().find(|namespace| namespace.canonical == source_target.owner && namespace.actual == actual_target.owner).ok_or_else(invalid)?;
+            if source_target.scope != actual_target.scope { return Err(invalid()); }
+            let binding = match &packet.binding {
+                PreparedGuardCallBinding::Null => PreparedGuardCallBinding::Null,
+                PreparedGuardCallBinding::NonNull(packet) => PreparedGuardCallBinding::NonNull(self.rekey_prepared_invocation(packet, target_mapping, Some(Arc::clone(&actual_target.parent)), namespaces, completed, budget, depth + 1)?),
+                PreparedGuardCallBinding::Optional(packet) => PreparedGuardCallBinding::Optional(self.rekey_prepared_invocation(packet, target_mapping, Some(Arc::clone(&actual_target.parent)), namespaces, completed, budget, depth + 1)?),
+            };
+            let actual_packet = PreparedGuardCall { origin: self.guard_call_origin(&substitution, ordinal as usize, *actual_call)?, owner: actual_target.owner, scope: actual_target.scope, binding };
+            self.forwarded_guard_scope(&actual_packet, actual_target.owner, actual_target.metadata, &actual_target.parent, budget)?;
+            guard_calls.push(actual_packet);
+        }
+        let actual_guards = self.store.scheme(mapping.actual)?.guards.bounds(self.store.scheme_guards.len()).ok_or_else(invalid)?;
+        let mut guards = BTreeMap::<crate::sema::guarded_requirements::GuardScopeId, Option<PreparedInvocationBindings>>::new();
+        for (&id, packet) in &prepared.layouts.guards {
+            let guard = self.store.scheme_guards[actual_guards.clone()].get(id.index()).filter(|guard| guard.id == id.raw()).ok_or_else(invalid)?;
+            let parent_id = if guard.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(guard.parent as usize).map_err(|_| invalid())?) };
+            let parent = if parent_id == scope { Some(Arc::clone(&substitution)) }
+                else { guards.get(&parent_id.ok_or_else(invalid)?).ok_or_else(invalid)?.as_ref().map(|packet| Arc::clone(&packet.substitution)) };
+            let packet = match (packet, parent) {
+                (None, None) => None,
+                (None, Some(parent)) => {
+                    let source = verify_schemes::instantiate_bound_type(&self.store, guard.source, &parent, budget, 0)?;
+                    if !matches!(crate::sema::guarded_requirements::non_null_source(&source), Ok(crate::sema::guarded_requirements::NonNullSource::Null)) { return Err(invalid()); }
+                    None
+                }
+                (Some(packet), Some(parent)) => Some(self.rekey_prepared_invocation(packet, mapping, Some(parent), namespaces, completed, budget, depth + 1)?),
+                _ => return Err(invalid()),
+            };
+            guards.insert(id, packet);
+        }
+        let result = PreparedInvocationBindings { substitution, layouts: Arc::new(PreparedInvocationLayouts { arguments: prepared.layouts.arguments.clone(), guards, guard_calls }) };
+        completed.insert(key, result.clone());
+        Ok(result)
     }
 
     fn prepare_guard_calls(&self, requirements: IrRange, bindings: IrRange, parent: Arc<verify_schemes::CallSubstitution>, caller: &PreparedInvocationBindings, source: PreparedCallSource, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<Vec<PreparedGuardCall>, IrVerifyError> {
@@ -13202,16 +13266,35 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    fn needs_scoped_callable_projection_proof(&self, slot: usize, value: usize, ty: &Type) -> Result<bool, IrVerifyError> {
+    fn needs_scoped_callable_initializer_proof(&self, slot: usize, value: usize, ty: &Type) -> Result<bool, IrVerifyError> {
         let Type::SchemeCallable(id) = ty else { return Ok(false); };
         if self.producer_demand != crate::runtime::eval::ProducerDemand::Needed || driver_owner_index(self.owner).is_some() { return Ok(false); }
         let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("callable projection writer has no function owner"))?;
-        if !matches!(self.store.functions[function.index()].contract, FullCallableContract::Scheme(_)) { return Ok(false); }
+        let FullCallableContract::Scheme(scheme_id) = self.store.functions[function.index()].contract else { return Ok(false); };
         if self.local_immutable_let_initializer(slot)?.1 != Some(value) { return Ok(false); }
         let mut source = value;
         let mut visited = BTreeSet::new();
+        let scheme = self.store.scheme(scheme_id)?;
+        let facts = &self.store.scheme_body_facts[scheme.body_facts.bounds(self.store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("scoped callable initializer facts are invalid"))?];
+        let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
         let (base, name) = loop {
+            budget.charge(1)?;
             if !visited.insert(source) { return Err(IrVerifyError::new("scoped callable projection writer is cyclic")); }
+            let key = (source as u32, schemes::FullSchemeBodyFactKind::Expression as u8);
+            let mut comparisons = 0;
+            let fact = facts.binary_search_by_key(&key, |fact| { comparisons += 1; (fact.instruction, fact.kind() as u8) });
+            budget.charge(comparisons)?;
+            if let Ok(index) = fact {
+                let fact = facts[index];
+                if fact.function != function || !self.instruction_range.contains(&source) { return Err(IrVerifyError::new("scoped callable initializer fact belongs to another owner")); }
+                let node = self.store.scheme_type(fact.ty().ok_or_else(|| IrVerifyError::new("scoped callable initializer fact has no type"))?)?;
+                let actual = match node.tag {
+                    schema::FullSchemeTypeTag::SchemeCallable => Some(Type::SchemeCallable(self.store.semantic.scheme_callable_id(node.first)?)),
+                    schema::FullSchemeTypeTag::Ground => Some(self.store.semantic.to_type(TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("scoped callable initializer ground type is invalid"))?)?),
+                    _ => None,
+                };
+                if actual.as_ref() == Some(ty) { return Ok(true); }
+            }
             match self.expression_view(source)? {
                 schema::ExprView::Param(slot) => {
                     let Some(initializer) = self.local_immutable_let_initializer(slot)?.1 else { return Ok(false); };
@@ -13259,7 +13342,7 @@ impl<'a> FullDecoder<'a> {
         if !fact_type.contains_typed_callable() {
             return Ok(());
         }
-        if self.needs_scoped_callable_projection_proof(slot, value, &fact_type)? {
+        if self.needs_scoped_callable_initializer_proof(slot, value, &fact_type)? {
             self.proven_callable_writers.borrow_mut().insert(slot);
             return Ok(());
         }
@@ -41268,6 +41351,8 @@ pure foreign(payload, count: Int) {
         assert_eq!(size_of::<FullBlock>(), 20);
         assert_eq!(size_of::<FullFunction>(), 48);
         assert_eq!(size_of::<FullParam>(), 8);
+        assert_eq!(size_of::<scheme_values::FullSchemeCallableTarget>(), 28);
+        assert_eq!(size_of::<PreparedInvocationBindings>(), 2 * size_of::<usize>());
         assert_eq!(size_of::<FullParamCold>(), 12);
         assert_eq!(size_of::<FullCapture>(), 20);
         assert_eq!(size_of::<FullFunctionMetadata>(), 8);
@@ -45816,6 +45901,107 @@ assert branch_text == "branch"
                     evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
                 }
             }
+        });
+    }
+
+    #[test]
+    fn guarded_callable_correspondences_keep_owned_packs_and_actual_packet_origins() {
+        run_with_large_stack(|| {
+            let mut program = fixture("guarded-callable-correspondence-cold.xsh", r#"
+pure first(value) -> Str { if value == null { "null" } else { f"{value}" } }
+pure second(value) -> Str { if value == null { "absent" } else { f"{value}" } }
+pure outsider(value) -> Str { if value == null { "missing" } else { value.name } }
+pure dispatch(flag: Bool, value) -> Str {
+    let selected = if flag { let candidate = first; candidate } else { let candidate = second; candidate }
+    selected(value)
+}
+let answer = dispatch(true, 7)
+assert answer == "7"
+let unrelated = outsider
+"#);
+            program.store.in_place.take();
+            assert_eq!(verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            let cold = || {
+                let mut changed = program.clone();
+                changed.store.in_place.take();
+                assert!(changed.store.in_place.get().is_none());
+                changed
+            };
+            let dispatch = scheme_fixture_root_function(&program, "dispatch");
+            let outsider = IrFunctionId::new(scheme_fixture_root_function(&program, "outsider")).unwrap();
+            let site = program.store.scheme_callable_calls.iter().find(|site| program.store.function_instruction_range(dispatch).unwrap().contains(&(site.instruction as usize))).copied().unwrap();
+            let relationship = program.store.scheme_callable_values[site.relationship as usize];
+            let target_range = relationship.targets.bounds(program.store.scheme_callable_targets.len()).unwrap();
+            let target_index = target_range.clone().find(|index| program.store.scheme_callable_targets[*index].function != relationship.canonical).unwrap();
+            let target = program.store.scheme_callable_targets[target_index];
+            let FullCallableContract::Scheme(canonical_owner) = program.store.functions[relationship.canonical.index()].contract else { unreachable!() };
+            let FullCallableContract::Scheme(actual_owner) = program.store.functions[target.function.index()].contract else { unreachable!() };
+            let FullCallableContract::Scheme(foreign_owner) = program.store.functions[outsider.index()].contract else { unreachable!() };
+            let canonical = program.store.scheme(canonical_owner).unwrap();
+            let actual = program.store.scheme(actual_owner).unwrap();
+            let first_guard = program.store.scheme_guards[canonical.guards.bounds(program.store.scheme_guards.len()).unwrap().start];
+            let other_guard = program.store.scheme_guards[actual.guards.bounds(program.store.scheme_guards.len()).unwrap().start];
+            assert_eq!(first_guard.id, 0);
+            assert_eq!(other_guard.id, 0);
+            assert!(first_guard.type_parameters.len > 0);
+            let local = first_guard.binding_starts[0] as usize;
+            let types = target.types.bounds(program.store.scheme_callable_binders.len()).unwrap();
+            let mut root_escape = cold();
+            root_escape.store.scheme_callable_binders[types.start + local] = 0;
+            verify_schemes::prepare_tables(&root_escape.store).unwrap();
+            let error = FullVerifier::verify(&root_escape).unwrap_err();
+            assert_eq!(error.message, "scheme callable target contracts disagree");
+
+            let mut foreign_target = cold();
+            foreign_target.store.scheme_callable_targets[target_index].function = outsider;
+            verify_schemes::prepare_tables(&foreign_target.store).unwrap();
+            let error = FullVerifier::verify(&foreign_target).unwrap_err();
+            assert!(error.message.starts_with("scheme callable"), "{error:?}");
+
+            let decoder = function_view_decoder(&program.store, dispatch);
+            let first_name = program_name(&program, "first");
+            let reference = decoder.instruction_range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::FunctionRef { function: decode::FunctionNameView::Name(name), kind: CallableKind::Pure }) if name == first_name)).unwrap();
+            let outsider_fact = program.store.checked_expr_types.iter().find(|fact| fact.function_ref().is_some_and(|(function, _)| function.as_name() == Some(program_name(&program, "outsider")))).unwrap();
+            let mut wrong_initializer = cold();
+            wrong_initializer.store.data[reference] = program.store.data[outsider_fact.instruction as usize];
+            for checked in &mut wrong_initializer.store.checked_call_targets {
+                if checked.instruction as usize == reference { checked.function = outsider; }
+            }
+            verify_schemes::prepare_tables(&wrong_initializer.store).unwrap();
+            let error = FullVerifier::verify(&wrong_initializer).unwrap_err();
+            assert!(error.message.contains("scheme callable") && !error.message.contains("unowned"), "{error:?}");
+
+            let call = (0..program.store.driver_steps.len()).find_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                decoder.instruction_range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::DirectPureCall { function, .. }) if function.id.index() == dispatch))
+            }).unwrap();
+            let caller = program.invocation_applications(call as u32, dispatch, &PreparedInvocationBindings::default()).unwrap();
+            let canonical_packet = program.invocation_applications(site.instruction, relationship.canonical.index(), &caller).unwrap();
+            let actual_packet = program.invocation_applications(site.instruction, target.function.index(), &caller).unwrap();
+            assert!(actual_packet.substitution.owns_prepared_scope(actual_owner, None));
+            let mut wrong_source = caller.clone();
+            Arc::make_mut(&mut wrong_source.layouts).guard_calls[0].origin.source = PreparedCallSource::EncodedInstantiation(call as u32);
+            let error = program.invocation_applications(site.instruction, target.function.index(), &wrong_source).unwrap_err();
+            assert_eq!(error.message, "prepared forwarded guard call belongs to another caller, scope, or source");
+            let mut wrong_owner = caller.clone();
+            Arc::make_mut(&mut wrong_owner.layouts).guard_calls[0].owner = foreign_owner;
+            let error = program.invocation_applications(site.instruction, target.function.index(), &wrong_owner).unwrap_err();
+            assert_eq!(error.message, "prepared forwarded guard belongs to another callable or scope");
+
+            let mut budget = verify_schemes::SchemeInstantiationBudget::new(&program.store);
+            let namespaces = scheme_values::correspondence_namespaces(&program.store, relationship.canonical, target, &mut budget).unwrap();
+            let mapping = namespaces[0];
+            let mut completed = BTreeMap::new();
+            program.rekey_prepared_invocation(&canonical_packet, mapping, None, &namespaces, &mut completed, &mut budget, 0).unwrap();
+            let mut changed_layout = canonical_packet.clone();
+            assert!(Arc::ptr_eq(&changed_layout.substitution, &canonical_packet.substitution));
+            let packet = Arc::make_mut(&mut changed_layout.layouts).guards.values_mut().find_map(Option::as_mut).unwrap();
+            packet.substitution = Arc::clone(&caller.substitution);
+            let error = program.rekey_prepared_invocation(&changed_layout, mapping, None, &namespaces, &mut completed, &mut budget, 0).unwrap_err();
+            assert_eq!(error.message, "scheme callable prepared scope has another owner or parent");
         });
     }
 

@@ -991,6 +991,11 @@ Stored generic callable values retain a finite set of actual function targets
 and one complete checked contract. Relationship identities belong to their
 semantic table. Full IR maps each target's type, row and effect binders to the
 canonical contract and authenticates the physical producer's target set.
+Each map preserves separate Root, owned Guard and residual callee namespaces,
+including every unused binder and each guard's parent and local result roles.
+Equivalent contracts can come from different physical definitions. Preparation
+rebuilds their packets with the selected definition's actual parent, guard and
+call-site origins; canonical source instructions never become target evidence.
 Aggregate storage retains an owned conversion plan with source and destination
 contracts. Cold proof validates actual structural paths, callable relationships,
 substitutions and complete evidence ownership. Scoped field producers reuse

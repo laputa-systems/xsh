@@ -52,22 +52,48 @@ pub(crate) struct CallableInstanceEvidence {
     origin: crate::source::Span,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SchemeBinderCorrespondence {
     types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
     rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
     effects: BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId>,
+    guards: Vec<SchemeGuardCorrespondence>,
+    calls: Vec<SchemeCallCorrespondence>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SchemeGuardCorrespondence {
+    pub(crate) canonical: crate::sema::guarded_requirements::GuardScopeId,
+    pub(crate) actual: crate::sema::guarded_requirements::GuardScopeId,
+    pub(crate) bindings: Box<SchemeBinderCorrespondence>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SchemeCallCorrespondence {
+    pub(crate) canonical: crate::sema::guarded_requirements::GuardCallTarget,
+    pub(crate) actual: crate::sema::guarded_requirements::GuardCallTarget,
+    pub(crate) bindings: Arc<SchemeBinderCorrespondence>,
 }
 
 impl SchemeBinderCorrespondence {
     pub(crate) fn retained_heap_bytes(&self) -> usize {
+        self.retained_with(&mut BTreeSet::new())
+    }
+    fn retained_with(&self, seen: &mut BTreeSet<usize>) -> usize {
         self.types.len() * std::mem::size_of::<(SchemeTypeParameterId, SchemeTypeParameterId)>()
             + self.rows.len() * std::mem::size_of::<(SchemeRowParameterId, SchemeRowParameterId)>()
             + self.effects.len() * std::mem::size_of::<(SchemeEffectParameterId, SchemeEffectParameterId)>()
+            + self.guards.capacity() * std::mem::size_of::<SchemeGuardCorrespondence>()
+            + self.guards.iter().map(|guard| std::mem::size_of::<Self>() + guard.bindings.retained_with(seen)).sum::<usize>()
+            + self.calls.capacity() * std::mem::size_of::<SchemeCallCorrespondence>()
+            + self.calls.iter().filter_map(|call| seen.insert(Arc::as_ptr(&call.bindings) as usize)
+                .then(|| std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>() + call.bindings.retained_with(seen))).sum::<usize>()
     }
     pub(crate) fn types(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId> { &self.types }
     pub(crate) fn rows(&self) -> &BTreeMap<SchemeRowParameterId, SchemeRowParameterId> { &self.rows }
     pub(crate) fn effects(&self) -> &BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId> { &self.effects }
+    pub(crate) fn guards(&self) -> &[SchemeGuardCorrespondence] { &self.guards }
+    pub(crate) fn calls(&self) -> &[SchemeCallCorrespondence] { &self.calls }
 }
 
 impl CallableInstanceEvidence {
@@ -261,14 +287,18 @@ impl CheckedCallableContract {
     ) -> Option<SchemeBinderCorrespondence> {
         let mut equivalence = BoundEquivalence::new(&self.schema_identities, &other.schema_identities,
             Some(callables), Some(callables));
-        if self.scheme.callable().requirements().guards != other.scheme.callable().requirements().guards
-            || !equivalence.scheme(&self.scheme, &other.scheme)
+        equivalence.correspondence = Some(SchemeBinderCorrespondence::default());
+        if !equivalence.scheme(&self.scheme, &other.scheme)
             || !equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
             || equivalence.types.len() != self.scheme.type_parameters().len()
             || equivalence.rows.len() != self.scheme.row_parameters().len()
             || equivalence.effects.len() != self.scheme.callable().requirements().effect_parameters.len()
         { return None; }
-        Some(SchemeBinderCorrespondence { types: equivalence.types, rows: equivalence.rows, effects: equivalence.effects })
+        let mut correspondence = equivalence.correspondence?;
+        correspondence.types = equivalence.types;
+        correspondence.rows = equivalence.rows;
+        correspondence.effects = equivalence.effects;
+        Some(correspondence)
     }
 
     pub fn kind(&self) -> crate::sema::types::CallableKind {
@@ -517,6 +547,9 @@ struct BoundEquivalence<'a> {
     right_callables: Option<&'a super::super::scheme_callable::SchemeCallableTable>,
     active_callables: BTreeSet<(crate::sema::scheme_callable::SchemeCallableId, crate::sema::scheme_callable::SchemeCallableId)>,
     completed_callables: Option<Rc<RefCell<SchemeCallableComparisonMemo>>>,
+    correspondence: Option<SchemeBinderCorrespondence>,
+    guard_call_memo: Rc<RefCell<BTreeMap<(usize, usize), Option<Arc<SchemeBinderCorrespondence>>>>>,
+    active_guard_calls: BTreeSet<(usize, usize)>,
 }
 
 #[derive(Default)]
@@ -544,7 +577,8 @@ impl<'a> BoundEquivalence<'a> {
         completed_callables: Option<Rc<RefCell<SchemeCallableComparisonMemo>>>) -> Self
     {
         Self { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas,
-            left_callables, right_callables, active_callables: BTreeSet::new(), completed_callables }
+            left_callables, right_callables, active_callables: BTreeSet::new(), completed_callables,
+            correspondence: None, guard_call_memo: Rc::default(), active_guard_calls: BTreeSet::new() }
     }
 }
 
@@ -557,18 +591,21 @@ fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key
 
 impl BoundEquivalence<'_> {
     fn scheme(&mut self, left: &TypeScheme, right: &TypeScheme) -> bool {
-        let left_effects = &left.callable().requirements().effect_parameters;
-        let right_effects = &right.callable().requirements().effect_parameters;
+        left.kind() == right.kind() && self.callable(left.callable(), right.callable())
+    }
+
+    fn callable(&mut self, left: &crate::sema::schemes::CallableScheme, right: &crate::sema::schemes::CallableScheme) -> bool {
+        let left_effects = &left.requirements().effect_parameters;
+        let right_effects = &right.requirements().effect_parameters;
         if left_effects.len() != right_effects.len()
             || !left_effects.iter().zip(right_effects).all(|(left, right)| bind(&mut self.effects, *left, *right))
         { return false; }
-        if left.kind() != right.kind()
-            || left.type_parameters().len() != right.type_parameters().len()
+        if left.type_parameters().len() != right.type_parameters().len()
             || left.row_parameters().len() != right.row_parameters().len()
             || !self.parameters(left.params(), right.params())
             || !self.ty(left.return_type(), right.return_type())
             || !self.interface_schema(left.return_schema(), right.return_schema(), left.return_type(), right.return_type())
-            || !self.requirements(left.callable().requirements(), right.callable().requirements())
+            || !self.requirements(left.requirements(), right.requirements())
         { return false; }
         left.row_parameters().iter().all(|left| {
             self.rows.get(&left.id).and_then(|id| right.row_parameters().iter().find(|parameter| parameter.id == *id))
@@ -577,7 +614,8 @@ impl BoundEquivalence<'_> {
     }
 
     fn requirements(&mut self, left: &crate::sema::schemes::CallableRequirements, right: &crate::sema::schemes::CallableRequirements) -> bool {
-        left.guard_calls == right.guard_calls
+        left.guard_calls.len() == right.guard_calls.len()
+            && left.guard_calls.iter().zip(&right.guard_calls).all(|(left, right)| self.guard_call(left, right))
             && left.map_key_parameters.len() == right.map_key_parameters.len()
             && left.map_key_parameters.iter().all(|parameter| self.types.get(parameter).is_some_and(|mapped| right.map_key_parameters.contains(mapped)))
             && left.conversion_parameters.len() == right.conversion_parameters.len()
@@ -643,11 +681,20 @@ impl BoundEquivalence<'_> {
             && left.guards.iter().zip(&right.guards).all(|(left, right)| self.guard(left, right))
     }
 
-    fn guard(&self, left: &crate::sema::guarded_requirements::GuardRequirements, right: &crate::sema::guarded_requirements::GuardRequirements) -> bool {
+    fn guard(&mut self, left: &crate::sema::guarded_requirements::GuardRequirements, right: &crate::sema::guarded_requirements::GuardRequirements) -> bool {
         let mut parent = self.clone();
-        let mut local = self.clone();
-        local.ty(&left.source, &right.source)
-            && left.type_parameters.len() == right.type_parameters.len()
+        if !parent.ty(&left.source, &right.source)
+            || !match (&left.output, &right.output) {
+                (None, None) => true,
+                (Some(left), Some(right)) => parent.ty(&left.outward, &right.outward) && parent.ty(&left.absent, &right.absent),
+                _ => false,
+            }
+            || left.reads.len() != right.reads.len()
+            || !left.reads.iter().zip(&right.reads).all(|(left, right)| parent.ty(&left.source, &right.source))
+        { return false; }
+        let mut local = parent.clone();
+        local.correspondence = self.correspondence.as_ref().map(|_| SchemeBinderCorrespondence::default());
+        let equivalent = left.type_parameters.len() == right.type_parameters.len()
             && left.row_parameters.len() == right.row_parameters.len()
             && left.requirements.effect_parameters.len() == right.requirements.effect_parameters.len()
             && left.type_parameters.iter().zip(&right.type_parameters).all(|(left, right)| bind(&mut local.types, *left, *right))
@@ -655,18 +702,95 @@ impl BoundEquivalence<'_> {
             && left.requirements.effect_parameters.iter().zip(&right.requirements.effect_parameters).all(|(left, right)| bind(&mut local.effects, *left, *right))
             && match (&left.effects, &right.effects) {
                 (None, None) => true,
-                (Some(left), Some(right)) => local.effects(&left.outward, &right.outward) && local.effects(&left.local, &right.local),
+                (Some(left), Some(right)) => parent.effects(&left.outward, &right.outward) && local.effects(&left.local, &right.local),
                 _ => false,
             }
             && match (&left.output, &right.output) {
                 (None, None) => true,
-                (Some(left), Some(right)) => parent.ty(&left.outward, &right.outward) && parent.ty(&left.absent, &right.absent) && local.ty(&left.present, &right.present),
+                (Some(left), Some(right)) => local.ty(&left.present, &right.present),
                 _ => false,
             }
             && local.ty(&left.view, &right.view)
-            && left.reads.len() == right.reads.len()
-            && left.reads.iter().zip(&right.reads).all(|(left, right)| local.ty(&left.source, &right.source) && local.ty(&left.view, &right.view))
-            && local.requirements(&left.requirements, &right.requirements)
+            && left.reads.iter().zip(&right.reads).all(|(left, right)| local.ty(&left.view, &right.view))
+            && local.requirements(&left.requirements, &right.requirements);
+        if !equivalent { return false; }
+        if let Some(mut bindings) = local.correspondence.take() {
+            bindings.types = left.type_parameters.iter().map(|id| (*id, local.types[id])).collect();
+            bindings.rows = left.row_parameters.iter().map(|row| (row.id, local.rows[&row.id])).collect();
+            bindings.effects = left.requirements.effect_parameters.iter().map(|id| (*id, local.effects[id])).collect();
+            self.correspondence.as_mut().unwrap().guards.push(SchemeGuardCorrespondence {
+                canonical: left.scope, actual: right.scope, bindings: Box::new(bindings),
+            });
+        }
+        local.types.retain(|id, _| !left.type_parameters.contains(id));
+        local.rows.retain(|id, _| !left.row_parameters.iter().any(|row| row.id == *id));
+        local.effects.retain(|id, _| !left.requirements.effect_parameters.contains(id));
+        self.types = local.types;
+        self.rows = local.rows;
+        self.effects = local.effects;
+        true
+    }
+
+    fn guard_call(&mut self, left: &crate::sema::guarded_requirements::GuardCallRequirement, right: &crate::sema::guarded_requirements::GuardCallRequirement) -> bool {
+        if left.source.role != right.source.role || left.validate_target().is_err() || right.validate_target().is_err() { return false; }
+        let key = (Arc::as_ptr(&left.callee) as usize, Arc::as_ptr(&right.callee) as usize);
+        if self.active_guard_calls.contains(&key) || self.active_guard_calls.len() >= crate::sema::constraints::MAX_TYPE_DEPTH { return false; }
+        let cached = self.guard_call_memo.borrow().get(&key).cloned();
+        let bindings = match cached {
+            Some(bindings) => bindings,
+            None => {
+                let mut callee = Self::new(self.left_schemas, self.right_schemas, self.left_callables, self.right_callables);
+                callee.correspondence = Some(SchemeBinderCorrespondence::default());
+                callee.guard_call_memo = Rc::clone(&self.guard_call_memo);
+                callee.active_guard_calls = self.active_guard_calls.clone();
+                callee.active_guard_calls.insert(key);
+                let bindings = if callee.callable(&left.callee, &right.callee)
+                    && callee.types.len() == left.callee.type_parameters().len()
+                    && callee.rows.len() == left.callee.row_parameters().len()
+                    && callee.effects.len() == left.callee.requirements().effect_parameters.len()
+                {
+                    let mut bindings = callee.correspondence.unwrap();
+                    bindings.types = callee.types;
+                    bindings.rows = callee.rows;
+                    bindings.effects = callee.effects;
+                    Some(Arc::new(bindings))
+                } else { None };
+                self.guard_call_memo.borrow_mut().insert(key, bindings.clone());
+                bindings
+            }
+        };
+        let Some(bindings) = bindings else { return false; };
+        let target_matches = match (left.target, right.target) {
+            (crate::sema::guarded_requirements::GuardCallTarget::Scope(left), crate::sema::guarded_requirements::GuardCallTarget::Scope(right)) => {
+                fn finds(bindings: &SchemeBinderCorrespondence, left: crate::sema::guarded_requirements::GuardScopeId, right: crate::sema::guarded_requirements::GuardScopeId) -> bool {
+                    bindings.guards.iter().any(|guard| guard.canonical == left && guard.actual == right || finds(&guard.bindings, left, right))
+                }
+                finds(&bindings, left, right)
+            }
+            (crate::sema::guarded_requirements::GuardCallTarget::Call(left), crate::sema::guarded_requirements::GuardCallTarget::Call(right)) => left.index() == right.index() && left.index() < bindings.calls.len(),
+            _ => false,
+        };
+        if !target_matches || left.type_arguments.len() != right.type_arguments.len()
+            || left.row_arguments.len() != right.row_arguments.len() || left.effect_arguments.len() != right.effect_arguments.len()
+        { return false; }
+        for (id, actual) in &left.type_arguments {
+            let Some(expected) = bindings.types.get(id).and_then(|id| right.type_arguments.get(id)) else { return false; };
+            if !self.ty(actual, expected) { return false; }
+        }
+        for (id, actual) in &left.row_arguments {
+            let Some(expected) = bindings.rows.get(id).and_then(|id| right.row_arguments.get(id)) else { return false; };
+            let actual = SchemeType::Record { fields: actual.fields().clone(), tail: actual.tail() };
+            let expected = SchemeType::Record { fields: expected.fields().clone(), tail: expected.tail() };
+            if !self.ty(&actual, &expected) { return false; }
+        }
+        for (id, actual) in &left.effect_arguments {
+            let Some(expected) = bindings.effects.get(id).and_then(|id| right.effect_arguments.get(id)) else { return false; };
+            if !self.effects(actual, expected) { return false; }
+        }
+        if let Some(correspondence) = &mut self.correspondence {
+            correspondence.calls.push(SchemeCallCorrespondence { canonical: left.target, actual: right.target, bindings });
+        }
+        true
     }
 
     fn schema(&mut self, left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>) -> bool {
@@ -1494,6 +1618,39 @@ mod tests {
         assert!(!display.equivalent_to(&record));
         assert!(!record.equivalent_to(&display));
         assert!(display.equivalent_to(&equivalent));
+    }
+
+    #[test]
+    fn guarded_callable_targets_correspond_across_independent_templates() {
+        let first = root_schema_contract("pure describe(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\n");
+        let second = root_schema_contract("\npure describe(value) -> Str {\n if value != null { f\"{value}\" } else { \"other\" }\n}\n");
+        let incompatible = root_schema_contract("pure describe(value) -> Str { if value == null { \"\" } else { value.name } }\n");
+        let callables = super::super::super::scheme_callable::SchemeCallableTable::default();
+        assert!(first.equivalent_to(&second));
+        let correspondence = first.binder_correspondence(&second, &callables)
+            .expect("independent guarded templates retain their scoped binder correspondence");
+        assert_eq!(correspondence.types().len(), first.scheme().type_parameters().len());
+        assert!(first.binder_correspondence(&incompatible, &callables).is_none());
+    }
+
+    #[test]
+    fn guarded_callable_correspondence_retains_discarded_output_binders() {
+        let first = root_schema_contract("pure describe(value) -> Unit { let result = if value != null { value.parent() } else { null }; let _ = result }\n");
+        let second = root_schema_contract("\npure describe(value) -> Unit {\n let result = if value == null { null } else { value.parent() }; let _ = result\n}\n");
+        let callables = super::super::super::scheme_callable::SchemeCallableTable::default();
+        assert!(first.equivalent_to(&second));
+        let mapping = first.binder_correspondence(&second, &callables)
+            .expect("discarding a guarded result preserves its parent output binder correspondence");
+        assert_eq!(mapping.types().len(), first.scheme().type_parameters().len());
+    }
+
+    #[test]
+    fn guarded_callable_relays_correspond_in_their_callee_namespaces() {
+        let first = root_schema_contract("pure render(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\npure describe(value) -> Str { render(value) }\n");
+        let second = root_schema_contract("\npure render(value) -> Str {\n if value == null { \"other\" } else { f\"{value}\" }\n}\npure describe(value) -> Str { render(value) }\n");
+        let callables = super::super::super::scheme_callable::SchemeCallableTable::default();
+        assert!(first.equivalent_to(&second));
+        assert!(first.binder_correspondence(&second, &callables).is_some());
     }
 
     #[test]
