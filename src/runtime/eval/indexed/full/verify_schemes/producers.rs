@@ -3328,6 +3328,46 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
+    fn pushes_expected_to_results(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type, block_values: bool) -> Result<bool, IrVerifyError> {
+        Ok(match decoder.expression_view(instruction)? {
+            schema::ExprView::ErrorContext { mut body, .. } => decoder.derive_checked_block_tail_expression(&mut body)?.is_some(),
+            schema::ExprView::ValueBlock { mut body, .. } => block_values && decoder.derive_checked_block_tail_expression(&mut body)?.is_some(),
+            schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. }
+            | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } => true,
+            schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. } => matches!(expected, Type::List(_)),
+            _ => false,
+        })
+    }
+
+    fn has_underivable_result(&mut self, decoder: &FullDecoder<'a>, root: usize) -> Result<bool, IrVerifyError> {
+        let mut pending = vec![root];
+        while let Some(instruction) = pending.pop() {
+            self.budget.charge(1)?;
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::IfExpr { branches, else_value, .. } => {
+                    for branch in branches { pending.push(branch?.1.raw() as usize); }
+                    pending.push(else_value.raw() as usize);
+                }
+                schema::ExprView::PatternIf { branches, else_value, .. } => {
+                    for branch in branches { pending.push(branch?.1.raw() as usize); }
+                    pending.push(else_value.raw() as usize);
+                }
+                schema::ExprView::MatchExpr { arms, .. } => for arm in arms { pending.push(arm?.2.raw() as usize); },
+                schema::ExprView::StrMatchExpr { arms, fallback, .. } | schema::ExprView::TagMatchExpr { arms, fallback, .. } => {
+                    for arm in arms { pending.push(arm?.1.raw() as usize); }
+                    if let Some(fallback) = fallback { pending.push(fallback.raw() as usize); }
+                }
+                schema::ExprView::ValueBlock { mut body, .. } | schema::ExprView::ErrorContext { mut body, .. } => {
+                    if let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? { pending.push(tail); }
+                }
+                schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap =>
+                    if self.declared_type(decoder, instruction)?.is_none() { return Ok(true); },
+                _ => {}
+            }
+        }
+        Ok(false)
+    }
+
     fn checked_list_accumulator(&mut self, decoder: &FullDecoder<'a>, instruction: usize, checked: &Arc<Type>, runtime_complete: bool) -> Result<bool, IrVerifyError> {
         let Type::List(expected_item) = checked.as_ref() else { return Ok(false) };
         let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
@@ -4863,6 +4903,7 @@ impl<'a> ProducerProof<'a> {
                 checked_expression_type_id(self.store, instruction as u32)
                     .map(|ty| self.contract_type(ty)).transpose()?
             }
+            None if !returned && self.pushes_expected_to_results(&decoder, instruction, &expected, true)? => None,
             None => self.declared_type(&decoder, instruction)?,
         };
         if matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _))
@@ -5688,9 +5729,18 @@ impl<'a> ProducerProof<'a> {
                         {
                             self.expression(owner, input, Arc::clone(&checked), false);
                         } else {
+                        if self.pushes_expected_to_results(&decoder, input, &checked, true)? && self.has_underivable_result(&decoder, input)? {
+                            self.expression(owner, input, Arc::clone(&checked), false);
+                            return Ok(());
+                        }
+                        let pushdown = self.pushes_expected_to_results(&decoder, input, &checked, false)?;
                         let (actual, source_fact) = self.operand_context(&decoder, input)?.into_parts();
                         let actual = match actual {
                             Some(actual) => actual,
+                            None if pushdown => {
+                                self.expression(owner, input, Arc::clone(&checked), false);
+                                return Ok(());
+                            }
                             None => return Err(IrVerifyError::new("checked value input has no producer contract")),
                         };
                         let optional_payload = !runtime_complete && Self::checked_optional_payload_source(&actual, &checked);
@@ -5704,6 +5754,10 @@ impl<'a> ProducerProof<'a> {
                             }
                         }
                         if !optional_payload && !self.checked_record_field_fits(&decoder, input, &actual, &checked)? {
+                            if pushdown {
+                                self.expression(owner, input, Arc::clone(&checked), false);
+                                return Ok(());
+                            }
                             return Err(IrVerifyError::new("checked value input disagrees with its contract"));
                         }
                         self.expression_with_fact(owner, input, actual, false, source_fact);

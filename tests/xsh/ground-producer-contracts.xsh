@@ -1,3 +1,25 @@
+test test_checked_list_storage_accepts_conditional_arms_with_null_and_empty_lists { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    let nulls: List[Str?] = match -4 { 4 => [], 3 => ctx "label" { ["c"] }, _ => [null] }
+    let mixed: List[Str?] = if nulls.len() == 1 { ["c"] } else { ["c", null] }
+    let empty: List[Str] = ctx "label" { [] }
+    let appended: List[Bool] = [true, false] + []
+    let braced: List[Int?] = { [86549, null] }
+    out += [f"{nulls.len()}", f"{mixed.len()}", f"{empty.len()}", f"{appended.len()}", f"{braced.len()}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n1\n0\n2\n2\n"
+}
+
 test test_negated_float_literal_in_list_receiver_lowers_as_float { |ctx|
   let output = test.run_script(
     ctx,
