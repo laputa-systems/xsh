@@ -584,6 +584,26 @@ test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership
   }
 }
 
+test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
+  let ctx = fixtures.linux_context(/repo)?
+  let plan = gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], [], gates.Change)?
+  assert [entry.id for entry in plan.cases] == ["core/lsmem/correctness", "core/lsmem/consumers"]
+  assert plan.products == [tests.Xsh, tests.Xsht]
+  assert plan.unresolved.is_empty()
+  match plan.cases[1].execution {
+    gates.RunCommand(spec) => assert spec.argv[1..] == [
+      "test",
+      "--exact-id", "core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory",
+      "--exact-id", "core/tests/test-util-linux-io-boundaries.xsh::test_util_linux_lsmem_preserves_raw_sysroot_argv",
+    ]
+    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("lsmem consumers were not one exact native command")
+  }
+  match gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], ["core/lsmem/consumers"], gates.Edit) {
+    Ok(_) => test.fail("Edit accepted a Change-only case")
+    Err(error) => assert error.message == "PlanError.Invalid"
+  }
+}
+
 test test_catalogue_preserves_documentation_verification_and_products {
   let ctx = fixtures.linux_context(/repo)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["docs/TESTING.md"], [], gates.Change)?

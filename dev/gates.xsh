@@ -181,6 +181,11 @@ const cargo_caller_native_files = [
   "dev/tests/test-native-workflows.xsh",
 ]
 
+const lsmem_consumer_test_ids = [
+  "core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory",
+  "core/tests/test-util-linux-io-boundaries.xsh::test_util_linux_lsmem_preserves_raw_sysroot_argv",
+]
+
 const current_metric_native_files = [
   "dev/tests/test-consolidation-metrics-current.xsh",
   "dev/tests/test-consolidation-ratchets-current.xsh",
@@ -276,6 +281,13 @@ pure rust_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args
 pure native_gate(ctx: context.Context, profile: tests.TestProfile, filter: Str) -> contract.CommandSpec {
   let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
   stages.command(f"native-{filter}", ctx.target.triple, xsht, [xsht, "test", filter], ctx.root, {})
+}
+
+pure native_exact_ids_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, ids: List[Str]) -> contract.CommandSpec {
+  let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
+  var argv = [xsht, "test"]
+  for id in ids { argv += ["--exact-id", id] }
+  stages.command(f"native-{name}", ctx.target.triple, xsht, argv, ctx.root, {})
 }
 
 pure native_exact_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, exact_test: Str) -> contract.CommandSpec {
@@ -463,6 +475,10 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     limit: RuntimeSeconds(30), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
     reasons: ["core/lsmem.xsh rooted memory inventory contract"],
     execution: RunCommand(native_gate(ctx, profile, "core/tests/test-lsmem.xsh")))]
+  entries += [CatalogCase(id: "core/lsmem/consumers", tier: Change,
+    limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    reasons: ["native tests outside test-lsmem.xsh that run the lsmem applet"],
+    execution: RunCommand(native_exact_ids_gate(ctx, profile, "core/lsmem/consumers", lsmem_consumer_test_ids)))]
   entries += manual_cases(ctx, profile)?
   entries
 }
@@ -555,6 +571,9 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     if changed_path in ["showcase/tokei.xsh", "core/lsmem.xsh"] {
       let id = if changed_path == "showcase/tokei.xsh" { "showcase/tokei/correctness" } else { "core/lsmem/correctness" }
       selected_ids += [id] when id not in selected_ids
+      if changed_path == "core/lsmem.xsh" and tier == Change {
+        selected_ids += ["core/lsmem/consumers"] when "core/lsmem/consumers" not in selected_ids
+      }
       continue
     }
     match select([changed_path]) {
@@ -568,7 +587,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => continue
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
-    continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness"]
+    continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/consumers"]
     chosen += [entry]
     selected_ids += [entry.id] when entry.id not in selected_ids
   }

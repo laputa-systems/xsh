@@ -66,6 +66,10 @@ select a Scenario through a prerequisite.
 
 The initial focused cases include `showcase/tokei/correctness` and
 `core/lsmem/correctness`. Each selects its existing native behavior module.
+A Change request for `core/lsmem.xsh` also selects `core/lsmem/consumers`, an
+`--exact-id` set of the tests in other modules that run the applet. The
+unprivileged gate lane skips the two namespace-dependent lsmem consumers, as the
+Core directory run does; an exact set cannot include a test that will skip.
 Edit rejects Change-only cases before preparing products. Edit runtime is limited
 to 30 seconds and Change runtime to 300 seconds across selected automatic cases.
 Each automatic command also has its declared case limit. Explicit Scenario cases use their
