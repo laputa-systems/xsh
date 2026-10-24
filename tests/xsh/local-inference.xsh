@@ -898,6 +898,40 @@ false
 """
 }
 
+test recursive_statement_call_propagates_the_inferred_unit_result { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc descend(depth: Int) [error] {
+  return when depth == 0
+  descend(depth - 1)
+  return Err(error.failure("stopped")) when depth == 2
+  print "unwound $depth"
+}
+for depth in [1, 3] {
+  if let Err(failure) = descend(depth) { print "failed $depth" } else { print "completed $depth" }
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """unwound 1
+completed 1
+unwound 1
+failed 3
+"""
+
+  let rejected = test.run_script(
+    ctx,
+    r"""proc descend(depth: Int) {
+  return when depth == 0
+  descend(depth - 1)
+  return Ok(depth) when depth == 3
+}
+""",
+  )?
+  assert ! rejected.success
+  assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+}
+
 test compound_assignment_resolves_deferred_operand_to_the_target_numeric_type { |ctx|
   let output = test.expect(
     ctx,

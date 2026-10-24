@@ -3101,6 +3101,20 @@ impl Checker {
         true
     }
 
+    fn statement_result_with_unit_payload(&mut self, actual: &Type, value: Span) -> Type {
+        let Type::Result(payload, _) = actual else { return actual.clone() };
+        if !payload.contains_inference() {
+            return actual.clone();
+        }
+        let Ok(resolved) = self.type_constraints.resolve(actual) else { return actual.clone() };
+        let Type::Result(payload, _) = &resolved else { return resolved };
+        if matches!(**payload, Type::Inference(_)) {
+            self.expect_type(&Type::Unit, payload, value);
+            return self.type_constraints.resolve(&resolved).unwrap_or(resolved);
+        }
+        resolved
+    }
+
     pub(super) fn check_unit_statement_value_tail(
         &mut self,
         source: Option<&str>,
@@ -3110,6 +3124,7 @@ impl Checker {
         copy_update: Option<CopyUpdateMistake>,
         discard_fix: bool,
     ) -> Type {
+        let actual = &self.statement_result_with_unit_payload(actual, value);
         if actual.is_result() {
             self.reject_discarded_value(actual, statement, value, discard_fix, copy_update);
             if expr_ty_auto_propagates(actual) {
@@ -3165,6 +3180,7 @@ impl Checker {
         discard_fix: bool,
         copy_update: Option<CopyUpdateMistake>,
     ) {
+        let ty = &self.statement_result_with_unit_payload(ty, value);
         if *ty == Type::Bool
             || ty.is_result_unit()
             || ty.matches_expected(&Type::Unit)
