@@ -32407,6 +32407,37 @@ assert nullable_name == null
     }
 
     #[test]
+    fn independent_constructor_arguments_share_complete_substitution_validation() {
+        std::thread::Builder::new().stack_size(32 * 1024 * 1024).spawn(|| {
+            let count = 512;
+            let parameters = (0..count).map(|index| format!("value_{index}")).collect::<Vec<_>>().join(", ");
+            let mut lines = vec!["type Box[T] = {value: T}".to_owned(), format!("pure build({parameters}) {{")];
+            lines.extend((0..count).map(|index| format!("  let box_{index} = Box(value: value_{index})")));
+            lines.push(format!("  {{{}}}", (0..count).map(|index| format!("box_{index}")).collect::<Vec<_>>().join(", ")));
+            lines.push("}".to_owned());
+            let values = (0..count).map(|index| if index % 2 == 0 { "7" } else { "\"kept\"" }).collect::<Vec<_>>();
+            lines.push(format!("let result = build({})", values.join(", ")));
+            lines.extend(values.iter().enumerate().map(|(index, value)| format!("assert result.box_{index}.value == {value}")));
+            lines.push("print $result.box_0.value".to_owned());
+            lines.push(String::new());
+            let source = lines.join("\n");
+            let program = Arc::new(fixture("many-independent-constructor-arguments.xsh", &source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    let completion = evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(_))), "{completion:?}");
+                }
+                assert_eq!(evaluator.stdout, b"7\n");
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
     fn full_verifier_requires_exact_generic_type_argument_evidence() {
         let source = "pure identity(value) { value }\n\
                       pure use_int() -> Int { identity(-1) }\n\

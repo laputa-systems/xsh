@@ -724,6 +724,13 @@ expression spans. A semantic body comparison uses the same retained callable
 instance as its header comparison. Raw effect-term equality proves only equality
 within one owner scope.
 
+A ground invocation validates its complete immutable binder substitution once
+for its argument group. A private validated token reuses the canonical bound-type
+instantiator for each argument; conversion, MapKey and iteration checks still
+cover every binder, including binders absent from that argument's type. Every
+argument retains its independent physical producer and binder evidence checks.
+The shared materialization budget also bounds each instantiated argument type.
+
 Frontend inference-work metrics count generalization and instantiation type
 function entries, schema argument slots visited by mapping, scoped constructor
 generalizations, and constructor template binder normalization iterations.

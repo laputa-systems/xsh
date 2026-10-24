@@ -4140,6 +4140,7 @@ fn verify_instantiated_call_arguments(
             )
         })
         .transpose()?;
+    let validated = ValidatedCallSubstitution::new(store, scope, substitution, materialization)?;
     let mut checked_arguments = Vec::with_capacity(arguments.len());
     let mut ground_arguments = Vec::new();
     for (index, argument) in arguments.iter().enumerate() {
@@ -4171,14 +4172,7 @@ fn verify_instantiated_call_arguments(
         };
         let expected = expected_scheme_type
             .map(|id| {
-                instantiate_scheme_type(
-                    store,
-                    scope,
-                    id,
-                    substitution,
-                    materialization,
-                    0,
-                )
+                validated.instantiate(id, materialization, 0)
             })
             .transpose()?;
         let expected = expected
@@ -5899,6 +5893,35 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(SCHEME_TYPE_WORK_BASE)
 }
 
+struct ValidatedCallSubstitution<'a> {
+    store: &'a FullStore,
+    substitution: &'a CallSubstitution,
+}
+
+impl<'a> ValidatedCallSubstitution<'a> {
+    fn new(store: &'a FullStore, scope: &'a SchemeScope, substitution: &'a CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+        if scope.type_parameters.len() != substitution.types.len()
+            || scope.row_parameters.len() != substitution.rows.len()
+            || scope.effects.parameters.len() != substitution.effects.len()
+        {
+            return Err(IrVerifyError::new("generic call substitution does not match its binder scope"));
+        }
+        budget.charge(scope.type_parameters.len())?;
+        for (parameter, actual) in scope.type_parameters.iter().zip(&substitution.types) {
+            ground_conversions(parameter, actual)?;
+            if parameter.map_key && !actual.is_map_key() {
+                return Err(IrVerifyError::new("generic substitution violates its MapKey requirement"));
+            }
+        }
+        verify_ground_iterations(store, scope, substitution, budget)?;
+        Ok(Self { store, substitution })
+    }
+
+    fn instantiate(&self, id: SchemeTypeId, budget: &mut SchemeInstantiationBudget, depth: usize) -> Result<Type, IrVerifyError> {
+        instantiate_bound_type(self.store, id, self.substitution, budget, depth)
+    }
+}
+
 fn instantiate_scheme_type(
     store: &FullStore,
     scope: &SchemeScope,
@@ -5907,21 +5930,7 @@ fn instantiate_scheme_type(
     budget: &mut SchemeInstantiationBudget,
     depth: usize,
 ) -> Result<Type, IrVerifyError> {
-    if scope.type_parameters.len() != substitution.types.len()
-        || scope.row_parameters.len() != substitution.rows.len()
-        || scope.effects.parameters.len() != substitution.effects.len()
-    {
-        return Err(IrVerifyError::new("generic call substitution does not match its binder scope"));
-    }
-    budget.charge(scope.type_parameters.len())?;
-    for (parameter, actual) in scope.type_parameters.iter().zip(&substitution.types) {
-        ground_conversions(parameter, actual)?;
-        if parameter.map_key && !actual.is_map_key() {
-            return Err(IrVerifyError::new("generic substitution violates its MapKey requirement"));
-        }
-    }
-    verify_ground_iterations(store, scope, substitution, budget)?;
-    instantiate_bound_type(store, id, substitution, budget, depth)
+    ValidatedCallSubstitution::new(store, scope, substitution, budget)?.instantiate(id, budget, depth)
 }
 
 pub(super) fn invocation_parameter_types(
@@ -6350,6 +6359,60 @@ mod tests {
     use super::*;
     use super::super::super::semantic::SemanticPoolBuilder;
     use super::super::schemes::FullSchemeTypeNode;
+
+    #[test]
+    fn validated_substitution_checks_unused_binder_requirements_and_budget() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut store = FullStore::default();
+            let mut semantic = SemanticPoolBuilder::default();
+            let integer = semantic.intern_type(&mut store.semantic, &Type::Int).unwrap();
+            let root = SchemeTypeId::from_raw(0).unwrap();
+            store.scheme_types.push(FullSchemeTypeNode { first: integer.raw(), second: 0, children: IrRange::default(), tag: FullSchemeTypeTag::Ground, reserved: [0; 3] });
+            let mut scope = symbolic_substitution_test_scope();
+            let mut unused = scope.type_parameters[0];
+            unused.id = 11;
+            unused.binder = 1;
+            scope.type_parameters.push(unused);
+            scope.type_binders.insert(11, 1);
+            let substitution = CallSubstitution { types: vec![Type::Int, Type::Str], rows: vec![BTreeMap::new()], effects: Vec::new() };
+            let budget = || SchemeInstantiationBudget { remaining: 64, semantic_types: TypeMaterializationBudget::default() };
+            let mut work = budget();
+            let validated = ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut work).unwrap();
+            assert_eq!(validated.instantiate(root, &mut work, 0).unwrap(), Type::Int);
+            let mut missing = substitution.clone();
+            missing.types.pop();
+            assert!(ValidatedCallSubstitution::new(&store, &scope, &missing, &mut budget()).is_err());
+            missing = substitution.clone();
+            missing.rows.clear();
+            assert!(ValidatedCallSubstitution::new(&store, &scope, &missing, &mut budget()).is_err());
+            missing = substitution.clone();
+            missing.effects.push(EffectContract::finite(Default::default()));
+            assert!(ValidatedCallSubstitution::new(&store, &scope, &missing, &mut budget()).is_err());
+            let mut keyed = scope.clone();
+            keyed.type_parameters[1].map_key = true;
+            let mut invalid = substitution.clone();
+            invalid.types[1] = Type::Float;
+            assert!(ValidatedCallSubstitution::new(&store, &keyed, &invalid, &mut budget()).is_err());
+            let mut converted = scope.clone();
+            let mut conversions = ValueConversionSet::default();
+            conversions.insert(ValueConversion::ProcessWord);
+            converted.type_parameters[1].conversions = conversions.bits();
+            invalid.types[1] = Type::Bytes;
+            assert!(ValidatedCallSubstitution::new(&store, &converted, &invalid, &mut budget()).is_err());
+            let mut iterable = scope.clone();
+            iterable.type_parameters[1].iteration_item = root.raw();
+            let mut items = substitution.clone();
+            items.types[1] = Type::List(Box::new(Type::Int));
+            assert!(ValidatedCallSubstitution::new(&store, &iterable, &items, &mut budget()).is_ok());
+            invalid.types[1] = Type::Int;
+            assert!(ValidatedCallSubstitution::new(&store, &iterable, &invalid, &mut budget()).is_err());
+            let mut exhausted = SchemeInstantiationBudget { remaining: 1, semantic_types: TypeMaterializationBudget::default() };
+            assert!(ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut exhausted).is_err());
+            let mut exhausted = SchemeInstantiationBudget { remaining: 2, semantic_types: TypeMaterializationBudget::default() };
+            let validated = ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut exhausted).unwrap();
+            assert!(validated.instantiate(root, &mut exhausted, 0).is_err());
+        });
+    }
 
     #[test]
     fn symbolic_null_comparison_does_not_admit_other_unequal_domains() {
