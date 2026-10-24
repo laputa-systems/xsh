@@ -336,6 +336,11 @@ completion query proves that handler cannot continue before a ground payload is
 published. Lexical binding, complete writer census, and ordinary argument proofs
 remain mandatory.
 
+A typed callee retains an actual checked optional-to-callable projection before
+following aliases to its original slot. Only a schema-free callable check whose
+exact payload and nonnull source are independently proved supplies that callee
+type; the call still requires the same complete callable signature identity.
+
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor
 context supplies elaboration types; physical slot proof independently
