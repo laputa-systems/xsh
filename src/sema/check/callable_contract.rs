@@ -12,6 +12,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod render;
+pub(super) use render::render_revealed_type;
 
 /// An immutable view of the checker's selected callable contract. Cloning the
 /// view preserves its symbol spellings after its source arena is dropped.
@@ -1450,6 +1451,64 @@ mod tests {
             assert!(first.equivalent_to(&renamed));
             assert_eq!(first.to_string(), renamed.to_string());
             assert!(!first.equivalent_to(&build(3, true)));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_renders_application_envelopes_and_effect_predicates() {
+        use crate::sema::arguments::{ArgumentParameterLayout, StaticArgumentKind};
+        use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument, CallableInvocation, CallableKindRequirement, KnownArgumentParameter, KnownCallArguments, ProcReturnEnvelope};
+        use crate::sema::effects::{CheckedEffects, EffectContract, EffectPredicate, EffectSet};
+        use crate::sema::schemes::{CallableRequirements, CallableScheme, SchemeEffectParameterId};
+        use crate::sema::types::CallableKind;
+        use crate::syntax::node::Effect;
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let predicates = |id| {
+                let subject = EffectContract::variable(SchemeEffectParameterId(id));
+                let permission = EffectContract::finite(EffectSet::singleton(Effect::Io));
+                vec![EffectPredicate::Equal(subject.clone(), permission.clone()), EffectPredicate::Included(subject.clone(), permission.clone()),
+                    EffectPredicate::Covered(subject.clone(), permission), EffectPredicate::Excluded(subject, EffectSet::singleton(Effect::Io))]
+            };
+            let build = |id, predicate| {
+                let types = (id..id + 5).map(SchemeTypeParameterId).collect::<Vec<_>>();
+                let [callee, argument, result, first, second]: [SchemeType; 5] = types.iter().copied().map(SchemeType::Parameter).collect::<Vec<_>>().try_into().unwrap();
+                let effect = SchemeEffectParameterId(id);
+                let span = crate::source::Span::at(SourceId::new(0), 0);
+                let arguments: Arc<[_]> = vec![CallableApplicationArgument { kind: StaticArgumentKind::Named(Name::intern("value")), ty: argument.clone(), span },
+                    CallableApplicationArgument { kind: StaticArgumentKind::Named(Name::intern("label")), ty: SchemeType::Ground(Type::Str), span },
+                    CallableApplicationArgument { kind: StaticArgumentKind::Splice, ty: SchemeType::List(Box::new(argument.clone())), span }].into();
+                let requirements = CallableRequirements { effect_parameters: vec![effect], effect_predicates: vec![predicate], applications: vec![
+                    CallableApplication::Invocation(CallableInvocation { callee: callee.clone(), arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: argument.clone(), span }].into(),
+                        result, effects: EffectContract::variable(effect), kind: CallableKindRequirement::Effectful, span,
+                        proc_returns: vec![ProcReturnEnvelope { result: first, propagated_errors: vec![SchemeType::Ground(Type::Str)].into(), span },
+                            ProcReturnEnvelope { result: second, propagated_errors: vec![SchemeType::Ground(Type::Int)].into(), span }].into() }),
+                    CallableApplication::KnownArguments(KnownCallArguments { parameters: vec![
+                        KnownArgumentParameter { layout: ArgumentParameterLayout { name: Name::intern("value"), defaulted: false, rest: false }, ty: argument.clone() },
+                        KnownArgumentParameter { layout: ArgumentParameterLayout { name: Name::intern("label"), defaulted: true, rest: false }, ty: SchemeType::Ground(Type::Str) },
+                        KnownArgumentParameter { layout: ArgumentParameterLayout { name: Name::intern("remaining"), defaulted: false, rest: true }, ty: SchemeType::List(Box::new(argument.clone())) }].into(), arguments, span })], ..CallableRequirements::default() };
+                let callable = CallableScheme::new(types, Vec::new(), vec![
+                    SchemeParameter { name: Name::intern("action"), ty: callee, schema_expectation: None, defaulted: false, rest: false },
+                    SchemeParameter { name: Name::intern("value"), ty: argument, schema_expectation: None, defaulted: false, rest: false }],
+                    SchemeType::Ground(Type::Unit), None, false, requirements).unwrap();
+                CheckedCallableContract { scheme: Arc::new(TypeScheme::with_callable(CallableKind::Proc, Arc::new(callable), CheckedEffects::from_contract(EffectContract::variable(effect)), false).unwrap()),
+                    symbol_owner: owner.clone(), schema_identities: Default::default(), scheme_callables: None }
+            };
+            let mut outputs = BTreeSet::new();
+            for ((clause, predicate), renamed) in ["effects-equal(", "effects-included(", "effects-covered(", "effects-excluded("].into_iter().zip(predicates(7)).zip(predicates(91)) {
+                let first = build(7, predicate);
+                let second = build(91, renamed);
+                let rendered = first.to_string();
+                assert!(first.equivalent_to(&second));
+                assert_eq!(rendered, second.to_string());
+                assert!(rendered.contains(clause), "{rendered}");
+                assert!(rendered.contains("invoke(T0, [T1]) -> T2"), "{rendered}");
+                assert!(rendered.contains("proc-return(T3, propagated=[Str])"), "{rendered}");
+                assert!(rendered.contains("proc-return(T4, propagated=[Int])"), "{rendered}");
+                assert!(rendered.contains("known-arguments(params=[value: T1, label: Str = default, ...remaining: List[T1]], args=[value: T1, label: Str, @List[T1]])"), "{rendered}");
+                outputs.insert(rendered);
+            }
+            assert_eq!(outputs.len(), 4);
         });
     }
 

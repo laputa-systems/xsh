@@ -35,6 +35,9 @@ impl BinderNames {
         for operation in &scheme.callable().requirements().operations {
             for ty in operation.types() { names.visit_scheme_type(ty); }
         }
+        for application in &scheme.callable().requirements().applications {
+            for ty in application.types() { names.visit_scheme_type(ty); }
+        }
         for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
             names.visit_scheme_type(&SchemeType::Parameter(*source));
             for ty in iteration.types() { names.visit_scheme_type(ty); }
@@ -161,6 +164,12 @@ struct CallableRenderContext<'a> {
     active: std::collections::BTreeSet<crate::sema::scheme_callable::SchemeCallableId>,
 }
 
+pub(in crate::sema::check) fn render_revealed_type(ty: &Type, table: &SchemeCallableTable) -> String {
+    if !ty.contains_scheme_callable() { return ty.to_string(); }
+    let mut context = CallableRenderContext { table: Some(table), labels: BTreeMap::new(), active: Default::default() };
+    render_type(ty, &mut context)
+}
+
 fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut parts = Vec::new();
     let quantifiers = names.quantifiers(scheme);
@@ -196,6 +205,19 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         parts.push(format!("{source_kind}({}, item={item}, {failure}{domain})", names.type_name(*source)));
     }
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
+    for application in &scheme.callable().requirements().applications {
+        parts.push(render_application(application, names, identities, context));
+    }
+    for predicate in &scheme.callable().requirements().effect_predicates {
+        use crate::sema::effects::EffectPredicate;
+        let rendered = match predicate {
+            EffectPredicate::Equal(left, right) => format!("effects-equal({}, {})", render_bound_effects(left, names), render_bound_effects(right, names)),
+            EffectPredicate::Included(left, right) => format!("effects-included({}, {})", render_bound_effects(left, names), render_bound_effects(right, names)),
+            EffectPredicate::Covered(left, right) => format!("effects-covered({}, {})", render_bound_effects(left, names), render_bound_effects(right, names)),
+            EffectPredicate::Excluded(contract, excluded) => format!("effects-excluded({}, {})", render_bound_effects(contract, names), render_effects(Some(&excluded.iter().collect::<Vec<_>>()))),
+        };
+        parts.push(rendered);
+    }
     for operation in &scheme.callable().requirements().operations {
         let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
         let result = operation.result().map(|ty| render_scheme_type(ty, names, identities, context));
@@ -223,6 +245,41 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         parts.push(format!("wrapper({:?}, {types}{effects})", wrapper.shape()));
     }
     parts.join(" ")
+}
+
+fn render_application(application: &crate::sema::callable_application::CallableApplication<SchemeType, crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+    use crate::sema::callable_application::{CallableApplication, CallableKindRequirement};
+    use crate::sema::arguments::StaticArgumentKind;
+    let arguments = application.arguments().iter().map(|argument| {
+        let ty = render_scheme_type(&argument.ty, names, identities, context);
+        match argument.kind {
+            StaticArgumentKind::Positional => ty,
+            StaticArgumentKind::Named(name) => format!("{name}: {ty}"),
+            StaticArgumentKind::Splice => format!("@{ty}"),
+        }
+    }).collect::<Vec<_>>().join(", ");
+    match application {
+        CallableApplication::Invocation(invocation) => {
+            let callee = render_scheme_type(&invocation.callee, names, identities, context);
+            let result = render_scheme_type(&invocation.result, names, identities, context);
+            let kind = match invocation.kind { CallableKindRequirement::Pure => "pure", CallableKindRequirement::Effectful => "effectful" };
+            let mut rendered = format!("invoke({callee}, [{arguments}]) -> {result} kind={kind} effects={}", render_bound_effects(&invocation.effects, names));
+            for envelope in invocation.proc_returns.iter() {
+                let result = render_scheme_type(&envelope.result, names, identities, context);
+                let errors = envelope.propagated_errors.iter().map(|error| render_scheme_type(error, names, identities, context)).collect::<Vec<_>>().join(", ");
+                rendered.push_str(&format!(" proc-return({result}, propagated=[{errors}])"));
+            }
+            rendered
+        }
+        CallableApplication::KnownArguments(known) => {
+            let parameters = known.parameters.iter().map(|parameter| {
+                let rest = if parameter.layout.rest { "..." } else { "" };
+                let defaulted = if parameter.layout.defaulted { " = default" } else { "" };
+                format!("{rest}{}: {}{defaulted}", parameter.layout.name, render_scheme_type(&parameter.ty, names, identities, context))
+            }).collect::<Vec<_>>().join(", ");
+            format!("known-arguments(params=[{parameters}], args=[{arguments}])")
+        }
+    }
 }
 
 fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {

@@ -571,7 +571,10 @@ test test_api_private_pure_returns_explain_definition_inference_and_explicit_bou
       "build_defaults.jobs + 1",
       "jobs = initial_jobs()",
       "Private helpers",
-      "recursive",
+      "exported pure declarations",
+      "rank-1 scheme",
+      "Recursive components",
+      "instantiate the published schemes freshly",
       "pure add(left: Int, right: Int) {",
     ],
   )

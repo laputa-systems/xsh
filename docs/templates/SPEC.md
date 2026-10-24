@@ -1572,7 +1572,11 @@ run later. Narrowing never infers numeric ranges, filesystem state, or
 arbitrary implications.
 
 During `xsht check`, `reveal_type(expr)` reports the inferred type of `expr` as
-a note. It is rejected everywhere else.
+a note at that expression. Checked callable relationships retain their quantified
+type and row parameters and callback effects in this display. Binder names are
+stable when independent declarations are reordered. Printed `forall` notation
+is diagnostic notation, not an annotation the source rewriter can insert.
+`reveal_type` is rejected everywhere else.
 
 ### 5.5 Target-typed variants
 
@@ -3394,6 +3398,16 @@ Checked tooling contracts retain quantified parameter relationships and open
 record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
 renaming while preserving nominal types, labels, schemas, and effects.
+Callable displays append `invoke(C, [A, ...]) -> R` clauses for checked
+applications, including their allowed calling kind, effects, and inferred
+`proc-return(R, propagated=[E, ...])` envelopes. Argument labels and positional
+splices remain visible. A `known-arguments(params=[...], args=[...])` clause
+records argument compatibility with an existing parameter layout; it supplies
+no invented callee, return type, or effects. Effect predicates print as
+`effects-equal`, `effects-included`, `effects-covered`, or `effects-excluded`.
+Direct inclusion and permission coverage retain their distinct meanings.
+These clauses describe checked relationships and are not source syntax.
+
 Concrete instance comparison specializes schema arguments through the same
 resolved parameter and return instance before comparing canonical schema
 identities. Missing or unresolved schema arguments do not establish a match.

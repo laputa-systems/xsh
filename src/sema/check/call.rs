@@ -3237,6 +3237,74 @@ mod reveal_type_tests {
     }
 
     #[test]
+    fn reveal_type_preserves_quantified_rows_and_stable_binders() {
+        let mut messages = Vec::new();
+        for prefix in ["", "pure unrelated(value) { [value] }\n"] {
+            let source = format!("{prefix}pure projected(row) {{ row.payload }}\nreveal_type(projected)\n");
+            let output = checked(&source, CheckOptions { reveal_types: true, ..CheckOptions::default() });
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_eq!(output.reveal_types.len(), 1);
+            let diagnostic = &output.reveal_types[0];
+            assert_eq!(diagnostic.code, Some(DiagnosticCode::CheckRevealType));
+            let start = source.rfind("projected").unwrap();
+            assert_eq!(diagnostic.labels[0].span, crate::source::Span::new(SourceId::new(0), start, start + "projected".len()));
+            assert!(diagnostic.message.contains("forall T0, R0"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("payload: T0"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("-> T0"), "{}", diagnostic.message);
+            messages.push(diagnostic.message.clone());
+        }
+        assert_eq!(messages[0], messages[1]);
+    }
+
+    #[test]
+    fn reveal_type_preserves_quantified_callback_effects() {
+        let mut messages = Vec::new();
+        for prefix in ["", "proc unrelated(action, value) [io] { action(value) }\n"] {
+            let source = format!("{prefix}proc apply(action, value) [io] {{ action(value) }}\nreveal_type(apply)\n");
+            let output = checked(&source, CheckOptions { reveal_types: true, ..CheckOptions::default() });
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_eq!(output.reveal_types.len(), 1);
+            let message = &output.reveal_types[0].message;
+            assert!(message.contains("forall"), "{message}");
+            assert!(message.contains("action: T0"), "{message}");
+            assert!(message.contains("invoke(T0, [T1]) ->"), "{message}");
+            assert!(message.contains("kind=effectful effects=[E0&["), "{message}");
+            let start = source.rfind("apply").unwrap();
+            let contract = output.callable_value_contract_at(crate::source::Span::new(SourceId::new(0), start, start + "apply".len())).unwrap();
+            for predicate in &contract.scheme().callable().requirements().effect_predicates {
+                use crate::sema::effects::EffectPredicate;
+                let clause = match predicate {
+                    EffectPredicate::Equal(_, _) => "effects-equal(",
+                    EffectPredicate::Included(_, _) => "effects-included(",
+                    EffectPredicate::Covered(_, _) => "effects-covered(",
+                    EffectPredicate::Excluded(_, _) => "effects-excluded(",
+                };
+                assert!(message.contains(clause), "{message}");
+            }
+            messages.push(message.clone());
+        }
+        assert_eq!(messages[0], messages[1]);
+    }
+
+    #[test]
+    fn reveal_type_distinguishes_known_argument_relations() {
+        let source = "pure optional(value: Int?) -> Bool { value == null }\npure observed(value) { let action = optional; [value] |> map(action) }\nreveal_type(observed)\n";
+        let output = checked(source, CheckOptions { reveal_types: true, ..CheckOptions::default() });
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.reveal_types.len(), 1);
+        let message = &output.reveal_types[0].message;
+        assert!(message.contains("known-arguments(params=[value: Int?], args=[T0])"), "{message}");
+    }
+
+    #[test]
+    fn reveal_type_keeps_monomorphic_result_display() {
+        let output = checked("let value: Result[Int] = Ok(7)\nreveal_type(value)\n", CheckOptions { reveal_types: true, ..CheckOptions::default() });
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.reveal_types.len(), 1);
+        assert_eq!(output.reveal_types[0].message, "revealed type: Result[Int, Error]");
+    }
+
+    #[test]
     fn reveal_type_option_only_publishes_revealed_types() {
         let outputs = option_combinations("proc unused() { reveal_type(1) }\n");
         let diagnostics = &outputs[0].diagnostics;

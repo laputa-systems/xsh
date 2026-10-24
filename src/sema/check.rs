@@ -2816,7 +2816,10 @@ impl Checker {
     }
 
     pub(crate) fn reveal_type(&mut self, ty: &Type, span: Span) {
-        let message = format!("revealed type: {ty}");
+        let message = {
+            let callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
+            format!("revealed type: {}", callable_contract::render_revealed_type(ty, &callables))
+        };
         self.reveal_types.push(
             Diagnostic::new(Severity::Note, message)
                 .with_code(DiagnosticCode::CheckRevealType)
