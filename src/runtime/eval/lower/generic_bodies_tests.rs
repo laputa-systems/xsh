@@ -4769,7 +4769,12 @@ proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; ro
     let path = |text: &str| Value::Path(crate::runtime::value::PathValue::from_text(text).unwrap());
     let success = |value| match value { Value::Result(ResultValue::Ok(value)) => *value, value => panic!("expected success, found {value:?}") };
     for source in [typed.as_str(), source] {
-        let (program, sources, source_id) = record_form_program(source);
+        let mut source = source.to_owned();
+        for (entry, marker_type) in [("integer", "Int"), ("text", "Str"), ("boolean", "Bool")] {
+            source.push_str(&format!("\nproc entry_written_{entry}(marker: {marker_type}, root: FsRoot, location: Path, text: Str) [fs, error] {{ written(marker, root, location, text) }}\nproc entry_read_{entry}(marker: {marker_type}, root: FsRoot, location: Path) [fs, error] {{ read(marker, root, location) }}\n"));
+        }
+        source.push_str("\nproc entry_listed(marker: Bool, root: FsRoot, location: Path) [fs, error] { listed(marker, root, location) }\n");
+        let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
             evaluator.force_frames = force_frames;
@@ -4778,31 +4783,31 @@ proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; ro
             for step in 0..program.driver_step_count().unwrap() {
                 evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap();
             }
-            let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let key = |name: &str| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
             let rooted = crate::modules::fs::open_root(directory.path().to_path_buf(), span).unwrap();
             let id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(Box::new(crate::runtime::eval::FsRootHandle::Dir(rooted))));
             let root = Value::FsRoot(crate::runtime::value::FsRootValue { id, owner: Arc::clone(&evaluator.resource_owner) });
-            for (marker, name, text) in [(Value::Int(7), "a", "first"), (Value::Str(Arc::from("independent")), "b", "second")] {
-                let output = evaluator.call_indexed_direct(key("written"), CallableKind::Proc, &[marker, root.clone(), path(name), Value::Str(Arc::from(text))], span).unwrap().unwrap();
+            for (entry, marker, name, text) in [("integer", Value::Int(7), "a", "first"), ("text", Value::Str(Arc::from("independent")), "b", "second")] {
+                let output = evaluator.call_indexed_direct(key(&format!("entry_written_{entry}")), CallableKind::Proc, &[marker, root.clone(), path(name), Value::Str(Arc::from(text))], span).unwrap().unwrap();
                 assert_eq!(success(output), Value::Unit);
             }
             let expected = success(evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &[root.clone(), path(".")], span).unwrap().unwrap());
-            let actual = success(evaluator.call_indexed_direct(key("listed"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path(".")], span).unwrap().unwrap());
+            let actual = success(evaluator.call_indexed_direct(key("entry_listed"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path(".")], span).unwrap().unwrap());
             let (Value::Record(actual), Value::Record(expected)) = (actual, expected) else { panic!("children retains its registered record result") };
             assert_eq!(actual.get("children"), expected.get("children"));
             let Some(Value::List(children)) = actual.get("children") else { panic!("children is a list of paths") };
             assert_eq!(children.len(), 2);
             let order = evaluator.call_indexed_direct(key("observed_order"), CallableKind::Proc, &[], span).unwrap().unwrap();
             assert_eq!(order, Value::Str(Arc::from("opop")));
-            for (marker, name, text) in [(Value::Int(7), "a", "first"), (Value::Str(Arc::from("independent")), "b", "second")] {
-                let output = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[marker, root.clone(), path(name)], span).unwrap().unwrap();
+            for (entry, marker, name, text) in [("integer", Value::Int(7), "a", "first"), ("text", Value::Str(Arc::from("independent")), "b", "second")] {
+                let output = evaluator.call_indexed_direct(key(&format!("entry_read_{entry}")), CallableKind::Proc, &[marker, root.clone(), path(name)], span).unwrap().unwrap();
                 assert_eq!(success(output), Value::Str(Arc::from(text)));
             }
-            let missing = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path("missing")], span).unwrap().unwrap();
+            let missing = evaluator.call_indexed_direct(key("entry_read_boolean"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path("missing")], span).unwrap().unwrap();
             let Value::Result(ResultValue::Err(error)) = missing else { panic!("missing rooted input must retain Err") };
             assert!(error.error_message().is_some_and(|message| !message.is_empty()));
             assert_eq!(success(evaluator.call_indexed_direct(key("closed"), CallableKind::Proc, std::slice::from_ref(&root), span).unwrap().unwrap()), Value::Unit);
-            let closed = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root, path("a")], span).unwrap().unwrap();
+            let closed = evaluator.call_indexed_direct(key("entry_read_boolean"), CallableKind::Proc, &[Value::Bool(true), root, path("a")], span).unwrap().unwrap();
             assert!(matches!(closed, Value::Result(ResultValue::Err(_))));
         }
     }
@@ -4899,27 +4904,40 @@ pure ignored_json(marker, input: Str) -> List[Any] { let _ = marker; input |> js
 }
 
 fn verify_pipeline_adapter_results(source: &str, markers: &[Value]) {
-    let (program, sources, source_id) = record_form_program(source);
+    assert!((1..=2).contains(&markers.len()));
+    let mut source = source.to_owned();
+    for ((entry, marker_type), _) in [("integer", "Int"), ("text", "Str")].into_iter().zip(markers) {
+        for (name, parameters, arguments, returned) in [
+            ("lines", "input: Str", "input", "List[Str]"),
+            ("chunks", "input: Bytes, size: Int", "input, size", "List[Bytes]"),
+            ("json_lines", "input: Str", "input", "List[Any]"),
+            ("json_stream", "input: Str", "input", "List[Any]"),
+            ("ignored_json", "input: Str", "input", "List[Any]"),
+        ] {
+            source.push_str(&format!("\npure entry_{name}_{entry}(marker: {marker_type}, {parameters}) -> {returned} {{ {name}(marker, {arguments}) }}\n"));
+        }
+    }
+    let (program, sources, source_id) = record_form_program(&source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
         let span = Span::at(source_id, 0);
-        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-        for marker in markers {
-            let lines = evaluator.call_indexed_direct(key("lines"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("one\r\n\ntwo\n"))], span).unwrap().unwrap();
+        let key = |name: &str| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        for (entry, marker) in ["integer", "text"].into_iter().zip(markers) {
+            let lines = evaluator.call_indexed_direct(key(&format!("entry_lines_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("one\r\n\ntwo\n"))], span).unwrap().unwrap();
             assert_eq!(lines, Value::List(vec![Value::Str(Arc::from("one")), Value::Str(Arc::from("")), Value::Str(Arc::from("two"))]));
             let bytes = |text: &[u8]| Value::Bytes(text.to_vec());
-            let chunks = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abcde"), Value::Int(2)], span).unwrap().unwrap();
+            let chunks = evaluator.call_indexed_direct(key(&format!("entry_chunks_{entry}")), CallableKind::Pure, &[marker.clone(), bytes(b"abcde"), Value::Int(2)], span).unwrap().unwrap();
             assert_eq!(chunks, Value::List(vec![bytes(b"ab"), bytes(b"cd"), bytes(b"e")]));
             for name in ["json_lines", "json_stream"] {
-                let values = evaluator.call_indexed_direct(key(name), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ntrue\n\"word\"\n"))], span).unwrap().unwrap();
+                let values = evaluator.call_indexed_direct(key(&format!("entry_{name}_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ntrue\n\"word\"\n"))], span).unwrap().unwrap();
                 assert_eq!(values, Value::List(vec![Value::Int(1), Value::Bool(true), Value::Str(Arc::from("word"))]));
             }
-            let invalid = evaluator.call_indexed_direct(key("ignored_json"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
+            let invalid = evaluator.call_indexed_direct(key(&format!("entry_ignored_json_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
             assert_eq!(invalid.kind, "json-lines");
             assert!(!invalid.message.is_empty());
-            let invalid = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abc"), Value::Int(0)], span).unwrap().expect_err("a dynamic chunk size must be positive");
+            let invalid = evaluator.call_indexed_direct(key(&format!("entry_chunks_{entry}")), CallableKind::Pure, &[marker.clone(), bytes(b"abc"), Value::Int(0)], span).unwrap().expect_err("a dynamic chunk size must be positive");
             assert_eq!(invalid.kind, "bytes-chunks");
             assert_eq!(invalid.message, "chunk size must be positive");
         }
@@ -4999,6 +5017,7 @@ proc parsed(marker, input: Str) [] -> List[Any] { let _ = marker; text_input(inp
 proc observed() [] -> Str { events }
 "#;
     for source in [source.to_owned(), source.replace("marker,", "marker: Int,")] {
+        let source = format!("{source}\nproc entry_chunked(marker: Int, input: Bytes, size: Int) [] -> List[Bytes] {{ chunked(marker, input, size) }}\nproc entry_parsed(marker: Int, input: Str) [] -> List[Any] {{ parsed(marker, input) }}\n");
         let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
@@ -5010,13 +5029,13 @@ proc observed() [] -> Str { events }
                 assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {flow:?}");
             }
             let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let output = evaluator.call_indexed_direct(key("chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(2)], span).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key("entry_chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(2)], span).unwrap().unwrap();
             assert_eq!(output, Value::List(vec![Value::Bytes(b"ab".to_vec()), Value::Bytes(b"c".to_vec())]));
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdc")));
-            let output = evaluator.call_indexed_direct(key("chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(0)], span).unwrap();
+            let output = evaluator.call_indexed_direct(key("entry_chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(0)], span).unwrap();
             assert!(output.is_err());
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdc")));
-            let error = evaluator.call_indexed_direct(key("parsed"), CallableKind::Proc, &[Value::Int(7), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("the adapter parses before take(0)");
+            let error = evaluator.call_indexed_direct(key("entry_parsed"), CallableKind::Proc, &[Value::Int(7), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("the adapter parses before take(0)");
             assert_eq!(&*error.kind, "json-lines");
             assert!(!error.message.is_empty());
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdcsd")));
@@ -5048,24 +5067,29 @@ fn pipeline_table_program_source() -> &'static str {
 }
 
 fn verify_pipeline_table_output(source: &str, markers: &[Value]) {
-    let (program, sources, source_id) = record_form_program(source);
+    assert!((1..=2).contains(&markers.len()));
+    let mut source = source.to_owned();
+    for ((entry, marker_type), _) in [("integer", "Int"), ("text", "Str")].into_iter().zip(markers) {
+        source.push_str(&format!("\nproc entry_render_{entry}(marker: {marker_type}, row: Row, columns: List[Str]) [] -> Unit {{ render(marker, row, columns) }}\nproc entry_defaults_{entry}(marker: {marker_type}, row: Row) [] -> Unit {{ defaults(marker, row) }}\n"));
+    }
+    let (program, sources, source_id) = record_form_program(&source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
-        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        let key = |name: &str| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
         let row = program.symbol_owner().with_current(|| Value::Record([(Arc::from("name"), Value::Str(Arc::from("alpha"))), (Arc::from("size"), Value::Int(2)), (Arc::from("opaque"), Value::List(vec![Value::Int(9)]))].into_iter().collect()));
-        for marker in markers {
+        for (entry, marker) in ["integer", "text"].into_iter().zip(markers) {
             evaluator.stdout.clear();
-            let output = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key(&format!("entry_render_{entry}")), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(output, Value::Unit);
             assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌───────┐\n│ name  │\n├───────┤\n│ alpha │\n└───────┘\n");
             evaluator.stdout.clear();
-            let output = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("absent"))])], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key(&format!("entry_render_{entry}")), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("absent"))])], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(output, Value::Unit);
             assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌────────┐\n│ absent │\n├────────┤\n│        │\n└────────┘\n");
             evaluator.stdout.clear();
-            let output = evaluator.call_indexed_direct(key("defaults"), CallableKind::Proc, &[marker.clone(), row.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key(&format!("entry_defaults_{entry}")), CallableKind::Proc, &[marker.clone(), row.clone()], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(output, Value::Unit);
             let output = String::from_utf8(evaluator.stdout.clone()).unwrap();
             for cell in ["name", "alpha", "size", "2", "opaque", "<List>"] { assert!(output.contains(cell), "{cell}: {output}"); }
@@ -5094,12 +5118,13 @@ fn inferred_pipeline_table_requires_only_the_record_head() {
 #[test]
 fn inferred_pipeline_table_source_retains_the_record_iteration_relationship() {
     let source = "proc render(rows, columns: List[Str]) [] -> Unit { rows |> table.print(columns: columns) }\n";
-    let (program, sources, source_id) = record_form_program(source);
+    let source = format!("{source}type EntryRow = {{name: Str}}\nproc entry_render(rows: List[EntryRow], columns: List[Str]) [] -> Unit {{ render(rows, columns) }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
-        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("render")));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("entry_render")));
         let row = program.symbol_owner().with_current(|| Value::Record([(Arc::from("name"), Value::Str(Arc::from("alpha")))].into_iter().collect()));
         let output = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::List(vec![row]), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
         assert_eq!(output, Value::Unit);
@@ -5126,6 +5151,7 @@ proc rejected(marker) [error] -> Unit { let _ = marker; rows(false) |> table.pri
 proc observed() [] -> Str { events }
 "#;
     for source in [source.to_owned(), source.replace("marker,", "marker: Int,").replace("marker)", "marker: Int)")] {
+        let source = format!("{source}\nproc entry_render(marker: Int, failed: Bool) [error] -> Unit {{ render(marker, failed) }}\nproc entry_rejected(marker: Int) [error] -> Unit {{ rejected(marker) }}\n");
         let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
@@ -5137,17 +5163,17 @@ proc observed() [] -> Str { events }
                 assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{flow:?}");
             }
             let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            assert_eq!(evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(false)], span).unwrap().unwrap(), Value::Unit);
+            assert_eq!(evaluator.call_indexed_direct(key("entry_render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(false)], span).unwrap().unwrap(), Value::Unit);
             assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "closed\n┌──────┐\n│ name │\n├──────┤\n│ row  │\n└──────┘\n");
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpd")));
             evaluator.stdout.clear();
-            let error = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(true)], span).unwrap().expect_err("failed materialization does not render a partial table");
+            let error = evaluator.call_indexed_direct(key("entry_render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(true)], span).unwrap().expect_err("failed materialization does not render a partial table");
             assert_eq!((&*error.family, &*error.variant, &*error.message), ("TableFailure", "Stopped", "late"));
             assert!(error.propagated);
             assert_eq!(evaluator.stdout, b"closed\n");
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpdcpd")));
             evaluator.stdout.clear();
-            let error = evaluator.call_indexed_direct(key("rejected"), CallableKind::Proc, &[Value::Int(7)], span).unwrap().expect_err("configuration fails before the source is pulled");
+            let error = evaluator.call_indexed_direct(key("entry_rejected"), CallableKind::Proc, &[Value::Int(7)], span).unwrap().expect_err("configuration fails before the source is pulled");
             assert_eq!((&*error.family, &*error.variant, &*error.message), ("TableFailure", "Stopped", "configuration"));
             assert!(error.propagated);
             assert!(evaluator.stdout.is_empty());

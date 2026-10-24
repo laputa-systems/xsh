@@ -29938,6 +29938,8 @@ assert genuine_tail_runs == 0
             .unwrap();
 
         let mut out_of_scope_type = program.clone();
+        out_of_scope_type.store.in_place.take();
+        assert!(out_of_scope_type.store.in_place.get().is_none());
         let argument = out_of_scope_type.store.call_instantiations[identity_instantiation]
             .arguments.type_arguments
             .start as usize;
@@ -29954,12 +29956,14 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == name_of_call)
             .unwrap();
         let mut out_of_scope_row = program.clone();
+        out_of_scope_row.store.in_place.take();
+        assert!(out_of_scope_row.store.in_place.get().is_none());
         let row = out_of_scope_row.store.call_instantiations[name_of_instantiation]
             .arguments.row_arguments
             .start as usize;
         out_of_scope_row.store.call_row_arguments[row].tail = IR_NONE - 1;
         let error = FullVerifier::verify(&out_of_scope_row).unwrap_err();
-        assert_eq!(error.message, "generic call row tail is out of scope");
+        assert_eq!(error.message, "scheme row parameter is out of scope");
 
         let nested_program = fixture(
             "generic-symbolic-row-lacks.xsh",
@@ -29998,6 +30002,8 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == name_of_call)
             .unwrap();
         let mut wrong_row_lacks = nested_program.clone();
+        wrong_row_lacks.store.in_place.take();
+        assert!(wrong_row_lacks.store.in_place.get().is_none());
         let row = wrong_row_lacks.store.call_instantiations[name_of_instantiation]
             .arguments.row_arguments
             .start as usize;
@@ -30038,6 +30044,8 @@ assert genuine_tail_runs == 0
         let second_parameter = wrong_argument_program.store.scheme_types[second_parameter_type.index()];
         assert_eq!(second_parameter.tag, FullSchemeTypeTag::Parameter);
         let mut wrong_argument = wrong_argument_program.clone();
+        wrong_argument.store.in_place.take();
+        assert!(wrong_argument.store.in_place.get().is_none());
         let argument = wrong_argument.store.call_instantiations[identity_instantiation]
             .arguments.type_arguments
             .start as usize;
@@ -30065,6 +30073,8 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == root_identity)
             .unwrap();
         let mut symbolic_root_type = root_program.clone();
+        symbolic_root_type.store.in_place.take();
+        assert!(symbolic_root_type.store.in_place.get().is_none());
         let argument = symbolic_root_type.store.call_instantiations[identity_instantiation]
             .arguments.type_arguments
             .start as usize;
@@ -30082,6 +30092,8 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == root_name_of)
             .unwrap();
         let mut symbolic_root_row = root_program.clone();
+        symbolic_root_row.store.in_place.take();
+        assert!(symbolic_root_row.store.in_place.get().is_none());
         let row = symbolic_root_row.store.call_instantiations[name_of_instantiation]
             .arguments.row_arguments
             .start as usize;
@@ -34129,10 +34141,12 @@ assert labels([{text: "x"}, {text: "y"}]) == ["x"]
             assert!(!writers.is_empty());
             for writer in writers {
                 let mut forged = program.clone();
+                forged.store.in_place.take();
+                assert!(forged.store.in_place.get().is_none());
                 forged.store.tags[writer] = FullTag::ExprInt;
                 forged.store.data[writer] = program.store.data[integer];
                 let error = FullVerifier::verify(&forged).unwrap_err();
-                assert!(error.message.contains("condition producer has no checked contract"), "{error:?}");
+                assert_eq!(error.message, "managed release has no canonical resource scope");
             }
         });
     }
@@ -37621,7 +37635,8 @@ proc read(token, file: Path, spare: Str) [fs] {
     fn generic_row_host_body_executes_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source = "type Row = {value: Int}\npure item(value: Int) -> Int { value }\npure append(items: List[Int], row) -> List[Int] { items.push(item(row.value)) }\n";
-            let program = Arc::new(fixture("generic-row-host-body.xsh", source));
+            let source = format!("{source}type HostRow = {{value: Int, extra: Bool}}\npure append_entry(items: List[Int], row: HostRow) -> List[Int] {{ append(items, row) }}\n");
+            let program = Arc::new(fixture("generic-row-host-body.xsh", &source));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
@@ -37631,7 +37646,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "append")),
+                    LoweredFunctionKey::Name(program_name(&program, "append_entry")),
                     CallableKind::Pure,
                     &[
                         Value::List(vec![Value::Int(1)]),
@@ -37652,9 +37667,9 @@ proc read(token, file: Path, spare: Str) [fs] {
         run_with_large_stack(|| {
             assert_eq!(std::mem::size_of::<schemes::FullSchemeMethod>(), 28);
             assert_eq!(std::mem::size_of::<schemes::FullMethodBinding>(), 8);
-            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 120);
-            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 60);
-            assert_eq!(std::mem::size_of::<schemes::FullInstantiation>(), 56);
+            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 136);
+            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 76);
+            assert_eq!(std::mem::size_of::<schemes::FullInstantiation>(), 72);
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system time should be after epoch")
@@ -37703,6 +37718,8 @@ proc read(token, file: Path, spare: Str) [fs] {
             let argument_slots = encoded_method.argument_slots.bounds(program.store.scheme_method_slots.len()).unwrap();
             assert_eq!(&program.store.scheme_method_slots[argument_slots.clone()], &[1, 0]);
             let mut forged_slots = (*program).clone();
+            forged_slots.store.in_place.take();
+            assert!(forged_slots.store.in_place.get().is_none());
             forged_slots.store.scheme_method_slots[argument_slots].copy_from_slice(&[0, 1]);
             assert!(FullVerifier::verify(&forged_slots).is_err());
             FullVerifier::verify(&program).unwrap();
@@ -37725,6 +37742,8 @@ proc read(token, file: Path, spare: Str) [fs] {
             let (_, len_fact_index, len_fact) = method_facts.iter().find(|(name, _, _)| *name == "len").copied().unwrap();
             let (_, _, empty_fact) = method_facts.iter().find(|(name, _, _)| *name == "is_empty").copied().unwrap();
             let mut missing_method = (*program).clone();
+            missing_method.store.in_place.take();
+            assert!(missing_method.store.in_place.get().is_none());
             missing_method.store.scheme_body_facts.remove(len_fact_index);
             for scheme in &mut missing_method.store.schemes {
                 let range = scheme.body_facts;
@@ -37736,9 +37755,13 @@ proc read(token, file: Path, spare: Str) [fs] {
             }
             assert_eq!(FullVerifier::verify(&missing_method).unwrap_err().message, "generic intrinsic method has no closed receiver contract");
             let mut foreign_method = (*program).clone();
+            foreign_method.store.in_place.take();
+            assert!(foreign_method.store.in_place.get().is_none());
             foreign_method.store.scheme_body_facts[len_fact_index].function = IrFunctionId::new(scheme_fixture_root_function(&program, "empty")).unwrap();
             assert_eq!(FullVerifier::verify(&foreign_method).unwrap_err().message, "generic body fact has invalid ownership");
             let mut misbound_method = (*program).clone();
+            misbound_method.store.in_place.take();
+            assert!(misbound_method.store.in_place.get().is_none());
             let schemes::FullSchemeBodyFactValue::Method(empty_ordinal) = empty_fact.value else { panic!("is_empty has a retained method ordinal") };
             misbound_method.store.scheme_body_facts[len_fact_index].value = schemes::FullSchemeBodyFactValue::Method(empty_ordinal);
             assert_eq!(FullVerifier::verify(&misbound_method).unwrap_err().message, "generic method site disagrees with its retained family contract");
@@ -37753,6 +37776,8 @@ proc read(token, file: Path, spare: Str) [fs] {
             let other_family_signature = &api.method_overloads(crate::modules::MethodReceiver::List, "is_empty").unwrap()[0];
             let other_family = api.registered_method_id(crate::modules::MethodReceiver::List, "is_empty", other_family_signature).unwrap();
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             forged.store.call_method_bindings[bindings.start + len_ordinal as usize] = schemes::FullMethodBinding::Selected(other_family);
             assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "selected method differs from its canonical input signature");
             let _symbols = program.symbol_owner().enter();
@@ -37892,6 +37917,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                 let mut errors = Vec::new();
                 for annotation in [": Row", ""] {
                     let source = format!("type Row = {{value: Int}}\npure left(value: Int) -> Int {{ 1 / value }}\npure right(value: Int) -> Int {{ 9223372036854775807 + (value + 1) }}\npure pair(left: Int, right: Int) -> Int {{ left + right }}\npure fail(row{annotation}) -> Int {{ pair(right: right(row.value), left: left(row.value)) }}\npure after() -> Int {{ 7 }}\n");
+                    let source = format!("{source}pure checked_fail_entry(row: Row) -> Int {{ fail(row) }}\n");
                     let program = Arc::new(fixture("generic-pure-failure-order.xsh", &source));
                     FullVerifier::verify(&program).unwrap();
                     let _symbols = program.symbol_owner().enter();
@@ -37899,7 +37925,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     evaluator.force_frames = force_frames;
                     let error = evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(Name::intern("fail")), CallableKind::Pure,
+                        LoweredFunctionKey::Name(Name::intern("checked_fail_entry")), CallableKind::Pure,
                         &[Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(0))]).into())],
                         Span::new(program.store.source_id, 0, 0),
                     ).unwrap().unwrap_err();
@@ -37985,13 +38011,14 @@ proc read(token, file: Path, spare: Str) [fs] {
                         let mut failures = Vec::new();
                         for annotation in [": Row", ""] {
                             let source = format!("type Row = {{key: Int}}\npure minus(value: Int) -> Int {{ value - 1 }}\n{helper}pure read(row{annotation}) -> {return_type} {{ {body} }}\n");
+                            let source = format!("{source}pure checked_read_entry(row: Row) -> {return_type} {{ read(row) }}\n");
                             let program = Arc::new(fixture("generic-pure-unsigned-boundaries.xsh", &source));
                             FullVerifier::verify(&program).unwrap();
                             let _symbols = program.symbol_owner().enter();
                             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                             evaluator.indexed_program = Some(Arc::clone(&program));
                             evaluator.force_frames = force_frames;
-                            let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("key"), Value::Int(input))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap();
+                            let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("key"), Value::Int(input))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap();
                             if input > 0 {
                                 let expected = match return_type {
                                     "Int" => Value::Int(1),
@@ -38058,21 +38085,36 @@ proc read(token, file: Path, spare: Str) [fs] {
         });
     }
 
+    fn ground_read_entry_fixture(name: &str, source: &str, returned: &str) -> FullProgram {
+        fixture(name, &format!("{source}\ntype GroundEntryRow = {{anchor: Bool}}\npure checked_read_entry(row: GroundEntryRow) -> {returned} {{ read(row) }}\n"))
+    }
+
+    fn ordinary_ground_fixture(name: &str, source: &str) -> FullProgram {
+        ground_read_entry_fixture(name, source, "Int")
+    }
+
     fn assert_ordinary_ground_helper(source: &str) {
-        assert_ordinary_ground_program(Arc::new(fixture("ordinary-ground-helper.xsh", source)));
+        assert_ordinary_ground_program(Arc::new(ordinary_ground_fixture("ordinary-ground-helper.xsh", source)));
     }
 
     fn assert_ordinary_ground_program(program: Arc<FullProgram>) {
         FullVerifier::verify(&program).unwrap();
         let _symbols = program.symbol_owner().enter();
+        let read = scheme_fixture_root_function(&program, "read");
+        let FullCallableContract::Scheme(read_scheme) = program.store.functions[read].contract else { panic!("the original read body remains generic") };
+        let read_scheme = program.store.scheme(read_scheme).unwrap();
+        assert!(read_scheme.type_parameters.len != 0 || read_scheme.row_parameters.len != 0);
+        let entry = scheme_fixture_root_function(&program, "checked_read_entry");
+        assert!(matches!(program.store.functions[entry].contract, FullCallableContract::Ground(_)));
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             evaluator.force_frames = force_frames;
             for step in 0..program.driver_step_count().unwrap() {
-                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let flow = evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{flow:?}");
             }
-            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
             assert_eq!(result, Value::Int(7));
         }
     }
@@ -38367,7 +38409,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         run_with_large_stack(|| {
             for stage in ["map", "par-map(jobs: 1)"] {
                 let source = format!("pure helper() -> Int {{ let marker = \"value\"; let values = [1] |> {stage} {{ |item| return 7 }}; values.len() + 9 }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-                let program = fixture("producer-callback-return-boundary.xsh", &source);
+                let program = ordinary_ground_fixture("producer-callback-return-boundary.xsh", &source);
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let helper = scheme_fixture_root_function(&program, "helper");
                 let decoder = function_view_decoder(&program.store, helper);
@@ -38378,6 +38420,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                     (program.store.tags[value.raw() as usize] == FullTag::ExprInt).then_some(value.raw() as usize)
                 }).unwrap();
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 bad.store.tags[returned] = FullTag::ExprStr;
                 bad.store.data[returned] = program.store.data[text];
                 FullVerifier::verify(&bad).expect_err("inline callback returns must satisfy the enclosing function header");
@@ -38407,7 +38451,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         run_with_large_stack(|| {
             let scanner = include_str!("../../../../tests/xsh/lowered-scanners.xsh").split("\ntest ").next().unwrap();
             let source = format!("{scanner}\npure helper() -> Int {{ if scan_slash_text(b\"/* note */ \\\"//\\\" // note\") {{ 7 }} else {{ 0 }} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-            let program = fixture("producer-scan-bytes.xsh", &source);
+            let program = ordinary_ground_fixture("producer-scan-bytes.xsh", &source);
             assert!(program.store.tags.contains(&FullTag::StmtScanBytes));
             assert_ordinary_ground_program(Arc::new(program));
         });
@@ -38521,12 +38565,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 ("pure apply(...actions: List[Action]) -> Int { actions[0](1) }", "let actions: List[Action] = [target]; apply(@actions)"),
             ] {
                 let source = format!("type Action = pure(value: Int) -> Int\n{declaration}\npure target(value: Int) -> Int {{ 7 }}\npure helper() -> Int {{ let marker = \"invalid\"; {body} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-                let program = fixture("producer-callable-return-origin.xsh", &source);
+                let program = ordinary_ground_fixture("producer-callable-return-origin.xsh", &source);
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let target = scheme_fixture_root_function(&program, "target");
                 let integer = program.store.function_instruction_range(target).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
                 let text = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 bad.store.tags[integer] = FullTag::ExprStr;
                 bad.store.data[integer] = program.store.data[text];
                 FullVerifier::verify(&bad).expect_err("callable projections must close the actual selected function return");
@@ -38538,7 +38584,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_callback_binders_reject_active_parameter_slot_clobber() {
         run_with_large_stack(|| {
             let source = "pure helper(value: Int) -> Int { let values = [7] |> map { |item| item }; values[0] }\npure read(row) -> Int { let ignored = row.anchor; helper(9).bit_or(0) }\n";
-            let program = fixture("producer-callback-active-slot.xsh", source);
+            let program = ordinary_ground_fixture("producer-callback-active-slot.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "helper");
             let decoder = function_view_decoder(&program.store, helper);
@@ -38548,6 +38594,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let slot = match stage.view { StageView::Map { slot, .. } | StageView::MapBlock { slot, .. } => slot, _ => panic!("callback is an ordinary map") };
             assert_ne!(slot, 0);
             let mut bad = program.clone();
+            bad.store.in_place.take();
+            assert!(bad.store.in_place.get().is_none());
             let payload = bad.store.stage_data[stage.id.raw() as usize].range().start as usize;
             assert_eq!(bad.store.extra[payload], slot as u32);
             bad.store.extra[payload] = 0;
@@ -38716,7 +38764,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_callable_header_writes_close_the_actual_target() {
         run_with_large_stack(|| {
             let source = "type Action = pure(value: Int) -> Int\npure initial(value: Int) -> Int { 7 }\npure replacement(value: Int) -> Int { 7 }\npure invoke(action: Action) -> Int { let marker = \"invalid\"; var selected: Action = action; selected = replacement; selected(1) }\npure helper() -> Int { invoke(initial) }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-callable-header-write.xsh", source);
+            let program = ordinary_ground_fixture("producer-callable-header-write.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "invoke");
             let decoder = function_view_decoder(&program.store, helper);
@@ -38724,6 +38772,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let schema::StmtView::Assign { slot, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
             assert_ne!(slot, 0);
             let mut header = program.clone();
+            header.store.in_place.take();
+            assert!(header.store.in_place.get().is_none());
             header.store.extra[header.store.data[assignment].range().start as usize] = 0;
             for instruction in decoder.instruction_range.clone() {
                 if program.store.tags[instruction] == FullTag::ExprParam && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(actual) if actual == slot) {
@@ -38737,6 +38787,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let text = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
             header.store.tags[integer] = FullTag::ExprStr;
             header.store.data[integer] = program.store.data[text];
+            header.store.in_place.take();
+            assert!(header.store.in_place.get().is_none());
             FullVerifier::verify(&header).expect_err("a header assignment must close its actual replacement target return");
         });
     }
@@ -38745,18 +38797,22 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_loop_values_preserve_owner_reachability() {
         run_with_large_stack(|| {
             let source = "pure helper() -> Int { let marker = \"invalid\"; let value = loop { let ignored = loop { break \"inner\" }; break 7; break 8 }; value }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-loop-value-ownership.xsh", source);
+            let program = ordinary_ground_fixture("producer-loop-value-ownership.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "helper");
             let range = program.store.function_instruction_range(helper).unwrap();
             let integer = |number| range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [number, 0]).unwrap();
             let text = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
             let mut unreachable = program.clone();
+            unreachable.store.in_place.take();
+            assert!(unreachable.store.in_place.get().is_none());
             unreachable.store.tags[integer(8)] = FullTag::ExprStr;
             unreachable.store.data[integer(8)] = program.store.data[text];
             FullVerifier::verify(&unreachable).expect("an unreachable break cannot supply an enclosing loop value");
             assert_ordinary_ground_program(Arc::new(unreachable));
             let mut reached = program.clone();
+            reached.store.in_place.take();
+            assert!(reached.store.in_place.get().is_none());
             reached.store.tags[integer(7)] = FullTag::ExprStr;
             reached.store.data[integer(7)] = program.store.data[text];
             FullVerifier::verify(&reached).expect_err("the actual outer-loop break must retain its Int contract");
@@ -38767,13 +38823,15 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_with_fallthrough_preserves_later_return_obligations() {
         run_with_large_stack(|| {
             let source = "pure helper() -> Int { with held = 1 { let marker = \"value\"; let ignored = held } else {}; 7 }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-with-fallthrough.xsh", source);
+            let program = ordinary_ground_fixture("producer-with-fallthrough.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "helper");
             let decoder = function_view_decoder(&program.store, helper);
             let returned = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [7, 0]).unwrap();
             let text = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
             let mut bad = program.clone();
+            bad.store.in_place.take();
+            assert!(bad.store.in_place.get().is_none());
             bad.store.tags[returned] = FullTag::ExprStr;
             bad.store.data[returned] = program.store.data[text];
             FullVerifier::verify(&bad).expect_err("a falling-through with body cannot erase a later return obligation");
@@ -38788,13 +38846,15 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 ("enum Level { Info, Fault(Str) }\npure make(values: List[Level] = [Fault(\"good\")]) -> List[Level] { values }", true),
             ] {
                 let source = format!("{declaration}\npure helper() -> Int {{ make().len() + 6 }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-                let program = fixture("producer-default-payload.xsh", &source);
+                let program = ordinary_ground_fixture("producer-default-payload.xsh", &source);
                 let _symbols = program.symbol_owner().enter();
                 let make = scheme_fixture_root_function(&program, "make");
                 let parameter = program.store.functions[make].params.start;
                 let cold = program.store.param_cold.binary_search_by_key(&parameter, |row| row.param).unwrap();
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 let default = program.store.param_cold[cold].default;
                 if default != IR_NONE {
                     eprintln!("source-emitted cold default: {declaration}");
@@ -38828,7 +38888,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_record_default_rejects_a_later_duplicate_writer() {
         run_with_large_stack(|| {
             let source = "type Item = {value: Int}\npure make(row: Item = {value: 7}) -> Int { row.value }\npure helper() -> Int { make() }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-record-default-writers.xsh", source);
+            let program = ordinary_ground_fixture("producer-record-default-writers.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let _symbols = program.symbol_owner().enter();
             let make = scheme_fixture_root_function(&program, "make");
@@ -38840,6 +38900,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let default = builder.encode_value_id(&LoweredValue::RecordVec(Arc::new(vec![(Name::intern("value"), LoweredValue::Int(7))]))).unwrap();
             builder.store.param_cold[cold].default = default;
             let mut valid = program.clone();
+            valid.store.in_place.take();
+            assert!(valid.store.in_place.get().is_none());
             valid.store = builder.store;
             FullVerifier::verify(&valid).unwrap();
             assert_ordinary_ground_program(Arc::new(valid.clone()));
@@ -38863,12 +38925,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 "[1] |> fold(init: 7) { |total, item| total }",
             ] {
                 let source = format!("pure helper() -> Int {{ {body} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\nlet alternate = false\n");
-                let program = fixture("producer-callback-writers.xsh", &source);
+                let program = ordinary_ground_fixture("producer-callback-writers.xsh", &source);
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let helper = scheme_fixture_root_function(&program, "helper");
                 let integer = program.store.function_instruction_range(helper).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [7, 0]).unwrap();
                 let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 bad.store.tags[integer] = FullTag::ExprBool;
                 bad.store.data[integer] = program.store.data[boolean];
                 FullVerifier::verify(&bad).expect_err("actual callback input and repeated local writes must close independently of context rows");
@@ -38975,7 +39039,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_producer_contexts_close_conditional_collection_inputs() {
         run_with_large_stack(|| {
             let source = "pure helper(flag: Bool) -> List[Int] { let values = if flag { [7] } else { [] }; values.push(9) }\npure read(row) -> Int { let ignored = row.anchor; helper(true).len() }\n";
-            let derivable = Arc::new(fixture("generic-ground-derivable-input.xsh", source));
+            let derivable = Arc::new(ground_read_entry_fixture("generic-ground-derivable-input.xsh", source, "Int"));
             FullVerifier::verify(&derivable).unwrap();
             {
                 let _symbols = derivable.symbol_owner().enter();
@@ -38983,12 +39047,12 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*derivable.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&derivable));
                     evaluator.force_frames = force_frames;
-                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
                     assert_eq!(result, Value::Int(2));
                 }
             }
             let source = "pure helper(flag: Bool) -> List[Int] { collect { for case in [{args: []}, {args: [\"-z\"]}] { yield case.args.len() } } }\npure read(row) -> Int { let ignored = row.anchor; helper(true).len() }\n";
-            let program = Arc::new(fixture("generic-ground-context-input.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-ground-context-input.xsh", source, "Int"));
             FullVerifier::verify(&program).unwrap();
             assert!(program.store.checked_expr_types.iter().any(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_))), "an underivable collection receiver needs an independently closed context");
             let _symbols = program.symbol_owner().enter();
@@ -38996,27 +39060,39 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(2));
             }
             let context = program.store.checked_expr_types.iter().position(|fact| !fact.is_contract()).unwrap();
             let mut missing = (*program).clone();
+            missing.store.in_place.take();
+            assert!(missing.store.in_place.get().is_none());
             missing.store.checked_expr_types.remove(context);
             assert!(FullVerifier::verify(&missing).is_err());
             let mut wrong_owner = (*program).clone();
+            wrong_owner.store.in_place.take();
+            assert!(wrong_owner.store.in_place.get().is_none());
             wrong_owner.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Driver(usize::MAX));
             assert!(FullVerifier::verify(&wrong_owner).is_err());
             let mut duplicate = (*program).clone();
+            duplicate.store.in_place.take();
+            assert!(duplicate.store.in_place.get().is_none());
             duplicate.store.checked_expr_types.insert(context, duplicate.store.checked_expr_types[context]);
             assert!(FullVerifier::verify(&duplicate).is_err());
             let mut wrong_purpose = (*program).clone();
+            wrong_purpose.store.in_place.take();
+            assert!(wrong_purpose.store.in_place.get().is_none());
             wrong_purpose.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false };
             assert!(FullVerifier::verify(&wrong_purpose).is_err());
             let mut changed_type = (*program).clone();
+            changed_type.store.in_place.take();
+            assert!(changed_type.store.in_place.get().is_none());
             let boolean = SemanticPoolBuilder::default().intern_type(&mut changed_type.store.semantic, &Type::Bool).unwrap();
             changed_type.store.checked_expr_types[context].type_id = boolean;
             assert!(FullVerifier::verify(&changed_type).is_err());
             let mut capacity = (*program).clone();
+            capacity.store.in_place.take();
+            assert!(capacity.store.in_place.get().is_none());
             let before = capacity.store.retained_bytes();
             let old_capacity = capacity.store.checked_expr_types.capacity();
             capacity.store.checked_expr_types.reserve_exact(old_capacity + 17);
@@ -39025,6 +39101,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             assert_eq!(capacity.store.retained_bytes() - before, row_bytes);
             eprintln!("producer context row bytes: {}; reserved capacity delta: {row_bytes}", size_of::<FullCheckedExprType>());
             let mut unused = (*program).clone();
+            unused.store.in_place.take();
+            assert!(unused.store.in_place.get().is_none());
             let original = unused.store.checked_expr_types[context];
             let literal = unused.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
             unused.store.checked_expr_types.push(FullCheckedExprType { instruction: literal as u32, ..original });
@@ -39100,7 +39178,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_producers_keep_disjoint_reused_slots_independent() {
         run_with_large_stack(|| {
             let source = "pure helper(flag: Bool) -> Int { if flag { let scoped = \"text\"; let length = scoped.byte_len() }; let scoped = 7; scoped }\npure read(row) -> Int { let ignored = row.anchor; helper(true).bit_or(0) }\n";
-            let mut program = fixture("generic-ground-slot-lifetimes.xsh", source);
+            let mut program = ground_read_entry_fixture("generic-ground-slot-lifetimes.xsh", source, "Int");
             FullVerifier::verify(&program).unwrap();
             let helper = scheme_fixture_root_function(&program, "helper");
             let range = program.store.function_instruction_range(helper).unwrap();
@@ -39136,7 +39214,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(7));
             }
         });
@@ -39234,7 +39312,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_pure_host_capture_requires_its_lexical_writer_field_type() {
         run_with_large_stack(|| {
             let source = "let marker = {value: 1}\nlet alternate = false\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n";
-            let program = Arc::new(fixture("generic-pure-capture-field-proof.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-pure-capture-field-proof.xsh", source, "Int"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
@@ -39244,12 +39322,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Int(1));
             }
             let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
             let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             forged.store.tags[integer] = FullTag::ExprBool;
             forged.store.data[integer] = forged.store.data[boolean];
             assert!(FullVerifier::verify(&forged).is_err());
@@ -39260,7 +39340,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_literal_record_capture_preserves_pure_data_expressions() {
         run_with_large_stack(|| {
             let source = "let marker = {negative: -1, arithmetic: (2 + 3) * 4, selected: {value: 7}.value}\npure read(row) -> List[Int] { let ignored = row.anchor; [marker.negative, marker.arithmetic.bit_or(0), marker.selected.bit_or(0)] }\n";
-            let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-capture-literal-expressions.xsh", source, "List[Int]"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for tag in [FullTag::ExprBinary, FullTag::ExprField] {
@@ -39273,7 +39353,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::List(vec![Value::Int(-1), Value::Int(20), Value::Int(7)]));
             }
         });
@@ -39283,7 +39363,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_literal_record_capture_preserves_boolean_and_float_unary_values() {
         run_with_large_stack(|| {
             let source = "type Marker = {negative: Float, flag: Bool}\nlet marker = {negative: -1.25, flag: !false}\npure read(row) -> Marker { let ignored = row.anchor; marker }\n";
-            let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-capture-literal-expressions.xsh", source, "Marker"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             assert!((0..program.store.driver_steps.len()).any(|step| program.store.tags[program.store.driver_instruction_range(step).unwrap()].contains(&FullTag::ExprIf)));
@@ -39294,7 +39374,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Record(BTreeMap::from([(Arc::from("negative"), Value::Float(crate::runtime::value::FloatValue::new(-1.25))), (Arc::from("flag"), Value::Bool(true))]).into()));
             }
         });
@@ -39310,19 +39390,23 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             assert_eq!(verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
+            let execution = Arc::new(ground_read_entry_fixture("generic-capture-only-demand-entry.xsh", source, "Marker"));
+            let _execution_symbols = execution.symbol_owner().enter();
             for force_frames in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*execution.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&execution));
                 evaluator.force_frames = force_frames;
-                for step in 0..program.driver_step_count().unwrap() {
-                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                for step in 0..execution.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(execution.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(execution.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(1))]).into()));
             }
             let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
             let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             forged.store.tags[integer] = FullTag::ExprBool;
             forged.store.data[integer] = forged.store.data[boolean];
             assert!(FullVerifier::verify(&forged).is_err());
@@ -39333,7 +39417,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_record_capture_checks_nested_and_unread_literal_payloads() {
         run_with_large_stack(|| {
             let source = "pure factory(lower: Int, upper: Int) -> Stream[Int] { range(lower, upper) }\nlet marker = {value: 1, hidden: [0, 2]}\nlet spare = factory(0, 2)\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n";
-            let program = Arc::new(fixture("generic-capture-whole-literal.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-capture-whole-literal.xsh", source, "Int"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
@@ -39343,7 +39427,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Int(1));
             }
             let read = scheme_fixture_named_function(&program, "read");
@@ -39353,6 +39437,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let mut fields = (*fields).clone();
             assert_eq!(fields.insert(Name::intern("hidden"), Type::Stream(Box::new(Type::Int))), Some(Type::List(Box::new(Type::Int))));
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             let mut semantic = SemanticPoolBuilder::default();
             let actual = semantic.intern_type(&mut forged.store.semantic, &Type::Record(fields.into())).unwrap();
             for capture in &mut forged.store.captures { if capture.type_id == wide { capture.type_id = actual; } }
@@ -39369,8 +39455,15 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let schema::ExprView::List(values) = decoder.expression_view(list).unwrap() else { unreachable!() };
             let values = values.map(|value| value.unwrap().raw()).collect::<Vec<_>>();
             assert_eq!(values.len(), 2);
-            let call = program.store.tags.iter().position(|tag| *tag == FullTag::ExprDirectPureCall).unwrap();
-            let call_step = (0..program.store.driver_steps.len()).find(|step| program.store.driver_instruction_range(*step).unwrap().contains(&call)).unwrap();
+            let factory = scheme_fixture_root_function(&program, "factory");
+            let calls = (0..program.store.driver_steps.len()).flat_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                decoder.instruction_range.clone().filter_map(move |instruction| {
+                    matches!(decoder.expression_view(instruction), Ok(schema::ExprView::DirectPureCall { function, span, .. }) if function.id.index() == factory && &source[span.range()] == "factory(0, 2)").then_some((step, instruction))
+                })
+            }).collect::<Vec<_>>();
+            assert_eq!(calls.len(), 1);
+            let (call_step, call) = calls[0];
             let call_decoder = verify_schemes::decoder_for_driver_step(&program.store, call_step).unwrap();
             let schema::ExprView::DirectPureCall { args, .. } = call_decoder.expression_view(call).unwrap() else { unreachable!() };
             assert_eq!(args.count(), 2);
@@ -40737,13 +40830,13 @@ pure foreign(payload, count: Int) {
         run_with_large_stack(|| {
             let values = (0..4096).map(|value| value.to_string()).collect::<Vec<_>>().join(",");
             let source = format!("const data: List[Int] = [{values}]\npure helper() -> List[Int] {{ data }}\npure read(row) -> List[Int] {{ let ignored = row.anchor; helper().push(4096) }}\n");
-            let program = Arc::new(fixture("prepared-constant-producer-work.xsh", &source));
+            let program = Arc::new(ground_read_entry_fixture("prepared-constant-producer-work.xsh", &source, "List[Int]"));
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::List((0..4097).map(Value::Int).collect()));
             }
         });
@@ -46957,17 +47050,18 @@ assert held.other("demo") == "demo"
 assert held.marker
 "#);
             FullVerifier::verify(&program).unwrap();
-            assert_eq!(size_of::<schemes::FullCallInstantiation>(), 60);
-            assert_eq!(size_of::<schemes::FullInstantiation>(), 56);
+            assert_eq!(size_of::<schemes::FullCallInstantiation>(), 76);
+            assert_eq!(size_of::<schemes::FullInstantiation>(), 72);
             assert_eq!(size_of::<value_materialization::FullValueMaterialization>(), 16);
             assert_eq!(size_of::<value_materialization::FullMaterializationNode>(), 16);
             assert_eq!(size_of::<value_materialization::FullMaterializationEdge>(), 8);
-            assert_eq!(size_of::<value_materialization::FullMaterializationLeaf>(), 60);
+            assert_eq!(size_of::<value_materialization::FullMaterializationLeaf>(), 76);
             let retained = program.store.value_materializations.capacity() * size_of::<value_materialization::FullValueMaterialization>()
                 + program.store.materialization_nodes.capacity() * size_of::<value_materialization::FullMaterializationNode>()
                 + program.store.materialization_edges.capacity() * size_of::<value_materialization::FullMaterializationEdge>()
                 + program.store.materialization_leaves.capacity() * size_of::<value_materialization::FullMaterializationLeaf>();
-            assert_eq!(retained, 224);
+            assert_eq!(program.store.materialization_leaves.capacity(), 2);
+            assert_eq!(retained, 224 + 2 * 2 * size_of::<IrRange>());
             let header = program.store.value_materializations[0];
             let root = program.store.materialization_nodes[header.root as usize];
             let children = root.children.bounds(program.store.materialization_edges.len()).unwrap();
@@ -46977,18 +47071,28 @@ assert held.marker
             let first = program.store.materialization_nodes[callable_nodes[0]].leaf as usize;
             let second = program.store.materialization_nodes[callable_nodes[1]].leaf as usize;
             let mut foreign = program.clone();
+            foreign.store.in_place.take();
+            assert!(foreign.store.in_place.get().is_none());
             foreign.store.materialization_leaves[first].relationship = program.store.materialization_leaves[second].relationship;
             assert!(FullVerifier::verify(&foreign).is_err(), "compatible but unrelated targets cannot replace the actual source leaf");
             let mut shared = program.clone();
+            shared.store.in_place.take();
+            assert!(shared.store.in_place.get().is_none());
             shared.store.materialization_leaves[first].instance.type_arguments = program.store.materialization_leaves[second].instance.type_arguments;
             assert!(FullVerifier::verify(&shared).is_err(), "leaf substitutions are exclusively owned");
             let mut duplicate = program.clone();
+            duplicate.store.in_place.take();
+            assert!(duplicate.store.in_place.get().is_none());
             duplicate.store.materialization_edges[children.start + 1].name = program.store.materialization_edges[children.start].name;
             assert!(FullVerifier::verify(&duplicate).is_err(), "each structural field path is authenticated once");
             let mut orphan = program.clone();
+            orphan.store.in_place.take();
+            assert!(orphan.store.in_place.get().is_none());
             orphan.store.value_materializations.push(header);
             assert!(FullVerifier::verify(&orphan).is_err(), "every retained plan has one actual CheckedValue owner");
             let mut missing = program.clone();
+            missing.store.in_place.take();
+            assert!(missing.store.in_place.get().is_none());
             missing.store.materialization_nodes[callable_nodes[0]].kind = value_materialization::FullMaterializationKind::Keep;
             missing.store.materialization_nodes[callable_nodes[0]].leaf = IR_NONE;
             assert!(FullVerifier::verify(&missing).is_err(), "a missing conversion cannot establish a monomorphic destination");
