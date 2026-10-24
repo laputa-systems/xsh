@@ -66,7 +66,7 @@ impl Checker {
 
     pub(super) fn validate_symbolic_callable_effect_exclusions(&mut self, contract: &crate::sema::effects::EffectContract<crate::sema::constraints::EffectVariableId>, span: Span) {
         for excluded in self.boundary.excluded_effects.clone() {
-            if !self.owns_effect_predicate(contract, |contract| crate::sema::effects::EffectPredicate::Excluded(contract, crate::sema::effects::EffectSet::singleton(excluded.effect))) {
+            if !self.owns_effect_predicate(contract, span, |contract| crate::sema::effects::EffectPredicate::Excluded(contract, crate::sema::effects::EffectSet::singleton(excluded.effect))) {
                 self.error(span, "callable effect exclusion is outside its checked scheme", DiagnosticCode::CheckLocalInference);
             }
         }

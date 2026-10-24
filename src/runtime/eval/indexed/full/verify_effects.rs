@@ -26,23 +26,23 @@ impl OwnerEffects {
         Ok(Self { kind, function: index })
     }
 
-    fn require_contract(&self, proof: &ScopedEffectProof<'_>, budget: &mut super::verify_schemes::SchemeInstantiationBudget, required: &EffectContract<SchemeEffectParameterId>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
+    fn require_contract(&self, proof: &ScopedEffectProof<'_>, budget: &mut super::verify_schemes::SchemeInstantiationBudget, instruction: usize, required: &EffectContract<SchemeEffectParameterId>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
         if self.kind == CallableKind::Pure && !pure {
             return Err(IrVerifyError::new("pure executable body contains an impure operation"));
         }
-        proof.require(self.function, required, captured || self.kind == CallableKind::Pure, budget)
+        proof.require_at(self.function, instruction, required, captured || self.kind == CallableKind::Pure, budget)
     }
 
-    fn require(&self, proof: &ScopedEffectProof<'_>, budget: &mut super::verify_schemes::SchemeInstantiationBudget, required: Option<&[Effect]>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
+    fn require(&self, proof: &ScopedEffectProof<'_>, budget: &mut super::verify_schemes::SchemeInstantiationBudget, instruction: usize, required: Option<&[Effect]>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
         if self.kind == CallableKind::Pure && !pure {
             return Err(IrVerifyError::new("pure executable body contains an impure operation"));
         }
         let Some(required) = required.or(if pure { Some(&[]) } else { None }) else {
-            return self.require_contract(proof, budget, &EffectContract::Unknown, pure, captured)
+            return self.require_contract(proof, budget, instruction, &EffectContract::Unknown, pure, captured)
                 .map_err(|error| IrVerifyError::new(format!("finite executable body contains an unknown effect contract: {}", error.message)));
         };
         for effect in required {
-            self.require_contract(proof, budget, &EffectContract::finite(EffectSet::singleton(effect.clone())), pure, captured)
+            self.require_contract(proof, budget, instruction, &EffectContract::finite(EffectSet::singleton(effect.clone())), pure, captured)
                 .map_err(|error| IrVerifyError::new(format!("executable operation requires effect {} outside its owner contract: {}", effect.as_str(), error.message)))?;
         }
         Ok(())
@@ -89,7 +89,7 @@ pub(super) fn require_callable(decoder: &FullDecoder<'_>, scopes: &VerifiedSchem
     let owner = OwnerEffects::for_function(decoder.store, function.index())?;
     let captured = owner.kind != CallableKind::Pure && effects.is_some_and(|effects| effects.contains(&Effect::Error))
         && captures_error(decoder, instruction, &mut BTreeMap::new(), parent_of)?;
-    owner.require(&ScopedEffectProof::new(decoder.store, scopes), budget, effects, pure, captured)
+    owner.require(&ScopedEffectProof::new(decoder.store, scopes), budget, instruction, effects, pure, captured)
 }
 
 pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &VerifiedSchemeScopes) -> Result<(), IrVerifyError> {
@@ -109,7 +109,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
     let require = |instruction, effects: Option<&[Effect]>, pure, captured: &mut BTreeMap<usize, bool>| {
         let captures = owner.kind != CallableKind::Pure && effects.is_some_and(|effects| effects.contains(&Effect::Error))
             && captures_error(decoder, instruction, captured, |at| decoder.instruction_parent_of(at))?;
-        owner.require(&proof, &mut budget.borrow_mut(), effects, pure, captures).map_err(|error| IrVerifyError::new(format!("{} at callable {index}, instruction {instruction} {:?}", error.message, decoder.store.tags[instruction])))
+        owner.require(&proof, &mut budget.borrow_mut(), instruction, effects, pure, captures).map_err(|error| IrVerifyError::new(format!("{} at callable {index}, instruction {instruction} {:?}", error.message, decoder.store.tags[instruction])))
     };
     for instruction in decoder.instruction_range.clone() {
         let tag = decoder.store.tags[instruction];
@@ -167,7 +167,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                             Err(_) => {
                                 let captures = owner.kind != CallableKind::Pure
                                     && captures_error(decoder, instruction, &mut captured, |at| decoder.instruction_parent_of(at))?;
-                                owner.require_contract(&proof, &mut budget.borrow_mut(), &effects, target.kind == CallableKind::Pure, captures)?;
+                                owner.require_contract(&proof, &mut budget.borrow_mut(), instruction, &effects, target.kind == CallableKind::Pure, captures)?;
                             }
                         }
                     }
@@ -240,7 +240,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
             FullTag::StmtExpr => {
                 let schema::StmtView::Expr { value, .. } = decoder.statement_view(instruction)? else { unreachable!() };
                 if owner.kind != CallableKind::Pure
-                    && !proof.permits_direct(index, &Effect::Error)?
+                    && !proof.permits_at(index, instruction, &Effect::Error, &mut budget.borrow_mut())?
                     && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Abort { .. })
                 {
                     let value = value.raw() as usize;

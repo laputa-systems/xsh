@@ -85,6 +85,24 @@ fn inferred_guarded_local_forwarding_preserves_each_visible_payload() {
 }
 
 #[test]
+fn typed_guarded_callbacks_preserve_arguments_invocation_and_cleanup() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-requirements-callbacks.xsh");
+        let source = std::fs::read_to_string(&path).unwrap()
+            .replace("proc guarded_fixed_callback(action,", "proc guarded_fixed_callback(action: GuardedObserver?,")
+            .replace("proc guarded_inferred_callback(action,", "proc guarded_inferred_callback(action: GuardedObserver?,")
+            .replace("proc guarded_callback_absence() []", "proc guarded_callback_absence() [env, error]");
+        verify_guarded_source(&path, source, "verify_guarded_callbacks");
+    });
+}
+
+#[test]
+fn inferred_guarded_callbacks_preserve_arguments_invocation_and_cleanup() {
+    on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-callbacks.xsh", "verify_guarded_callbacks"));
+}
+
+
+#[test]
 fn inferred_root_callbacks_propagate_only_their_actual_error_contract() {
     on_scoped_body_test_stack(|| {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp/root-callback-propagation.xsh");
@@ -100,5 +118,30 @@ proc verify_root_callback() [error] -> Result[Unit, Error] {
 }
 "#;
         verify_guarded_source(&path, source.to_owned(), "verify_root_callback");
+    });
+}
+
+
+#[test]
+fn guarded_callbacks_preserve_written_error_and_effect_consumers() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-requirements-callbacks.xsh");
+        let source = std::fs::read_to_string(&path).unwrap()
+            .replace("proc guarded_inferred_callback(action,", "proc guarded_inferred_callback(action: GuardedObserver?,")
+            .replace("proc guarded_callback_absence() []", "proc guarded_callback_absence() [env, error]");
+        verify_guarded_source(&path, source, "verify_guarded_callbacks");
+    });
+}
+
+
+#[test]
+fn imported_guarded_callbacks_forward_conditional_effects_after_disposal() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-requirements-callbacks.xsh");
+        let source = std::fs::read_to_string(&path).unwrap()
+            .replace("let absent = guarded_callback_absence()", "let absent = guarded_callbacks.absent()")
+            .replace("let _ = guarded_fixed_callback(", "let _ = guarded_callbacks.fixed(")
+            .replace("let _ = guarded_inferred_callback(", "let _ = guarded_callbacks.relay(");
+        verify_guarded_source(&path, format!("use guarded_callbacks\n{source}"), "verify_guarded_callbacks");
     });
 }

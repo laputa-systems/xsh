@@ -60,6 +60,12 @@ impl GuardCallRequirement {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GuardEffects<V> {
+    pub(crate) outward: super::effects::EffectContract<V>,
+    pub(crate) local: super::effects::EffectContract<V>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GuardRequirements {
     pub(crate) scope: GuardScopeId,
     pub(crate) source: SchemeType,
@@ -67,6 +73,7 @@ pub(crate) struct GuardRequirements {
     pub(crate) subject: crate::source::Span,
     pub(crate) comparison: crate::source::Span,
     pub(crate) reads: Vec<GuardReadRequirement>,
+    pub(crate) effects: Option<GuardEffects<SchemeEffectParameterId>>,
     pub(crate) type_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) row_parameters: Vec<SchemeRowParameter>,
     pub(crate) requirements: Box<CallableRequirements>,
@@ -132,6 +139,7 @@ impl GuardRequirements {
             owned.types.extend(guard.type_parameters.iter().copied());
             owned.rows.extend(guard.row_parameters.iter().map(|parameter| parameter.id));
             owned.effects.extend(guard.requirements.effect_parameters.iter().copied());
+            if let Some(effects) = &guard.effects { dependencies.add_effects(&effects.outward); dependencies.add_effects(&effects.local); }
             dependencies.add_type(&guard.source);
             dependencies.add_type(&guard.view);
             for read in &guard.reads { dependencies.add_type(&read.source); dependencies.add_type(&read.view); }
@@ -327,7 +335,7 @@ mod tests {
         let mut conversions = super::super::schemes::ValueConversionSet::default();
         conversions.insert(super::super::schemes::ValueConversion::Display);
         requirements.conversion_parameters.insert(view, conversions);
-        GuardRequirements { scope: GuardScopeId::from_index(scope).unwrap(), source, view: SchemeType::Parameter(view), subject: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), comparison: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), reads: Vec::new(), type_parameters: vec![view], row_parameters: Vec::new(), requirements: Box::new(requirements) }
+        GuardRequirements { scope: GuardScopeId::from_index(scope).unwrap(), source, view: SchemeType::Parameter(view), subject: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), comparison: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), reads: Vec::new(), effects: None, type_parameters: vec![view], row_parameters: Vec::new(), requirements: Box::new(requirements) }
     }
 
     fn callable(guards: Vec<GuardRequirements>, returned: SchemeType) -> Result<super::super::schemes::CallableScheme, SchemeBuildError> {

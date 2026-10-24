@@ -306,7 +306,7 @@ impl Checker {
                 block,
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
-                self.record_required_effect(Effect::Process);
+                self.record_required_effect(Effect::Process, span);
                 let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
                 self.check_required_effect_clause(
                     Effect::Process,

@@ -147,7 +147,9 @@ fn application_return_origin(
                 let ordinal = store.scheme_application_calls[site].application;
                 let function = &store.functions[IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("application return owner is invalid"))?.index()];
                 let FullCallableContract::Scheme(id) = function.contract else { unreachable!() };
-                let application = bounded(store.scheme(id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
+                let active = scheme_scope.at_instruction(instruction)?;
+                if active.active_guard != scheme_scope.active_guard { return Err(IrVerifyError::new("application return producer belongs to another requirement scope")); }
+                let application = bounded(active.owned_requirements(store.scheme(id)?)?.applications, &store.scheme_applications, "scheme application range is invalid")?
                     .get(ordinal as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
                 let actual = types.get(&instruction).ok_or_else(|| IrVerifyError::new("application return has no actual result type"))?;
                 let result = decode_scheme_type(store, scheme_scope, application.result, budget, 0)?;
@@ -1824,7 +1826,7 @@ pub(super) fn verify_body(
                                 return Err(IrVerifyError::new("application return has a wrong or duplicate owner"));
                             }
                             let FullCallableContract::Scheme(id) = function.contract else { unreachable!() };
-                            let application = bounded(store.scheme(id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
+                            let application = bounded(scheme_scope.at_instruction(instruction)?.owned_requirements(store.scheme(id)?)?.applications, &store.scheme_applications, "scheme application range is invalid")?
                                 .get(site.application as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
                             let envelope = bounded(application.proc_returns, &store.scheme_proc_returns, "scheme return envelope range is invalid")?
                                 .get(site.envelope as usize).ok_or_else(|| IrVerifyError::new("scheme return envelope ordinal is out of scope"))?;
@@ -2016,6 +2018,67 @@ mod tests {
         let program = build(definition);
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn guard_effect_exports_authenticate_live_and_absent_prepared_contributions() {
+        let mut program = prepare(r#"
+proc observe(value: Int) [env, error] -> Result[Int, Error] {
+  let _ = env.get_or("XSH_GUARD_EFFECT_COLD", "absent")?
+  Ok(value)
+}
+proc choose(action) -> Result[Unit, Error] {
+  if action != null { let _ = action(1)? }
+  Ok()
+}
+proc driver() [env, error] -> Result[Unit, Error] {
+  let action: proc(value: Int) [env, error] -> Result[Int, Error] = observe
+  let _ = choose(action)?
+  let _ = choose(null)?
+  Ok()
+}
+driver()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("guard effects retain their conditional scheme") };
+        let root = program.store.scheme(id).unwrap();
+        assert_eq!(root.effect_parameters.len, 1);
+        let sites = program.store.checked_call_targets.iter().filter(|site| site.function.index() == owner).collect::<Vec<_>>();
+        assert_eq!(sites.len(), 2);
+        let mut arguments = Vec::new();
+        for site in sites {
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == site.instruction).unwrap();
+            let arguments_range = instance.arguments.effect_arguments.bounds(program.store.call_effect_arguments.len()).unwrap();
+            assert_eq!(arguments_range.len(), 1);
+            arguments.push(arguments_range.start);
+        }
+        let contracts = arguments.iter().map(|&index| program.store.call_effect_arguments[index].expression).collect::<Vec<_>>();
+        assert_ne!(contracts[0], contracts[1]);
+        let mut changed = program.clone();
+        assert!(changed.store.in_place.get().is_none());
+        changed.store.call_effect_arguments[arguments[0]].expression = contracts[1];
+        changed.store.call_effect_arguments[arguments[1]].expression = contracts[0];
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert!(matches!(error.message.as_str(), "absent guard exports executable effects" | "live guard effect export disagrees with its actual local contribution"), "{error:?}");
+        let guards = root.guards.bounds(program.store.scheme_guards.len()).unwrap();
+        assert_eq!(guards.len(), 1);
+        let exports = program.store.scheme_guards[guards.start].effects.unwrap();
+        let mut omitted_environment = program.clone();
+        assert!(omitted_environment.store.in_place.get().is_none());
+        let mut terms = std::collections::BTreeSet::new();
+        for contract in [exports.local, exports.outward, root.effects] {
+            let range = contract.terms.bounds(program.store.scheme_effect_terms.len()).unwrap();
+            assert_eq!(range.len(), 1);
+            assert!(terms.insert(range.start));
+            assert_eq!(program.store.scheme_effect_terms[range.start].mask, crate::sema::effects::EffectSet::all().bits());
+            omitted_environment.store.scheme_effect_terms[range.start].mask = crate::sema::effects::EffectSet::singleton(crate::syntax::node::Effect::Error).bits();
+        }
+        let error = FullVerifier::verify(&omitted_environment).unwrap_err();
+        assert!(error.message.starts_with("executable operation is absent from its guarded effect contribution"), "{error:?}");
     }
 
     #[test]

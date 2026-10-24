@@ -484,9 +484,11 @@ pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, s
         if !referenced_groups.contains(group) { return Err(IrVerifyError::new("proc completion group has no source relationship")); }
     }
     let mut owner_group = None;
-    for &ordinal in wrapper_sites.values() {
+    for (&instruction, &ordinal) in wrapper_sites {
         budget.charge(1)?;
-        let encoded = *wrappers.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body wrapper ordinal is out of bounds"))?;
+        let active = scope.at_instruction(instruction)?;
+        let local_wrappers = bounded(active.owned_requirements(scheme)?.wrappers, &store.scheme_wrappers, "body wrapper range is invalid")?;
+        let encoded = *local_wrappers.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body wrapper ordinal is out of bounds"))?;
         let group = match encoded {
             FullWrapper::Field { detail, .. } => {
                 let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
@@ -498,6 +500,7 @@ pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, s
             }
             _ => None,
         };
+        if group.is_some() && active.active_guard.is_some() { return Err(IrVerifyError::new("guard-local completion requires an owned conditional error contribution")); }
         if let Some(group) = group && owner_group.replace(group).is_some_and(|previous| previous != group) {
             return Err(IrVerifyError::new("generic body has multiple owner completion groups"));
         }
@@ -1033,7 +1036,7 @@ pub(super) fn evidence_roots(store: &FullStore, encoded: FullWrapper) -> Result<
 }
 
 
-pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: u32, source: &SchemeType, name: Name, result: &SchemeType, captured: bool, actual_boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<Option<PC<SchemeType>>, IrVerifyError> {
+pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, instruction: usize, ordinal: u32, source: &SchemeType, name: Name, result: &SchemeType, captured: bool, actual_boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<Option<PC<SchemeType>>, IrVerifyError> {
     let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body wrapper ordinal is out of bounds"))?;
     let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
     let K::Field { source: expected_source, name: expected_name, result: expected_result, boundary, effects } = requirement.kind else { return Err(IrVerifyError::new("field instruction has another wrapper relationship")); };
@@ -1050,7 +1053,7 @@ pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeSco
             None
         },
         B::Return(expected) if !captured && body_types_equal(&expected, &returned) => None,
-        B::ErrorReturn(expected) if !captured && body_types_equal(&expected, &returned) && metadata.callable_kind == crate::sema::types::CallableKind::Proc && proof.permits_direct(owner.index(), &crate::syntax::node::Effect::Error)? => None,
+        B::ErrorReturn(expected) if !captured && body_types_equal(&expected, &returned) && metadata.callable_kind == crate::sema::types::CallableKind::Proc && proof.permits_at(owner.index(), instruction, &crate::syntax::node::Effect::Error, budget)? => None,
         B::ProcCompletion { returned: expected, group } if !captured && body_types_equal(&expected, &returned) && !store.scheme(id)?.explicit_return && metadata.callable_kind == crate::sema::types::CallableKind::Proc => {
             let crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(group) = group else { return Err(IrVerifyError::new("proc completion field has a source group identity")); };
             let completion = completion_requirement(store, scope, group, budget)?;
@@ -1064,7 +1067,7 @@ pub(super) fn verify_field_site(store: &FullStore, owner: u32, scope: &SchemeSco
         B::Producer if !captured && metadata.callable_kind == crate::sema::types::CallableKind::Stream => None,
         _ => return Err(IrVerifyError::new("wrapper field boundary disagrees with its actual owner")),
     };
-    proof.require(owner.index(), &effects, captured || metadata.callable_kind == crate::sema::types::CallableKind::Pure, budget)?;
+    proof.require_at(owner.index(), instruction, &effects, captured || metadata.callable_kind == crate::sema::types::CallableKind::Pure, budget)?;
     Ok(completion_source)
 }
 

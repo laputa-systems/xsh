@@ -507,6 +507,14 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             Some(id) => guard_rows[id.index()].effect_predicates,
         };
         effects.predicates(store, scheme_index, &pack_scope, predicates)?;
+        if let Some(id) = pack_scope.active_guard
+            && let Some(exports) = guard_rows[id.index()].effects
+        {
+            let parent = guard_rows[id.index()].parent;
+            let parent = if parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(parent as usize).map_err(|_| IrVerifyError::new("guard effect parent is invalid"))?) };
+            effects.contract(store, scheme_index, &scope.with_guard(parent)?, exports.outward)?;
+            effects.contract(store, scheme_index, &pack_scope, exports.local)?;
+        }
         }
         effects.contract(store, scheme_index, &scope, scheme.effects)?;
         if function.checked_return_type != IR_NONE {
@@ -1048,10 +1056,10 @@ fn verify_scheme_tables(
             || store.tags.get(site.instruction as usize) != Some(&FullTag::ExprDynamicCall)
         { return Err(IrVerifyError::new("scheme application calls are unordered or have an invalid instruction")); }
         previous_application_call = Some(site.instruction);
-        let Some((owner, _)) = caller_scheme_for_instruction(store, site.instruction as usize, scopes)? else {
+        let Some((owner, scope)) = caller_scheme_for_instruction(store, site.instruction as usize, scopes)? else {
             return Err(IrVerifyError::new("scheme application call has no generic owner"));
         };
-        if site.application >= store.scheme(owner)?.applications.len {
+        if site.application >= scope.at_instruction(site.instruction as usize)?.owned_requirements(store.scheme(owner)?)?.applications.len {
             return Err(IrVerifyError::new("scheme application call ordinal is out of scope"));
         }
     }
@@ -1068,7 +1076,8 @@ fn verify_scheme_tables(
         let FullCallableContract::Scheme(id) = function.contract else { return Err(IrVerifyError::new("scheme application return has no generic owner")) };
         let scheme = store.scheme(id)?;
         if scheme.callable_kind != crate::sema::types::CallableKind::Proc { return Err(IrVerifyError::new("scheme application return owner is not a proc")); }
-        let application = bounded(scheme.applications, &store.scheme_applications, "scheme application range is invalid")?
+        let scope = scopes.get(id.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("application return has no verified scope"))?.at_instruction(site.instruction as usize)?;
+        let application = bounded(scope.owned_requirements(scheme)?.applications, &store.scheme_applications, "scheme application range is invalid")?
             .get(site.application as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
         if site.envelope >= application.proc_returns.len { return Err(IrVerifyError::new("scheme return envelope ordinal is out of scope")); }
     }
@@ -2716,7 +2725,7 @@ fn verify_body_expression(
         }
         schema::ExprView::Field { base, name, .. } if wrapper_sites.contains_key(&instruction) => {
             let base = child(base, budget)?;
-            if let Some(contribution) = wrappers::verify_field_site(store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites[&instruction], &base, Name::intern(name), ty, slots.captures_error(), boundary, budget)? {
+            if let Some(contribution) = wrappers::verify_field_site(store, decoder.owner, scheme_scope, effect_scopes, instruction, wrapper_sites[&instruction], &base, Name::intern(name), ty, slots.captures_error(), boundary, budget)? {
                 completion_contributions.push(contribution);
             }
             budget.charge_scheme_clone(ty)?;

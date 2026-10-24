@@ -1506,30 +1506,41 @@ impl TypeConstraints {
         callable: &CallableScheme,
         scope: &CallableGeneralizationScope,
     ) -> Result<Vec<(u32, CallableApplicationId)>, SchemeOperationError> {
-        let mut applications = scope.applications.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+        let view = self.generalized_requirement_view(scope.owner, callable, scope)?;
+        self.validate_generalized_applications_view(callable, scope, &view)
+    }
+
+    fn validate_generalized_applications_view(
+        &self, callable: &CallableScheme, scope: &CallableGeneralizationScope, view: &GeneralizedRequirementView<'_>,
+    ) -> Result<Vec<(u32, CallableApplicationId)>, SchemeOperationError> {
+        let mut applications = view.applications.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
         applications.sort_unstable();
-        if applications.len() != callable.requirements().applications.len()
+        if applications.len() != view.requirements.applications.len()
             || applications.iter().enumerate().any(|(index, (ordinal, id))| *ordinal as usize != index
-                || self.callable_application_reference(*id).ok().as_ref() != scope.application_sources.get(id))
+                || match self.callable_application_reference(*id) {
+                    Ok(reference) => self.generalized_requirement_view(reference.scope, callable, scope).map_or(true, |actual| actual.guard != view.guard)
+                        || view.guard.is_none() && scope.application_sources.get(id) != Some(&reference),
+                    Err(_) => true,
+                })
         {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
         }
-        if scope.application_sources.len() != applications.len() {
+        if view.guard.is_none() && scope.application_sources.len() != applications.len() {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
         }
-        let mut generalization = self.callable_generalization(callable, scope);
-        if self.generalized_map_keys(&generalization)? != callable.requirements().map_key_parameters {
+        let mut generalization = self.requirement_generalization(callable, scope, view);
+        if view.guard.is_none() && self.generalized_map_keys(&generalization)? != view.requirements.map_key_parameters {
             return Err(SchemeOperationError::Build(SchemeBuildError::MapKey));
         }
-        if self.generalized_conversions(&generalization)? != callable.requirements().conversion_parameters {
+        if view.guard.is_none() && self.generalized_conversions(&generalization)? != view.requirements.conversion_parameters {
             return Err(SchemeOperationError::Build(SchemeBuildError::Conversion));
         }
-        if self.generalized_iterations(0, &mut generalization)? != callable.requirements().iteration_parameters {
+        if view.guard.is_none() && self.generalized_iterations(0, &mut generalization)? != view.requirements.iteration_parameters {
             return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
         }
         for &(ordinal, id) in &applications {
             let application = self.generalize_callable_application(id, 0, &mut generalization)?;
-            if callable.requirements().applications.get(ordinal as usize) != Some(&application) {
+            if view.requirements.applications.get(ordinal as usize) != Some(&application) {
                 return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
             }
         }

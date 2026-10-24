@@ -246,7 +246,7 @@ pub(super) fn known_argument_assignment_matches_ground(
     let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("nullable argument proof owner is out of bounds"))?;
     let FullCallableContract::Scheme(scheme) = function.contract else { return Ok(false); };
     let scheme = store.scheme(scheme)?;
-    for encoded in bounded(scheme.applications, &store.scheme_applications, "nullable argument application range is invalid")? {
+    for encoded in bounded(scope.owned_requirements(scheme)?.applications, &store.scheme_applications, "nullable argument application range is invalid")? {
         budget.charge(1)?;
         if !matches!(encoded, FullSchemeApplication::KnownArguments { .. }) { continue; }
         let Application::KnownArguments { parameters, arguments } = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)? else { unreachable!() };
@@ -517,7 +517,7 @@ pub(super) fn verify_site(
     let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic application owner is invalid"))?.index();
     let function = store.functions.get(owner).ok_or_else(|| IrVerifyError::new("generic application owner is invalid"))?;
     let FullCallableContract::Scheme(scheme_id) = function.contract else { return Err(IrVerifyError::new("generic application has no scheme owner")); };
-    let encoded = *bounded(store.scheme(scheme_id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
+    let encoded = *bounded(scope.owned_requirements(store.scheme(scheme_id)?)?.applications, &store.scheme_applications, "scheme application range is invalid")?
         .get(site.application as usize).ok_or_else(|| IrVerifyError::new("generic application ordinal is out of scope"))?;
     let application = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
     let Application::Invocation(application) = application else { return Err(IrVerifyError::new("argument-only requirement is not an invocation site")); };
@@ -525,7 +525,7 @@ pub(super) fn verify_site(
     if kind == crate::sema::types::CallableKind::Pure && application.kind != CallableKindRequirement::Pure {
         return Err(IrVerifyError::new("pure body has an impure application requirement"));
     }
-    ScopedEffectProof::new(store, effect_scopes).require(owner, &application.effects,
+    ScopedEffectProof::new(store, effect_scopes).require_at(owner, instruction, &application.effects,
         captured || kind == crate::sema::types::CallableKind::Pure, budget)?;
     let schema::ExprView::DynamicCall { callee, mut args, .. } = decoder.expression_view(instruction)? else {
         return Err(IrVerifyError::new("generic application has no dynamic call"));

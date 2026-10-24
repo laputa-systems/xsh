@@ -619,6 +619,18 @@ the caller, lexical scope, call ordinal, and physical source alongside the final
 callee and guard. Forwarding checks both origins before transferring a packet.
 Pending source relationships rediscover canonical type, row, and effect watchers
 through the existing wrapper journal after aliases resolve.
+Guarded effect contributions retain an actual local aggregate and a parent-owned
+outward effect parameter. Capture masks apply before aggregation. Nested outputs
+belong to their parent pack. Known checked calls contribute their actual contract
+without a duplicate declaration edge. Pending declaration edges retain their
+conservative graph behavior. The existing effect journal equates a live output
+with its instantiated local aggregate. Exact Null absence equates only the
+inherited output with empty effects and allocates no local or descendant pack.
+Written effect clauses remain upper bounds on the outward contribution and on
+the original invocation. Cold proof checks each physical operation against its
+local aggregate, follows ancestor outputs to the root promise, and authenticates
+live or absent prepared contributions independently. Caller arguments and callee
+defaults retain their own execution scopes.
 Call generalization selects its lexical requirement pack from the checker's
 existing guarded-node ledger. It admits only root, ancestor, and own binders and
 restores the root view after each call. Identity reads wait for their actual

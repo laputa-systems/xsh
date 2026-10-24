@@ -1625,16 +1625,13 @@ impl Checker {
     pub(super) fn owns_effect_predicate(
         &self,
         contract: &EffectContract<EffectVariableId>,
+        span: Span,
         predicate: impl FnOnce(EffectContract<SchemeEffectParameterId>) -> crate::sema::effects::EffectPredicate<SchemeEffectParameterId>,
     ) -> bool {
         let Some(owner) = self.boundary.effect_owner else { return false; };
         let Some(declaration) = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)) else { return false; };
         let (Some(scope), Some(callable)) = (declaration.generalized_scope(), declaration.generalized()) else { return false; };
-        self.type_constraints.resolve_generalized_effect(contract, scope).is_ok_and(|contract| {
-            let required = predicate(contract);
-            callable.requirements().effect_predicates.iter()
-                .any(|owned| crate::sema::effects::effect_predicate_implies(owned, &required))
-        })
+        self.type_constraints.owns_generalized_effect_predicate(self.constraint_scope_at(owner, span), callable, scope, contract, predicate).unwrap_or(false)
     }
 
     fn validate_callable_effects(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
@@ -1653,7 +1650,7 @@ impl Checker {
             Err(_) => {
                 if let Some(caller) = self.boundary.current_effects.clone() {
                     let outward = if self.boundary.retry_attempt_depth > 0 { resolved.clone().capture_error() } else { resolved.clone() };
-                    if !self.owns_effect_predicate(&outward, |contract| crate::sema::effects::EffectPredicate::Covered(contract, EffectContract::finite(EffectSet::new(caller)))) {
+                    if !self.owns_effect_predicate(&outward, span, |contract| crate::sema::effects::EffectPredicate::Covered(contract, EffectContract::finite(EffectSet::new(caller)))) {
                         self.error(span, "callable effect permission is outside its checked scheme", DiagnosticCode::CheckLocalInference);
                     }
                 }
@@ -1662,10 +1659,24 @@ impl Checker {
         }
     }
 
+    fn record_scoped_effect_contract(&mut self, effects: &EffectContract<EffectVariableId>, captured: bool, name: &str, span: Span) -> Result<(), SchemeOperationError> {
+        let scope = self.boundary.effect_owner.map_or_else(|| self.constraint_scope(), |owner| self.constraint_scope_at(owner, span));
+        let captures = captured || self.boundary.in_pure && matches!(scope, crate::sema::constraints::CallableApplicationScope::Guard(_));
+        let actual = if captures { effects.clone().capture_error() } else { effects.clone() };
+        let outward = self.type_constraints.guarded_effect_contract(scope, actual, self.callable_solver_level())?;
+        if matches!(scope, crate::sema::constraints::CallableApplicationScope::Guard(_))
+            && let Some(caller) = &self.boundary.current_effects
+        {
+            self.type_constraints.constrain_effect(crate::sema::effects::EffectPredicate::Covered(outward.clone(), EffectContract::finite(EffectSet::new(caller.iter().cloned()))))
+                .map_err(SchemeOperationError::Effects)?;
+        }
+        self.effect_graph.require_contract(self.boundary.effect_owner, &outward, false, name)
+    }
+
     pub(super) fn check_wrapper_effect_contract(&mut self, effects: &EffectContract<EffectVariableId>, span: Span) {
         let captures = self.boundary.retry_attempt_depth > 0 || self.boundary.in_pure;
         if (self.record_effects || self.collecting_effects)
-            && let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects, captures, "guarded field")
+            && let Err(error) = self.record_scoped_effect_contract(effects, captures, "guarded field", span)
         {
             self.error(span, &format!("guarded field effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
@@ -1680,7 +1691,7 @@ impl Checker {
 
     pub(super) fn check_callable_invocation_contract(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
         if (self.record_effects || self.collecting_effects)
-            && let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name)
+            && let Err(error) = self.record_scoped_effect_contract(effects.contract(), self.boundary.retry_attempt_depth > 0, name, span)
         {
             self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
@@ -1697,10 +1708,15 @@ impl Checker {
 
     pub(super) fn check_function_invocation_effects(&mut self, contract: &super::FunctionCallContract, name: &str, span: Span) -> Option<DeferredInvocationTicket> {
         if self.record_effects || self.collecting_effects {
-            if let Some(target) = contract.effect_declaration.filter(|target| self.effect_graph.contains(*target)) {
+            let guarded = self.boundary.effect_owner.is_some_and(|owner| matches!(self.constraint_scope_at(owner, span), crate::sema::constraints::CallableApplicationScope::Guard(_)));
+            if guarded && let super::InvocationEffects::Checked(effects) = &contract.effects {
+                if let Err(error) = self.record_scoped_effect_contract(effects.contract(), self.boundary.retry_attempt_depth > 0, name, span) {
+                    self.error(span, &format!("guarded callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
+                }
+            } else if let Some(target) = contract.effect_declaration.filter(|target| self.effect_graph.contains(*target)) {
                 self.effect_graph.call(self.boundary.effect_owner, target, self.boundary.retry_attempt_depth > 0, Some(span));
             } else if let super::InvocationEffects::Checked(effects) = &contract.effects
-                && let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name) {
+                && let Err(error) = self.record_scoped_effect_contract(effects.contract(), self.boundary.retry_attempt_depth > 0, name, span) {
                 self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
             }
         }
@@ -1904,11 +1920,10 @@ impl Checker {
         def.effects.map(|effects| program.arena.effects(effects).collect())
     }
 
-    pub(super) fn record_required_effect(&mut self, effect: Effect) {
-        if self.record_effects || self.collecting_effects {
-            self.effect_graph
-                .require(self.boundary.effect_owner, effect, self.boundary.retry_attempt_depth > 0);
-        }
+    pub(super) fn record_required_effect(&mut self, effect: Effect, span: Span) {
+        if (self.record_effects || self.collecting_effects)
+            && let Err(error) = self.record_scoped_effect_contract(&EffectContract::finite(EffectSet::singleton(effect)), self.boundary.retry_attempt_depth > 0, "required operation", span)
+        { self.error(span, &format!("required operation effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference); }
     }
 
     pub(super) fn require_effect(&mut self, effect: Effect, span: Span, subject: &str) {
@@ -1916,10 +1931,9 @@ impl Checker {
             self.propagating_error_spans.insert(span);
         }
         let captured = self.boundary.retry_attempt_depth > 0;
-        if self.record_effects || self.collecting_effects {
-            self.effect_graph
-                .require(self.boundary.effect_owner, effect.clone(), captured);
-        }
+        if (self.record_effects || self.collecting_effects)
+            && let Err(error) = self.record_scoped_effect_contract(&EffectContract::finite(EffectSet::singleton(effect.clone())), captured, subject, span)
+        { self.error(span, &format!("required operation effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference); }
         if self.defer_effect_diagnostics {
             self.defer_required_effect(effect, span, subject);
             return;

@@ -652,6 +652,11 @@ impl BoundEquivalence<'_> {
             && left.type_parameters.iter().zip(&right.type_parameters).all(|(left, right)| bind(&mut local.types, *left, *right))
             && left.row_parameters.iter().zip(&right.row_parameters).all(|(left, right)| left.lacks == right.lacks && bind(&mut local.rows, left.id, right.id))
             && left.requirements.effect_parameters.iter().zip(&right.requirements.effect_parameters).all(|(left, right)| bind(&mut local.effects, *left, *right))
+            && match (&left.effects, &right.effects) {
+                (None, None) => true,
+                (Some(left), Some(right)) => local.effects(&left.outward, &right.outward) && local.effects(&left.local, &right.local),
+                _ => false,
+            }
             && local.ty(&left.view, &right.view)
             && left.reads.len() == right.reads.len()
             && left.reads.iter().zip(&right.reads).all(|(left, right)| local.ty(&left.source, &right.source) && local.ty(&left.view, &right.view))

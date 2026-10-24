@@ -25,6 +25,13 @@ pub(super) struct FullGuardScope {
     pub(super) methods: IrRange,
     pub(super) wrappers: IrRange,
     pub(super) guard_calls: IrRange,
+    pub(super) effects: Option<FullGuardEffects>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct FullGuardEffects {
+    pub(super) outward: super::schemes::FullEffectContract,
+    pub(super) local: super::schemes::FullEffectContract,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,7 +111,8 @@ impl FullBuilder {
             self.store.scheme_guard_reads.extend(reads);
             let reads = super::table_range(start, self.store.scheme_guard_reads.len())?;
             let FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers, guard_calls } = self.intern_requirement_tables(&guard.requirements, types, rows, effects)?;
-            encoded.push(FullGuardScope { id: guard.scope.raw(), parent, binding_ordinal: u32::try_from(binding_ordinal).map_err(|_| IrBuildError::format("guard_binding_ordinal", None, 0, binding_ordinal))?, binding_starts: [u32::try_from(binding_starts[0]).map_err(|_| IrBuildError::format("guard_type_ordinal", None, 0, binding_starts[0]))?, u32::try_from(binding_starts[1]).map_err(|_| IrBuildError::format("guard_row_ordinal", None, 0, binding_starts[1]))?, u32::try_from(binding_starts[2]).map_err(|_| IrBuildError::format("guard_effect_ordinal", None, 0, binding_starts[2]))?], source, view, source_instruction: IR_NONE, comparison_instruction: IR_NONE, reads, type_parameters, row_parameters, effect_parameters, effect_predicates, applications, operations, methods, wrappers, guard_calls });
+            let effect_exports = guard.effects.as_ref().map(|exports| Ok(FullGuardEffects { outward: self.intern_effect_contract(&exports.outward, effects)?, local: self.intern_effect_contract(&exports.local, effects)? })).transpose()?;
+            encoded.push(FullGuardScope { id: guard.scope.raw(), parent, binding_ordinal: u32::try_from(binding_ordinal).map_err(|_| IrBuildError::format("guard_binding_ordinal", None, 0, binding_ordinal))?, binding_starts: [u32::try_from(binding_starts[0]).map_err(|_| IrBuildError::format("guard_type_ordinal", None, 0, binding_starts[0]))?, u32::try_from(binding_starts[1]).map_err(|_| IrBuildError::format("guard_row_ordinal", None, 0, binding_starts[1]))?, u32::try_from(binding_starts[2]).map_err(|_| IrBuildError::format("guard_effect_ordinal", None, 0, binding_starts[2]))?], source, view, source_instruction: IR_NONE, comparison_instruction: IR_NONE, reads, type_parameters, row_parameters, effect_parameters, effect_predicates, applications, operations, methods, wrappers, guard_calls, effects: effect_exports });
             binding_starts[0] += guard.type_parameters.len();
             binding_starts[1] += guard.row_parameters.len();
             binding_starts[2] += guard.requirements.effect_parameters.len();
