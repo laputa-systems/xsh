@@ -6653,6 +6653,67 @@ pure probe(values: List[Path]) -> Int { let spare = values; nonempty(7, [p"/head
         assert_eq!(failure.message, "ground list build has no non-empty producer");
     }
 
+
+    #[test]
+    fn typed_set_operators_authenticate_operand_domains_results_and_owners() {
+        let mut program = prepare(r#"const KINDS = {"file", "dir"}
+pure allowed(kind: Str, extra: Set[Str], numbers: Set[Int], erased: Any) -> Bool { kind in KINDS | extra }
+pure merged(left: Set[Str], right: Set[Str]) -> Set[Str] { left | right }
+pure wrong_result(left: Set[Str], right: Set[Str]) -> Set[Int] { let _ = left; let _ = right; set.empty() }
+pure other(value: Set[Str]) -> Set[Str] { value }
+assert allowed("file", {"link",}, {1, 2}, "erased")
+assert "file" in merged(KINDS, {"link",})
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "allowed").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (binary, right) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Union, right, .. }) => Some((instruction, right.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(right).unwrap(), schema::ExprView::Param(1)));
+        for slot in [2, 3] {
+            let mut changed = program.clone();
+            let words = changed.store.data[right].range().bounds(changed.store.extra.len()).unwrap();
+            assert_eq!(words.len(), 1);
+            changed.store.extra[words.start] = slot;
+            assert!(changed.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&changed).expect_err("a different or erased Set domain cannot supply the operand");
+            assert!(failure.message.contains("membership container has no producer contract"), "{}", failure.message);
+        }
+        let mut wrong_operator = program.clone();
+        let operation = wrong_operator.store.binary_ops.iter_mut().find(|op| **op == crate::syntax::node::BinaryOp::Union).unwrap();
+        *operation = crate::syntax::node::BinaryOp::Add;
+        assert!(matches!(decoder_for_function(&wrong_operator.store, owner).unwrap().expression_view(binary).unwrap(), schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. }));
+        assert!(wrong_operator.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_operator).expect_err("arithmetic addition cannot stand in for set union");
+        assert!(failure.message.contains("ground producer form has no executable type proof: ExprBinary"), "{}", failure.message);
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "other").unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|&instruction| matches!(foreign_decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut wrong_owner = program.clone();
+        let words = wrong_owner.store.data[binary].range().bounds(wrong_owner.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 4);
+        assert_eq!(wrong_owner.store.extra[words.start + 2] as usize, right);
+        wrong_owner.store.extra[words.start + 2] = foreign_source as u32;
+        assert!(wrong_owner.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_owner).expect_err("a set operator cannot borrow an operand from another function");
+        assert_eq!(failure.message, "full IR instruction belongs to another function");
+        let merged = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "merged").unwrap();
+        let wrong = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "wrong_result").unwrap();
+        let mut wrong_result = program.clone();
+        wrong_result.store.functions[merged].contract = wrong_result.store.functions[wrong].contract;
+        wrong_result.store.functions[merged].checked_return_type = wrong_result.store.functions[wrong].checked_return_type;
+        assert!(wrong_result.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_result).expect_err("a Set[Str] operation cannot establish a Set[Int] return contract");
+        assert_eq!(failure.message, "membership operands have no checked domain");
+    }
+
 }
 
 #[cfg(test)]

@@ -4868,6 +4868,15 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, right.raw() as usize, expected, false);
                 Ok(())
             }
+            schema::ExprView::Binary { op: op @ (crate::syntax::node::BinaryOp::Union | crate::syntax::node::BinaryOp::Intersect), left, right, .. } => {
+                let left_type = self.need_context(&decoder, left.raw() as usize)?.ok_or_else(|| IrVerifyError::new("set operator left operand has no producer contract"))?;
+                let right_type = self.need_context(&decoder, right.raw() as usize)?.ok_or_else(|| IrVerifyError::new("set operator right operand has no producer contract"))?;
+                let result = left_type.set_operator_result(op, &right_type).ok_or_else(|| IrVerifyError::new("set operator operands have incompatible Set domains"))?;
+                if !result.matches_expected(&expected) { return Err(IrVerifyError::new("set operator result disagrees with its producer contract")); }
+                self.expression(owner, left.raw() as usize, left_type, false);
+                self.expression(owner, right.raw() as usize, right_type, false);
+                Ok(())
+            }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
                 let left_type = self.need_context(&decoder, left.raw() as usize)?;
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;

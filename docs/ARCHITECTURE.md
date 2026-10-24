@@ -209,6 +209,12 @@ substitution. Imported schemes and callable contracts preserve the same bound.
 Cold verification requires it for symbolic Map and Set domains and rejects
 missing or malformed parameter metadata. These rows belong to the in-memory
 Full IR; they do not define a serialized program format.
+Concrete set union and intersection share their result rule between checking
+and Full producer derivation: actual set operands retain the left element domain
+only when the right operand satisfies its existing storage compatibility. Full
+proof derives both operands independently, checks the resulting set against its
+consumer, and verifies both sources before execution. A membership predicate
+cannot supply the type of a set operation used as its container.
 
 Callable application requirements distinguish invocations from known argument
 relationships. An invocation owns its actual callee, kind, result and effects.

@@ -11771,6 +11771,7 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_binary_result_type(op: BinaryOp, left_type: &Type, right_type: &Type) -> Option<Type> {
+        if matches!(op, BinaryOp::Union | BinaryOp::Intersect) { return left_type.set_operator_result(op, right_type); }
         let operator = crate::sema::sealed_operation::arithmetic_operator(op)?;
         crate::sema::sealed_operation::arithmetic_selection(operator, left_type, right_type).map(|(_, result)| result)
     }

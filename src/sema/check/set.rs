@@ -346,8 +346,6 @@ impl Checker {
         }
     }
 
-    /// `left | right` and `left & right`. Both operands are sets of one
-    /// element type, which is the result's.
     pub(super) fn check_set_operator_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -395,6 +393,7 @@ impl Checker {
             }
             return left_ty;
         }
+        if let Some(result) = left_ty.set_operator_result(op, &right_ty) { return result; }
         self.expect_type(&left_ty, &right_ty, right_span);
         left_ty
     }

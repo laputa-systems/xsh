@@ -5552,3 +5552,72 @@ fn generic_record_arguments_preserve_comprehension_splice_sources() {
         }
     }
 }
+
+#[test]
+fn typed_set_operator_results_preserve_membership_producer_domains() {
+    let source = "const KINDS = {\"file\", \"dir\"}\npure allowed(kind: Str, extra: Set[Str]) -> Bool { kind in KINDS | extra }\nassert allowed(\"file\", {\"link\",})\n";
+    let _ = record_form_program(source);
+}
+
+#[test]
+fn typed_set_spec_example_preserves_membership_producer_domains() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../docs/snippets/spec/69-sets.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("69-sets.xsh", crate::loader::entry_source_from_text("69-sets.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(crate::runtime::eval::ProducerDemand::for_declarations(&parsed.arena, &checked), crate::runtime::eval::ProducerDemand::Needed);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let words = Value::List(["the", "one", "three", "one"].map(|word| Value::Str(Arc::from(word))).into());
+            let result = prepared.eval_test("report", words, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+            assert_eq!(result.output.stdout, b"[\"one\",\"three\"] [3,5]\n");
+        }
+    });
+}
+
+#[test]
+fn typed_set_producers_preserve_domains_and_eager_cleanup_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/fixtures/runtime/typed-set-producers.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("typed-set-producers.xsh", crate::loader::entry_source_from_text("typed-set-producers.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(crate::runtime::eval::ProducerDemand::for_declarations(&parsed.arena, &checked), crate::runtime::eval::ProducerDemand::Needed);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_typed_set_producers", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn typed_set_producers_reject_incompatible_domains_and_results() {
+    for operator in ["|", "&"] {
+        for source in [
+            format!("pure rejected(left: Set[Str], right: Set[Int]) -> Set[Str] {{ left {operator} right }}"),
+            format!("pure rejected(left: Any, right: Set[Str]) -> Set[Str] {{ left {operator} right }}"),
+            format!("pure rejected(left: List[Str], right: Set[Str]) -> Set[Str] {{ left {operator} right }}"),
+            format!("pure rejected(left: Set[Float], right: Set[Float]) -> Set[Float] {{ left {operator} right }}"),
+            format!("pure rejected(left: Set[Str], right: Set[Str]) -> Set[Int] {{ left {operator} right }}"),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(errors.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckSetOperator | crate::diagnostic::DiagnosticCode::CheckSetElementType | crate::diagnostic::DiagnosticCode::CheckTypeMismatch))), "{source}\n{errors:?}");
+        }
+    }
+}
