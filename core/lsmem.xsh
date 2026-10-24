@@ -135,7 +135,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     split = report.split_columns(opts, selected)
   }
 
-  let root_path = if opts.sysroot == null { p"/" } else { opts.sysroot ?? p"/" }
+  let root_path = opts.sysroot ?? p"/"
   let root = fs.open_root(root_path)?
   defer root.close()
   let inventory = report.collect(root, split, opts.all, modes.summary)
