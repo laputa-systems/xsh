@@ -150,3 +150,24 @@ fn imported_guarded_callbacks_forward_conditional_effects_after_disposal() {
 fn guarded_known_declarations_specialize_their_actual_pending_effects() {
     on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-declarations.xsh", "verify_guarded_known_targets"));
 }
+
+#[test]
+fn typed_guarded_outputs_preserve_their_written_optional_domains() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-requirements-outputs.xsh");
+        let source = std::fs::read_to_string(&path).unwrap()
+            .replace("pure guarded_add_output(value)", "pure guarded_add_output(value: Int?) -> Int?")
+            .replace("pure guarded_parent_output(value)", "pure guarded_parent_output(value: Path?) -> Path?")
+            .replace("let exact: Int =", "let exact: Int? =")
+            .replace("let absent: Null =", "let absent: Int? =")
+            .replace("let exact_parent: Path =", "let exact_parent: Path? =")
+            .replace("let absent_parent: Null =", "let absent_parent: Path? =")
+            .replace("let relative_parent: RelPath =", "let relative_parent: Path? =");
+        verify_guarded_source(&path, source, "verify_guarded_outputs");
+    });
+}
+
+#[test]
+fn inferred_guarded_outputs_preserve_actual_null_optional_and_selected_results() {
+    on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-outputs.xsh", "verify_guarded_outputs"));
+}
