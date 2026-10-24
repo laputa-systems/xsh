@@ -70,7 +70,7 @@ pub(crate) fn map_type_ids(
                         ModuleExportType::Value { ty, .. } => *ty = nested(ty, map, depth + 1)?,
                         ModuleExportType::Callable { sig, .. } => {
                             for parameter in &mut sig.params { parameter.ty = nested(&parameter.ty, map, depth + 1)?; }
-                            sig.return_ty = Box::new(nested(&sig.return_ty, map, depth + 1)?);
+                            *sig.return_ty = nested(&sig.return_ty, map, depth + 1)?;
                         }
                         ModuleExportType::GenericCallable { .. } => {}
                     }
@@ -139,15 +139,11 @@ pub(crate) struct SchemeCallableRetainedAllocations {
     schemas: std::collections::BTreeSet<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct SchemeCallableTable {
     owner: SchemeCallableOwner,
     relationships: Vec<Arc<SchemeCallableRelationship>>,
     targets: BTreeMap<Vec<(Option<crate::symbol::Name>, crate::symbol::Name, usize)>, u32>,
-}
-
-impl Default for SchemeCallableTable {
-    fn default() -> Self { Self { owner: SchemeCallableOwner::fresh(), relationships: Vec::new(), targets: BTreeMap::new() } }
 }
 
 impl SchemeCallableTable {

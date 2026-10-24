@@ -465,9 +465,8 @@ fn registered_call_parameters(
     let mut parameters = BTreeMap::new();
     match (plan.receiver, receiver) {
         (Some(domain), Some(actual)) => {
-            let Some(method) = api_spec().method_overloads(domain, &plan.name)
-                .and_then(|methods| methods.iter().find(|method| std::ptr::eq(&method.sig, signature)))
-            else { return None };
+            let method = api_spec().method_overloads(domain, &plan.name)
+                .and_then(|methods| methods.iter().find(|method| std::ptr::eq(&method.sig, signature)))?;
             parameters.insert(BuiltinTypeParameter::Receiver, actual.clone());
             if let Some(template) = &method.receiver_ty {
                 if !bind_symbolic_template(template, actual, &mut parameters, 0) { return None; }
@@ -500,7 +499,7 @@ fn registered_call_parameters(
     let receiver = receiver.and_then(SchemeType::closed_ground_type);
     for (slot, parameter) in signature.params.iter().enumerate() {
         let check = if json_encode_value_parameter(plan, slot) { None } else {
-            let Some(expected) = symbolic_template_type(&parameter.ty, &parameters, 0) else { return None };
+            let expected = symbolic_template_type(&parameter.ty, &parameters, 0)?;
             expected.closed_ground_type().and_then(|expected| registered_argument_check(receiver.as_ref(), slot, &expected))
         };
         if plan.argument_checks.get(slot) != Some(&check) { return None; }

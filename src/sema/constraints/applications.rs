@@ -339,7 +339,7 @@ mod tests {
                 let envelope = constraints.defer_proc_application_return(application_id, &errors, span(), 1).unwrap();
                 let mut actual = callback(pure, "payload", Type::Int, false, false);
                 let Type::Callable(callable) = &mut actual else { unreachable!() };
-                Arc::make_mut(callable).sig.return_ty = Box::new(returned);
+                *Arc::make_mut(callable).sig.return_ty = returned;
                 constraints.constrain(&callee, &actual, span()).unwrap();
                 constraints.solve_callable_applications().unwrap();
                 assert_eq!(constraints.resolve(&envelope).unwrap(), expected);
@@ -383,7 +383,7 @@ mod tests {
                 let instance = constraints.instantiate_callable(&scheme, 1, span(), CallableApplicationScope::Invocation).unwrap();
                 let mut actual = callback(false, "payload", Type::Int, false, false);
                 let Type::Callable(callable) = &mut actual else { unreachable!() };
-                Arc::make_mut(callable).sig.return_ty = Box::new(returned);
+                *Arc::make_mut(callable).sig.return_ty = returned;
                 constraints.constrain(&instance.params[0], &actual, span()).unwrap();
                 constraints.constrain(&instance.params[1], &Type::Int, span()).unwrap();
                 constraints.solve_callable_applications().unwrap();
@@ -595,7 +595,7 @@ mod tests {
                 constraints.solve_callable_applications().unwrap();
                 assert!(matches!(constraints.resolve_call_instantiation(&selected, &instance), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))));
                 let calls = BTreeMap::from([(span(), crate::sema::value_materialization::InstantiationEvidence::Invocation((Arc::clone(&selected), instance.clone())))]);
-                let (_, _, _, published) = constraints.generalize_callable_body_with_calls(&[input.clone()], &BTreeMap::new(), &BTreeMap::new(), &calls, 0, caller).unwrap();
+                let (_, _, _, published) = constraints.generalize_callable_body_with_calls(std::slice::from_ref(&input), &BTreeMap::new(), &BTreeMap::new(), &calls, 0, caller).unwrap();
                 assert_eq!(published[&span()].invocation().unwrap().application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Forwarded(0)]);
                 constraints.constrain(&input, &item, span()).unwrap();
                 constraints.solve_callable_applications().unwrap();
@@ -766,7 +766,7 @@ impl CallableApplications {
             let watchers = self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>();
             for id in watchers {
                 if self.entries.get(&id).is_some_and(|application| {
-                    application.binding.as_ref().map_or(true, CallableApplicationBinding::arguments_pending)
+                    application.binding.as_ref().is_none_or(CallableApplicationBinding::arguments_pending)
                         || application.application.invocation().is_some_and(|application| !application.proc_returns.is_empty())
                 }) {
                     self.enqueue(id, changes, counters);
@@ -1171,9 +1171,8 @@ impl TypeConstraints {
                 }
                 let binding = crate::sema::arguments::bind_argument_layout(&callable.sig.params,
                     application.arguments.iter().map(|argument| (argument.kind, argument.span))).map_err(CallableApplicationError::Layout)?;
-                if let Some(previous) = &scoped.binding {
-                    if previous.layout() != &binding { return Err(CallableApplicationError::SourceShape(application.span)); }
-                }
+                if let Some(previous) = &scoped.binding
+                    && previous.layout() != &binding { return Err(CallableApplicationError::SourceShape(application.span)); }
                 let mut arguments_pending = false;
                 for (argument, &slot) in application.arguments.iter().zip(&binding.argument_slots) {
                     let parameter = &callable.sig.params[slot];

@@ -891,7 +891,7 @@ impl Checker {
             let scope = aggregate_scope.expect("aggregate seed retains its checked origins");
             let ArenaExprOrRun::Expr(expression) = initializer else { unreachable!() };
             let mut holes = Vec::new();
-            let ty = self.materialize_fresh_aggregate(program, expression, &ordinary, &[ordinary.clone()], &scope.origins, &mut holes);
+            let ty = self.materialize_fresh_aggregate(program, expression, &ordinary, std::slice::from_ref(&ordinary), &scope.origins, &mut holes);
             if holes.is_empty() { return ordinary; }
             let inference = LocalBindingInference { ty, holes, owner: self.local_inference_owner(), initializer: origin };
             self.local_inference.bindings.insert(span, inference.clone());

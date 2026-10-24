@@ -314,7 +314,7 @@ impl TypeConstraints {
 
     fn operation_dependencies(&self, operation: &SealedOperation<Type>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
         enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
-        let mut pending = operation.types().into_iter().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
+        let mut pending = operation.types().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
         let mut dependencies = BTreeSet::new();
         while let Some(node) = pending.pop() {
             match node {
@@ -424,15 +424,14 @@ impl TypeConstraints {
                     SealedOperation::Index { receiver, key, result, constant_key, span, .. } => {
                         let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
                         if let Type::Inference(variable) = receiver.unvalidated() {
-                            if let Some(field) = constant_key {
-                                if let Some(record) = this.record_binding(*variable)? {
-                                    let fields = this.resolve_row(&record.shape)?.fields;
-                                    this.constrain_operation_type(&Type::Str, &key, span, changes)?;
-                                    if let Some(selected) = fields.get(&field) {
-                                        this.constrain_operation_type(&result, selected, span, changes)?;
-                                    } else {
-                                        this.project_record_field_with_changes(&receiver, field, &result, level.unwrap_or(0), span, changes).map_err(SealedOperationError::Constraint)?;
-                                    }
+                            if let Some(field) = constant_key
+                                && let Some(record) = this.record_binding(*variable)? {
+                                let fields = this.resolve_row(&record.shape)?.fields;
+                                this.constrain_operation_type(&Type::Str, &key, span, changes)?;
+                                if let Some(selected) = fields.get(&field) {
+                                    this.constrain_operation_type(&result, selected, span, changes)?;
+                                } else {
+                                    this.project_record_field_with_changes(&receiver, field, &result, level.unwrap_or(0), span, changes).map_err(SealedOperationError::Constraint)?;
                                 }
                             }
                             continue;
@@ -564,10 +563,9 @@ impl TypeConstraints {
             if scope != owner { break; }
             let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if entry.owner != owner || entry.operation.span() != span { return Err(ConstraintResolutionError::ForeignVariable); }
-            if let SealedOperation::Index { receiver, syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance), .. } = &entry.operation {
-                if matches!(self.resolve(receiver)?.unvalidated(), Type::List(_)) {
-                    indexes.push((span, distance.get()));
-                }
+            if let SealedOperation::Index { receiver, syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance), .. } = &entry.operation
+                && matches!(self.resolve(receiver)?.unvalidated(), Type::List(_)) {
+                indexes.push((span, distance.get()));
             }
         }
         Ok(indexes)
@@ -627,7 +625,7 @@ impl TypeConstraints {
                 let previous = this.operations.entries[&id].operation.clone();
                 if !previous.same_kind(&operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                 this.apply_journaled(|this, changes| {
-                    for (expected, actual) in previous.types().into_iter().zip(operation.types()) {
+                    for (expected, actual) in previous.types().zip(operation.types()) {
                         this.constrain_inner(expected, actual, operation.span(), true, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: operation.span(), initializer: None, established: None }))?;
                     }
                     Ok::<_, SealedOperationError>(())

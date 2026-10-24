@@ -192,16 +192,14 @@ pub(crate) fn arithmetic_operator(operator: BinaryOp) -> Option<ArithmeticOperat
 }
 
 pub(crate) fn arithmetic_domain_accepts(domain: ArithmeticDomain, ty: &Type) -> bool {
-    match (domain, ty.unvalidated()) {
+    matches!((domain, ty.unvalidated()),
         (ArithmeticDomain::Integer, Type::Int | Type::UInt)
         | (ArithmeticDomain::Int, Type::Int)
         | (ArithmeticDomain::Float, Type::Float)
         | (ArithmeticDomain::Str, Type::Str)
         | (ArithmeticDomain::Duration, Type::Duration)
         | (ArithmeticDomain::List, Type::List(_))
-        | (ArithmeticDomain::Set, Type::Set(_)) => true,
-        _ => false,
-    }
+        | (ArithmeticDomain::Set, Type::Set(_)))
 }
 
 pub(crate) fn arithmetic_selection(operator: ArithmeticOperator, left: &Type, right: &Type) -> Option<(ArithmeticSignature, Type)> {
@@ -214,9 +212,7 @@ pub(crate) fn arithmetic_selection(operator: ArithmeticOperator, left: &Type, ri
             let (Type::List(left_item), Type::List(right_item)) = (left.unvalidated(), right.unvalidated()) else { return None };
             if !right_item.matches_stored(left_item) { return None; }
         }
-        ArithmeticResult::SetDifference => {
-            if !right.unvalidated().matches_expected(left.unvalidated()) { return None; }
-        }
+        ArithmeticResult::SetDifference if !right.unvalidated().matches_expected(left.unvalidated()) => return None,
         _ => {}
     }
     Some((signature, arithmetic_result(signature, left, right)?))

@@ -739,7 +739,7 @@ impl Checker {
             .zip(parameter_schemas)
             .map(|((parameter, ty), schema_expectation)| {
                 (parameter.authority == TypeAuthority::Inferred || !ty.contains_parameter())
-                    .then(|| SchemeParameter {
+                    .then_some(SchemeParameter {
                         name: parameter.signature.name,
                         ty,
                         schema_expectation,

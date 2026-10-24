@@ -443,6 +443,820 @@ impl StreamOrigins {
     }
 }
 
+
+use super::{Checker, CheckedResultConstructor, Span};
+use crate::syntax::arena::{ArenaProgram, ArenaExprKind, ArenaStmtKind, ArenaExprOrRun, ArenaCallArgKind, ExprId, StmtId, BlockId};
+
+impl Checker {
+    pub(super) fn resolve_stream_origin_applications(&mut self,
+        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>, calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>,
+    ) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
+        let mut resolved = self.stream_origin_outputs.clone();
+        for (&owner, summary) in &mut resolved.declarations {
+            if !members.contains_key(&owner) { continue; }
+            summary.returned = summary.returned.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
+            for origin in summary.defaults.values_mut() {
+                *origin = origin.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
+            }
+        }
+        for (identity, header) in &mut resolved.loops {
+            let Some(owner) = identity.owner.filter(|owner| members.contains_key(owner)) else { continue };
+            for origin in header.values_mut() {
+                *origin = origin.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
+            }
+        }
+        self.stream_origin_outputs = resolved;
+        Ok(())
+    }
+
+    pub(super) fn normalize_stream_origin_applications(&mut self) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
+        let mut normalized = self.stream_origin_outputs.clone();
+        for (&owner, summary) in &mut normalized.declarations {
+            let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner));
+            summary.returned = summary.returned.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
+            for origin in summary.defaults.values_mut() {
+                *origin = origin.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
+            }
+        }
+        for (identity, header) in &mut normalized.loops {
+            let owner = identity.owner.unwrap_or(EffectDeclarationId { namespace: identity.namespace, body: identity.body });
+            let pending = identity.owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)));
+            for origin in header.values_mut() {
+                *origin = origin.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
+            }
+        }
+        self.stream_origin_outputs = normalized;
+        Ok(())
+    }
+
+    pub(super) fn validate_published_stream_origins(&self) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
+        for (&owner, summary) in &self.stream_origin_outputs.declarations {
+            if summary.returned.has_unresolved_applications() || summary.defaults.values().any(StreamOrigins::has_unresolved_applications) {
+                return Err((owner, StreamOriginBoundaryError));
+            }
+        }
+        for (identity, header) in &self.stream_origin_outputs.loops {
+            if header.values().any(StreamOrigins::has_unresolved_applications) {
+                return Err((identity.owner.unwrap_or(EffectDeclarationId { namespace: identity.namespace, body: identity.body }), StreamOriginBoundaryError));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn project_stream_origin(&mut self, origin: &StreamOrigins, path: &[StreamProjection], span: Span) -> StreamOrigins {
+        match origin.project(path) {
+            Ok(origin) => origin,
+            Err(_) => { self.report_stream_origin_boundary(span); StreamOrigins::opaque() }
+        }
+    }
+
+    pub(super) fn stream_success_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> StreamOrigins {
+        let origin = self.stream_expr_origin(arena, expression);
+        if ty.is_result() { self.project_stream_origin(&origin, &[StreamProjection::Success], arena.arena.expr(expression).span) } else { origin }
+    }
+
+    pub(super) fn stream_binding_initializer(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun, binding_type: &Type) -> StreamOrigins {
+        match initializer {
+            ArenaExprOrRun::Expr(expression) => {
+                let ty = self.expr_types.get(&arena.arena.expr(expression).span).cloned().unwrap_or(Type::Unknown);
+                self.stream_success_origin(arena, expression, &ty)
+            }
+            ArenaExprOrRun::Run(_) => StreamOrigins::unproven(binding_type),
+        }
+    }
+
+    pub(super) fn stream_iteration_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> StreamOrigins {
+        let origin = self.stream_success_origin(arena, expression, ty);
+        let item = self.project_stream_origin(&origin, &[StreamProjection::Element], arena.arena.expr(expression).span);
+        if matches!(ty.result_ok().unwrap_or(ty).unvalidated(), Type::Map(_, _)) {
+            match item.prefix(StreamProjection::Field(Name::intern("value"))) {
+                Ok(item) => item,
+                Err(_) => { self.report_stream_origin_boundary(arena.arena.expr(expression).span); StreamOrigins::opaque() }
+            }
+        } else { item }
+    }
+
+    pub(super) fn report_stream_origin_boundary(&mut self, span: Span) {
+        self.error(span, "stream return provenance exceeds its checked projection boundary", crate::diagnostic::DiagnosticCode::CheckLocalInference);
+    }
+
+    pub(super) fn stream_expr_origin(&self, arena: &ArenaProgram, expression: ExprId) -> StreamOrigins {
+        let span = arena.arena.expr(expression).span;
+        self.stream_expr_origins.get(&span).cloned().unwrap_or_else(|| {
+            StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown))
+        })
+    }
+
+    pub(super) fn stream_block_origin(&self, arena: &ArenaProgram, block: BlockId) -> StreamOrigins {
+        let Some(statement) = arena.arena.stmt_ids(arena.arena.block(block).statements).last() else { return StreamOrigins::default() };
+        let span = arena.arena.stmt(arena.arena.core_stmt_id(statement)).span;
+        self.stream_stmt_origins.get(&span).cloned().unwrap_or_else(|| StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown)))
+    }
+
+    pub(super) fn record_stream_parameter_default(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, parameter: usize, expression: ExprId) {
+        let owner = self.effect_declaration_id(arena, definition.body);
+        let origin = self.stream_expr_origin(arena, expression);
+        self.stream_origin_outputs.declarations.entry(owner).or_default().defaults.insert(parameter, origin);
+    }
+
+    pub(super) fn record_stream_producer_error(&mut self, owner: EffectDeclarationId) {
+        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&StreamOrigins::error());
+    }
+
+    pub(super) fn settle_stream_origin_dependencies(&mut self, external: &StreamOriginSummaries) {
+        let declarations = external.declarations.keys().chain(self.stream_origin_outputs.declarations.keys()).copied().collect::<BTreeSet<_>>();
+        for summary in self.stream_origin_outputs.declarations.values_mut() {
+            summary.returned.settle_pending(&declarations);
+            for origin in summary.defaults.values_mut() { origin.settle_pending(&declarations); }
+        }
+        for header in self.stream_origin_outputs.loops.values_mut() {
+            for origin in header.values_mut() { origin.settle_pending(&declarations); }
+        }
+        for origin in self.stream_expr_origins.values_mut() {
+            origin.settle_pending(&declarations);
+        }
+    }
+
+    pub(super) fn validate_stream_expression_origins(&mut self, program: &ArenaProgram) {
+        let mut generalized = BTreeMap::<Span, bool>::new();
+        let mut nonmaterial = BTreeSet::new();
+        for (declaration, pending) in self.declaration_inference.pending_entries() {
+            if pending.generalized_body_types().is_none() && pending.generalized_tail_types().is_none() {
+                continue;
+            }
+            let target = pending.definition_target().expect("generalized body facts retain their declaration source");
+            let owner = declaration.effect_declaration();
+            let definition = program.arena.function_def(target.definition);
+            assert_eq!(owner.namespace, target.namespace);
+            assert_eq!(owner.body, program.arena.span(program.arena.block(definition.body).span));
+            for (&expression, &kind) in pending.generalized_constructor_producers().into_iter().flatten() {
+                assert!(super::scheme_body::matches_constructor_producer(program, expression, kind));
+                let span = program.arena.expr(expression).span;
+                assert!(owner.body.source_id == span.source_id && owner.body.start() <= span.start() && span.end() <= owner.body.end());
+                nonmaterial.insert(span);
+                if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                    let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
+                    let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
+                    nonmaterial.insert(program.arena.expr(callee).span);
+                    nonmaterial.insert(program.arena.expr(base).span);
+                }
+            }
+            for (&expression, ty) in pending.generalized_body_types().into_iter().flatten() {
+                let resource = ty.may_hold_resource();
+                generalized.entry(program.arena.expr(expression).span)
+                    .and_modify(|previous| *previous |= resource).or_insert(resource);
+            }
+            for (&statement, ty) in pending.generalized_tail_types().into_iter().flatten() {
+                let resource = ty.may_hold_resource();
+                generalized.entry(program.arena.stmt(statement).span)
+                    .and_modify(|previous| *previous |= resource).or_insert(resource);
+            }
+        }
+        let failures = self.stream_expr_origins.iter().filter_map(|(&span, origin)| {
+            if origin.0.is_empty() || nonmaterial.contains(&span) { return None; }
+            let resource = self.expr_types.get(&span).map(Type::may_hold_resource)
+                .or_else(|| generalized.get(&span).copied());
+            match resource {
+                Some(resource) if !resource || !origin.has_pending() => None,
+                _ => Some(span),
+            }
+        }).collect::<Vec<_>>();
+        for span in failures {
+            self.error(span, "selected declaration has no settled Stream return provenance", crate::diagnostic::DiagnosticCode::CheckLocalInference);
+        }
+    }
+
+    fn stream_origin_id(&self, arena: &ArenaProgram, target: super::CheckedFunctionTarget) -> EffectDeclarationId {
+        let definition = arena.arena.function_def(target.definition);
+        EffectDeclarationId { namespace: target.namespace, body: arena.arena.span(arena.arena.block(definition.body).span) }
+    }
+
+    fn opaque_stream_value(ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
+        match ty {
+            Type::Result(ok, _) => Self::opaque_stream_value(ok)?.prefix(StreamProjection::Success),
+            Type::Optional(value) => Self::opaque_stream_value(value),
+            Type::Validated(value) => Self::opaque_stream_value(value.base()),
+            value if value.may_hold_resource() => Ok(StreamOrigins::opaque()),
+            _ => Ok(StreamOrigins::default()),
+        }
+    }
+
+    fn stream_call_actuals(&self, arena: &ArenaProgram, args: super::ArenaRange, span: Span, target: EffectDeclarationId, summary: &StreamReturnSummary) -> Result<BTreeMap<usize, StreamOrigins>, StreamOriginBoundaryError> {
+        use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
+        let entries = arena.arena.call_args(args);
+        let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get(&arena.arena.expr(expression).span).cloned());
+        let Ok(expanded) = expanded else { return Ok(BTreeMap::new()) };
+        let slots = self.argument_bindings.get(&span);
+        let definition = self.stream_target_definitions.get(&target).map(|target| arena.arena.function_def(target.definition));
+        let params = definition.map(|definition| arena.arena.params(definition.params));
+        let mut output = BTreeMap::<usize, StreamOrigins>::new();
+        for (position, argument) in expanded.iter().enumerate() {
+            let slot = slots.and_then(|slots| slots.argument_slots.get(position).copied()).unwrap_or_else(|| {
+                params.and_then(|params| params.last().filter(|param| param.rest).map(|_| position.min(params.len() - 1))).unwrap_or(position)
+            });
+            let rest = params.and_then(|params| params.get(slot)).is_some_and(|param| param.rest);
+            let origin = match argument.value {
+                ArgumentValueSource::Expression(expression) => {
+                    let origin = self.stream_expr_origin(arena, expression);
+                    if rest { origin.prefix(StreamProjection::Element)? } else { origin }
+                }
+                ArgumentValueSource::RecordField { record, field } => self.stream_expr_origin(arena, record).project(&[StreamProjection::Field(field)])?,
+                ArgumentValueSource::PositionalSplice(expression) => self.stream_expr_origin(arena, expression),
+                ArgumentValueSource::CheckedType => StreamOrigins::opaque(),
+            };
+            output.entry(slot).or_default().join(&origin);
+        }
+        for (&position, origin) in &summary.defaults { output.entry(position).or_insert_with(|| origin.clone()); }
+        Ok(output)
+    }
+
+    fn stream_target_summary(&self, target: EffectDeclarationId) -> Option<&StreamReturnSummary> {
+        let current = (target.namespace == self.current_namespace)
+            .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
+            .flatten()
+            .and_then(super::PendingFunctionSig::generalized)
+            .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
+        if current.is_none() && target.namespace == self.current_namespace {
+            self.provisional_stream_origins_read.set(true);
+        }
+        current.or_else(|| self.stream_origin_inputs.declarations.get(&target))
+    }
+
+    fn stream_formal_slots(callable: &crate::sema::schemes::CallableScheme) -> BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>> {
+        let mut slots = BTreeMap::new();
+        for (slot, formal) in callable.params().iter().enumerate() {
+            let crate::sema::schemes::SchemeType::Parameter(parameter) = formal.ty else { continue; };
+            match slots.get_mut(&parameter) {
+                Some(slot) => *slot = None,
+                None => { slots.insert(parameter, Some(slot)); }
+            }
+        }
+        slots
+    }
+
+    fn direct_stream_formal_slot(
+        slots: &BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>>,
+        ty: &crate::sema::schemes::SchemeType,
+    ) -> Option<usize> {
+        let crate::sema::schemes::SchemeType::Parameter(parameter) = ty else { return None; };
+        slots.get(parameter).copied().flatten()
+    }
+
+    fn source_formal_bindings(
+        &self,
+        arena: &crate::syntax::arena::ArenaProgram,
+        source: EffectDeclarationId,
+    ) -> Option<BTreeMap<super::BindingId, usize>> {
+        let target = self.stream_target_definitions.get(&source)?;
+        if target.namespace != source.namespace { return None; }
+        let definition = arena.arena.function_def(target.definition);
+        if arena.arena.span(arena.arena.block(definition.body).span) != source.body { return None; }
+        let mut bindings = BTreeMap::new();
+        for (slot, parameter) in arena.arena.params(definition.params).iter().enumerate() {
+            let site = (arena.arena.span(parameter.span), parameter.name);
+            let binding = *self.resolved_bindings.declaration_sites.get(&site)?;
+            if bindings.insert(binding, slot).is_some() { return None; }
+        }
+        Some(bindings)
+    }
+
+    fn source_argument_bindings(
+        &self,
+        arena: &crate::syntax::arena::ArenaProgram,
+        source: EffectDeclarationId,
+        requested: &BTreeSet<crate::source::Span>,
+    ) -> BTreeMap<crate::source::Span, Option<super::BindingId>> {
+        if requested.is_empty() { return BTreeMap::new(); }
+        let resolved_bindings = std::sync::Arc::clone(&self.resolved_bindings);
+        let mut cache = self.stream_argument_binding_cache.borrow_mut();
+        cache
+            .retain(|_, (bindings, _)| std::sync::Arc::ptr_eq(bindings, &resolved_bindings));
+        if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(source.body.source_id) {
+            let mut bindings = BTreeMap::new();
+            for expression in arena.arena.source_rows().expr_ids(source.body.source_id) {
+                match &arena.arena.expr(expression).kind {
+                    crate::syntax::arena::ArenaExprKind::Ident(_) => {
+                        let span = arena.arena.expr(expression).span;
+                        let Some(binding) = resolved_bindings.expressions.get(&expression).copied() else { continue; };
+                        bindings.entry(span).and_modify(|previous| *previous = None).or_insert(Some(binding));
+                    }
+                    crate::syntax::arena::ArenaExprKind::Call { args, .. } => {
+                        for argument in arena.arena.call_args(*args) {
+                            let crate::syntax::arena::ArenaCallArgKind::Splice { value, span } = &argument.kind else { continue; };
+                            if !matches!(&arena.arena.expr(*value).kind, crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
+                            let Some(binding) = resolved_bindings.expressions.get(value).copied() else { continue; };
+                            bindings.entry(arena.arena.span(*span)).and_modify(|previous| *previous = None).or_insert(Some(binding));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            entry.insert((resolved_bindings, std::sync::Arc::new(bindings)));
+        }
+        let Some((_, source_bindings)) = cache.get(&source.body.source_id) else { return BTreeMap::new(); };
+        requested.iter().map(|span| (*span, source_bindings.get(span).copied().flatten())).collect()
+    }
+
+    fn source_argument_origins(
+        &self,
+        source: EffectDeclarationId,
+        span: crate::source::Span,
+        actuals: &BTreeMap<usize, StreamOrigins>,
+        formal_bindings: Option<&BTreeMap<super::BindingId, usize>>,
+        expression_bindings: &BTreeMap<crate::source::Span, Option<super::BindingId>>,
+    ) -> Option<StreamOrigins> {
+        if span.source_id != source.body.source_id || source.body.start() > span.start() || span.end() > source.body.end() {
+            return None;
+        }
+        if let Some(origin) = self.stream_expr_origins.get(&span) {
+            if origin.0.is_empty() || origin.0.iter().any(|(_, origin)| !matches!(origin,
+                StreamOrigin::Formal { owner, parameter, .. } | StreamOrigin::OpaqueFormal { owner, parameter, .. }
+                    if *owner == source && actuals.contains_key(parameter)
+            )) { return None; }
+            return origin.substitute(actuals).ok();
+        }
+        let formal_bindings = formal_bindings?;
+        let binding = expression_bindings.get(&span).copied().flatten()?;
+        let slot = formal_bindings.get(&binding)?;
+        actuals.get(slot).cloned()
+    }
+
+    fn selected_stream_application_origins(
+        &self,
+        arena: &ArenaProgram,
+        source: EffectDeclarationId,
+        returned: &StreamOrigins,
+        callable: &crate::sema::schemes::CallableScheme,
+        instance: &crate::sema::constraints::InstantiatedScheme,
+        actuals: &BTreeMap<usize, StreamOrigins>,
+    ) -> Result<BTreeMap<crate::sema::constraints::CallableApplicationReference, StreamOrigins>, StreamOriginBoundaryError> {
+        let requirements = &callable.requirements().applications;
+        if instance.applications.len() != requirements.len() { return Err(StreamOriginBoundaryError); }
+        let formal_slots = Self::stream_formal_slots(callable);
+        let mut ordinals = BTreeSet::new();
+        for (_, origin) in &returned.0 {
+            match origin {
+                StreamOrigin::OriginalApplication { reference, .. } => {
+                    let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(source))
+                        .ok_or(StreamOriginBoundaryError)?;
+                    let generalized = pending.generalized().ok_or(StreamOriginBoundaryError)?;
+                    let scope = pending.generalized_scope().ok_or(StreamOriginBoundaryError)?;
+                    let ordinal = self.type_constraints.generalized_application_ordinal(
+                        *reference, source, generalized, scope,
+                    ).map_err(|_| StreamOriginBoundaryError)?.ok_or(StreamOriginBoundaryError)?;
+                    ordinals.insert(ordinal);
+                }
+                StreamOrigin::BinderApplication { owner, ordinal, .. } if *owner == source => {
+                    ordinals.insert(*ordinal);
+                }
+                StreamOrigin::BinderApplication { .. } => return Err(StreamOriginBoundaryError),
+                _ => {}
+            }
+        }
+        let requested_argument_spans = ordinals.iter()
+            .filter_map(|ordinal| requirements.get(*ordinal as usize))
+            .flat_map(|requirement| requirement.arguments().iter())
+            .filter(|argument| !matches!(&argument.ty, crate::sema::schemes::SchemeType::Parameter(_)))
+            .map(|argument| argument.span)
+            .filter(|span| span.source_id == source.body.source_id && source.body.start() <= span.start() && span.end() <= source.body.end())
+            .collect::<BTreeSet<_>>();
+        let missing_argument_origins = requested_argument_spans.iter()
+            .filter(|span| !self.stream_expr_origins.contains_key(*span))
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let source_formal_bindings = (!missing_argument_origins.is_empty())
+            .then(|| self.source_formal_bindings(arena, source)).flatten();
+        let source_argument_bindings = self.source_argument_bindings(arena, source, &missing_argument_origins);
+        let mut selected = BTreeMap::new();
+        for ordinal in ordinals {
+            let requirement = requirements.get(ordinal as usize).and_then(crate::sema::callable_application::CallableApplication::invocation).ok_or(StreamOriginBoundaryError)?;
+            let id = *instance.applications.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
+            let Some(layout) = self.type_constraints.settled_callable_application_binding(id)
+                .map_err(|_| StreamOriginBoundaryError)? else { continue; };
+            let Some(callee_slot) = Self::direct_stream_formal_slot(&formal_slots, &requirement.callee) else { continue; };
+            let Some(callee_origins) = actuals.get(&callee_slot) else { continue; };
+            let Some(targets) = callee_origins.selected_callable_targets() else { continue; };
+            if layout.argument_slots.len() != requirement.arguments.len() { continue; }
+            let mut expanded = StreamOrigins::default();
+            let mut complete = true;
+            for target in targets {
+                let Some(callback_summary) = self.stream_target_summary(target) else { complete = false; break; };
+                if callback_summary.returned.has_application_dependency() || callback_summary.returned.has_pending() { complete = false; break; }
+                let Some(target_definition) = self.stream_target_definitions.get(&target) else { complete = false; break; };
+                let definition = arena.arena.function_def(target_definition.definition);
+                let parameters = arena.arena.params(definition.params);
+                if callback_summary.parameters.len() != parameters.len()
+                    || layout.argument_slots.iter().any(|slot| *slot >= parameters.len())
+                    || layout.omitted_slots.iter().any(|slot| {
+                        *slot >= parameters.len()
+                            || parameters[*slot].default.is_none()
+                    })
+                { complete = false; break; }
+                let mut callback_actuals = BTreeMap::<usize, StreamOrigins>::new();
+                for (argument, &slot) in requirement.arguments.iter().zip(&layout.argument_slots) {
+                    let origin = if let Some(source_slot) = Self::direct_stream_formal_slot(&formal_slots, &argument.ty) {
+                        actuals.get(&source_slot).cloned()
+                    } else {
+                        self.source_argument_origins(
+                            source, argument.span, actuals, source_formal_bindings.as_ref(), &source_argument_bindings,
+                        )
+                    };
+                    let Some(mut origin) = origin else { complete = false; break; };
+                    if parameters[slot].rest
+                        && !matches!(argument.kind, crate::sema::arguments::StaticArgumentKind::Splice)
+                    {
+                        origin = origin.prefix(StreamProjection::Element)?;
+                    }
+                    callback_actuals.entry(slot).or_default().join(&origin);
+                }
+                if !complete { break; }
+                for &slot in &layout.omitted_slots {
+                    let Some(default) = callback_summary.defaults.get(&slot) else { complete = false; break; };
+                    if callback_actuals.contains_key(&slot) || default.has_application_dependency() || default.has_pending() { complete = false; break; }
+                    callback_actuals.insert(slot, default.clone());
+                }
+                if !complete { break; }
+                let Ok(returned) = callback_summary.returned.substitute(&callback_actuals) else { complete = false; break; };
+                expanded.join(&returned);
+            }
+            if complete {
+                let reference = self.type_constraints.callable_application_reference(id).map_err(|_| StreamOriginBoundaryError)?;
+                selected.insert(reference, expanded);
+            }
+        }
+        Ok(selected)
+    }
+
+    pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
+        if self.argument_projection_types.contains_key(&expression) { return; }
+        let span = arena.arena.expr(expression).span;
+        if matches!(ty, Type::Invalid) && self.invocation_return_is_rejected(span) {
+            self.stream_expr_origins.insert(span, StreamOrigins::opaque());
+            return;
+        }
+        let resolved = if ty.contains_inference() {
+            match self.type_constraints.resolve(ty) {
+                Ok(ty) => Some(ty),
+                Err(_) => {
+                    self.report_stream_origin_boundary(span);
+                    self.stream_expr_origins.insert(span, StreamOrigins::opaque());
+                    return;
+                }
+            }
+        } else { None };
+        let ty = resolved.as_ref().unwrap_or(ty);
+        let result = self.derive_checked_stream_origin(arena, expression, ty);
+        let origin = match result {
+            Ok(origin) => origin,
+            Err(_) => { self.report_stream_origin_boundary(span); StreamOrigins::opaque() }
+        };
+        if !self.collecting_effects && self.authoritative_effect_graph && origin.has_pending() && ty.may_hold_resource() {
+            self.error(span, "selected declaration has no settled Stream return provenance", crate::diagnostic::DiagnosticCode::CheckLocalInference);
+        }
+        self.stream_expr_origins.insert(span, origin);
+    }
+
+    fn derive_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
+        let span = arena.arena.expr(expression).span;
+        if !ty.may_hold_resource() || self.builtin_calls.get(&span) == Some(&super::CheckedBuiltinCall::Range) { return Ok(StreamOrigins::default()); }
+        let application_scope = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        if let Some(reference) = self.type_constraints.source_callable_application_reference(application_scope, span).map_err(|_| StreamOriginBoundaryError)? {
+            return Ok(StreamOrigins::application(reference));
+        }
+        if self.selected_function_value_references.contains(&span)
+            && let Some(target) = self.selected_function_calls.get(&span).copied()
+        {
+            let id = self.stream_origin_id(arena, target);
+            self.stream_target_definitions.insert(id, target);
+            return Ok(StreamOrigins::callable(id));
+        }
+        let origin = match arena.arena.expr(expression).kind {
+            ArenaExprKind::Ident(_) | ArenaExprKind::Item => self.lookup_value_binding_for_expr(arena, expression).binding().map(|binding| binding.stream_origins.clone()),
+            ArenaExprKind::List(elements) => {
+                let mut origin = StreamOrigins::default();
+                for element in arena.arena.list_elements(elements) {
+                    let value = self.stream_expr_origin(arena, element.value);
+                    origin.join(&if element.splice_span.is_some() { value } else { value.prefix(StreamProjection::Element)? });
+                }
+                Some(origin)
+            }
+            ArenaExprKind::Record(fields) => {
+                let mut origin = StreamOrigins::default();
+                for field in arena.arena.record_fields(fields) {
+                    use crate::syntax::arena::ArenaRecordFieldKind as Field;
+                    let value = match &field.kind {
+                        Field::Spread { expr, .. } => self.stream_expr_origin(arena, *expr),
+                        Field::Named { name, value, .. } => {
+                            let step = if matches!(ty.unvalidated(), Type::Map(_, _)) { StreamProjection::Element } else { StreamProjection::Field(*name) };
+                            self.stream_expr_origin(arena, *value).prefix(step)?
+                        }
+                        Field::Shorthand { name, span } => {
+                            let value = self.lookup_value_binding_at(*name, arena.arena.span(*span)).binding().map(|binding| binding.stream_origins.clone()).unwrap_or_else(StreamOrigins::opaque);
+                            let step = if matches!(ty.unvalidated(), Type::Map(_, _)) { StreamProjection::Element } else { StreamProjection::Field(*name) };
+                            value.prefix(step)?
+                        }
+                        Field::Computed { value, .. } => self.stream_expr_origin(arena, *value).prefix(StreamProjection::Element)?,
+                        Field::Path { path, value, .. } => {
+                            let mut value = self.stream_expr_origin(arena, *value);
+                            for name in arena.arena.names(*path).collect::<Vec<_>>().into_iter().rev() { value = value.prefix(StreamProjection::Field(name))?; }
+                            value
+                        }
+                    };
+                    origin.join(&value);
+                }
+                Some(origin)
+            }
+            ArenaExprKind::Try(value) => Some(self.stream_expr_origin(arena, value).project(&[StreamProjection::Success])?),
+            ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => Some(self.stream_expr_origin(arena, value)),
+            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => Some(self.stream_expr_origin(arena, base).project(&[StreamProjection::Field(name)])?),
+            ArenaExprKind::Index { base, .. } => Some(self.stream_expr_origin(arena, base).project(&[StreamProjection::Element])?),
+            ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } => Some(self.stream_block_origin(arena, block)),
+            ArenaExprKind::Capture(block) => Some(self.stream_block_origin(arena, block).prefix(StreamProjection::Success)?),
+            ArenaExprKind::If { branches, else_value } => {
+                let mut origin = self.stream_expr_origin(arena, else_value);
+                for branch in arena.arena.if_expr_branches(branches) { origin.join(&self.stream_expr_origin(arena, branch.value)); }
+                Some(origin)
+            }
+            ArenaExprKind::Match { arms, .. } => {
+                let mut origin = StreamOrigins::default();
+                for arm in arena.arena.match_expr_arms(arms) { origin.join(&self.stream_expr_origin(arena, arm.value)); }
+                Some(origin)
+            }
+            ArenaExprKind::Call { callee, args } => {
+                if self.result_constructors.get(&span) == Some(&CheckedResultConstructor::Ok) {
+                    let argument = arena.arena.call_args(args).first().and_then(|argument| match argument.kind {
+                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => Some(value),
+                        _ => None,
+                    });
+                    Some(argument.map(|value| self.stream_expr_origin(arena, value)).unwrap_or_default().prefix(StreamProjection::Success)?)
+                } else if self.result_constructors.get(&span) == Some(&CheckedResultConstructor::Err) {
+                    Some(StreamOrigins::default())
+                } else {
+                    let callee_origin = self.stream_expr_origin(arena, callee);
+                    let mut targets = callee_origin.targets().collect::<BTreeSet<_>>();
+                    if let Some(target) = self.selected_function_calls.get(&span).copied() {
+                        let id = self.stream_origin_id(arena, target);
+                        self.stream_target_definitions.insert(id, target);
+                        targets.clear();
+                        targets.insert(id);
+                    }
+                    if targets.is_empty() { None } else {
+                        let mut origin = if !self.selected_function_calls.contains_key(&span) && callee_origin.has_unknown_callable() { Self::opaque_stream_value(ty)? } else { StreamOrigins::default() };
+                        for target in targets {
+                            let same_namespace = target.namespace == self.current_namespace;
+                            let current_summary = same_namespace
+                                .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
+                                .flatten()
+                                .and_then(super::PendingFunctionSig::generalized)
+                                .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
+                            if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
+                            if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declarations.get(&target)) {
+                                let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
+                                let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
+                                let instances = call_instance.map(|(_, instance)| instance.applications.as_slice());
+                                let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(target));
+                                let deferred_call = self.provisional_function_calls.get(&span).filter(|(owner, callee)| Some(*owner) == self.stream_origin_owner && callee.effect_declaration() == target).map(|(owner, _)| (*owner, span));
+                                let returned = summary.returned.specialize_applications(target, instances, &self.type_constraints, pending, deferred_call)?;
+                                let returned = returned.substitute(&arguments)?;
+                                if let Some((callable, instance)) = call_instance {
+                                    let selected = self.selected_stream_application_origins(arena, target, &summary.returned, callable, instance, &arguments)?;
+                                    origin.join(&returned.expand_selected_applications(&selected)?);
+                                } else {
+                                    origin.join(&returned);
+                                }
+                            } else { origin.join(&StreamOrigins::pending(target)); }
+                        }
+                        Some(origin)
+                    }
+                }
+            }
+            _ => None,
+        };
+        let mut origin = origin.unwrap_or(Self::opaque_stream_value(ty)?);
+        if matches!(ty.unvalidated(), Type::Stream(_)) && self.latent_stream_error_spans.contains(&span) { origin.join(&StreamOrigins::error()); }
+        Ok(origin)
+    }
+
+    pub(super) fn record_checked_stream_tail(&mut self, arena: &ArenaProgram, statement: StmtId, ty: &Type) {
+        let statement = arena.arena.core_stmt_id(statement);
+        let node = arena.arena.stmt(statement);
+        let mut origin = StreamOrigins::default();
+        let mut result = ty.is_result();
+        match node.kind {
+            ArenaStmtKind::Expr(expression) => { origin = self.stream_expr_origin(arena, expression); }
+            ArenaStmtKind::TailBareIdent(name) => {
+                if let Some(binding) = self.lookup_value_binding_at(name, node.span).binding() {
+                    origin = binding.stream_origins.clone();
+                    result = binding.ty.is_result();
+                } else { origin = StreamOrigins::opaque(); }
+            }
+            ArenaStmtKind::If { branches, else_block } => {
+                for branch in arena.arena.if_branches(branches) { origin.join(&self.stream_block_origin(arena, branch.block)); }
+                if let Some(block) = else_block { origin.join(&self.stream_block_origin(arena, block)); }
+            }
+            ArenaStmtKind::Match { arms, .. } => {
+                for arm in arena.arena.match_arms(arms) { origin.join(&self.stream_block_origin(arena, arm.block)); }
+            }
+            _ => {}
+        }
+        if self.selected_function_value_references.contains(&node.span)
+            && let Some(target) = self.selected_function_calls.get(&node.span).copied()
+        {
+            let target_id = self.stream_origin_id(arena, target);
+            self.stream_target_definitions.insert(target_id, target);
+            origin = StreamOrigins::callable(target_id);
+        }
+        self.stream_stmt_origins.insert(node.span, origin);
+        if result { self.stream_stmt_results.insert(node.span); }
+        else { self.stream_stmt_results.remove(&node.span); }
+    }
+
+    pub(super) fn stream_mutable_state(&self) -> BTreeMap<super::BindingId, StreamOrigins> {
+        let mut state = BTreeMap::new();
+        for scope in self.scopes.iter().rev() {
+            for binding in scope.values().filter(|binding| binding.mutable && binding.ty.may_hold_resource()) {
+                if let Some(identity) = binding.id { state.entry(identity).or_insert_with(|| binding.stream_origins.clone()); }
+            }
+        }
+        state
+    }
+
+    pub(super) fn restore_stream_mutable_state(&mut self, state: &BTreeMap<super::BindingId, StreamOrigins>) {
+        for scope in &mut self.scopes {
+            for binding in scope.values_mut() {
+                if let Some(origin) = binding.id.and_then(|identity| state.get(&identity)) { binding.stream_origins = origin.clone(); }
+            }
+        }
+    }
+
+    pub(super) fn join_stream_mutable_states(&mut self, states: &[BTreeMap<super::BindingId, StreamOrigins>]) {
+        let mut joined = BTreeMap::<_, StreamOrigins>::new();
+        for state in states { for (&identity, origin) in state { joined.entry(identity).or_default().join(origin); } }
+        self.restore_stream_mutable_state(&joined);
+    }
+
+    pub(super) fn enter_stream_loop(&mut self, arena: &ArenaProgram, block: BlockId, kind: StreamLoopKind) {
+        let identity = StreamLoopId { owner: self.stream_origin_owner, namespace: self.current_namespace, block, body: arena.arena.span(arena.arena.block(block).span) };
+        let mut header = self.stream_mutable_state();
+        let enclosing_flow = self.boundary.stream_flow;
+        let body_flow = if enclosing_flow == StreamFlow::Live && self.stream_loop_body_may_enter(arena, kind) { StreamFlow::Live } else { StreamFlow::Dead };
+        let mut types = BTreeMap::new();
+        for scope in self.scopes.iter().rev() {
+            for binding in scope.values() {
+                if let Some(identity) = binding.id.filter(|identity| header.contains_key(identity)) {
+                    types.entry(identity).or_insert_with(|| binding.unrefined_ty.as_ref().unwrap_or(&binding.ty).clone());
+                }
+            }
+        }
+        if body_flow == StreamFlow::Live && let Some(previous) = self.stream_origin_inputs.loops.get(&identity) {
+            for (&binding, origin) in previous {
+                if let Some(current) = header.get_mut(&binding) && current.join(origin) { self.provisional_stream_origins_read.set(true); }
+            }
+        }
+        for (&binding, origin) in &mut header {
+            match ProjectionDomain::from_type(&types[&binding]).and_then(|domain| origin.validate_storage(&domain)) {
+                Ok(checked) => *origin = checked,
+                Err(_) => { self.report_stream_origin_boundary(identity.body); *origin = StreamOrigins::opaque(); }
+            }
+        }
+        self.restore_stream_mutable_state(&header);
+        self.boundary.stream_loops.push(StreamLoopFrame { identity, kind, enclosing_flow, body_flow, types, header, breaks: BTreeMap::new() });
+        self.boundary.stream_flow = body_flow;
+    }
+
+    pub(super) fn record_stream_loop_control(&mut self, transfer: StreamLoopTransfer) {
+        if self.boundary.stream_flow == StreamFlow::Dead { return; }
+        let state = self.stream_mutable_state();
+        let Some(frame) = self.boundary.stream_loops.last_mut() else { return };
+        let destination = if matches!(transfer, StreamLoopTransfer::Break) { &mut frame.breaks } else { &mut frame.header };
+        for (identity, origin) in state {
+            if frame.types.contains_key(&identity) {
+                let changed = destination.entry(identity).or_default().join(&origin);
+                if changed && matches!(transfer, StreamLoopTransfer::Backedge) { self.provisional_stream_origins_read.set(true); }
+            }
+        }
+    }
+
+    pub(super) fn record_stream_while_condition(&mut self, arena: &ArenaProgram, condition: ExprId) {
+        if !self.stream_expr_may_complete(arena, condition) { self.boundary.stream_flow = StreamFlow::Dead; return; }
+        let state = self.stream_mutable_state();
+        let false_edge = self.stream_condition_may_be_false(arena, condition);
+        let Some(frame) = self.boundary.stream_loops.last_mut() else { return };
+        if frame.enclosing_flow == StreamFlow::Live && false_edge {
+            for (identity, origin) in state {
+                if frame.types.contains_key(&identity) { frame.breaks.entry(identity).or_default().join(&origin); }
+            }
+        }
+    }
+
+    pub(super) fn leave_stream_loop(&mut self, arena: &ArenaProgram, block: BlockId) {
+        if self.boundary.stream_loops.last().is_some_and(|frame| frame.body_flow == StreamFlow::Live) && self.stream_block_may_complete(arena, block) {
+            self.record_stream_loop_control(StreamLoopTransfer::Backedge);
+        }
+        let Some(mut frame) = self.boundary.stream_loops.pop() else { return };
+        for (&binding, origin) in &mut frame.header {
+            match ProjectionDomain::from_type(&frame.types[&binding]).and_then(|domain| origin.validate_storage(&domain)) {
+                Ok(checked) => *origin = checked,
+                Err(_) => { self.report_stream_origin_boundary(frame.identity.body); *origin = StreamOrigins::opaque(); }
+            }
+        }
+        self.stream_origin_outputs.loops.insert(frame.identity, frame.header.clone());
+        let mut exits = vec![frame.breaks];
+        if !matches!(frame.kind, StreamLoopKind::Loop) { exits.push(frame.header); }
+        self.join_stream_mutable_states(&exits);
+        self.boundary.stream_flow = frame.enclosing_flow;
+    }
+
+    pub(super) fn assign_stream_origin(&mut self, arena: &ArenaProgram, target: crate::syntax::arena::AssignTargetId, selected: &super::Binding, value: ArenaExprOrRun, span: Span) {
+        use crate::syntax::arena::ArenaAssignTargetKind as Target;
+        let mut current = target;
+        let mut path = Vec::new();
+        let name = loop {
+            if path.len() > crate::sema::constraints::MAX_TYPE_DEPTH { self.report_stream_origin_boundary(span); return; }
+            match arena.arena.assign_target(current).kind {
+                Target::Name(name) => break name,
+                Target::Field { base, name } => { path.push(StreamProjection::Field(name)); current = base; }
+                Target::Index { base, .. } => { path.push(StreamProjection::Element); current = base; }
+                Target::Env(_) => return,
+            }
+        };
+        path.reverse();
+        let value = match value { ArenaExprOrRun::Expr(value) => self.stream_expr_origin(arena, value), ArenaExprOrRun::Run(_) => StreamOrigins::default() };
+        let root = selected.unrefined_ty.as_ref().unwrap_or(&selected.ty);
+        let origin = match selected.stream_origins.replace_projection(root, &path, &value) {
+            Ok(origin) => origin,
+            Err(_) => { self.report_stream_origin_boundary(span); return; }
+        };
+        if let Some(scope) = self.binding_scope(name, selected)
+            && let Some(binding) = self.scopes[scope].get_mut(&name)
+        { binding.stream_origins = origin; }
+    }
+
+    pub(super) fn record_stream_yield_origin(&mut self, origin: StreamOrigins, span: Span) {
+        let Some(owner) = self.stream_origin_owner else { return };
+        match origin.prefix(StreamProjection::Element) {
+            Ok(origin) => { self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin); }
+            Err(_) => self.report_stream_origin_boundary(span),
+        }
+    }
+
+    pub(super) fn record_stream_delegated_origin(&mut self, arena: &ArenaProgram, expression: ExprId) {
+        let Some(owner) = self.stream_origin_owner else { return };
+        let origin = self.stream_expr_origin(arena, expression);
+        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+    }
+
+    pub(super) fn record_stream_return(&mut self, arena: &ArenaProgram, value: Option<ArenaExprOrRun>, actual: &Type, expected: &Type, span: Span) {
+        let origin = match value { Some(ArenaExprOrRun::Expr(value)) => self.stream_expr_origin(arena, value), _ => StreamOrigins::default() };
+        self.record_stream_return_origin(origin, actual, expected, span);
+    }
+
+    pub(super) fn record_stream_return_origin(&mut self, mut origin: StreamOrigins, actual: &Type, expected: &Type, span: Span) {
+        let Some(owner) = self.stream_origin_owner else { return };
+        let expected = self.boundary.proc_completion.as_ref()
+            .filter(|completion| completion.owner == owner)
+            .map_or(expected, |completion| &completion.return_ty);
+        if expected.is_result() && !actual.is_result() {
+            match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(span); return; } }
+        }
+        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+    }
+
+    pub(super) fn finish_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
+        let owner = self.effect_declaration_id(arena, definition.body);
+        let mut origin = self.stream_block_origin(arena, definition.body);
+        let tail = arena.arena.stmt_ids(arena.arena.block(definition.body).statements).last().map(|statement| arena.arena.stmt(arena.arena.core_stmt_id(statement)).span);
+        if expected.is_result() && tail.is_some_and(|span| !self.stream_stmt_results.contains(&span)) {
+            match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(owner.body); return; } }
+        }
+        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+        self.finish_recorded_stream_return_summary(arena, definition, expected);
+    }
+
+    pub(super) fn finish_stream_producer_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
+        self.finish_recorded_stream_return_summary(arena, definition, expected);
+    }
+
+    pub(super) fn finish_recorded_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
+        let owner = self.effect_declaration_id(arena, definition.body);
+        let shape = ProjectionDomain::from_type(expected);
+        let parameters = arena.arena.params(definition.params).iter().map(|param| {
+            let span = arena.arena.span(param.span);
+            let ty = self.parameter_types.get(&span).cloned().unwrap_or(Type::Unknown);
+            let ty = self.type_constraints.resolve(&ty).unwrap_or(Type::Unknown);
+            ProjectionDomain::from_type(&ty)
+        }).collect::<Result<Vec<_>, _>>();
+        let (Ok(output), Ok(parameters)) = (shape, parameters) else { self.report_stream_origin_boundary(owner.body); return };
+        let summary = self.stream_origin_outputs.declarations.entry(owner).or_default();
+        summary.output = output;
+        summary.parameters = parameters;
+        match summary.returned.validate(owner, &summary.output, &summary.parameters) {
+            Ok(origins) => summary.returned = origins,
+            Err(_) => self.report_stream_origin_boundary(owner.body),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{StreamOrigins, StreamProjection};
@@ -579,7 +1393,7 @@ mod tests {
             let mut summaries = super::StreamOriginSummaries::new();
             for owner in owners {
                 let returned = StreamOrigins::formal(owner, 0);
-                assert_eq!(returned.validate(owner, &domain, &[domain.clone()]).unwrap(), returned);
+                assert_eq!(returned.validate(owner, &domain, std::slice::from_ref(&domain)).unwrap(), returned);
                 summaries.declarations.insert(owner, super::StreamReturnSummary {
                     returned, defaults: BTreeMap::new(), output: domain.clone(), parameters: vec![domain.clone()],
                 });
@@ -1151,818 +1965,5 @@ pure blob_deep(stats: Stats) -> Stats {
         let mut value = StreamOrigins::error();
         for _ in 0..crate::sema::constraints::MAX_TYPE_DEPTH { value = value.prefix(StreamProjection::Success).unwrap(); }
         assert!(value.prefix(StreamProjection::Success).is_err());
-    }
-}
-
-use super::{Checker, CheckedResultConstructor, Span};
-use crate::syntax::arena::{ArenaProgram, ArenaExprKind, ArenaStmtKind, ArenaExprOrRun, ArenaCallArgKind, ExprId, StmtId, BlockId};
-
-impl Checker {
-    pub(super) fn resolve_stream_origin_applications(&mut self,
-        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>, calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>,
-    ) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
-        let mut resolved = self.stream_origin_outputs.clone();
-        for (&owner, summary) in &mut resolved.declarations {
-            if !members.contains_key(&owner) { continue; }
-            summary.returned = summary.returned.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
-            for origin in summary.defaults.values_mut() {
-                *origin = origin.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
-            }
-        }
-        for (identity, header) in &mut resolved.loops {
-            let Some(owner) = identity.owner.filter(|owner| members.contains_key(owner)) else { continue };
-            for origin in header.values_mut() {
-                *origin = origin.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
-            }
-        }
-        self.stream_origin_outputs = resolved;
-        Ok(())
-    }
-
-    pub(super) fn normalize_stream_origin_applications(&mut self) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
-        let mut normalized = self.stream_origin_outputs.clone();
-        for (&owner, summary) in &mut normalized.declarations {
-            let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner));
-            summary.returned = summary.returned.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
-            for origin in summary.defaults.values_mut() {
-                *origin = origin.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
-            }
-        }
-        for (identity, header) in &mut normalized.loops {
-            let owner = identity.owner.unwrap_or(EffectDeclarationId { namespace: identity.namespace, body: identity.body });
-            let pending = identity.owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)));
-            for origin in header.values_mut() {
-                *origin = origin.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
-            }
-        }
-        self.stream_origin_outputs = normalized;
-        Ok(())
-    }
-
-    pub(super) fn validate_published_stream_origins(&self) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
-        for (&owner, summary) in &self.stream_origin_outputs.declarations {
-            if summary.returned.has_unresolved_applications() || summary.defaults.values().any(StreamOrigins::has_unresolved_applications) {
-                return Err((owner, StreamOriginBoundaryError));
-            }
-        }
-        for (identity, header) in &self.stream_origin_outputs.loops {
-            if header.values().any(StreamOrigins::has_unresolved_applications) {
-                return Err((identity.owner.unwrap_or(EffectDeclarationId { namespace: identity.namespace, body: identity.body }), StreamOriginBoundaryError));
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn project_stream_origin(&mut self, origin: &StreamOrigins, path: &[StreamProjection], span: Span) -> StreamOrigins {
-        match origin.project(path) {
-            Ok(origin) => origin,
-            Err(_) => { self.report_stream_origin_boundary(span); StreamOrigins::opaque() }
-        }
-    }
-
-    pub(super) fn stream_success_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> StreamOrigins {
-        let origin = self.stream_expr_origin(arena, expression);
-        if ty.is_result() { self.project_stream_origin(&origin, &[StreamProjection::Success], arena.arena.expr(expression).span) } else { origin }
-    }
-
-    pub(super) fn stream_binding_initializer(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun, binding_type: &Type) -> StreamOrigins {
-        match initializer {
-            ArenaExprOrRun::Expr(expression) => {
-                let ty = self.expr_types.get(&arena.arena.expr(expression).span).cloned().unwrap_or(Type::Unknown);
-                self.stream_success_origin(arena, expression, &ty)
-            }
-            ArenaExprOrRun::Run(_) => StreamOrigins::unproven(binding_type),
-        }
-    }
-
-    pub(super) fn stream_iteration_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> StreamOrigins {
-        let origin = self.stream_success_origin(arena, expression, ty);
-        let item = self.project_stream_origin(&origin, &[StreamProjection::Element], arena.arena.expr(expression).span);
-        if matches!(ty.result_ok().unwrap_or(ty).unvalidated(), Type::Map(_, _)) {
-            match item.prefix(StreamProjection::Field(Name::intern("value"))) {
-                Ok(item) => item,
-                Err(_) => { self.report_stream_origin_boundary(arena.arena.expr(expression).span); StreamOrigins::opaque() }
-            }
-        } else { item }
-    }
-
-    pub(super) fn report_stream_origin_boundary(&mut self, span: Span) {
-        self.error(span, "stream return provenance exceeds its checked projection boundary", crate::diagnostic::DiagnosticCode::CheckLocalInference);
-    }
-
-    pub(super) fn stream_expr_origin(&self, arena: &ArenaProgram, expression: ExprId) -> StreamOrigins {
-        let span = arena.arena.expr(expression).span;
-        self.stream_expr_origins.get(&span).cloned().unwrap_or_else(|| {
-            StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown))
-        })
-    }
-
-    pub(super) fn stream_block_origin(&self, arena: &ArenaProgram, block: BlockId) -> StreamOrigins {
-        let Some(statement) = arena.arena.stmt_ids(arena.arena.block(block).statements).last() else { return StreamOrigins::default() };
-        let span = arena.arena.stmt(arena.arena.core_stmt_id(statement)).span;
-        self.stream_stmt_origins.get(&span).cloned().unwrap_or_else(|| StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown)))
-    }
-
-    pub(super) fn record_stream_parameter_default(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, parameter: usize, expression: ExprId) {
-        let owner = self.effect_declaration_id(arena, definition.body);
-        let origin = self.stream_expr_origin(arena, expression);
-        self.stream_origin_outputs.declarations.entry(owner).or_default().defaults.insert(parameter, origin);
-    }
-
-    pub(super) fn record_stream_producer_error(&mut self, owner: EffectDeclarationId) {
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&StreamOrigins::error());
-    }
-
-    pub(super) fn settle_stream_origin_dependencies(&mut self, external: &StreamOriginSummaries) {
-        let declarations = external.declarations.keys().chain(self.stream_origin_outputs.declarations.keys()).copied().collect::<BTreeSet<_>>();
-        for summary in self.stream_origin_outputs.declarations.values_mut() {
-            summary.returned.settle_pending(&declarations);
-            for origin in summary.defaults.values_mut() { origin.settle_pending(&declarations); }
-        }
-        for header in self.stream_origin_outputs.loops.values_mut() {
-            for origin in header.values_mut() { origin.settle_pending(&declarations); }
-        }
-        for origin in self.stream_expr_origins.values_mut() {
-            origin.settle_pending(&declarations);
-        }
-    }
-
-    pub(super) fn validate_stream_expression_origins(&mut self, program: &ArenaProgram) {
-        let mut generalized = BTreeMap::<Span, bool>::new();
-        let mut nonmaterial = BTreeSet::new();
-        for (declaration, pending) in self.declaration_inference.pending_entries() {
-            if pending.generalized_body_types().is_none() && pending.generalized_tail_types().is_none() {
-                continue;
-            }
-            let target = pending.definition_target().expect("generalized body facts retain their declaration source");
-            let owner = declaration.effect_declaration();
-            let definition = program.arena.function_def(target.definition);
-            assert_eq!(owner.namespace, target.namespace);
-            assert_eq!(owner.body, program.arena.span(program.arena.block(definition.body).span));
-            for (&expression, &kind) in pending.generalized_constructor_producers().into_iter().flatten() {
-                assert!(super::scheme_body::matches_constructor_producer(program, expression, kind));
-                let span = program.arena.expr(expression).span;
-                assert!(owner.body.source_id == span.source_id && owner.body.start() <= span.start() && span.end() <= owner.body.end());
-                nonmaterial.insert(span);
-                if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
-                    let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
-                    let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
-                    nonmaterial.insert(program.arena.expr(callee).span);
-                    nonmaterial.insert(program.arena.expr(base).span);
-                }
-            }
-            for (&expression, ty) in pending.generalized_body_types().into_iter().flatten() {
-                let resource = ty.may_hold_resource();
-                generalized.entry(program.arena.expr(expression).span)
-                    .and_modify(|previous| *previous |= resource).or_insert(resource);
-            }
-            for (&statement, ty) in pending.generalized_tail_types().into_iter().flatten() {
-                let resource = ty.may_hold_resource();
-                generalized.entry(program.arena.stmt(statement).span)
-                    .and_modify(|previous| *previous |= resource).or_insert(resource);
-            }
-        }
-        let failures = self.stream_expr_origins.iter().filter_map(|(&span, origin)| {
-            if origin.0.is_empty() || nonmaterial.contains(&span) { return None; }
-            let resource = self.expr_types.get(&span).map(Type::may_hold_resource)
-                .or_else(|| generalized.get(&span).copied());
-            match resource {
-                Some(resource) if !resource || !origin.has_pending() => None,
-                _ => Some(span),
-            }
-        }).collect::<Vec<_>>();
-        for span in failures {
-            self.error(span, "selected declaration has no settled Stream return provenance", crate::diagnostic::DiagnosticCode::CheckLocalInference);
-        }
-    }
-
-    fn stream_origin_id(&self, arena: &ArenaProgram, target: super::CheckedFunctionTarget) -> EffectDeclarationId {
-        let definition = arena.arena.function_def(target.definition);
-        EffectDeclarationId { namespace: target.namespace, body: arena.arena.span(arena.arena.block(definition.body).span) }
-    }
-
-    fn opaque_stream_value(ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
-        match ty {
-            Type::Result(ok, _) => Self::opaque_stream_value(ok)?.prefix(StreamProjection::Success),
-            Type::Optional(value) => Self::opaque_stream_value(value),
-            Type::Validated(value) => Self::opaque_stream_value(value.base()),
-            value if value.may_hold_resource() => Ok(StreamOrigins::opaque()),
-            _ => Ok(StreamOrigins::default()),
-        }
-    }
-
-    fn stream_call_actuals(&self, arena: &ArenaProgram, args: super::ArenaRange, span: Span, target: EffectDeclarationId, summary: &StreamReturnSummary) -> Result<BTreeMap<usize, StreamOrigins>, StreamOriginBoundaryError> {
-        use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
-        let entries = arena.arena.call_args(args);
-        let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get(&arena.arena.expr(expression).span).cloned());
-        let Ok(expanded) = expanded else { return Ok(BTreeMap::new()) };
-        let slots = self.argument_bindings.get(&span);
-        let definition = self.stream_target_definitions.get(&target).map(|target| arena.arena.function_def(target.definition));
-        let params = definition.map(|definition| arena.arena.params(definition.params));
-        let mut output = BTreeMap::<usize, StreamOrigins>::new();
-        for (position, argument) in expanded.iter().enumerate() {
-            let slot = slots.and_then(|slots| slots.argument_slots.get(position).copied()).unwrap_or_else(|| {
-                params.and_then(|params| params.last().filter(|param| param.rest).map(|_| position.min(params.len() - 1))).unwrap_or(position)
-            });
-            let rest = params.and_then(|params| params.get(slot)).is_some_and(|param| param.rest);
-            let origin = match argument.value {
-                ArgumentValueSource::Expression(expression) => {
-                    let origin = self.stream_expr_origin(arena, expression);
-                    if rest { origin.prefix(StreamProjection::Element)? } else { origin }
-                }
-                ArgumentValueSource::RecordField { record, field } => self.stream_expr_origin(arena, record).project(&[StreamProjection::Field(field)])?,
-                ArgumentValueSource::PositionalSplice(expression) => self.stream_expr_origin(arena, expression),
-                ArgumentValueSource::CheckedType => StreamOrigins::opaque(),
-            };
-            output.entry(slot).or_default().join(&origin);
-        }
-        for (&position, origin) in &summary.defaults { output.entry(position).or_insert_with(|| origin.clone()); }
-        Ok(output)
-    }
-
-    fn stream_target_summary(&self, target: EffectDeclarationId) -> Option<&StreamReturnSummary> {
-        let current = (target.namespace == self.current_namespace)
-            .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
-            .flatten()
-            .and_then(super::PendingFunctionSig::generalized)
-            .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
-        if current.is_none() && target.namespace == self.current_namespace {
-            self.provisional_stream_origins_read.set(true);
-        }
-        current.or_else(|| self.stream_origin_inputs.declarations.get(&target))
-    }
-
-    fn stream_formal_slots(callable: &crate::sema::schemes::CallableScheme) -> BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>> {
-        let mut slots = BTreeMap::new();
-        for (slot, formal) in callable.params().iter().enumerate() {
-            let crate::sema::schemes::SchemeType::Parameter(parameter) = formal.ty else { continue; };
-            match slots.get_mut(&parameter) {
-                Some(slot) => *slot = None,
-                None => { slots.insert(parameter, Some(slot)); }
-            }
-        }
-        slots
-    }
-
-    fn direct_stream_formal_slot(
-        slots: &BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>>,
-        ty: &crate::sema::schemes::SchemeType,
-    ) -> Option<usize> {
-        let crate::sema::schemes::SchemeType::Parameter(parameter) = ty else { return None; };
-        slots.get(parameter).copied().flatten()
-    }
-
-    fn source_formal_bindings(
-        &self,
-        arena: &crate::syntax::arena::ArenaProgram,
-        source: EffectDeclarationId,
-    ) -> Option<BTreeMap<super::BindingId, usize>> {
-        let target = self.stream_target_definitions.get(&source)?;
-        if target.namespace != source.namespace { return None; }
-        let definition = arena.arena.function_def(target.definition);
-        if arena.arena.span(arena.arena.block(definition.body).span) != source.body { return None; }
-        let mut bindings = BTreeMap::new();
-        for (slot, parameter) in arena.arena.params(definition.params).iter().enumerate() {
-            let site = (arena.arena.span(parameter.span), parameter.name);
-            let binding = *self.resolved_bindings.declaration_sites.get(&site)?;
-            if bindings.insert(binding, slot).is_some() { return None; }
-        }
-        Some(bindings)
-    }
-
-    fn source_argument_bindings(
-        &self,
-        arena: &crate::syntax::arena::ArenaProgram,
-        source: EffectDeclarationId,
-        requested: &BTreeSet<crate::source::Span>,
-    ) -> BTreeMap<crate::source::Span, Option<super::BindingId>> {
-        if requested.is_empty() { return BTreeMap::new(); }
-        let resolved_bindings = std::sync::Arc::clone(&self.resolved_bindings);
-        let mut cache = self.stream_argument_binding_cache.borrow_mut();
-        cache
-            .retain(|_, (bindings, _)| std::sync::Arc::ptr_eq(bindings, &resolved_bindings));
-        if !cache.contains_key(&source.body.source_id) {
-            let mut bindings = BTreeMap::new();
-            for expression in arena.arena.source_rows().expr_ids(source.body.source_id) {
-                match &arena.arena.expr(expression).kind {
-                    crate::syntax::arena::ArenaExprKind::Ident(_) => {
-                        let span = arena.arena.expr(expression).span;
-                        let Some(binding) = resolved_bindings.expressions.get(&expression).copied() else { continue; };
-                        bindings.entry(span).and_modify(|previous| *previous = None).or_insert(Some(binding));
-                    }
-                    crate::syntax::arena::ArenaExprKind::Call { args, .. } => {
-                        for argument in arena.arena.call_args(*args) {
-                            let crate::syntax::arena::ArenaCallArgKind::Splice { value, span } = &argument.kind else { continue; };
-                            if !matches!(&arena.arena.expr(*value).kind, crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
-                            let Some(binding) = resolved_bindings.expressions.get(value).copied() else { continue; };
-                            bindings.entry(arena.arena.span(*span)).and_modify(|previous| *previous = None).or_insert(Some(binding));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            cache.insert(source.body.source_id, (resolved_bindings, std::sync::Arc::new(bindings)));
-        }
-        let Some((_, source_bindings)) = cache.get(&source.body.source_id) else { return BTreeMap::new(); };
-        requested.iter().map(|span| (*span, source_bindings.get(span).copied().flatten())).collect()
-    }
-
-    fn source_argument_origins(
-        &self,
-        source: EffectDeclarationId,
-        span: crate::source::Span,
-        actuals: &BTreeMap<usize, StreamOrigins>,
-        formal_bindings: Option<&BTreeMap<super::BindingId, usize>>,
-        expression_bindings: &BTreeMap<crate::source::Span, Option<super::BindingId>>,
-    ) -> Option<StreamOrigins> {
-        if span.source_id != source.body.source_id || source.body.start() > span.start() || span.end() > source.body.end() {
-            return None;
-        }
-        if let Some(origin) = self.stream_expr_origins.get(&span) {
-            if origin.0.is_empty() || origin.0.iter().any(|(_, origin)| !matches!(origin,
-                StreamOrigin::Formal { owner, parameter, .. } | StreamOrigin::OpaqueFormal { owner, parameter, .. }
-                    if *owner == source && actuals.contains_key(parameter)
-            )) { return None; }
-            return origin.substitute(actuals).ok();
-        }
-        let formal_bindings = formal_bindings?;
-        let binding = expression_bindings.get(&span).copied().flatten()?;
-        let slot = formal_bindings.get(&binding)?;
-        actuals.get(slot).cloned()
-    }
-
-    fn selected_stream_application_origins(
-        &self,
-        arena: &ArenaProgram,
-        source: EffectDeclarationId,
-        returned: &StreamOrigins,
-        callable: &crate::sema::schemes::CallableScheme,
-        instance: &crate::sema::constraints::InstantiatedScheme,
-        actuals: &BTreeMap<usize, StreamOrigins>,
-    ) -> Result<BTreeMap<crate::sema::constraints::CallableApplicationReference, StreamOrigins>, StreamOriginBoundaryError> {
-        let requirements = &callable.requirements().applications;
-        if instance.applications.len() != requirements.len() { return Err(StreamOriginBoundaryError); }
-        let formal_slots = Self::stream_formal_slots(callable);
-        let mut ordinals = BTreeSet::new();
-        for (_, origin) in &returned.0 {
-            match origin {
-                StreamOrigin::OriginalApplication { reference, .. } => {
-                    let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(source))
-                        .ok_or(StreamOriginBoundaryError)?;
-                    let generalized = pending.generalized().ok_or(StreamOriginBoundaryError)?;
-                    let scope = pending.generalized_scope().ok_or(StreamOriginBoundaryError)?;
-                    let ordinal = self.type_constraints.generalized_application_ordinal(
-                        *reference, source, generalized, scope,
-                    ).map_err(|_| StreamOriginBoundaryError)?.ok_or(StreamOriginBoundaryError)?;
-                    ordinals.insert(ordinal);
-                }
-                StreamOrigin::BinderApplication { owner, ordinal, .. } if *owner == source => {
-                    ordinals.insert(*ordinal);
-                }
-                StreamOrigin::BinderApplication { .. } => return Err(StreamOriginBoundaryError),
-                _ => {}
-            }
-        }
-        let requested_argument_spans = ordinals.iter()
-            .filter_map(|ordinal| requirements.get(*ordinal as usize))
-            .flat_map(|requirement| requirement.arguments().iter())
-            .filter(|argument| !matches!(&argument.ty, crate::sema::schemes::SchemeType::Parameter(_)))
-            .map(|argument| argument.span)
-            .filter(|span| span.source_id == source.body.source_id && source.body.start() <= span.start() && span.end() <= source.body.end())
-            .collect::<BTreeSet<_>>();
-        let missing_argument_origins = requested_argument_spans.iter()
-            .filter(|span| !self.stream_expr_origins.contains_key(*span))
-            .copied()
-            .collect::<BTreeSet<_>>();
-        let source_formal_bindings = (!missing_argument_origins.is_empty())
-            .then(|| self.source_formal_bindings(arena, source)).flatten();
-        let source_argument_bindings = self.source_argument_bindings(arena, source, &missing_argument_origins);
-        let mut selected = BTreeMap::new();
-        for ordinal in ordinals {
-            let requirement = requirements.get(ordinal as usize).and_then(crate::sema::callable_application::CallableApplication::invocation).ok_or(StreamOriginBoundaryError)?;
-            let id = *instance.applications.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
-            let Some(layout) = self.type_constraints.settled_callable_application_binding(id)
-                .map_err(|_| StreamOriginBoundaryError)? else { continue; };
-            let Some(callee_slot) = Self::direct_stream_formal_slot(&formal_slots, &requirement.callee) else { continue; };
-            let Some(callee_origins) = actuals.get(&callee_slot) else { continue; };
-            let Some(targets) = callee_origins.selected_callable_targets() else { continue; };
-            if layout.argument_slots.len() != requirement.arguments.len() { continue; }
-            let mut expanded = StreamOrigins::default();
-            let mut complete = true;
-            for target in targets {
-                let Some(callback_summary) = self.stream_target_summary(target) else { complete = false; break; };
-                if callback_summary.returned.has_application_dependency() || callback_summary.returned.has_pending() { complete = false; break; }
-                let Some(target_definition) = self.stream_target_definitions.get(&target) else { complete = false; break; };
-                let definition = arena.arena.function_def(target_definition.definition);
-                let parameters = arena.arena.params(definition.params);
-                if callback_summary.parameters.len() != parameters.len()
-                    || layout.argument_slots.iter().any(|slot| *slot >= parameters.len())
-                    || layout.omitted_slots.iter().any(|slot| {
-                        *slot >= parameters.len()
-                            || parameters[*slot].default.is_none()
-                    })
-                { complete = false; break; }
-                let mut callback_actuals = BTreeMap::<usize, StreamOrigins>::new();
-                for (argument, &slot) in requirement.arguments.iter().zip(&layout.argument_slots) {
-                    let origin = if let Some(source_slot) = Self::direct_stream_formal_slot(&formal_slots, &argument.ty) {
-                        actuals.get(&source_slot).cloned()
-                    } else {
-                        self.source_argument_origins(
-                            source, argument.span, actuals, source_formal_bindings.as_ref(), &source_argument_bindings,
-                        )
-                    };
-                    let Some(mut origin) = origin else { complete = false; break; };
-                    if parameters[slot].rest
-                        && !matches!(argument.kind, crate::sema::arguments::StaticArgumentKind::Splice)
-                    {
-                        origin = origin.prefix(StreamProjection::Element)?;
-                    }
-                    callback_actuals.entry(slot).or_default().join(&origin);
-                }
-                if !complete { break; }
-                for &slot in &layout.omitted_slots {
-                    let Some(default) = callback_summary.defaults.get(&slot) else { complete = false; break; };
-                    if callback_actuals.contains_key(&slot) || default.has_application_dependency() || default.has_pending() { complete = false; break; }
-                    callback_actuals.insert(slot, default.clone());
-                }
-                if !complete { break; }
-                let Ok(returned) = callback_summary.returned.substitute(&callback_actuals) else { complete = false; break; };
-                expanded.join(&returned);
-            }
-            if complete {
-                let reference = self.type_constraints.callable_application_reference(id).map_err(|_| StreamOriginBoundaryError)?;
-                selected.insert(reference, expanded);
-            }
-        }
-        Ok(selected)
-    }
-
-    pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
-        if self.argument_projection_types.contains_key(&expression) { return; }
-        let span = arena.arena.expr(expression).span;
-        if matches!(ty, Type::Invalid) && self.invocation_return_is_rejected(span) {
-            self.stream_expr_origins.insert(span, StreamOrigins::opaque());
-            return;
-        }
-        let resolved = if ty.contains_inference() {
-            match self.type_constraints.resolve(ty) {
-                Ok(ty) => Some(ty),
-                Err(_) => {
-                    self.report_stream_origin_boundary(span);
-                    self.stream_expr_origins.insert(span, StreamOrigins::opaque());
-                    return;
-                }
-            }
-        } else { None };
-        let ty = resolved.as_ref().unwrap_or(ty);
-        let result = self.derive_checked_stream_origin(arena, expression, ty);
-        let origin = match result {
-            Ok(origin) => origin,
-            Err(_) => { self.report_stream_origin_boundary(span); StreamOrigins::opaque() }
-        };
-        if !self.collecting_effects && self.authoritative_effect_graph && origin.has_pending() && ty.may_hold_resource() {
-            self.error(span, "selected declaration has no settled Stream return provenance", crate::diagnostic::DiagnosticCode::CheckLocalInference);
-        }
-        self.stream_expr_origins.insert(span, origin);
-    }
-
-    fn derive_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
-        let span = arena.arena.expr(expression).span;
-        if !ty.may_hold_resource() || self.builtin_calls.get(&span) == Some(&super::CheckedBuiltinCall::Range) { return Ok(StreamOrigins::default()); }
-        let application_scope = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
-        if let Some(reference) = self.type_constraints.source_callable_application_reference(application_scope, span).map_err(|_| StreamOriginBoundaryError)? {
-            return Ok(StreamOrigins::application(reference));
-        }
-        if self.selected_function_value_references.contains(&span)
-            && let Some(target) = self.selected_function_calls.get(&span).copied()
-        {
-            let id = self.stream_origin_id(arena, target);
-            self.stream_target_definitions.insert(id, target);
-            return Ok(StreamOrigins::callable(id));
-        }
-        let origin = match arena.arena.expr(expression).kind {
-            ArenaExprKind::Ident(_) | ArenaExprKind::Item => self.lookup_value_binding_for_expr(arena, expression).binding().map(|binding| binding.stream_origins.clone()),
-            ArenaExprKind::List(elements) => {
-                let mut origin = StreamOrigins::default();
-                for element in arena.arena.list_elements(elements) {
-                    let value = self.stream_expr_origin(arena, element.value);
-                    origin.join(&if element.splice_span.is_some() { value } else { value.prefix(StreamProjection::Element)? });
-                }
-                Some(origin)
-            }
-            ArenaExprKind::Record(fields) => {
-                let mut origin = StreamOrigins::default();
-                for field in arena.arena.record_fields(fields) {
-                    use crate::syntax::arena::ArenaRecordFieldKind as Field;
-                    let value = match &field.kind {
-                        Field::Spread { expr, .. } => self.stream_expr_origin(arena, *expr),
-                        Field::Named { name, value, .. } => {
-                            let step = if matches!(ty.unvalidated(), Type::Map(_, _)) { StreamProjection::Element } else { StreamProjection::Field(*name) };
-                            self.stream_expr_origin(arena, *value).prefix(step)?
-                        }
-                        Field::Shorthand { name, span } => {
-                            let value = self.lookup_value_binding_at(*name, arena.arena.span(*span)).binding().map(|binding| binding.stream_origins.clone()).unwrap_or_else(StreamOrigins::opaque);
-                            let step = if matches!(ty.unvalidated(), Type::Map(_, _)) { StreamProjection::Element } else { StreamProjection::Field(*name) };
-                            value.prefix(step)?
-                        }
-                        Field::Computed { value, .. } => self.stream_expr_origin(arena, *value).prefix(StreamProjection::Element)?,
-                        Field::Path { path, value, .. } => {
-                            let mut value = self.stream_expr_origin(arena, *value);
-                            for name in arena.arena.names(*path).collect::<Vec<_>>().into_iter().rev() { value = value.prefix(StreamProjection::Field(name))?; }
-                            value
-                        }
-                    };
-                    origin.join(&value);
-                }
-                Some(origin)
-            }
-            ArenaExprKind::Try(value) => Some(self.stream_expr_origin(arena, value).project(&[StreamProjection::Success])?),
-            ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => Some(self.stream_expr_origin(arena, value)),
-            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => Some(self.stream_expr_origin(arena, base).project(&[StreamProjection::Field(name)])?),
-            ArenaExprKind::Index { base, .. } => Some(self.stream_expr_origin(arena, base).project(&[StreamProjection::Element])?),
-            ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } => Some(self.stream_block_origin(arena, block)),
-            ArenaExprKind::Capture(block) => Some(self.stream_block_origin(arena, block).prefix(StreamProjection::Success)?),
-            ArenaExprKind::If { branches, else_value } => {
-                let mut origin = self.stream_expr_origin(arena, else_value);
-                for branch in arena.arena.if_expr_branches(branches) { origin.join(&self.stream_expr_origin(arena, branch.value)); }
-                Some(origin)
-            }
-            ArenaExprKind::Match { arms, .. } => {
-                let mut origin = StreamOrigins::default();
-                for arm in arena.arena.match_expr_arms(arms) { origin.join(&self.stream_expr_origin(arena, arm.value)); }
-                Some(origin)
-            }
-            ArenaExprKind::Call { callee, args } => {
-                if self.result_constructors.get(&span) == Some(&CheckedResultConstructor::Ok) {
-                    let argument = arena.arena.call_args(args).first().and_then(|argument| match argument.kind {
-                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => Some(value),
-                        _ => None,
-                    });
-                    Some(argument.map(|value| self.stream_expr_origin(arena, value)).unwrap_or_default().prefix(StreamProjection::Success)?)
-                } else if self.result_constructors.get(&span) == Some(&CheckedResultConstructor::Err) {
-                    Some(StreamOrigins::default())
-                } else {
-                    let callee_origin = self.stream_expr_origin(arena, callee);
-                    let mut targets = callee_origin.targets().collect::<BTreeSet<_>>();
-                    if let Some(target) = self.selected_function_calls.get(&span).copied() {
-                        let id = self.stream_origin_id(arena, target);
-                        self.stream_target_definitions.insert(id, target);
-                        targets.clear();
-                        targets.insert(id);
-                    }
-                    if targets.is_empty() { None } else {
-                        let mut origin = if !self.selected_function_calls.contains_key(&span) && callee_origin.has_unknown_callable() { Self::opaque_stream_value(ty)? } else { StreamOrigins::default() };
-                        for target in targets {
-                            let same_namespace = target.namespace == self.current_namespace;
-                            let current_summary = same_namespace
-                                .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
-                                .flatten()
-                                .and_then(super::PendingFunctionSig::generalized)
-                                .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
-                            if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
-                            if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declarations.get(&target)) {
-                                let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
-                                let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
-                                let instances = call_instance.map(|(_, instance)| instance.applications.as_slice());
-                                let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(target));
-                                let deferred_call = self.provisional_function_calls.get(&span).filter(|(owner, callee)| Some(*owner) == self.stream_origin_owner && callee.effect_declaration() == target).map(|(owner, _)| (*owner, span));
-                                let returned = summary.returned.specialize_applications(target, instances, &self.type_constraints, pending, deferred_call)?;
-                                let returned = returned.substitute(&arguments)?;
-                                if let Some((callable, instance)) = call_instance {
-                                    let selected = self.selected_stream_application_origins(arena, target, &summary.returned, callable, instance, &arguments)?;
-                                    origin.join(&returned.expand_selected_applications(&selected)?);
-                                } else {
-                                    origin.join(&returned);
-                                }
-                            } else { origin.join(&StreamOrigins::pending(target)); }
-                        }
-                        Some(origin)
-                    }
-                }
-            }
-            _ => None,
-        };
-        let mut origin = origin.unwrap_or(Self::opaque_stream_value(ty)?);
-        if matches!(ty.unvalidated(), Type::Stream(_)) && self.latent_stream_error_spans.contains(&span) { origin.join(&StreamOrigins::error()); }
-        Ok(origin)
-    }
-
-    pub(super) fn record_checked_stream_tail(&mut self, arena: &ArenaProgram, statement: StmtId, ty: &Type) {
-        let statement = arena.arena.core_stmt_id(statement);
-        let node = arena.arena.stmt(statement);
-        let mut origin = StreamOrigins::default();
-        let mut result = ty.is_result();
-        match node.kind {
-            ArenaStmtKind::Expr(expression) => { origin = self.stream_expr_origin(arena, expression); }
-            ArenaStmtKind::TailBareIdent(name) => {
-                if let Some(binding) = self.lookup_value_binding_at(name, node.span).binding() {
-                    origin = binding.stream_origins.clone();
-                    result = binding.ty.is_result();
-                } else { origin = StreamOrigins::opaque(); }
-            }
-            ArenaStmtKind::If { branches, else_block } => {
-                for branch in arena.arena.if_branches(branches) { origin.join(&self.stream_block_origin(arena, branch.block)); }
-                if let Some(block) = else_block { origin.join(&self.stream_block_origin(arena, block)); }
-            }
-            ArenaStmtKind::Match { arms, .. } => {
-                for arm in arena.arena.match_arms(arms) { origin.join(&self.stream_block_origin(arena, arm.block)); }
-            }
-            _ => {}
-        }
-        if self.selected_function_value_references.contains(&node.span)
-            && let Some(target) = self.selected_function_calls.get(&node.span).copied()
-        {
-            let target_id = self.stream_origin_id(arena, target);
-            self.stream_target_definitions.insert(target_id, target);
-            origin = StreamOrigins::callable(target_id);
-        }
-        self.stream_stmt_origins.insert(node.span, origin);
-        if result { self.stream_stmt_results.insert(node.span); }
-        else { self.stream_stmt_results.remove(&node.span); }
-    }
-
-    pub(super) fn stream_mutable_state(&self) -> BTreeMap<super::BindingId, StreamOrigins> {
-        let mut state = BTreeMap::new();
-        for scope in self.scopes.iter().rev() {
-            for binding in scope.values().filter(|binding| binding.mutable && binding.ty.may_hold_resource()) {
-                if let Some(identity) = binding.id { state.entry(identity).or_insert_with(|| binding.stream_origins.clone()); }
-            }
-        }
-        state
-    }
-
-    pub(super) fn restore_stream_mutable_state(&mut self, state: &BTreeMap<super::BindingId, StreamOrigins>) {
-        for scope in &mut self.scopes {
-            for binding in scope.values_mut() {
-                if let Some(origin) = binding.id.and_then(|identity| state.get(&identity)) { binding.stream_origins = origin.clone(); }
-            }
-        }
-    }
-
-    pub(super) fn join_stream_mutable_states(&mut self, states: &[BTreeMap<super::BindingId, StreamOrigins>]) {
-        let mut joined = BTreeMap::<_, StreamOrigins>::new();
-        for state in states { for (&identity, origin) in state { joined.entry(identity).or_default().join(origin); } }
-        self.restore_stream_mutable_state(&joined);
-    }
-
-    pub(super) fn enter_stream_loop(&mut self, arena: &ArenaProgram, block: BlockId, kind: StreamLoopKind) {
-        let identity = StreamLoopId { owner: self.stream_origin_owner, namespace: self.current_namespace, block, body: arena.arena.span(arena.arena.block(block).span) };
-        let mut header = self.stream_mutable_state();
-        let enclosing_flow = self.boundary.stream_flow;
-        let body_flow = if enclosing_flow == StreamFlow::Live && self.stream_loop_body_may_enter(arena, kind) { StreamFlow::Live } else { StreamFlow::Dead };
-        let mut types = BTreeMap::new();
-        for scope in self.scopes.iter().rev() {
-            for binding in scope.values() {
-                if let Some(identity) = binding.id.filter(|identity| header.contains_key(identity)) {
-                    types.entry(identity).or_insert_with(|| binding.unrefined_ty.as_ref().unwrap_or(&binding.ty).clone());
-                }
-            }
-        }
-        if body_flow == StreamFlow::Live && let Some(previous) = self.stream_origin_inputs.loops.get(&identity) {
-            for (&binding, origin) in previous {
-                if let Some(current) = header.get_mut(&binding) && current.join(origin) { self.provisional_stream_origins_read.set(true); }
-            }
-        }
-        for (&binding, origin) in &mut header {
-            match ProjectionDomain::from_type(&types[&binding]).and_then(|domain| origin.validate_storage(&domain)) {
-                Ok(checked) => *origin = checked,
-                Err(_) => { self.report_stream_origin_boundary(identity.body); *origin = StreamOrigins::opaque(); }
-            }
-        }
-        self.restore_stream_mutable_state(&header);
-        self.boundary.stream_loops.push(StreamLoopFrame { identity, kind, enclosing_flow, body_flow, types, header, breaks: BTreeMap::new() });
-        self.boundary.stream_flow = body_flow;
-    }
-
-    pub(super) fn record_stream_loop_control(&mut self, transfer: StreamLoopTransfer) {
-        if self.boundary.stream_flow == StreamFlow::Dead { return; }
-        let state = self.stream_mutable_state();
-        let Some(frame) = self.boundary.stream_loops.last_mut() else { return };
-        let destination = if matches!(transfer, StreamLoopTransfer::Break) { &mut frame.breaks } else { &mut frame.header };
-        for (identity, origin) in state {
-            if frame.types.contains_key(&identity) {
-                let changed = destination.entry(identity).or_default().join(&origin);
-                if changed && matches!(transfer, StreamLoopTransfer::Backedge) { self.provisional_stream_origins_read.set(true); }
-            }
-        }
-    }
-
-    pub(super) fn record_stream_while_condition(&mut self, arena: &ArenaProgram, condition: ExprId) {
-        if !self.stream_expr_may_complete(arena, condition) { self.boundary.stream_flow = StreamFlow::Dead; return; }
-        let state = self.stream_mutable_state();
-        let false_edge = self.stream_condition_may_be_false(arena, condition);
-        let Some(frame) = self.boundary.stream_loops.last_mut() else { return };
-        if frame.enclosing_flow == StreamFlow::Live && false_edge {
-            for (identity, origin) in state {
-                if frame.types.contains_key(&identity) { frame.breaks.entry(identity).or_default().join(&origin); }
-            }
-        }
-    }
-
-    pub(super) fn leave_stream_loop(&mut self, arena: &ArenaProgram, block: BlockId) {
-        if self.boundary.stream_loops.last().is_some_and(|frame| frame.body_flow == StreamFlow::Live) && self.stream_block_may_complete(arena, block) {
-            self.record_stream_loop_control(StreamLoopTransfer::Backedge);
-        }
-        let Some(mut frame) = self.boundary.stream_loops.pop() else { return };
-        for (&binding, origin) in &mut frame.header {
-            match ProjectionDomain::from_type(&frame.types[&binding]).and_then(|domain| origin.validate_storage(&domain)) {
-                Ok(checked) => *origin = checked,
-                Err(_) => { self.report_stream_origin_boundary(frame.identity.body); *origin = StreamOrigins::opaque(); }
-            }
-        }
-        self.stream_origin_outputs.loops.insert(frame.identity, frame.header.clone());
-        let mut exits = vec![frame.breaks];
-        if !matches!(frame.kind, StreamLoopKind::Loop) { exits.push(frame.header); }
-        self.join_stream_mutable_states(&exits);
-        self.boundary.stream_flow = frame.enclosing_flow;
-    }
-
-    pub(super) fn assign_stream_origin(&mut self, arena: &ArenaProgram, target: crate::syntax::arena::AssignTargetId, selected: &super::Binding, value: ArenaExprOrRun, span: Span) {
-        use crate::syntax::arena::ArenaAssignTargetKind as Target;
-        let mut current = target;
-        let mut path = Vec::new();
-        let name = loop {
-            if path.len() > crate::sema::constraints::MAX_TYPE_DEPTH { self.report_stream_origin_boundary(span); return; }
-            match arena.arena.assign_target(current).kind {
-                Target::Name(name) => break name,
-                Target::Field { base, name } => { path.push(StreamProjection::Field(name)); current = base; }
-                Target::Index { base, .. } => { path.push(StreamProjection::Element); current = base; }
-                Target::Env(_) => return,
-            }
-        };
-        path.reverse();
-        let value = match value { ArenaExprOrRun::Expr(value) => self.stream_expr_origin(arena, value), ArenaExprOrRun::Run(_) => StreamOrigins::default() };
-        let root = selected.unrefined_ty.as_ref().unwrap_or(&selected.ty);
-        let origin = match selected.stream_origins.replace_projection(root, &path, &value) {
-            Ok(origin) => origin,
-            Err(_) => { self.report_stream_origin_boundary(span); return; }
-        };
-        if let Some(scope) = self.binding_scope(name, selected)
-            && let Some(binding) = self.scopes[scope].get_mut(&name)
-        { binding.stream_origins = origin; }
-    }
-
-    pub(super) fn record_stream_yield_origin(&mut self, origin: StreamOrigins, span: Span) {
-        let Some(owner) = self.stream_origin_owner else { return };
-        match origin.prefix(StreamProjection::Element) {
-            Ok(origin) => { self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin); }
-            Err(_) => self.report_stream_origin_boundary(span),
-        }
-    }
-
-    pub(super) fn record_stream_delegated_origin(&mut self, arena: &ArenaProgram, expression: ExprId) {
-        let Some(owner) = self.stream_origin_owner else { return };
-        let origin = self.stream_expr_origin(arena, expression);
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
-    }
-
-    pub(super) fn record_stream_return(&mut self, arena: &ArenaProgram, value: Option<ArenaExprOrRun>, actual: &Type, expected: &Type, span: Span) {
-        let origin = match value { Some(ArenaExprOrRun::Expr(value)) => self.stream_expr_origin(arena, value), _ => StreamOrigins::default() };
-        self.record_stream_return_origin(origin, actual, expected, span);
-    }
-
-    pub(super) fn record_stream_return_origin(&mut self, mut origin: StreamOrigins, actual: &Type, expected: &Type, span: Span) {
-        let Some(owner) = self.stream_origin_owner else { return };
-        let expected = self.boundary.proc_completion.as_ref()
-            .filter(|completion| completion.owner == owner)
-            .map_or(expected, |completion| &completion.return_ty);
-        if expected.is_result() && !actual.is_result() {
-            match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(span); return; } }
-        }
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
-    }
-
-    pub(super) fn finish_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
-        let owner = self.effect_declaration_id(arena, definition.body);
-        let mut origin = self.stream_block_origin(arena, definition.body);
-        let tail = arena.arena.stmt_ids(arena.arena.block(definition.body).statements).last().map(|statement| arena.arena.stmt(arena.arena.core_stmt_id(statement)).span);
-        if expected.is_result() && tail.is_some_and(|span| !self.stream_stmt_results.contains(&span)) {
-            match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(owner.body); return; } }
-        }
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
-        self.finish_recorded_stream_return_summary(arena, definition, expected);
-    }
-
-    pub(super) fn finish_stream_producer_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
-        self.finish_recorded_stream_return_summary(arena, definition, expected);
-    }
-
-    pub(super) fn finish_recorded_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
-        let owner = self.effect_declaration_id(arena, definition.body);
-        let shape = ProjectionDomain::from_type(expected);
-        let parameters = arena.arena.params(definition.params).iter().map(|param| {
-            let span = arena.arena.span(param.span);
-            let ty = self.parameter_types.get(&span).cloned().unwrap_or(Type::Unknown);
-            let ty = self.type_constraints.resolve(&ty).unwrap_or(Type::Unknown);
-            ProjectionDomain::from_type(&ty)
-        }).collect::<Result<Vec<_>, _>>();
-        let (Ok(output), Ok(parameters)) = (shape, parameters) else { self.report_stream_origin_boundary(owner.body); return };
-        let summary = self.stream_origin_outputs.declarations.entry(owner).or_default();
-        summary.output = output;
-        summary.parameters = parameters;
-        match summary.returned.validate(owner, &summary.output, &summary.parameters) {
-            Ok(origins) => summary.returned = origins,
-            Err(_) => self.report_stream_origin_boundary(owner.body),
-        }
     }
 }

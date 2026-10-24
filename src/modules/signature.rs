@@ -230,10 +230,10 @@ impl ApiSpec {
         registry::api_spec().registered_method_id(receiver, name, overload)
     }
 
-    pub(crate) fn registered_method<'a>(
-        &'a self,
+    pub(crate) fn registered_method(
+        &self,
         id: registry::RegisteredMethodId,
-    ) -> Option<(MethodReceiver, &'static str, &'a MethodSig)> {
+    ) -> Option<(MethodReceiver, &'static str, &MethodSig)> {
         let (receiver, method, overload) = *self.registered_method_locations.get(id.raw() as usize)?;
         let receiver = self.methods.get(receiver)?;
         let method = receiver.methods.get(method)?;

@@ -1201,7 +1201,7 @@ impl PendingFunctionSig {
             "a provisional callable shape generalizes once"
         );
         self.constructor_instances.clear();
-        self.callable = PendingCallable::Generalized(GeneralizedCallable {
+        self.callable = PendingCallable::Generalized(Box::new(GeneralizedCallable {
             callable,
             generalization_scope,
             body_types,
@@ -1210,7 +1210,7 @@ impl PendingFunctionSig {
             tail_types,
             registered_calls,
             read_bindings,
-        });
+        }));
     }
 }
 
@@ -1229,7 +1229,7 @@ struct GeneralizedCallable {
 #[derive(Clone, Debug)]
 enum PendingCallable {
     Provisional(PendingCallableShape),
-    Generalized(GeneralizedCallable),
+    Generalized(Box<GeneralizedCallable>),
     Rejected,
 }
 

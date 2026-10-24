@@ -902,10 +902,8 @@ pub(super) fn proc_may_return_value(
     program: &ArenaProgram,
     def: &crate::syntax::arena::ArenaFunctionDef,
 ) -> bool {
-    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(program.arena.core_stmt_id(tail)).kind {
-        ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. } => true,
-        _ => false,
-    });
+    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| matches!(program.arena.stmt(program.arena.core_stmt_id(tail)).kind,
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. }));
     let body = program.arena.span(program.arena.block(def.body).span);
     tail_value
         || program.arena.source_rows().stmt_ids(body.source_id).any(|id| {

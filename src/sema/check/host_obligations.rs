@@ -897,7 +897,7 @@ mod tests {
             let call = checked.api_calls.iter().find(|(span, _)| source[span.range()].starts_with("values.push(")).expect("the selected List push publishes its checked binding").1;
             assert_eq!(call.receiver, Some(MethodReceiver::List));
             assert_eq!(call.argument_slots, [0]);
-            assert_eq!(call.params, [constructor.1.ty.clone()]);
+            assert_eq!(call.params.as_slice(), std::slice::from_ref(&constructor.1.ty));
         }
         for source in [
             "type Box[T] = {value: T}\nlet values: List[Box[Int]] = []\nlet _ = values.push(Box(value: false))\n",
@@ -923,7 +923,7 @@ mod tests {
         assert_eq!(target.context.instances[0].arguments, [Type::Str]);
         assert_eq!(parsed.arena.arena.type_def(target.context.instances[0].definition).name.as_str().as_str(), "Box");
         let call = checked.api_calls.iter().find(|(span, _)| source[span.range()].starts_with("values.push(")).expect("the enclosing method retains its actual selected parameter").1;
-        assert_eq!(call.params, [target.ty.clone()]);
+        assert_eq!(call.params.as_slice(), std::slice::from_ref(&target.ty));
     }
 
     #[test]

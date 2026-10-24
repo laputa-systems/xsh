@@ -4952,10 +4952,10 @@ impl Checker {
         if !inferring {
             self.inferred_returns = outer_inference;
         }
-        if !inferring || pure {
-            if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
-                signature.mark_body_checked();
-            }
+        if (!inferring || pure)
+            && let Some(signature) = self.declaration_inference.pending_mut(declaration)
+        {
+            signature.mark_body_checked();
         }
         self.finish_local_body_constraints(arena, body_span, local_constraints);
         if !inferring || pure {
@@ -5897,8 +5897,8 @@ impl Checker {
         if value.is_none() && expected.is_result_unit() {
             return;
         }
-        let actual = self.check_return_value_arena(arena, source, value, &expected, span);
-        self.record_stream_return(arena, value, &actual, &expected, span);
+        let actual = self.check_return_value_arena(arena, source, value, expected, span);
+        self.record_stream_return(arena, value, &actual, expected, span);
         if !self.boundary.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(
                 span,
@@ -5919,11 +5919,13 @@ impl Checker {
                 Some(ArenaExprOrRun::Expr(expression)) => self.result_constructors.get(&arena.arena.expr(expression).span) == Some(&super::CheckedResultConstructor::Err),
                 _ => false,
             };
-            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin, schema, failure_only_result });
+            if let Some(returns) = &mut self.inferred_returns {
+                returns.push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin, schema, failure_only_result });
+            }
         }
-        if !tail_type_matches_expected(&expected, &actual) {
+        if !tail_type_matches_expected(expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
-            self.expect_type(&expected, &actual, value_span);
+            self.expect_type(expected, &actual, value_span);
         }
     }
 
@@ -6025,7 +6027,7 @@ impl Checker {
         let node = arena.arena.expr(expression);
         let ArenaExprKind::Call { callee, .. } = node.kind else { return None; };
         if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err") { return None; }
-        if self.inferred_returns.is_none() { return None; }
+        self.inferred_returns.as_ref()?;
         let owner = self.boundary.proc_completion.as_ref()?.owner;
         if self.boundary.effect_owner != Some(owner) { return None; }
         let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))?.solver_level();

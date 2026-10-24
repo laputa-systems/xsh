@@ -95,11 +95,11 @@ impl TypeConstraints {
 
     pub(crate) fn finish_constructor_arguments(&mut self, checkpoint: ConstructorArgumentCheckpoint) -> Result<(), SchemeOperationError> {
         self.end_constructor_arguments(checkpoint)?;
-        if checkpoint.owner == CallableApplicationScope::Invocation && self.constructor_defaults.arguments.is_empty() {
-            if let Err(error) = self.complete_constructor_error_defaults_since(checkpoint.owner, checkpoint.first, &BTreeSet::new(), &[]) {
-                self.reject_constructor_error_defaults_since(checkpoint);
-                return Err(error);
-            }
+        if checkpoint.owner == CallableApplicationScope::Invocation && self.constructor_defaults.arguments.is_empty()
+            && let Err(error) = self.complete_constructor_error_defaults_since(checkpoint.owner, checkpoint.first, &BTreeSet::new(), &[])
+        {
+            self.reject_constructor_error_defaults_since(checkpoint);
+            return Err(error);
         }
         Ok(())
     }

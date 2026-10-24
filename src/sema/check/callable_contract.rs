@@ -699,9 +699,8 @@ impl BoundEquivalence<'_> {
         let pair = (left, right);
         if self.active_callables.contains(&pair) || self.active_callables.len() >= MAX_TYPE_DEPTH { return false; }
         let key = (left, right, self.active_callables.len());
-        if let Some(memo) = &self.completed_callables {
-            if let Some(&completed) = memo.borrow().completed.get(&key) { return completed; }
-        }
+        if let Some(memo) = &self.completed_callables
+            && let Some(&completed) = memo.borrow().completed.get(&key) { return completed; }
         let (Some(left_table), Some(right_table)) = (self.left_callables, self.right_callables) else { return false; };
         let (Ok(left), Ok(right)) = (left_table.relationship(left), right_table.relationship(right)) else { return false; };
         if left.targets().len() != right.targets().len() { return false; }

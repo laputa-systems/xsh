@@ -227,10 +227,10 @@ impl TypeConstraints {
                 }
             }
         }
-        if let WrapperRequirementKind::Field { effects, .. } = &operation.kind {
-            if let EffectContract::Known(expression) = self.resolve_effect(effects)? {
-                for (id, _) in expression.variables() { dependencies.insert(WrapperDependency::Effect(*id)); }
-            }
+        if let WrapperRequirementKind::Field { effects, .. } = &operation.kind
+            && let EffectContract::Known(expression) = self.resolve_effect(effects)?
+        {
+            for (id, _) in expression.variables() { dependencies.insert(WrapperDependency::Effect(*id)); }
         }
         Ok(dependencies)
     }
@@ -311,10 +311,10 @@ impl TypeConstraints {
                 | WrapperRequirementKind::IndexValidation { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } => Some(*group),
                 _ => None,
             };
-            if let Some(group) = group {
-                if source_group.replace(group).is_some_and(|previous| previous != group) {
-                    return Err(ConstraintResolutionError::ForeignVariable);
-                }
+            if let Some(group) = group
+                && source_group.replace(group).is_some_and(|previous| previous != group)
+            {
+                return Err(ConstraintResolutionError::ForeignVariable);
             }
         }
         source_group.map(|group| self.group_wrapper_id(group, owner)).transpose()
@@ -772,9 +772,8 @@ impl TypeConstraints {
                         WrapperSelection::ProcCompletion
                     }
                 };
-                if let Some(canonical) = crate::sema::wrapper_operation::closed_wrapper_selection(&resolved).map_err(|error| invalid(format!("wrapper relationship is invalid: {error:?}")))? {
-                    if canonical != selected { return Err(invalid("wrapper selection disagrees with its canonical relationship".into())); }
-                }
+                if let Some(canonical) = crate::sema::wrapper_operation::closed_wrapper_selection(&resolved).map_err(|error| invalid(format!("wrapper relationship is invalid: {error:?}")))?
+                    && canonical != selected { return Err(invalid("wrapper selection disagrees with its canonical relationship".into())); }
                 let previous = this.wrappers.entries.get_mut(&id).unwrap().selection.replace(selected);
                 if previous != Some(selected) { changes.push(ConstraintChange::Wrapper(WrapperChange::Selection(id, previous))); }
             }
@@ -790,7 +789,7 @@ impl TypeConstraints {
             let crate::sema::wrapper_operation::WrapperOperationRef::Source(operation_id) = operation else {
                 return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
             };
-            let ordinal = generalization.operations.get(operation_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
+            let ordinal = generalization.operations.get(operation_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
             *operation = crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal);
         }
         if let WrapperRequirementKind::Capture { contributions, .. } = &mut generalized.kind {
@@ -804,7 +803,7 @@ impl TypeConstraints {
                             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
                         };
                         if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
-                            let ordinal = generalization.operations.get(operation_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
+                            let ordinal = generalization.operations.get(operation_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
                             retained.push(crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)));
                         }
                     }
@@ -824,7 +823,7 @@ impl TypeConstraints {
                             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
                         };
                         if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
-                            let ordinal = generalization.wrappers.get(requirement_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))?;
+                            let ordinal = generalization.wrappers.get(requirement_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))?;
                             retained.push(crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)));
                         }
                     }
@@ -846,7 +845,7 @@ impl TypeConstraints {
                             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
                         };
                         if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
-                            let ordinal = generalization.operations.get(operation_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
+                            let ordinal = generalization.operations.get(operation_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
                             retained.push(crate::sema::wrapper_operation::WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)));
                         }
                     }
@@ -860,7 +859,7 @@ impl TypeConstraints {
             WrapperGroupRef::Source(group) => {
                 let id = self.group_wrapper_id(group, owner)?;
                 generalization.wrappers.get(&id).copied().map(WrapperGroupRef::Ordinal)
-                    .ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))
+                    .ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))
             }
             WrapperGroupRef::Ordinal(_) => Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)),
         })?;

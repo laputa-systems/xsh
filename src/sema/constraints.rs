@@ -303,7 +303,7 @@ impl Default for ConstraintCounters {
             worklist_wakeups: AtomicU64::new(0),
             rollbacks: AtomicU64::new(0),
             rollback_changes: AtomicU64::new(0),
-            extended: cfg!(test).then(|| Box::default()),
+            extended: cfg!(test).then(Box::default),
         }
     }
 }
@@ -4863,6 +4863,13 @@ mod reference_tests;
 #[path = "constraints/scaling_tests.rs"]
 mod scaling_tests;
 
+fn materialization_operation_error(error: super::value_materialization::MaterializationMapError<SchemeOperationError>) -> SchemeOperationError {
+    match error {
+        super::value_materialization::MaterializationMapError::TypeDepth => SchemeOperationError::Resolution(ConstraintResolutionError::TypeDepth),
+        super::value_materialization::MaterializationMapError::Mapping(error) => error,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7299,12 +7306,5 @@ mod tests {
         assert_eq!(metrics.candidate_tests, 1);
         assert_eq!(metrics.rollbacks, 2);
         assert!(metrics.rollback_changes > 0);
-    }
-}
-
-fn materialization_operation_error(error: super::value_materialization::MaterializationMapError<SchemeOperationError>) -> SchemeOperationError {
-    match error {
-        super::value_materialization::MaterializationMapError::TypeDepth => SchemeOperationError::Resolution(ConstraintResolutionError::TypeDepth),
-        super::value_materialization::MaterializationMapError::Mapping(error) => error,
     }
 }

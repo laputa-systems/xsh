@@ -856,7 +856,7 @@ pub(super) enum DeferredEffectKind {
     Invocation {
         effects: super::InvocationEffects,
         validation: InvocationEffectValidation,
-        instance: Option<super::PendingCallInstantiation>,
+        instance: Option<Box<super::PendingCallInstantiation>>,
         flow: InvocationFlow,
         unknown_chain: Vec<String>,
         name: String,
@@ -1459,7 +1459,7 @@ impl Checker {
                     .expect("a recursive effect check retains its selected call");
                 assert_eq!(*owner, callee.effect_declaration());
                 assert!(instance.is_none());
-                *instance = Some(evidence.invocation().expect("a recursive call retains invocation evidence").clone());
+                *instance = Some(Box::new(evidence.invocation().expect("a recursive call retains invocation evidence").clone()));
             }
         }
     }
@@ -1663,25 +1663,25 @@ impl Checker {
 
     pub(super) fn check_wrapper_effect_contract(&mut self, effects: &EffectContract<EffectVariableId>, span: Span) {
         let captures = self.boundary.retry_attempt_depth > 0 || self.boundary.in_pure;
-        if self.record_effects || self.collecting_effects {
-            if let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects, captures, "guarded field") {
-                self.error(span, &format!("guarded field effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
-            }
+        if (self.record_effects || self.collecting_effects)
+            && let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects, captures, "guarded field")
+        {
+            self.error(span, &format!("guarded field effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
         let outward = if captures { effects.clone().capture_error() } else { effects.clone() };
-        if self.boundary.in_pure {
-            if let Err(error) = self.type_constraints.constrain_effect(crate::sema::effects::EffectPredicate::Covered(outward.clone(), EffectContract::finite(EffectSet::default()))) {
-                self.error(span, &format!("guarded field exceeds its pure effect contract: {error:?}"), DiagnosticCode::CheckEffectViolation);
-            }
+        if self.boundary.in_pure
+            && let Err(error) = self.type_constraints.constrain_effect(crate::sema::effects::EffectPredicate::Covered(outward.clone(), EffectContract::finite(EffectSet::default())))
+        {
+            self.error(span, &format!("guarded field exceeds its pure effect contract: {error:?}"), DiagnosticCode::CheckEffectViolation);
         }
         self.constrain_callable_effects(&crate::sema::types::CallableEffects::from_contract(outward), "guarded field", span);
     }
 
     pub(super) fn check_callable_invocation_contract(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
-        if self.record_effects || self.collecting_effects {
-            if let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name) {
-                self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
-            }
+        if (self.record_effects || self.collecting_effects)
+            && let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name)
+        {
+            self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
         let diagnostic_count = self.diagnostics.len();
         self.constrain_callable_effects(effects, name, span);
@@ -1698,10 +1698,9 @@ impl Checker {
         if self.record_effects || self.collecting_effects {
             if let Some(target) = contract.effect_declaration.filter(|target| self.effect_graph.contains(*target)) {
                 self.effect_graph.call(self.boundary.effect_owner, target, self.boundary.retry_attempt_depth > 0, Some(span));
-            } else if let super::InvocationEffects::Checked(effects) = &contract.effects {
-                if let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name) {
-                    self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
-                }
+            } else if let super::InvocationEffects::Checked(effects) = &contract.effects
+                && let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name) {
+                self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
             }
         }
         let diagnostic_count = self.diagnostics.len();
@@ -1712,7 +1711,7 @@ impl Checker {
             } else { InvocationEffectValidation::Diagnosed };
             let pending = matches!(contract.effects, super::InvocationEffects::Pending(_));
             let index = self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: contract.effects.clone(), validation, instance: contract.instantiation.clone(), flow: if pending { InvocationFlow::AwaitingReturn } else { InvocationFlow::EffectsOnly },
+                effects: contract.effects.clone(), validation, instance: contract.instantiation.clone().map(Box::new), flow: if pending { InvocationFlow::AwaitingReturn } else { InvocationFlow::EffectsOnly },
                 unknown_chain: contract.effect_declaration.and_then(|owner| self.effect_summaries.get(&owner)).map_or_else(Vec::new, |summary| summary.unknown_chain.clone()),
                 name: name.to_owned(),
             });
@@ -1805,7 +1804,7 @@ impl Checker {
                             .map_or(unknown_chain, |summary| summary.unknown_chain.clone()),
                         super::InvocationEffects::Checked(_) => unknown_chain,
                     };
-                    match self.resolve_invocation_effects(effects, instance.as_ref()) {
+                    match self.resolve_invocation_effects(effects, instance.as_deref()) {
                         Ok(effects) => {
                             match flow {
                                 InvocationFlow::EffectsOnly | InvocationFlow::Rejected => {},
@@ -1813,7 +1812,7 @@ impl Checker {
                                 InvocationFlow::Return(return_ty) => match self.invocation_may_error(&effects) {
                                     Ok(false) => {},
                                     Ok(true) => match self.type_constraints.resolve(&return_ty) {
-                                        Ok(return_ty) => match self.invocation_return_has_checked_result_envelope(instance.as_ref(), &return_ty) {
+                                        Ok(return_ty) => match self.invocation_return_has_checked_result_envelope(instance.as_deref(), &return_ty) {
                                             Err(_) => self.error(check.span, "invocation return flow escaped its inference scope", DiagnosticCode::CheckLocalInference),
                                             Ok(true) => {},
                                             Ok(false) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),

@@ -286,12 +286,11 @@ struct TransferCause {
 impl TransferCause {
     fn preserved_by(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>) -> bool {
         if !self.operand.same_role(&candidate.operand) { return false; }
-        if let (TransferOperand::Match(old), TransferOperand::Match(new)) = (&self.operand, &candidate.operand) {
-            if self.runtime_flag != old.iter().any(|cause| cause.runtime_flag)
+        if let (TransferOperand::Match(old), TransferOperand::Match(new)) = (&self.operand, &candidate.operand)
+            && (self.runtime_flag != old.iter().any(|cause| cause.runtime_flag)
                 || candidate.runtime_flag != new.iter().any(|cause| cause.runtime_flag)
-                || !old.iter().zip(new).all(|(old, new)| old.preserved_by(new, instance))
-            { return false; }
-        }
+                || !old.iter().zip(new).all(|(old, new)| old.preserved_by(new, instance)))
+        { return false; }
         self.runtime_flag == candidate.runtime_flag
             || !self.runtime_flag && candidate.runtime_flag && instance.is_some_and(|instance|
                 self.operand.scalar_instance(&candidate.operand, instance))
@@ -550,11 +549,10 @@ impl PendingBodyContracts {
         for module in &program.modules {
             let source = program.module_statements(module).next().map(|statement| program.arena.stmt(statement).span.source_id)
                 .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id));
-            if let Some(source) = source {
-                if capture.module_sources.insert(source, Arc::from(module.key.as_str())).is_some() {
-                    return Err(BodyContractError::UnmappedFact(program.module_doc_for(module.statements)
-                        .unwrap_or_else(|| program.arena.stmt(program.module_statements(module).next().unwrap()).span)));
-                }
+            if let Some(source) = source
+                && capture.module_sources.insert(source, Arc::from(module.key.as_str())).is_some() {
+                return Err(BodyContractError::UnmappedFact(program.module_doc_for(module.statements)
+                    .unwrap_or_else(|| program.arena.stmt(program.module_statements(module).next().unwrap()).span)));
             }
         }
         for declaration in checked.checked_declarations.functions.values().filter(|declaration| !declaration.internal) {
@@ -705,37 +703,36 @@ impl Capture<'_> {
             let mut pending = vec![(ArenaChild::Stmt(statement), key, vec![PathStep::Child(entry_index)])];
             if function_definition(kind).is_none() { entry_index += 1; }
             while let Some((node, mut owner, mut path)) = pending.pop() {
-                if let ArenaChild::Stmt(statement) = node {
-                    if let Some(definition) = function_definition(self.program.arena.stmt(statement).kind) {
-                        let declaration = self.checked.checked_declarations.functions.get(&definition)
-                            .filter(|declaration| declaration.namespace == namespace && !declaration.internal)
-                            .ok_or(BodyContractError::UnmappedFact(self.program.arena.stmt(statement).span))?;
-                        owner = (self.source_name(declaration.body.source_id)?, BodyContractOwner::Declaration(declaration.name));
-                        if self.bodies.contains_key(&owner) { return Err(BodyContractError::DuplicateOwner(declaration.body)); }
-                        self.ensure_owner(declaration.body, owner.1)?;
-                        let identity = EffectDeclarationId { namespace: declaration.namespace, body: declaration.body };
-                        let fact = self.checked.function_effect_facts.get(&identity);
-                        if declaration.kind != CheckedFunctionKind::Pure && fact.is_none() {
-                            return Err(BodyContractError::MissingEffectFact(declaration.body));
-                        }
-                        if fact.is_some() { self.seen_effects.insert(identity); }
-                        if fact.is_some_and(|fact| fact.scope.owner().is_some_and(|owner| owner != identity)) {
-                            return Err(BodyContractError::UnmappedFact(declaration.body));
-                        }
-                        let body = self.bodies.get_mut(&owner).unwrap();
-                        body.effects = fact.cloned();
-                        body.effect_owner = declaration.scheme.clone();
-                        let definition_span = self.program.arena.stmt(statement).span;
-                        for declaration_span in [definition_span, declaration.body] {
-                            for ordinal in 0..self.program.arena.params(self.program.arena.function_def(definition).params).len() {
-                                self.sites.entry(BodyContractSite::Parameter { declaration: declaration_span, ordinal }).or_default()
-                                    .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Parameter(ordinal))));
-                            }
-                            self.sites.entry(BodyContractSite::Return { declaration: declaration_span }).or_default()
-                                .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Return)));
-                        }
-                        path.clear();
+                if let ArenaChild::Stmt(statement) = node
+                    && let Some(definition) = function_definition(self.program.arena.stmt(statement).kind) {
+                    let declaration = self.checked.checked_declarations.functions.get(&definition)
+                        .filter(|declaration| declaration.namespace == namespace && !declaration.internal)
+                        .ok_or(BodyContractError::UnmappedFact(self.program.arena.stmt(statement).span))?;
+                    owner = (self.source_name(declaration.body.source_id)?, BodyContractOwner::Declaration(declaration.name));
+                    if self.bodies.contains_key(&owner) { return Err(BodyContractError::DuplicateOwner(declaration.body)); }
+                    self.ensure_owner(declaration.body, owner.1)?;
+                    let identity = EffectDeclarationId { namespace: declaration.namespace, body: declaration.body };
+                    let fact = self.checked.function_effect_facts.get(&identity);
+                    if declaration.kind != CheckedFunctionKind::Pure && fact.is_none() {
+                        return Err(BodyContractError::MissingEffectFact(declaration.body));
                     }
+                    if fact.is_some() { self.seen_effects.insert(identity); }
+                    if fact.is_some_and(|fact| fact.scope.owner().is_some_and(|owner| owner != identity)) {
+                        return Err(BodyContractError::UnmappedFact(declaration.body));
+                    }
+                    let body = self.bodies.get_mut(&owner).unwrap();
+                    body.effects = fact.cloned();
+                    body.effect_owner = declaration.scheme.clone();
+                    let definition_span = self.program.arena.stmt(statement).span;
+                    for declaration_span in [definition_span, declaration.body] {
+                        for ordinal in 0..self.program.arena.params(self.program.arena.function_def(definition).params).len() {
+                            self.sites.entry(BodyContractSite::Parameter { declaration: declaration_span, ordinal }).or_default()
+                                .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Parameter(ordinal))));
+                        }
+                        self.sites.entry(BodyContractSite::Return { declaration: declaration_span }).or_default()
+                            .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Return)));
+                    }
+                    path.clear();
                 }
                 self.node(node, &owner, &path, namespace)?;
                 let children = children(self.program, node);
@@ -1118,14 +1115,12 @@ impl Capture<'_> {
         }
         for body in self.bodies.values() {
             for selection in body.selections.values() {
-                if let Some(projection) = &selection.projection {
-                    if !body.expr_paths.contains_key(&projection.receiver) || !body.expr_paths.contains_key(&projection.key) {
-                        return Err(BodyContractError::UnmappedFact(self.program.arena.expr(projection.receiver).span));
-                    }
+                if let Some(projection) = &selection.projection
+                    && (!body.expr_paths.contains_key(&projection.receiver) || !body.expr_paths.contains_key(&projection.key)) {
+                    return Err(BodyContractError::UnmappedFact(self.program.arena.expr(projection.receiver).span));
                 }
-                if let Some(span) = selection.collect_target {
-                    if !body.span_paths.contains_key(&span) { return Err(BodyContractError::UnmappedFact(span)); }
-                }
+                if let Some(span) = selection.collect_target
+                    && !body.span_paths.contains_key(&span) { return Err(BodyContractError::UnmappedFact(span)); }
             }
         }
         Ok(self.bodies.into_values().collect())

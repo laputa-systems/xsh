@@ -20,7 +20,7 @@ impl TypeConstraints {
         self.apply_journaled(|constraints, changes| constraints.require_conversion_inner(ty, conversion, origin, changes))
     }
 
-    pub(super) fn require_conversion_inner(&mut self, ty: &Type, conversion: ValueConversion, origin: Span, changes: &mut Vec<super::ConstraintChange>) -> Result<(), ConversionConstraintError> {
+    pub(super) fn require_conversion_inner(&mut self, ty: &Type, conversion: ValueConversion, _origin: Span, changes: &mut Vec<super::ConstraintChange>) -> Result<(), ConversionConstraintError> {
         match self.resolve_with_changes(ty, 0, changes)? {
             Type::Inference(id) => {
                 let root = self.representative(id, Some(changes))?;
@@ -35,13 +35,13 @@ impl TypeConstraints {
                 variable.conversions = required;
                 Ok(())
             }
-            Type::List(item) if matches!(conversion, ValueConversion::ArgvOrList | ValueConversion::ArgvList) => self.require_conversion_inner(&item, ValueConversion::Argv, origin, changes),
+            Type::List(item) if matches!(conversion, ValueConversion::ArgvOrList | ValueConversion::ArgvList) => self.require_conversion_inner(&item, ValueConversion::Argv, _origin, changes),
             Type::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList | ValueConversion::ProcessWord) => {
                 let member_conversion = if conversion == ValueConversion::ProcessWord { conversion } else { ValueConversion::Argv };
-                for member in members { self.require_conversion_inner(&member, member_conversion, origin, changes)?; }
+                for member in members { self.require_conversion_inner(&member, member_conversion, _origin, changes)?; }
                 Ok(())
             }
-            Type::Validated(value) => self.require_conversion_inner(value.base(), conversion, origin, changes),
+            Type::Validated(value) => self.require_conversion_inner(value.base(), conversion, _origin, changes),
             actual if conversion.accepts(&actual) => Ok(()),
             actual => Err(ConversionConstraintError::Invalid { conversion, actual }),
         }

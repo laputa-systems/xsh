@@ -138,9 +138,8 @@ impl TypeConstraints {
                 if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
                 wrappers.insert(id);
                 supported.extend(self.unresolved_input_variables(&outputs)?);
-                if let WrapperRequirementKind::Field { effects, .. } = &entry.requirement.kind {
-                    if let EffectContract::Known(expression) = self.resolve_effect(effects)? { supported.effects.extend(expression.variables().map(|(id, _)| *id)); }
-                }
+                if let WrapperRequirementKind::Field { effects, .. } = &entry.requirement.kind
+                    && let EffectContract::Known(expression) = self.resolve_effect(effects)? { supported.effects.extend(expression.variables().map(|(id, _)| *id)); }
                 changed = true;
             }
             for (&id, entry) in &self.applications.entries {

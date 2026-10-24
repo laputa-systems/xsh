@@ -1395,8 +1395,7 @@ impl Checker {
                         export,
                         crate::sema::types::ModuleExportType::GenericCallable { .. }
                     )
-                {
-                    if self
+                    && self
                         .resolve_generic_module_callable_alias(
                             arena,
                             projection.receiver,
@@ -1404,9 +1403,8 @@ impl Checker {
                             export,
                         )
                         .is_none()
-                    {
-                        return self.reject_generic_callable_module_value(expr.span);
-                    }
+                {
+                    return self.reject_generic_callable_module_value(expr.span);
                 }
                 propagated
             }
@@ -1848,10 +1846,9 @@ impl Checker {
             };
             if let Some((context_expected, _)) = context
                 && expected_item.is_some_and(|expected| expected != context_expected)
+                && !(defer_nullable_arguments && matches!(self.type_constraints.resolve(context_expected), Ok(Type::Optional(_))) && matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_))))
             {
-                if !(defer_nullable_arguments && matches!(self.type_constraints.resolve(context_expected), Ok(Type::Optional(_))) && matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_)))) {
-                    self.expect_type(context_expected, &actual, span);
-                }
+                self.expect_type(context_expected, &actual, span);
             }
             if inferred == Type::Unknown {
                 inferred = actual;
@@ -3035,9 +3032,8 @@ impl Checker {
                     }
                 })
             } else { None };
-            if !infer_branches && merged.is_none() && !arm_expectation.is_some_and(|expectation| expectation.accepts_optional_branch(&actual)) {
-                if let Some(arm_expectation) = arm_expectation { self.expect_type(arm_expectation.context(), &actual, arena.arena.expr(arm.value).span); }
-            }
+            if !infer_branches && merged.is_none() && !arm_expectation.is_some_and(|expectation| expectation.accepts_optional_branch(&actual))
+                && let Some(arm_expectation) = arm_expectation { self.expect_type(arm_expectation.context(), &actual, arena.arena.expr(arm.value).span); }
             if actual != Type::Unknown {
                 inferred = Some(if infer_branches {
                     inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(arm.value).span))

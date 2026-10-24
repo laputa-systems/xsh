@@ -363,9 +363,7 @@ impl TypedCallable {
         let Ok(bound) = self.sig.effects.concrete() else {
             return Some("its required effect contract is unresolved".to_string());
         };
-        let Some(bound) = bound else {
-            return None;
-        };
+        let bound = bound?;
         let Ok(required) = actual.effects.concrete() else {
             return Some("its actual effect contract is unresolved".to_string());
         };

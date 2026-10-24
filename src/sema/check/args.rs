@@ -671,7 +671,7 @@ impl Checker {
         } else {
             parameter.schema_expectation.clone()
         };
-        let previous = std::mem::replace(&mut self.boundary.expected_schema, Some(schema.unwrap_or_default()));
+        let previous = self.boundary.expected_schema.replace(schema.unwrap_or_default());
         let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
         self.boundary.expected_schema = previous;
         actual
@@ -894,10 +894,7 @@ impl Checker {
                 pending_static_item_index += 1;
                 continue;
             }
-            loop {
-                let Some(arg) = args.get(index) else {
-                    break;
-                };
+            while let Some(arg) = args.get(index) {
                 if let ArenaCallArgKind::Splice { value, span }
                 | ArenaCallArgKind::NamedSpread { value, span } = &arg.kind
                 {
