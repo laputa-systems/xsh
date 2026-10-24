@@ -261,7 +261,8 @@ impl CheckedCallableContract {
     ) -> Option<SchemeBinderCorrespondence> {
         let mut equivalence = BoundEquivalence::new(&self.schema_identities, &other.schema_identities,
             Some(callables), Some(callables));
-        if !equivalence.scheme(&self.scheme, &other.scheme)
+        if self.scheme.callable().requirements().guards != other.scheme.callable().requirements().guards
+            || !equivalence.scheme(&self.scheme, &other.scheme)
             || !equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
             || equivalence.types.len() != self.scheme.type_parameters().len()
             || equivalence.rows.len() != self.scheme.row_parameters().len()
@@ -505,6 +506,7 @@ fn scheme_has_callable_relationship(scheme: &TypeScheme) -> bool {
         .any(|ty| ty.contains_scheme_callable())
 }
 
+#[derive(Clone)]
 struct BoundEquivalence<'a> {
     types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
     rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
@@ -636,6 +638,23 @@ impl BoundEquivalence<'_> {
                 left.try_map_contracts(|contract| contract.substitute(|id| self.effects.get(id).copied()
                     .map(crate::sema::effects::EffectContract::variable).ok_or(()))).is_ok_and(|left| &left == right)
             })
+            && left.guards.len() == right.guards.len()
+            && left.guards.iter().zip(&right.guards).all(|(left, right)| self.guard(left, right))
+    }
+
+    fn guard(&self, left: &crate::sema::guarded_requirements::GuardRequirements, right: &crate::sema::guarded_requirements::GuardRequirements) -> bool {
+        let mut local = self.clone();
+        local.ty(&left.source, &right.source)
+            && left.type_parameters.len() == right.type_parameters.len()
+            && left.row_parameters.len() == right.row_parameters.len()
+            && left.requirements.effect_parameters.len() == right.requirements.effect_parameters.len()
+            && left.type_parameters.iter().zip(&right.type_parameters).all(|(left, right)| bind(&mut local.types, *left, *right))
+            && left.row_parameters.iter().zip(&right.row_parameters).all(|(left, right)| left.lacks == right.lacks && bind(&mut local.rows, left.id, right.id))
+            && left.requirements.effect_parameters.iter().zip(&right.requirements.effect_parameters).all(|(left, right)| bind(&mut local.effects, *left, *right))
+            && local.ty(&left.view, &right.view)
+            && left.reads.len() == right.reads.len()
+            && left.reads.iter().zip(&right.reads).all(|(left, right)| local.ty(&left.source, &right.source) && local.ty(&left.view, &right.view))
+            && local.requirements(&left.requirements, &right.requirements)
     }
 
     fn schema(&mut self, left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>) -> bool {
@@ -1453,6 +1472,16 @@ mod tests {
         assert!(bounded.source_annotation().is_none());
         assert!(shifted.source_annotation().is_none());
         assert!(unbounded.source_annotation().is_none());
+    }
+
+    #[test]
+    fn checked_callable_contract_preserves_guarded_requirement_domains() {
+        let display = root_schema_contract("pure describe(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\n");
+        let record = root_schema_contract("pure describe(value) -> Str { if value == null { \"\" } else { value.name } }\n");
+        let equivalent = root_schema_contract("pure describe(value) -> Str {\n if value == null { \"\" } else {\n f\"{value}\"\n }\n}\n");
+        assert!(!display.equivalent_to(&record));
+        assert!(!record.equivalent_to(&display));
+        assert!(display.equivalent_to(&equivalent));
     }
 
     #[test]
