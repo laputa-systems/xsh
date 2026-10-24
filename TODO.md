@@ -27,7 +27,7 @@ Next: 23
 - **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
 - **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed. Focused repairs need qualification, and UDP failures and full-corpus timeouts remain unexplained. Private/resource close remains unrun.
 - **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
-- **Fix with:** xsh-consolidation-campaign
+- **Fix with:** orchestrate
 - **Effort:** M
 
 ### XSH-4 · P3 · Check use after consumption for runtime handles
