@@ -164,6 +164,11 @@ Use `cargo dev gate src/syntax/grammar.rs` for the current grammar owner. Run
 soundness` runs the fixed seed set. `make fuzz` explores fresh seeds and saves
 reproducers under `target/fuzz/`. A failure prints a minimized program.
 
+The fixed-seed run is the Scenario case `test-soundness`. No path selects it
+automatically. `cargo dev gate --plan PATH...` lists it as an available scenario
+for checker, lowering, runtime and syntax changes, and
+`cargo dev gate --case test-soundness` runs it.
+
 ## Linux
 
 Run Linux work in the pinned `xsh-test` image with the target flags in

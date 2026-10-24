@@ -641,6 +641,23 @@ test test_edit_rejects_change_only_cases_before_execution {
   }
 }
 
+test test_soundness_fuzzing_is_an_explicit_scenario_offered_for_semantic_changes {
+  let ctx = fixtures.linux_context(/repo)?
+  let semantic = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/records.rs"], [], gates.Change)?
+  assert "test-soundness" not in [entry.id for entry in semantic.cases]
+  assert semantic.available_scenarios == ["test-soundness"]
+  let owner = gates.plan_paths(ctx, tests.Verification, ["crates/xsh-fuzz/src/driver.rs"], [], gates.Change)?
+  assert owner.cases.is_empty()
+  assert owner.available_scenarios == ["test-soundness"]
+  let unrelated = gates.plan_paths(ctx, tests.Verification, ["docs/TESTING.md"], [], gates.Change)?
+  assert unrelated.available_scenarios.is_empty()
+  let requested = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/records.rs"], ["test-soundness"], gates.Change)?
+  let soundness = [entry for entry in requested.cases |> where .id == "test-soundness"]
+  assert soundness.len() == 1
+  assert soundness[0].tier == gates.Scenario
+  assert requested.available_scenarios.is_empty()
+}
+
 test test_bounded_gate_execution_preserves_finished_failed_and_cancelled_statuses { |ctx|
   test.timeout(ctx, 10s)
   let root = test.temp_dir(ctx, name: "gate-child-status")?

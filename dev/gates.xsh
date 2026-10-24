@@ -50,6 +50,7 @@ export type CatalogPlan = {
   cases: List[CatalogCase],
   products: List[tests.Product],
   unresolved: List[Str],
+  available_scenarios: List[Str],
 }
 
 enum OutputMode { Execute, InspectText, InspectJson }
@@ -171,7 +172,7 @@ pure resolve_selection(entries: List[CatalogCase], ids: List[Str], explicit_ids:
       products += [product] when product not in products
     }
   }
-  {tier: tier, cases: resolved, products: products, unresolved: []}
+  {tier: tier, cases: resolved, products: products, unresolved: [], available_scenarios: []}
 }
 
 const cargo_caller_native_files = [
@@ -427,7 +428,7 @@ proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       ManualPreparation(preparation) => tests.run_commands([preparation.command])
       ManualCommand(spec) => tests.run_commands([spec])
       RunCommand(_) | DocumentationCheck => execute_plan(ctx, profile,
-        CatalogPlan(tier: entry.tier, cases: [entry], products: [], unresolved: []), [])
+        CatalogPlan(tier: entry.tier, cases: [entry], products: [], unresolved: [], available_scenarios: []), [])
       ManualNative => tests.native(ctx, profile, ["--jobs", "4"])
       ManualDocumentation => docs_gate(ctx, profile)
       ManualFull | Alias => {}
@@ -440,8 +441,16 @@ pure tier_name(tier: Tier) -> Str {
 }
 
 pure declared_case(spec: contract.CommandSpec, products: List[tests.Product], reasons: List[Str]) -> CatalogCase {
-  {id: spec.stage, tier: Change, limit: RuntimeSeconds(300), products: products,
+  let scenario = spec.stage == soundness_scenario_id
+  {id: spec.stage, tier: if scenario { Scenario } else { Change },
+    limit: RuntimeSeconds(if scenario { 1200 } else { 300 }), products: products,
     prerequisite_ids: [], reasons: reasons, execution: RunCommand(spec)}
+}
+
+const soundness_scenario_id = "test-soundness"
+
+pure soundness_owners(areas: List[Area]) -> Bool {
+  ! [area for area in areas if area in [Checker, Lowering, Runtime, RouteWitness, Syntax, Grammar, Soundness]].is_empty()
 }
 
 ## Derives cases from the established owner plans without a second test registry.
@@ -545,7 +554,7 @@ export pure resolve_full(entries: List[CatalogCase]) -> Result[CatalogPlan, Erro
       RunCommand(_) | DocumentationCheck | Alias | ManualFull | ManualCommand(_) | ManualNative | ManualDocumentation => {}
     }
   }
-  {tier: Change, cases: cases, products: available, unresolved: []}
+  {tier: Change, cases: cases, products: available, unresolved: [], available_scenarios: []}
 }
 
 ## Constructs Full from the same catalogue and the retained batch owners before dispatch.
@@ -588,6 +597,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
     continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/consumers"]
+    continue when entry.tier == Scenario
     chosen += [entry]
     selected_ids += [entry.id] when entry.id not in selected_ids
   }
@@ -621,7 +631,8 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
   }
   let resolved = resolve_selection(chosen, selected_ids, explicit_ids, tier)?
-  {...resolved, unresolved: unresolved}
+  let scenarios = if soundness_owners(selection.areas) and soundness_scenario_id not in explicit_ids { [soundness_scenario_id] } else { [] }
+  {...resolved, unresolved: unresolved, available_scenarios: scenarios}
 }
 
 pure product_name(product: tests.Product) -> Str {
@@ -657,6 +668,7 @@ proc inspect_plan(plan: CatalogPlan, machine: Bool) [error, io] {
   if machine {
     print json.encode({schema_version: 1, kind: "verification_plan", tier: tier_name(plan.tier),
       selection_complete: plan.unresolved.is_empty(), cases: cases, unresolved: plan.unresolved,
+      available_scenarios: plan.available_scenarios,
       products: [product_name(product) for product in plan.products],
       full: "not_run", execution_authority: false}, pretty: true)?
     return
@@ -664,6 +676,7 @@ proc inspect_plan(plan: CatalogPlan, machine: Bool) [error, io] {
   print f"selected {tier_name(plan.tier)} scope: {plan.cases.len()} cases; Full not run"
   for entry in plan.cases { print f"{entry.id}: {entry.reasons.join("; ")}" }
   for gap in plan.unresolved { print f"incomplete: {gap}" }
+  for id in plan.available_scenarios { print f"scenario {id} not selected; request it with --case {id}" }
 }
 
 proc changed_paths(ctx: context.Context) [fs, process, env, error] -> Result[List[Str], Error] {
