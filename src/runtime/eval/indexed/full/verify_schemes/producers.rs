@@ -2395,6 +2395,21 @@ impl<'a> ProducerProof<'a> {
         proof
     }
 
+    pub(super) fn pipeline_item_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        if self.index.demand == crate::runtime::eval::ProducerDemand::Absent || self.store.tags.get(instruction) != Some(&FullTag::ExprParam) { return Ok(None); }
+        let decoder = self.owner(owner)?;
+        let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { unreachable!() };
+        let binding = self.binding(owner, instruction, slot)?;
+        let Some(source) = self.index.owners[&owner].pipeline_sources.get(&binding).copied() else { return Ok(None); };
+        if !matches!(source.role, super::super::PipelineStageSlotRole::Item) { return Ok(None); }
+        let Some(actual) = self.pipeline_binding_type(&decoder, source)? else { return Ok(None); };
+        ensure_closed_type(&actual)?;
+        self.binding_slot(owner, binding, slot, Arc::clone(&actual))?;
+        self.expression(owner, instruction, Arc::clone(&actual), false);
+        self.budget.charge_clone(&actual)?;
+        Ok(Some((*actual).clone()))
+    }
+
     pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
             return Err(IrVerifyError::new("derived argument proof has no mandatory producer demand"));
@@ -2549,7 +2564,7 @@ impl<'a> ProducerProof<'a> {
     fn verify_static_callable_projection(&mut self, owner: u32, instruction: usize, expected: Type) -> Result<(), IrVerifyError> {
         self.budget.charge(1)?;
         let decoder = self.owner(owner)?;
-        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) || !matches!(expected, Type::Callable(_)) {
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) || !matches!(expected, Type::Callable(_) | Type::SchemeCallable(_)) {
             return Err(IrVerifyError::new("generic callable projection has no physical export read"));
         }
         let targets = self.function_targets(owner, instruction)?;
@@ -6808,6 +6823,10 @@ impl<'a> ProducerProof<'a> {
             S::TextLines | S::BytesChunks { .. } | S::JsonLines => {
                 let actual = match stage { S::TextLines => Type::Str, S::BytesChunks { .. } => Type::Bytes, _ => Type::Any };
                 if !actual.matches_expected(&expected) { return Err(IrVerifyError::new("pipeline adapter item disagrees with its contract")); }
+                if position != 0 { return Err(IrVerifyError::new("pipeline adapter is not the first stage")); }
+                let schema::ExprView::ListPipeline { input, .. } = decoder.expression_view(pipeline)? else { return Err(IrVerifyError::new("pipeline adapter has no physical source")); };
+                self.expression(owner, input.raw() as usize, Arc::new(if matches!(stage, S::BytesChunks { .. }) { Type::Bytes } else { Type::Str }), false);
+                if let S::BytesChunks { size } = stage { self.expression(owner, size.raw() as usize, Arc::new(Type::Int), false); }
                 Ok(())
             }
             S::Tee { .. } => {

@@ -330,13 +330,8 @@ impl CheckedCallableContract {
         {
             return Ok(None);
         }
-        let mut schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
-            self.scheme_callables.as_deref(), generalized.scheme_callables.as_deref());
-        if !schemas.interface_schema(self.scheme.return_schema(), generalized.scheme.return_schema(), self.scheme.return_type(), generalized.scheme.return_type())
-            || !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)| {
-                old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest
-                    && schemas.interface_schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref(), &old.ty, &new.ty)
-            })
+        if !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)|
+            old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest)
         { return Ok(None); }
         let ground = self.scheme.params().iter().map(|parameter| &parameter.ty)
             .chain(std::iter::once(self.scheme.return_type()))
@@ -383,6 +378,20 @@ impl CheckedCallableContract {
                 if actual_success == expected_success
                     && crate::sema::types::callable_return_fits(&resolved_return, original_return))
         { return Ok(None); }
+        let mut schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
+            self.scheme_callables.as_deref(), generalized.scheme_callables.as_deref());
+        let mut schema_matches = |left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>, left_type: &SchemeType, right_type: &SchemeType|
+            -> Result<bool, ContractComparisonError> {
+            let right_schema = right.map(|schema| constraints.instantiate_schema(schema, &instance, origin)
+                .map(|schema| schema.map(&mut |ty| SchemeType::Ground(ty.clone()))))
+                .transpose().map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+            Ok(schemas.interface_schema(left, right_schema.as_ref(), left_type, right_type))
+        };
+        if !schema_matches(self.scheme.return_schema(), generalized.scheme.return_schema(), self.scheme.return_type(), generalized.scheme.return_type())?
+        { return Ok(None); }
+        for (old, new) in self.scheme.params().iter().zip(generalized.scheme.params()) {
+            if !schema_matches(old.schema_expectation.as_ref(), new.schema_expectation.as_ref(), &old.ty, &new.ty)? { return Ok(None); }
+        }
         Ok(Some(CallableInstanceEvidence { constraints, instance, scheme: Arc::clone(&generalized.scheme), origin }))
     }
 

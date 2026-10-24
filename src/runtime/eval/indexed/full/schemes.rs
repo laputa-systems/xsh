@@ -424,6 +424,7 @@ pub(super) struct FullSchemeSchemaExpectation {
     pub(super) instances: IrRange,
     pub(super) children: IrRange,
     pub(super) constructor_instruction: u32,
+    pub(super) ground_return_function: Option<IrFunctionId>,
     pub(super) constructor_template: u32,
     pub(super) constructor_defaults: Arc<[Name]>,
 }
@@ -1620,7 +1621,7 @@ impl FullBuilder {
         Ok(index)
     }
 
-    fn intern_scheme_schema(
+    pub(super) fn intern_scheme_schema(
         &mut self,
         expectation: &SchemaExpectation<SchemeType>,
         type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
@@ -1636,6 +1637,7 @@ impl FullBuilder {
                 instances: IrRange::default(),
                 children: IrRange::default(),
                 constructor_instruction: IR_NONE,
+                ground_return_function: None,
                 constructor_template: IR_NONE,
                 constructor_defaults: Arc::from([]),
             });
@@ -1686,6 +1688,7 @@ impl FullBuilder {
         self.store.scheme_schema_expectations[id.index()] = FullSchemeSchemaExpectation {
             instances,
             constructor_instruction: IR_NONE,
+                ground_return_function: None,
                 constructor_template: IR_NONE,
                 constructor_defaults: Arc::from([]),
             children: super::table_range(

@@ -734,6 +734,7 @@ struct FullStore {
         BTreeMap<CheckedPatternVariantKey, FullPatternVariantSchema>,
     function_instruction_starts: Vec<u32>,
     function_metadata: Vec<FullFunctionMetadata>,
+    function_return_schemas: Vec<Option<schemes::FullSchemeSchemaExpectationId>>,
     schemes: Vec<schemes::FullScheme>,
     scheme_types: Vec<FullSchemeTypeNode>,
     scheme_callable_monotypes: Vec<schemes::FullSchemeCallableMonotype>,
@@ -849,6 +850,7 @@ impl Default for FullStore {
             declared_pattern_variants: BTreeMap::new(),
             function_instruction_starts: Vec::new(),
             function_metadata: Vec::new(),
+            function_return_schemas: Vec::new(),
             schemes: Vec::new(),
             scheme_types: Vec::new(),
             scheme_callable_monotypes: Vec::new(),
@@ -1105,6 +1107,7 @@ impl FullStore {
                 .sum::<usize>()
             + self.function_instruction_starts.capacity() * size_of::<u32>()
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
+            + self.function_return_schemas.capacity() * size_of::<Option<schemes::FullSchemeSchemaExpectationId>>()
             + self.schemes.capacity() * size_of::<schemes::FullScheme>()
             + self.scheme_types.capacity() * size_of::<FullSchemeTypeNode>()
             + self.scheme_callable_monotypes.capacity() * size_of::<schemes::FullSchemeCallableMonotype>()
@@ -1242,6 +1245,7 @@ impl FullStore {
         }
         self.function_instruction_starts.shrink_to_fit();
         self.function_metadata.shrink_to_fit();
+        self.function_return_schemas.shrink_to_fit();
         self.schemes.shrink_to_fit();
         self.scheme_types.shrink_to_fit();
         self.scheme_callable_monotypes.shrink_to_fit();
@@ -3769,6 +3773,17 @@ impl FullBuilder {
         }
     }
 
+    fn register_json_wire_mappings(&mut self, declarations: &CompactDeclOutput) {
+        if self.store.registered_calls.values().any(|plan| plan.signature.op == RuntimeOp::JsonEncode
+            && crate::sema::builtin_templates::registered_call_is_executable(plan))
+        {
+            let mut stored = self.store.wire_enums.iter().map(Arc::as_ptr).collect::<rustc_hash::FxHashSet<_>>();
+            for mapping in declarations.wire_enums.mappings.values() {
+                if stored.insert(Arc::as_ptr(mapping)) { self.store.wire_enums.push(Arc::clone(mapping)); }
+            }
+        }
+    }
+
     fn register_checked_pattern_variants(
         &mut self,
         scratch: &BuildScratch,
@@ -4160,6 +4175,7 @@ impl FullBuilder {
             error.committed_instructions = builder.store.tags.len();
             return Err(error);
         }
+        builder.register_json_wire_mappings(declarations);
         builder.finish(sources, symbols)
     }
 
@@ -4456,6 +4472,13 @@ impl FullBuilder {
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
+            let return_schema = body.checked_return_schema.as_ref().map(|schema| {
+                if !matches!(contract, FullCallableContract::Ground(_)) { return Err(IrBuildError::format("ground_return_schema_owner", None, 0, 0)); }
+                let schema = schema.map(&mut |ty| crate::sema::schemes::SchemeType::Ground(ty.clone()));
+                let root = self.intern_scheme_schema(&schema, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new())?;
+                self.store.scheme_schema_expectations[root.index()].ground_return_function = Some(function_id);
+                Ok(root)
+            }).transpose()?;
             self.store.functions.push(FullFunction {
                 name,
                 contract,
@@ -4467,6 +4490,7 @@ impl FullBuilder {
                 slot_type_facts,
                 checked_return_type,
             });
+            self.store.function_return_schemas.push(return_schema);
             self.store.function_instruction_starts.push(IR_NONE);
             self.store.function_metadata.push(FullFunctionMetadata {
                 owner,
@@ -12796,6 +12820,33 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
+    fn needs_scoped_callable_projection_proof(&self, slot: usize, value: usize, ty: &Type) -> Result<bool, IrVerifyError> {
+        let Type::SchemeCallable(id) = ty else { return Ok(false); };
+        if self.producer_demand != crate::runtime::eval::ProducerDemand::Needed || driver_owner_index(self.owner).is_some() { return Ok(false); }
+        let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("callable projection writer has no function owner"))?;
+        if !matches!(self.store.functions[function.index()].contract, FullCallableContract::Scheme(_)) { return Ok(false); }
+        if self.local_immutable_let_initializer(slot)?.1 != Some(value) { return Ok(false); }
+        let mut source = value;
+        let mut visited = BTreeSet::new();
+        let (base, name) = loop {
+            if !visited.insert(source) { return Err(IrVerifyError::new("scoped callable projection writer is cyclic")); }
+            match self.expression_view(source)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(initializer) = self.local_immutable_let_initializer(slot)?.1 else { return Ok(false); };
+                    source = initializer;
+                }
+                schema::ExprView::Field { base, name, .. } => break (base, name),
+                _ => return Ok(false),
+            }
+        };
+        let Some(Type::Module(module)) = self.derive_checked_expression_type(base.raw() as usize)?.map(Type::into_unvalidated) else { return Ok(false); };
+        let Some(ModuleExportType::GenericCallable { kind, optional: false }) = module.get(&Name::intern(name)) else { return Ok(false); };
+        if !module.exact { return Ok(false); }
+        let relationship = self.store.semantic.scheme_callable_index(*id)?;
+        let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("callable projection writer relationship is invalid"))?;
+        Ok(self.store.function_metadata.get(relationship.canonical.index()).is_some_and(|target| target.callable_kind == *kind))
+    }
+
     fn verify_callable_slot_initializer(
         &self,
         slot: usize,
@@ -12824,6 +12875,10 @@ impl<'a> FullDecoder<'a> {
         };
         let fact_type = self.store.semantic.to_type(fact)?;
         if !fact_type.contains_typed_callable() {
+            return Ok(());
+        }
+        if self.needs_scoped_callable_projection_proof(slot, value, &fact_type)? {
+            self.proven_callable_writers.borrow_mut().insert(slot);
             return Ok(());
         }
         if let Some(initializer) = self.checked_expression_type_id(value)?
@@ -18739,6 +18794,7 @@ impl FullVerifier {
             || store.locations.len() != store.location_sources.len()
             || store.functions.len() != store.function_instruction_starts.len()
             || store.functions.len() != store.function_metadata.len()
+            || store.functions.len() != store.function_return_schemas.len()
             || store.functions.len() != program.function_definition_spans.len()
         {
             return Err(IrVerifyError::new("full IR tag/data columns differ"));
@@ -35732,6 +35788,7 @@ proc main() [env, error] -> Result[Unit] {
                 return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                 return_check: None,
                 checked_return_type: None,
+                checked_return_schema: None,
                 defaulted_proc_return: false,
                 checked_function_signature: None,
                 slot_count: 1,
@@ -39835,11 +39892,176 @@ assert open_bool.extra == 9
     }
 
     #[test]
-    fn generic_schema_constructor_context_rejects_calls_without_retained_provenance() {
-        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_tag() -> Tagged[Int] { Tagged(value: 7) }\npure from_call(payload) { Branded(payload:, tag: closed_tag()) }\n";
-        let error = fixture_result("unretained-call-context.xsh", source).unwrap_err();
+    fn ground_schema_return_provenance_follows_the_actual_callable_owner() {
+        run_with_large_stack(|| {
+            let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_brand() -> Brand { Brand(value: 7) }\npure inferred_brand() { Brand(value: 19) }\npure closed_tag() -> Tagged[Int] { Tagged(value: 11) }\npure wrapped(payload) { Branded(payload:, tag: closed_brand()) }\npure inferred_wrapped(payload) { Branded(payload:, tag: inferred_brand()) }\npure typed(payload: Int) -> Branded[Int] { Branded(payload:, tag: closed_brand()) }\nassert wrapped(7).tag.value == 7\nassert wrapped(\"kept\").payload == \"kept\"\nassert typed(3).tag.value == 7\nassert inferred_wrapped(7).tag.value == 19\nassert inferred_wrapped(\"kept\").tag.value == 19\n";
+            let program = Arc::new(fixture("ground-schema-return-provenance.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    let completion = evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}");
+                }
+                assert!(evaluator.stdout.is_empty());
+            }
+        });
+    }
+
+    #[test]
+    fn ground_return_schema_roots_reject_foreign_contexts_and_call_targets() {
+        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_brand() -> Brand { Brand(value: 7) }\npure other_brand() -> Brand { Brand(value: 17) }\npure integer_tag() -> Tagged[Int] { Tagged(value: 11) }\npure string_tag() -> Tagged[Str] { Tagged(value: 13) }\npure wrapped(payload) { Branded(payload:, tag: closed_brand()) }\n";
+        let program = fixture("ground-return-schema-owners.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let integer = scheme_fixture_root_function(&program, "integer_tag");
+        let string = scheme_fixture_root_function(&program, "string_tag");
+        let brand = scheme_fixture_root_function(&program, "closed_brand");
+        let other = scheme_fixture_root_function(&program, "other_brand");
+        let wrapped = scheme_fixture_root_function(&program, "wrapped");
+        let integer_root = program.store.function_return_schemas[integer].unwrap();
+        let string_root = program.store.function_return_schemas[string].unwrap();
+        let instance = program.store.scheme_schema_expectations[integer_root.index()].instances.start as usize;
+        let other_instance = program.store.scheme_schema_expectations[string_root.index()].instances.start as usize;
+        assert_eq!(program.store.scheme_schema_instances[instance].definition, program.store.scheme_schema_instances[other_instance].definition);
+        let integer_argument = program.store.scheme_schema_arguments[program.store.scheme_schema_instances[instance].arguments.start as usize];
+        let string_argument = program.store.scheme_schema_arguments[program.store.scheme_schema_instances[other_instance].arguments.start as usize];
+        assert_ne!(program.store.scheme_types[integer_argument.index()].first, program.store.scheme_types[string_argument.index()].first);
+        let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+        let mut missing = cold();
+        missing.store.function_return_schemas.pop();
+        FullVerifier::verify(&missing).expect_err("ground return schemas must stay aligned with actual function metadata");
+        let mut foreign = cold();
+        foreign.store.function_return_schemas.swap(integer, string);
+        assert_eq!(FullVerifier::verify(&foreign).unwrap_err().message, "ground return schema belongs to another function");
+        let decoder = function_view_decoder(&program.store, wrapped);
+        let constructor = program.store.function_instruction_range(wrapped).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { check: ValueCheckView::RecordConstructor(root), .. }) => Some(root), _ => None,
+        }).unwrap();
+        let mut constructor_as_header = cold();
+        constructor_as_header.store.function_return_schemas[integer] = Some(constructor);
+        FullVerifier::verify(&constructor_as_header).expect_err("a constructor root cannot supply a ground function header");
+        let mut ground_on_generic = cold();
+        ground_on_generic.store.function_return_schemas[wrapped] = Some(integer_root);
+        assert_eq!(FullVerifier::verify(&ground_on_generic).unwrap_err().message, "generic function carries a ground return schema");
+        let mut scoped = cold();
+        let argument = program.store.scheme_schema_instances[instance].arguments.start as usize;
+        let node = program.store.scheme_schema_arguments[argument];
+        scoped.store.scheme_types[node.index()].tag = FullSchemeTypeTag::Parameter;
+        scoped.store.scheme_types[node.index()].first = 0;
+        assert_eq!(FullVerifier::verify(&scoped).unwrap_err().message, "scheme type parameter is out of scope");
+        let call = program.store.function_instruction_range(wrapped).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction),
+            Ok(schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. }) if function.id.index() == brand)).unwrap();
+        let mut wrong_target = cold();
+        let words = wrong_target.store.data[call].range().bounds(wrong_target.store.extra.len()).unwrap();
+        wrong_target.store.extra[words.start] = IrFunctionId::new(other).unwrap().raw();
+        FullVerifier::verify(&wrong_target).expect_err("a same-schema callee cannot replace the actual checked call target");
+    }
+
+    #[test]
+    fn generic_schema_constructor_context_rejects_conflicting_ground_return_schema() {
+        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_tag() -> Tagged[Int] { Tagged(value: 7) }\npure from_call(payload) { let _ = Branded(payload:, tag: Tagged(value: 7)); Branded(payload:, tag: closed_tag()) }\n";
+        let error = fixture_result("conflicting-ground-call-context.xsh", source).unwrap_err();
         assert_eq!(error.construct, "full_ir_verification");
-        assert!(error.detail.as_deref().is_some_and(|detail| detail.contains("no independent scoped schema provenance")), "{error:?}");
+        assert!(error.detail.as_deref().is_some_and(|detail| detail.contains("disagrees with its canonical containing field context")), "{error:?}");
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_preserve_canonical_family_and_payload() {
+        run_with_large_stack(|| {
+            for parameter in ["value: Int", "value"] {
+                let source = format!("error ObserverFailure = Rejected(message: Str)\nproc reject({parameter}) -> Result[Unit, ObserverFailure] {{ Err(ObserverFailure.Rejected(message: \"observer failed\")) }}\nlet result = reject(7)\n");
+                let program = Arc::new(fixture("generic-error-variant-constructor.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        let completion = evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                        assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}");
+                    }
+                    let Value::Result(crate::runtime::value::ResultValue::Err(value)) = evaluator.lookup(Name::intern("result")).unwrap().value.clone() else { panic!("error constructor must remain Result data") };
+                    let Value::Error(error) = value.as_ref() else { panic!("error variant must retain its nominal runtime identity") };
+                    assert_eq!(error.family, "ObserverFailure");
+                    assert_eq!(error.kind, "ObserverFailure.Rejected");
+                    assert_eq!(error.message, "observer failed");
+                    assert!(evaluator.stdout.is_empty());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_preserve_defaults_order_and_unsigned_fields() {
+        run_with_large_stack(|| {
+            for count in [7, -1] {
+                let source = format!("error Failure = Rejected(message: Str, code: UInt) | Default\nproc observed(label: Str, value: Int) [io] -> Int {{ print $label; value }}\nproc make(payload, count: Int) [io] -> Result[Unit, Failure] {{ let _ = payload; Err(Failure.Rejected(code: observed(\"code\", count), message: {{ print \"message\"; \"failed\" }})) }}\nproc defaulted(payload) -> Result[Unit, Failure] {{ let _ = payload; Err(Failure.Default()) }}\nlet defaulted_result = defaulted(\"kept\")\nlet result = make(7, {count})\n");
+                let program = Arc::new(fixture("generic-error-variant-fields.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    let mut failed = false;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        match evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap() {
+                            Ok(completion) => assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}"),
+                            Err(error) => { assert_eq!(count, -1); assert_eq!(error.kind, "type-error"); failed = true; break; }
+                        }
+                    }
+                    assert_eq!(failed, count < 0);
+                    let Value::Result(crate::runtime::value::ResultValue::Err(value)) = evaluator.lookup(Name::intern("defaulted_result")).unwrap().value.clone() else { panic!("default constructor remains Result data") };
+                    let Value::Error(error) = value.as_ref() else { panic!("default error variant") };
+                    assert_eq!(error.kind, "Failure.Default");
+                    assert_eq!(error.message, "Failure.Default");
+                    if count >= 0 {
+                        let Value::Result(crate::runtime::value::ResultValue::Err(value)) = evaluator.lookup(Name::intern("result")).unwrap().value.clone() else { panic!("unsigned constructor remains Result data") };
+                        let Value::Error(error) = value.as_ref() else { panic!("unsigned error variant") };
+                        assert_eq!(error.kind, "Failure.Rejected");
+                        assert_eq!(error.payload.get("code"), Some(&Value::Int(count)));
+                    }
+                    assert_eq!(evaluator.stdout, b"code\nmessage\n");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_reject_foreign_identity_and_payload_producers() {
+        let source = "error Failure = Rejected(message: Str)\nerror Other = Rejected(message: Str)\nproc make(payload, message: Str, code: Int) -> Result[Unit, Failure] { let _ = payload; let _ = Other.Rejected(message: \"other\"); Err(Failure.Rejected(message:)) }\n";
+        let program = fixture("generic-error-constructor-proof.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "make");
+        let decoder = function_view_decoder(&program.store, owner);
+        let mut errors = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| program.store.tags[instruction] == FullTag::ExprError);
+        let other = errors.next().unwrap();
+        let actual = errors.next().unwrap();
+        assert!(errors.next().is_none());
+        let mut foreign = program.clone();
+        foreign.store.in_place.take();
+        foreign.store.data.swap(actual, other);
+        FullVerifier::verify(&foreign).expect_err("another declared family cannot replace the actual error constructor");
+        let schema::ExprView::Error(super::ErrorExprView::Structured { mut fields, .. }) = decoder.expression_view(actual).unwrap() else { unreachable!() };
+        let (field, value) = fields.next().unwrap().unwrap();
+        assert_eq!(field, "message");
+        assert!(fields.next().is_none());
+        let value = value.raw() as usize;
+        assert!(matches!(decoder.expression_view(value), Ok(schema::ExprView::Param(_))));
+        let mut wrong_field = program.clone();
+        wrong_field.store.in_place.take();
+        let words = wrong_field.store.data[value].range().bounds(wrong_field.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_field.store.extra[words.start] = 2;
+        FullVerifier::verify(&wrong_field).expect_err("an Int parameter cannot prove the actual message producer is Str");
+        let mut missing = program.clone();
+        missing.store.in_place.take();
+        let key = missing.store.checked_pattern_variants.keys().find(|key| key.owner.as_str().as_str() == "Failure").copied().unwrap();
+        missing.store.checked_pattern_variants.remove(&key);
+        FullVerifier::verify(&missing).expect_err("an error constructor needs its retained canonical declaration");
     }
 
     #[test]
@@ -54824,6 +55046,7 @@ proc local() [env, error] -> Int {
                     return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                     return_check: None,
                     checked_return_type: None,
+                checked_return_schema: None,
                     defaulted_proc_return: false,
                     checked_function_signature: None,
                     slot_count: 1,
@@ -55530,4 +55753,129 @@ assert identity(produce_tasks(["one", "two"]).deps) == ["one", "two"]
         }).unwrap().join().unwrap();
     }
 
+}
+
+#[cfg(all(test, feature = "native-tests"))]
+mod registered_json_tests {
+    fn prepare(source: &str) -> super::FullProgram {
+        let path = "registered-json-proof.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, crate::loader::entry_source_from_text(path, source.to_owned()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{}", renderer.render(&checked.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &checked, source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn generic_json_wire_parameters_keep_their_declaring_domain() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let program = prepare("enum Mode: Str { Ready = \"ready\" }\npure keep(payload, mode: Mode) { let _ = json.encode(mode)?; Ok(payload) }\n");
+            super::FullVerifier::verify(&program).unwrap();
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn generic_json_arguments_reject_truthful_incompatible_producers() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            for (annotation, value) in [("Path", "p\"wrong\""), ("Other", ".Unmapped")] {
+                let source = format!("enum Other {{ Unmapped }}\npure keep(payload, value: Any) {{ let encoded = json.encode(value, pretty: false); {{payload, encoded}} }}\nlet actual: {annotation} = {value}\nlet result = keep(7, actual)\nassert match result.encoded {{ Err(_) => true, Ok(_) => false }}\n");
+                let program = prepare(&source);
+                let _symbols = program.symbol_owner().enter();
+                let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keep").unwrap();
+                let concrete = program.store.driver_slots.iter().find(|slot| program.store.string(slot.name).ok() == Some("actual")).unwrap().type_id;
+                assert!(!program.store.semantic.to_type(concrete).unwrap().is_json_compatible());
+                let mut forged = program.clone();
+                forged.store.in_place.take();
+                let mut changed = 0;
+                for (node, original) in forged.store.scheme_types.iter_mut().zip(&program.store.scheme_types) {
+                    if original.tag == super::schema::FullSchemeTypeTag::Ground
+                        && program.store.semantic.to_type(super::TypeId::from_raw(original.first).unwrap()).unwrap() == super::Type::Any
+                    {
+                        node.first = concrete.raw();
+                        changed += 1;
+                    }
+                }
+                assert!(changed > 0);
+                let slots = forged.store.functions[owner].slot_type_facts.bounds(forged.store.slot_type_facts.len()).unwrap();
+                if forged.store.slot_type_facts[slots.start + 1] != super::IR_NONE {
+                    forged.store.slot_type_facts[slots.start + 1] = concrete.raw();
+                }
+                let error = super::FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("selected registry signature"), "{annotation}: {error:?}");
+            }
+            let program = prepare(r#"
+enum Mode: Str { Ready = "ready" }
+enum Other { Unmapped }
+pure keep(payload, wrong: Path, other: Other, mode: Mode) {
+    let data = {mode}
+    let _ = data
+    let _ = wrong
+    let _ = other
+    let encoded = json.encode(data, pretty: false)?
+    Ok(payload)
+}
+assert keep(7, p"wrong", .Unmapped, .Ready)? == 7
+"#);
+            let _symbols = program.symbol_owner().enter();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keep").unwrap();
+            let decoder = super::function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let call = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::ModuleCall { op: crate::modules::RuntimeOp::JsonEncode, .. }))).unwrap();
+            let super::schema::ExprView::ModuleCall { mut args, call_plan: None, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+            let value = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            let pretty = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(args.next().is_none());
+            assert!(matches!(decoder.expression_view(value).unwrap(), super::schema::ExprView::Param(_)));
+            let cold = || { let mut forged = program.clone(); forged.store.in_place.take(); forged };
+            let payload = program.store.data[call].range().bounds(program.store.extra.len()).unwrap();
+            let mut cursor = super::FullCursor::new(&program.store.extra[payload.clone()]);
+            let _ = <crate::modules::RuntimeOp as super::FullCodec>::decode(&decoder, &mut cursor).unwrap();
+            let _ = <Option<std::sync::Arc<crate::runtime::eval::ModuleCallPlan>> as super::FullCodec>::decode(&decoder, &mut cursor).unwrap();
+            let block = super::IrBlockId::from_raw(cursor.raw().unwrap()).unwrap();
+            let arguments = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(&program.store.extra[arguments.start..arguments.start + 5], &[2, 1, value as u32, 1, pretty as u32]);
+            let mut wrong_role = cold();
+            wrong_role.store.extra.swap(arguments.start + 2, arguments.start + 4);
+            assert!(super::FullVerifier::verify(&wrong_role).is_err());
+            let mut wrong_operation = cold();
+            let operation = program.store.extra[payload.start] as usize;
+            wrong_operation.store.runtime_ops[operation] = crate::modules::RuntimeOp::JsonDecode;
+            assert!(super::FullVerifier::verify(&wrong_operation).is_err());
+            let mut wrong_signature = cold();
+            let plan = wrong_signature.store.registered_calls.get_mut(&(call as u32)).unwrap();
+            std::sync::Arc::make_mut(plan).signature = &crate::modules::api_spec().module_overloads("json", "decode").unwrap()[0];
+            assert!(super::FullVerifier::verify(&wrong_signature).is_err());
+            assert!(!program.store.wire_enums.is_empty());
+            let mut missing_wire = cold();
+            missing_wire.store.wire_enums.clear();
+            assert!(super::FullVerifier::verify(&missing_wire).is_err());
+            let mut wrong_wire = cold();
+            std::sync::Arc::make_mut(&mut wrong_wire.store.wire_enums[0]).type_name = crate::symbol::Name::intern("Other");
+            assert!(super::FullVerifier::verify(&wrong_wire).is_err());
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn generic_json_records_execute_on_both_routes() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = include_str!("../../../../tests/fixtures/runtime/generic-json-compatible.xsh");
+            let path = "generic-json-compatible.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, crate::loader::entry_source_from_text(path, source.to_owned()), Vec::new());
+            let renderer = crate::diagnostic::DiagnosticRenderer::new();
+            assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{}", renderer.render(&checked.diagnostics, &sources));
+            let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+            for force_frames in [false, true] {
+                let result = prepared.eval_test("generic_json_records", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert_eq!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(crate::runtime::value::Value::Unit)))));
+            }
+        }).unwrap().join().unwrap();
+    }
 }

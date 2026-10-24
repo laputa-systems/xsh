@@ -1155,7 +1155,18 @@ impl Checker {
                 DiagnosticCode::CheckStreamStageBlock,
             );
         }
-        if !matches!(item_ty, Type::Record(_) | Type::Unknown) {
+        let item_ty = match self.type_constraints.resolve(item_ty) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.error(stage_span, &format!("table row type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
+        if matches!(item_ty.unvalidated(), Type::Inference(_)) {
+            if let Err(conflict) = self.type_constraints.require_record_head(item_ty.unvalidated(), self.callable_solver_level(), stage_span) {
+                self.report_inferred_type_conflict(conflict);
+            }
+        } else if !matches!(item_ty.unvalidated(), Type::Record(_) | Type::Unknown) {
             self.error(
                 stage_span,
                 "table.print requires record stream items",

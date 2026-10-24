@@ -21,7 +21,7 @@ use crate::records::{
 use crate::records::{test_call_type, test_context_type, test_script_output_type};
 pub use crate::runtime_op::RuntimeOp;
 pub(in crate::signature) use crate::types::Type;
-pub(in crate::signature) use std::collections::{BTreeMap, HashMap};
+pub(in crate::signature) use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 mod builders;
@@ -45,7 +45,7 @@ pub struct ApiSpec {
     pub methods: Vec<MethodReceiverSig>,
     docs: BTreeMap<String, ApiDocs>,
     registered_methods: Vec<RegisteredMethodLocation>,
-    registered_method_ids: HashMap<MethodReceiver, BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
+    registered_method_ids: Vec<BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
     method_family_members: [Vec<RegisteredMethodId>; 3],
 }
 
@@ -138,14 +138,16 @@ impl ApiSpec {
     pub fn new(modules: Vec<ModuleEntry>, methods: Vec<MethodReceiverSig>) -> Self {
         let docs = docs::build_api_docs(&modules, &methods);
         let mut registered_methods = Vec::new();
-        let mut registered_method_ids = HashMap::<_, BTreeMap<_, Vec<_>>>::new();
+        let mut registered_method_ids = Vec::<BTreeMap<_, Vec<_>>>::new();
         let mut method_family_members = [Vec::new(), Vec::new(), Vec::new()];
         for (receiver_index, receiver) in methods.iter().enumerate() {
+            let lookup_index = receiver.receiver as usize;
+            if registered_method_ids.len() <= lookup_index { registered_method_ids.resize_with(lookup_index + 1, BTreeMap::new); }
             for (method_index, method) in receiver.methods.iter().enumerate() {
                 for (overload, signature) in method.overloads.iter().enumerate() {
                     let id = RegisteredMethodId(u32::try_from(registered_methods.len()).expect("registered method count fits its identifier"));
                     registered_methods.push(RegisteredMethodLocation { receiver: receiver_index, method: method_index, overload });
-                    registered_method_ids.entry(receiver.receiver).or_default().entry(method.name).or_default().push(id);
+                    registered_method_ids[lookup_index].entry(method.name).or_default().push(id);
                     if let Some(family) = method_family_for_signature(receiver.receiver, method.name, signature) {
                         method_family_members[family.raw() as usize].push(id);
                     }
@@ -175,9 +177,9 @@ impl ApiSpec {
         name: &str,
         overload: usize,
     ) -> Option<MethodFamilyId> {
-        let id = *self.registered_method_ids.get(&receiver)?.get(name)?.get(overload)?;
+        let id = *self.registered_method_ids.get(receiver as usize)?.get(name)?.get(overload)?;
         let (_, _, _, signature) = self.registered_method(id)?;
-        Some(method_family_for_signature(receiver, name, signature)?)
+        method_family_for_signature(receiver, name, signature)
     }
 
     pub fn registered_method_id(
@@ -186,7 +188,7 @@ impl ApiSpec {
         name: &str,
         overload: usize,
     ) -> Option<RegisteredMethodId> {
-        self.registered_method_ids.get(&receiver)?.get(name)?.get(overload).copied()
+        self.registered_method_ids.get(receiver as usize)?.get(name)?.get(overload).copied()
     }
 
     pub fn registered_method(

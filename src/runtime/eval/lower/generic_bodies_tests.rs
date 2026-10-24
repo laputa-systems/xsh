@@ -23,8 +23,9 @@ fn typed_driver_conditions_preserve_lexical_boolean_producers_on_both_routes() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 for step in 0..program.driver_step_count().unwrap() {
-                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
+                    let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
                         .unwrap_or_else(|error| panic!("{source}\nframes={force_frames}: {error:?}"));
+                    assert!(matches!(&flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{source}\nframes={force_frames} step={step}: {flow:?}");
                 }
             }
         }
@@ -4357,6 +4358,141 @@ proc drain(items: Stream[Int]) [error] -> Result[List[Int]] { items.collect() }
 
 }
 
+fn pipeline_adapter_program_source() -> &'static str {
+    r#"pure lines(marker, input: Str) -> List[Str] { let _ = marker; input |> text.lines() }
+pure chunks(marker, input: Bytes, size: Int) -> List[Bytes] { let _ = marker; input |> bytes.chunks(size) }
+pure json_lines(marker, input: Str) -> List[Any] { let _ = marker; input |> json.lines() }
+pure json_stream(marker, input: Str) -> List[Any] { let _ = marker; input |> json.stream() }
+pure ignored_json(marker, input: Str) -> List[Any] { let _ = marker; input |> json.lines() |> take(0) }
+"#
+}
+
+fn verify_pipeline_adapter_results(source: &str, markers: &[Value]) {
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let span = Span::at(source_id, 0);
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        for marker in markers {
+            let lines = evaluator.call_indexed_direct(key("lines"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("one\r\n\ntwo\n"))], span).unwrap().unwrap();
+            assert_eq!(lines, Value::List(vec![Value::Str(Arc::from("one")), Value::Str(Arc::from("")), Value::Str(Arc::from("two"))].into()));
+            let bytes = |text: &[u8]| Value::Bytes(text.to_vec());
+            let chunks = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abcde"), Value::Int(2)], span).unwrap().unwrap();
+            assert_eq!(chunks, Value::List(vec![bytes(b"ab"), bytes(b"cd"), bytes(b"e")].into()));
+            for name in ["json_lines", "json_stream"] {
+                let values = evaluator.call_indexed_direct(key(name), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ntrue\n\"word\"\n"))], span).unwrap().unwrap();
+                assert_eq!(values, Value::List(vec![Value::Int(1), Value::Bool(true), Value::Str(Arc::from("word"))].into()));
+            }
+            let invalid = evaluator.call_indexed_direct(key("ignored_json"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
+            assert_eq!(invalid.kind, "json-lines");
+            assert!(!invalid.message.is_empty());
+            let invalid = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abc"), Value::Int(0)], span).unwrap().expect_err("a dynamic chunk size must be positive");
+            assert_eq!(invalid.kind, "bytes-chunks");
+            assert_eq!(invalid.message, "chunk size must be positive");
+        }
+    }
+}
+
+#[test]
+fn typed_pipeline_adapters_preserve_buffer_and_validation_semantics() {
+    verify_pipeline_adapter_results(&pipeline_adapter_program_source().replace("marker,", "marker: Int,"), &[Value::Int(7)]);
+}
+
+#[test]
+fn generic_pipeline_adapters_preserve_buffer_and_validation_semantics() {
+    verify_pipeline_adapter_results(pipeline_adapter_program_source(), &[Value::Int(7), Value::Str(Arc::from("independent"))]);
+}
+
+#[test]
+fn inferred_pipeline_adapter_sources_preserve_their_canonical_buffer_types() {
+    let source = pipeline_adapter_program_source().replace("input: Str", "input").replace("input: Bytes", "input");
+    verify_pipeline_adapter_results(&source, &[Value::Int(7), Value::Str(Arc::from("independent"))]);
+}
+
+#[test]
+fn generic_pipeline_adapter_fixture_executes_after_frontend_disposal() {
+    on_scoped_body_test_stack(|| {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-pipeline-adapters.xsh");
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {flow:?}");
+        }
+    }
+    });
+}
+
+#[test]
+fn generic_pipeline_adapters_reject_wrong_sources_and_configuration() {
+    for source in [
+        "pure convert(marker, value: Bytes) { let _ = marker; value |> text.lines() }",
+        "pure convert(marker, value: Str) { let _ = marker; value |> bytes.chunks(2) }",
+        "pure convert(marker, value: Any) { let _ = marker; value |> json.lines() }",
+        "pure convert(marker, value: Str) { let _ = marker; value |> json.stream(2) }",
+        "pure convert(marker, value: Bytes) { let _ = marker; value |> bytes.chunks(true) }",
+        "pure convert(marker, value: Bytes) { let _ = marker; value |> bytes.chunks(0) }",
+        "pure convert(marker) { [marker] |> map { \"text\" } |> text.lines() }",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn generic_json_adapter_returns_require_authored_opaque_boundaries() {
+    for adapter in ["json.lines()", "json.stream()"] {
+        let source = format!("pure parsed(marker, input: Str) {{ let _ = marker; input |> {adapter} }}");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckInferReturn)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn generic_pipeline_adapters_preserve_source_configuration_and_cleanup_order() {
+    let source = r#"var events = ""
+proc bytes_input(value: Bytes) [] -> Bytes { defer { events += "d" }; events += "s"; value }
+proc text_input(value: Str) [] -> Str { defer { events += "d" }; events += "s"; value }
+proc chunk_size(value: Int) [] -> Int { events += "c"; value }
+proc chunked(marker, input: Bytes, size: Int) [] -> List[Bytes] { let _ = marker; bytes_input(input) |> bytes.chunks(chunk_size(size)) }
+proc parsed(marker, input: Str) [] -> List[Any] { let _ = marker; text_input(input) |> json.stream() |> take(0) }
+proc observed() [] -> Str { events }
+"#;
+    for source in [source.to_owned(), source.replace("marker,", "marker: Int,")] {
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for step in 0..program.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap();
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {flow:?}");
+            }
+            let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let output = evaluator.call_indexed_direct(key("chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(2)], span).unwrap().unwrap();
+            assert_eq!(output, Value::List(vec![Value::Bytes(b"ab".to_vec()), Value::Bytes(b"c".to_vec())]));
+            assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdc")));
+            let output = evaluator.call_indexed_direct(key("chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(0)], span).unwrap();
+            assert!(output.is_err());
+            assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdc")));
+            let error = evaluator.call_indexed_direct(key("parsed"), CallableKind::Proc, &[Value::Int(7), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("the adapter parses before take(0)");
+            assert_eq!(&*error.kind, "json-lines");
+            assert!(!error.message.is_empty());
+            assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdcsd")));
+        }
+    }
+}
+
 #[cfg(feature = "native-tests")]
 #[test]
 fn generic_optional_guard_original_slots_execute_after_frontend_disposal() {
@@ -4374,4 +4510,171 @@ fn generic_optional_guard_original_slots_execute_after_frontend_disposal() {
         assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
         assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
     }
+}
+
+fn pipeline_table_program_source() -> &'static str {
+    "type Row = {name: Str, size: Int, opaque: Any}\nproc render(marker, row, columns: List[Str]) [] -> Unit { let _ = marker; [row] |> table.print(columns: columns) }\nproc defaults(marker, row) [] -> Unit { let _ = marker; [row] |> table.print() }\n"
+}
+
+fn verify_pipeline_table_output(source: &str, markers: &[Value]) {
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        let row = program.symbol_owner().with_current(|| Value::Record([(Arc::from("name"), Value::Str(Arc::from("alpha"))), (Arc::from("size"), Value::Int(2)), (Arc::from("opaque"), Value::List(vec![Value::Int(9)]))].into_iter().collect()));
+        for marker in markers {
+            evaluator.stdout.clear();
+            let output = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(output, Value::Unit);
+            assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌───────┐\n│ name  │\n├───────┤\n│ alpha │\n└───────┘\n");
+            evaluator.stdout.clear();
+            let output = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("absent"))])], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(output, Value::Unit);
+            assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌────────┐\n│ absent │\n├────────┤\n│        │\n└────────┘\n");
+            evaluator.stdout.clear();
+            let output = evaluator.call_indexed_direct(key("defaults"), CallableKind::Proc, &[marker.clone(), row.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(output, Value::Unit);
+            let output = String::from_utf8(evaluator.stdout.clone()).unwrap();
+            for cell in ["name", "alpha", "size", "2", "opaque", "<List>"] { assert!(output.contains(cell), "{cell}: {output}"); }
+        }
+    }
+}
+
+#[test]
+fn typed_pipeline_table_preserves_record_output_and_opaque_fields() {
+    let source = pipeline_table_program_source().replace("marker,", "marker: Int,").replace("row,", "row: Row,").replace("row)", "row: Row)");
+    verify_pipeline_table_output(&source, &[Value::Int(7)]);
+}
+
+#[test]
+fn generic_pipeline_table_preserves_record_output_and_opaque_fields() {
+    let source = pipeline_table_program_source().replace("row,", "row: Row,").replace("row)", "row: Row)");
+    verify_pipeline_table_output(&source, &[Value::Int(7), Value::Str(Arc::from("independent"))]);
+}
+
+#[test]
+fn inferred_pipeline_table_requires_only_the_record_head() {
+    let source = pipeline_table_program_source().replace("columns: List[Str]", "columns");
+    verify_pipeline_table_output(&source, &[Value::Int(7), Value::Str(Arc::from("independent"))]);
+}
+
+#[test]
+fn inferred_pipeline_table_source_retains_the_record_iteration_relationship() {
+    let source = "proc render(rows, columns: List[Str]) [] -> Unit { rows |> table.print(columns: columns) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("render")));
+        let row = program.symbol_owner().with_current(|| Value::Record([(Arc::from("name"), Value::Str(Arc::from("alpha")))].into_iter().collect()));
+        let output = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::List(vec![row]), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(output, Value::Unit);
+        assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌───────┐\n│ name  │\n├───────┤\n│ alpha │\n└───────┘\n");
+    }
+}
+
+#[test]
+fn generic_pipeline_table_preserves_configuration_pull_cleanup_and_failure_order() {
+    let source = r#"type Row = {name: Str}
+error TableFailure = Stopped(message: Str)
+var events = ""
+pure failure() -> Result[Unit, TableFailure] { Err(TableFailure.Stopped("late")) }
+stream rows(failed: Bool) [error] -> Stream[Row] {
+  defer { events += "d"; print "closed" }
+  events += "p"
+  yield {name: "row"}
+  if failed { let _ = failure()? }
+}
+proc columns() [] -> List[Str] { events += "c"; ["name"] }
+pure bad_columns() -> Result[List[Str], TableFailure] { Err(TableFailure.Stopped("configuration")) }
+proc render(marker, failed: Bool) [error] -> Unit { let _ = marker; rows(failed) |> table.print(columns: columns()) }
+proc rejected(marker) [error] -> Unit { let _ = marker; rows(false) |> table.print(columns: bad_columns()?) }
+proc observed() [] -> Str { events }
+"#;
+    for source in [source.to_owned(), source.replace("marker,", "marker: Int,").replace("marker)", "marker: Int)")] {
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for step in 0..program.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap();
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{flow:?}");
+            }
+            let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            assert_eq!(evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(false)], span).unwrap().unwrap(), Value::Unit);
+            assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "closed\n┌──────┐\n│ name │\n├──────┤\n│ row  │\n└──────┘\n");
+            assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpd")));
+            evaluator.stdout.clear();
+            let error = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(true)], span).unwrap().expect_err("failed materialization does not render a partial table");
+            assert_eq!((&*error.family, &*error.variant, &*error.message), ("TableFailure", "Stopped", "late"));
+            assert!(error.propagated);
+            assert_eq!(evaluator.stdout, b"closed\n");
+            assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpdcpd")));
+            evaluator.stdout.clear();
+            let error = evaluator.call_indexed_direct(key("rejected"), CallableKind::Proc, &[Value::Int(7)], span).unwrap().expect_err("configuration fails before the source is pulled");
+            assert_eq!((&*error.family, &*error.variant, &*error.message), ("TableFailure", "Stopped", "configuration"));
+            assert!(error.propagated);
+            assert!(evaluator.stdout.is_empty());
+            assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpdcpd")));
+        }
+    }
+}
+
+#[test]
+fn generic_pipeline_table_rejects_scalar_erased_and_invalid_column_inputs() {
+    for source in [
+        "proc show(row) [] -> Unit { [row] |> table.print() }\nshow(7)",
+        "proc show(row) [] -> Unit { [row] |> table.print() }\nlet erased: Any = {name: \"row\"}\nshow(erased)",
+        "proc show(row: Any) [] -> Unit { [row] |> table.print() }",
+        "proc show(row: Int) [] -> Unit { [row] |> table.print() }",
+        "proc show(row) [] -> Unit { [row] |> table.print(columns: [1]) }",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+    }
+    let source = "proc show(row) [] -> Unit { [row] |> table.print() { \"extra\" } }";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::ParseExpectedTerminator)), "{:?}", parsed.diagnostics);
+}
+
+#[test]
+fn generic_pipeline_table_retains_its_actual_stream_effects() {
+    for annotation in [": Int", ""] {
+        let source = format!("type Row = {{name: Str}}\nstream rows() [error] -> Stream[Row] {{ yield {{name: \"row\"}} }}\nproc show(marker{annotation}) [] -> Unit {{ let _ = marker; rows() |> table.print() }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn generic_pipeline_table_fixture_executes_after_frontend_disposal() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/fixtures/runtime/generic-pipeline-table.xsh");
+        let (program, sources, source_id) = record_form_program(source);
+        let mut outputs = Vec::new();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {flow:?}");
+            }
+            let output = String::from_utf8(evaluator.stdout.clone()).unwrap();
+            for name in ["alpha", "beta", "gamma", "delta", "stream"] { assert!(output.contains(name), "{output}"); }
+            assert!(output.contains("closed\n┌"), "{output}");
+            assert!(output.ends_with("table stages preserved\n"));
+            outputs.push(output);
+        }
+        assert_eq!(outputs[0], outputs[1]);
+    });
 }

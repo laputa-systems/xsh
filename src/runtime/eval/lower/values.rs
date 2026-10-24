@@ -483,11 +483,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(push_build_row!(self, expr, BuildExprRow::Record(lowered)))
     }
 
-    pub(super) fn lower_compact_error_expr(
+    pub(super) fn lower_compact_error_expr<T>(
         &mut self,
         call: ExprId,
         callee: ExprId,
-        args: &[CallArgument],
+        args: &[CallArgument<T>],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -514,12 +514,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// An error variant value from its constructor arguments. The checker
     /// decided which payload field each argument fills; a call it published
     /// no binding for is not lowered.
-    fn lower_error_variant_payload(
+    fn lower_error_variant_payload<T>(
         &mut self,
         call: ExprId,
         family_key: CompactErrorFamilyKey,
         variant: Name,
-        args: &[CallArgument],
+        args: &[CallArgument<T>],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,

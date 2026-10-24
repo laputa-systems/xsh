@@ -125,6 +125,13 @@ the result or its nominal identity. A body result annotation cannot supply that
 source evidence or authorize a constructor from another function.
 Only checker-selected constructor callees use a static namespace role. Their
 arguments and independent module-value reads retain ordinary capture rules.
+Error variant constructors in generic bodies reuse the canonical checked
+family, variant, and source-ordered payload binding from ordinary lowering.
+Generated default-message and unsigned-check rows retain actual producer types
+and immutable scope ownership. Scoped proof authenticates the exact error
+identity and complete unique payload against its canonical declaration before
+accepting the result; constructor namespaces remain static only at selected
+constructor sites.
 Constructor instance completion closes schema arguments; surrounding callable
 generalization and final fact resolution own the supplied expressions. A closed
 constructor field does not close the open row from which its value was projected.
@@ -149,7 +156,15 @@ census identifies phantom positions before context arguments are visited; only
 those positions require exact context equality. Actual field proofs continue to
 own ordinary structural compatibility. Cold verification checks
 those relationships and the fresh record's actual field producers before
-accepting its declared constructor contract. Ground storage and
+accepting its declared constructor contract. Ground callable return schemas
+also retain their canonical checked declaration contract through compact
+lowering. Their roots belong to the exact ground function; arguments are
+verified under an empty binder scope. A field supplied by a ground call uses
+that selected callee's return schema, never the caller's expected annotation.
+Ground body verification still proves the actual physical return type and
+nominal validation. Phantom arguments absent from that representation remain
+part of the authoritative checked declaration contract; indexed ownership
+checks do not prove correspondence back to the source declaration. Ground storage and
 nominal construction retain their ordinary schema checks. The constructor case
 passes through only in verified indexed execution and rejects owned decoding.
 
@@ -194,6 +209,15 @@ optional arguments. The closed receiver, result, effects, resource owner and
 native producer contract remain independently checked; no method spelling or
 caller supplies the receiver type.
 
+Generic native `json.encode` uses the registry's `JsonCompatible` argument role
+for its value. The shared rule checks the actual closed input type with
+`Type::is_json_compatible_with`. Wire tags require a retained declaring mapping.
+Selected JSON calls retain those mappings once per build. Publication scans the
+encoded call census once and preserves existing mapping indices.
+Explicit `Any` keeps the ordinary fallible runtime encoder. The optional Boolean
+and `Result[Str, Error]` use the existing template relationship. Cold proof retains
+every input producer and charges input and mapping traversal.
+
 Pipeline key requirements use `SealedOperation::TypePredicate` in the existing
 operation authority. A predicate carries its actual subject type and has no
 result, invocation, effect, or computational use-site. `SortKey` accepts `Int`,
@@ -235,6 +259,20 @@ policy in the existing parameter row and rejects unknown tags or mismatched
 error payloads. Pipeline stream transport retains actual source-owner and
 producer proofs derived from the physical pipeline instruction.
 
+Generic buffer adapters reuse the ordinary TextLines, BytesChunks, and JsonLines
+rows. Their first stage establishes the actual Str or Bytes source and item
+type before iterable adaptation. Verification authenticates that source, the
+chunk-size expression, stage position, and result under the same function owner;
+the ordinary materializing engine retains parsing and cleanup order.
+JSON forwarding returns retain the authored `List[Any]` boundary required for
+opaque outputs; concrete results such as item counts remain inferred.
+
+Inferred table items use the existing open-row relationship with no required
+fields. This constrains only the record head and preserves opaque field types.
+The existing table stage rows retain checked column argument mapping, while
+cold body proof checks the actual record item and `List[Str]` configuration
+under its source owner before accepting the terminal `Unit` result.
+
 Generic shape stages reuse the existing indexed stage rows. Batch derives a
 list item, Zip derives both item fields, and Range replaces the item with Int.
 Stage configuration follows its checked argument slots and source order.
@@ -243,6 +281,14 @@ Byte-bounded batches use the existing `Argv` conversion requirement. A disabled
 argv limit requires proof of the actual immutable false value before omitting
 that requirement. Zip stream transport authenticates its actual side producer
 against the same physical pipeline and source owner.
+
+Generic Each and Tee stages reuse ordinary statement blocks. Their immutable
+item slot belongs to one callback scope, and the body completes without a value
+tail. Named callbacks retain their actual Unit or Result[Unit] return contract;
+ordinary statement consumption propagates failures and preserves cleanup.
+Typed named callbacks retain their canonical call substitutions even when the
+return type is concrete. Concrete item arguments derive from the scoped
+pipeline prefix and retain its source and writer proof obligations.
 
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
@@ -870,15 +916,17 @@ use retained executable signatures or checked load-time signatures. A callable
 kind alone does not establish a Stream signature.
 
 A generic body may borrow a root-owned immutable static import namespace to
-read an exact nonoptional ground callable-valued export, such as
-`export let format = render`. The namespace keeps its
-original root import lifetime and cannot escape as a value. Cold body
-verification checks the physical field read and capture binding. Producer
-verification follows the import's actual export storage and executable target.
-The selected target cannot capture mutable or resource state. Resource-valued
-module exports remain rejected. Unselected callable exports retain their
-existing root resources and shared state. Calls preserve the real callable
-environment, defaults, kind, and canonical invocation effects.
+read a nonoptional callable export. Ground declarations and callable-valued
+exports retain their registered signatures. Generic declarations retain their
+owned callable relationship and fresh invocation evidence. The namespace keeps
+its original root import lifetime and cannot escape as a value. Cold body
+verification checks the physical field read, immutable writer, and capture
+binding. Producer verification follows the import's actual export storage or
+child-owned declaration and matches the selected target. The selected target
+cannot capture mutable or resource state. Resource-valued module exports remain
+rejected. Unselected callable exports retain their existing root resources and
+shared state. Calls preserve the real callable environment, defaults, kind,
+and canonical invocation effects.
 
 The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
 Its opaque `CallableValue` carries the canonical `CallableKind`; named values

@@ -482,8 +482,14 @@ pub(super) fn is_body_expression(
                 if bindings.expressions.get(&base).is_some_and(|binding| captures.get(binding) == Some(&CapturedBindingAccess::StaticCallableNamespace)) =>
             {
                 let Some(crate::sema::types::Type::Module(module)) = types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type) else { return false; };
-                let Some(actual) = module.get(&name).and_then(crate::sema::types::ModuleExportType::static_callable_value_type) else { return false; };
-                if !module.exact || types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type) != Some(actual) { return false; }
+                if !module.exact { return false; }
+                let claimed = types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type);
+                match module.get(&name) {
+                    Some(crate::sema::types::ModuleExportType::GenericCallable { optional: false, .. })
+                        if matches!(claimed, Some(crate::sema::types::Type::SchemeCallable(_))) => {}
+                    Some(export) if export.static_callable_value_type().is_some_and(|actual| claimed == Some(actual)) => {}
+                    _ => return false,
+                }
             }
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
             ArenaExprKind::Convert { value, .. } | ArenaExprKind::Require { value, .. } => {
@@ -559,7 +565,8 @@ pub(super) fn is_body_expression(
                         | crate::syntax::node::StreamStageKind::FlatMap | crate::syntax::node::StreamStageKind::Any
                         | crate::syntax::node::StreamStageKind::All | crate::syntax::node::StreamStageKind::ParMap
                         | crate::syntax::node::StreamStageKind::GroupBy | crate::syntax::node::StreamStageKind::UniqueBy
-                        | crate::syntax::node::StreamStageKind::SortBy)
+                        | crate::syntax::node::StreamStageKind::SortBy
+                        | crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee)
                         || (stage.kind == crate::syntax::node::StreamStageKind::Count && stage.block.is_some());
                     let fold = matches!(stage.kind, crate::syntax::node::StreamStageKind::Fold | crate::syntax::node::StreamStageKind::Reduce);
                     let descriptor = if callback {
@@ -571,7 +578,8 @@ pub(super) fn is_body_expression(
                     if let Some(block) = stage.block {
                         if !callback && !fold { return false; }
                         let Some(inner) = handler_bindings(program, bindings, available, block) else { return false; };
-                        if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, BodyCompletion::Value) { return false; }
+                        let completion = if matches!(stage.kind, crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee) { BodyCompletion::Statement } else { BodyCompletion::Value };
+                        if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, completion) { return false; }
                     } else if let Some((_, callee)) = descriptor {
                         if !checked_operations.contains(&program.arena.expr(callee).span) && !registered_calls.contains_key(&callee) { return false; }
                     } else if callback || !matches!(stage.kind,
@@ -581,7 +589,10 @@ pub(super) fn is_body_expression(
                         | crate::syntax::node::StreamStageKind::Last | crate::syntax::node::StreamStageKind::Sort
                         | crate::syntax::node::StreamStageKind::Batch | crate::syntax::node::StreamStageKind::Zip
                         | crate::syntax::node::StreamStageKind::Repeat | crate::syntax::node::StreamStageKind::Range
-                        | crate::syntax::node::StreamStageKind::Shuffle)
+                        | crate::syntax::node::StreamStageKind::Shuffle
+                        | crate::syntax::node::StreamStageKind::TextStreamLines | crate::syntax::node::StreamStageKind::BytesChunks
+                        | crate::syntax::node::StreamStageKind::JsonLines | crate::syntax::node::StreamStageKind::JsonStream
+                        | crate::syntax::node::StreamStageKind::TablePrint)
                     { return false; }
                     for (entry, argument) in program.arena.call_args(stage.args).iter().enumerate() {
                         if descriptor.is_some_and(|(selected, _)| selected == entry) { continue; }

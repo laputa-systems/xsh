@@ -400,12 +400,20 @@ pub(crate) fn registered_argument_check(receiver: Option<&Type>, slot: usize, pa
     } else { None }
 }
 
+fn json_encode_value_parameter(plan: &super::schemes::RegisteredCallPlan, slot: usize) -> bool {
+    plan.receiver.is_none()
+        && plan.signature.op == crate::modules::RuntimeOp::JsonEncode
+        && plan.signature.arg_check == crate::modules::signature::ApiArgCheck::JsonCompatible
+        && slot == 0
+        && plan.signature.params.first().is_some_and(|parameter| parameter.ty == Type::Any)
+}
+
 pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCallPlan) -> bool {
     use crate::modules::signature::{ApiArgCheck, ImplBinding, MethodReceiver, SemanticRule};
     let signature = plan.signature;
     if plan.argument_checks.len() != signature.params.len() || plan.argument_checks.iter().flatten().any(|check| matches!(check, super::schemes::RegisteredArgumentCheck::Unsigned(ty) if ty.contains_inference() || ty.contains_recovery())) { return false; }
     if !matches!(signature.binding, ImplBinding::Native)
-        || signature.arg_check != ApiArgCheck::Standard
+        || signature.arg_check != ApiArgCheck::Standard && !json_encode_value_parameter(plan, 0)
         || signature.semantic_rule != SemanticRule::Standard
     { return false; }
     let slots = plan.argument_slots.iter().copied().collect::<std::collections::BTreeSet<_>>();
@@ -425,8 +433,9 @@ pub(crate) fn registered_call_result(
     plan: &super::schemes::RegisteredCallPlan,
     receiver: Option<&super::schemes::SchemeType>,
     arguments: &[Option<&super::schemes::SchemeType>],
+    wire_enum: &impl Fn(crate::symbol::Name) -> bool,
 ) -> Option<super::schemes::SchemeType> {
-    let parameters = registered_call_parameters(plan, receiver, arguments, None)?;
+    let parameters = registered_call_parameters(plan, receiver, arguments, None, wire_enum)?;
     symbolic_template_type(&plan.signature.return_ty, &parameters, 0)
 }
 
@@ -435,8 +444,9 @@ pub(crate) fn verify_registered_call(
     receiver: Option<&super::schemes::SchemeType>,
     arguments: &[Option<&super::schemes::SchemeType>],
     result: &super::schemes::SchemeType,
+    wire_enum: &impl Fn(crate::symbol::Name) -> bool,
 ) -> bool {
-    let Some(parameters) = registered_call_parameters(plan, receiver, arguments, Some(result)) else { return false };
+    let Some(parameters) = registered_call_parameters(plan, receiver, arguments, Some(result), wire_enum) else { return false };
     let Some(expected) = symbolic_template_type(&plan.signature.return_ty, &parameters, 0) else { return false };
     result == &expected || matches!((result.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected)
 }
@@ -446,6 +456,7 @@ fn registered_call_parameters(
     receiver: Option<&super::schemes::SchemeType>,
     arguments: &[Option<&super::schemes::SchemeType>],
     result: Option<&super::schemes::SchemeType>,
+    wire_enum: &impl Fn(crate::symbol::Name) -> bool,
 ) -> Option<BTreeMap<BuiltinTypeParameter, super::schemes::SchemeType>> {
     use super::schemes::SchemeType;
     use crate::modules::{api_spec, MethodReceiver};
@@ -477,7 +488,9 @@ fn registered_call_parameters(
     for (index, parameter) in signature.params.iter().enumerate() {
         match arguments.get(index).copied().flatten() {
             Some(actual) => {
-                if !bind_symbolic_template(&parameter.ty, actual, &mut parameters, 0) { return None; }
+                if json_encode_value_parameter(plan, index) {
+                    if !actual.closed_ground_type().is_some_and(|actual| actual.is_json_compatible_with(wire_enum)) { return None; }
+                } else if !bind_symbolic_template(&parameter.ty, actual, &mut parameters, 0) { return None; }
             }
             None if parameter.defaulted => {}
             None => return None,
@@ -486,8 +499,10 @@ fn registered_call_parameters(
     if let Some(result) = result && !bind_symbolic_template(&signature.return_ty, result, &mut parameters, 0) { return None; }
     let receiver = receiver.and_then(SchemeType::closed_ground_type);
     for (slot, parameter) in signature.params.iter().enumerate() {
-        let Some(expected) = symbolic_template_type(&parameter.ty, &parameters, 0) else { return None };
-        let check = expected.closed_ground_type().and_then(|expected| registered_argument_check(receiver.as_ref(), slot, &expected));
+        let check = if json_encode_value_parameter(plan, slot) { None } else {
+            let Some(expected) = symbolic_template_type(&parameter.ty, &parameters, 0) else { return None };
+            expected.closed_ground_type().and_then(|expected| registered_argument_check(receiver.as_ref(), slot, &expected))
+        };
         if plan.argument_checks.get(slot) != Some(&check) { return None; }
         if let (Some(check), Some(actual)) = (check, arguments.get(slot).copied().flatten()) {
             let expected = match check {
@@ -564,6 +579,57 @@ mod tests {
     }
 
     #[test]
+    fn registered_json_encode_preserves_its_compatible_value_domain() {
+        use crate::sema::schemes::{RegisteredCallPlan, SchemeType, SchemeTypeParameterId};
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let signature = &api_spec().module_overloads("json", "encode").unwrap()[0];
+            let plan = RegisteredCallPlan { receiver: None, name: "encode".into(), signature,
+                argument_slots: std::sync::Arc::from([0]), argument_checks: std::sync::Arc::from([None, None]) };
+            let result = SchemeType::Result(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Error)));
+            let mapped = crate::symbol::Name::intern("Mapped");
+            let other = crate::symbol::Name::intern("Other");
+            let wire_enum = |name| name == mapped;
+            for ty in [Type::Any, Type::Null, Type::Bool, Type::Int, Type::UInt, Type::Float, Type::Str,
+                Type::List(Box::new(Type::Str)), Type::Stream(Box::new(Type::Int)), Type::Set(Box::new(Type::Bool)),
+                Type::Optional(Box::new(Type::Str)), Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
+                Type::ErasedRecord, Type::Tag(mapped)]
+            {
+                let actual = SchemeType::Ground(ty);
+                assert!(verify_registered_call(&plan, None, &[Some(&actual)], &result, &wire_enum), "{actual:?}");
+            }
+            let actual = SchemeType::Record { fields: BTreeMap::from([(crate::symbol::Name::intern("level"), SchemeType::Ground(Type::Int))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+            assert!(verify_registered_call(&plan, None, &[Some(&actual)], &result, &wire_enum));
+            for ty in [Type::Path, Type::Bytes, Type::Error, Type::Unknown, Type::Invalid, Type::Tag(other),
+                Type::Result(Box::new(Type::Str), Box::new(Type::Error)),
+                Type::List(Box::new(Type::Path)), Type::Map(Box::new(Type::Int), Box::new(Type::Str)),
+                Type::Record(BTreeMap::from([(crate::symbol::Name::intern("bad"), Type::Result(Box::new(Type::Str), Box::new(Type::Error)))]).into())]
+            {
+                let actual = SchemeType::Ground(ty);
+                assert!(!verify_registered_call(&plan, None, &[Some(&actual)], &result, &wire_enum), "{actual:?}");
+            }
+            assert!(!verify_registered_call(&plan, None, &[Some(&SchemeType::Parameter(SchemeTypeParameterId(0)))], &result, &wire_enum));
+            let mut pretty = plan.clone();
+            pretty.argument_slots = std::sync::Arc::from([0, 1]);
+            assert!(verify_registered_call(&pretty, None, &[Some(&actual), Some(&SchemeType::Ground(Type::Bool))], &result, &wire_enum));
+            assert!(!verify_registered_call(&pretty, None, &[Some(&actual), Some(&SchemeType::Ground(Type::Int))], &result, &wire_enum));
+            assert!(!verify_registered_call(&plan, None, &[], &result, &wire_enum));
+            assert!(!verify_registered_call(&plan, None, &[Some(&actual)], &SchemeType::Ground(Type::Bool), &wire_enum));
+            assert!(!verify_registered_call(&pretty, None, &[Some(&actual), None, Some(&actual)], &result, &wire_enum));
+            let mut missing = plan.clone();
+            missing.argument_slots = std::sync::Arc::from([1]);
+            assert!(!registered_call_is_executable(&missing));
+            for (module, name) in [("json", "encode_lines"), ("json", "set"), ("json", "write"), ("json", "write_lines")] {
+                let mut other = plan.clone();
+                other.signature = &api_spec().module_overloads(module, name).unwrap()[0];
+                other.name = name.into();
+                other.argument_checks = vec![None; other.signature.params.len()].into();
+                other.argument_slots = (0..other.signature.params.len()).collect::<Vec<_>>().into();
+                assert!(!registered_call_is_executable(&other));
+            }
+        });
+    }
+
+    #[test]
     fn symbolic_registered_plans_preserve_fixed_template_relationships() {
         use crate::sema::schemes::{RegisteredCallPlan, SchemeType, SchemeTypeParameterId};
         let method = &api_spec().method_overloads(MethodReceiver::List, "push").unwrap()[0];
@@ -574,13 +640,13 @@ mod tests {
         let item = SchemeType::Parameter(SchemeTypeParameterId(0));
         let other = SchemeType::Parameter(SchemeTypeParameterId(1));
         let list = SchemeType::List(Box::new(item.clone()));
-        assert!(verify_registered_call(&plan, Some(&list), &[Some(&item)], &list));
-        assert!(!verify_registered_call(&plan, Some(&list), &[Some(&other)], &list));
-        assert!(!verify_registered_call(&plan, Some(&list), &[Some(&item)], &SchemeType::List(Box::new(other))));
+        assert!(verify_registered_call(&plan, Some(&list), &[Some(&item)], &list, &|_| false));
+        assert!(!verify_registered_call(&plan, Some(&list), &[Some(&other)], &list, &|_| false));
+        assert!(!verify_registered_call(&plan, Some(&list), &[Some(&item)], &SchemeType::List(Box::new(other)), &|_| false));
         let mut validated = plan.clone();
         validated.receiver = Some(MethodReceiver::NonEmpty);
         validated.signature = &api_spec().method_overloads(MethodReceiver::NonEmpty, "push").unwrap()[0].sig;
-        assert!(!verify_registered_call(&validated, Some(&list), &[Some(&item)], &list));
+        assert!(!verify_registered_call(&validated, Some(&list), &[Some(&item)], &list, &|_| false));
         let mut layout = plan.clone();
         layout.argument_slots = std::sync::Arc::from([1]);
         assert!(!registered_call_is_executable(&layout));
@@ -598,10 +664,10 @@ mod tests {
         let path = SchemeType::Ground(Type::Path);
         let ordered = SchemeType::Ground(Type::Bool);
         let arguments = [Some(&path), None, Some(&ordered)];
-        let result = registered_call_result(&plan, Some(&receiver), &arguments).unwrap();
-        assert!(verify_registered_call(&plan, Some(&receiver), &arguments, &result));
-        assert!(!verify_registered_call(&plan, Some(&SchemeType::Ground(Type::Str)), &arguments, &result));
-        assert!(!verify_registered_call(&plan, Some(&receiver), &[None, None, Some(&ordered)], &result));
+        let result = registered_call_result(&plan, Some(&receiver), &arguments, &|_| false).unwrap();
+        assert!(verify_registered_call(&plan, Some(&receiver), &arguments, &result, &|_| false));
+        assert!(!verify_registered_call(&plan, Some(&SchemeType::Ground(Type::Str)), &arguments, &result, &|_| false));
+        assert!(!verify_registered_call(&plan, Some(&receiver), &[None, None, Some(&ordered)], &result, &|_| false));
         let mut duplicate = plan.clone();
         duplicate.argument_slots = std::sync::Arc::from([0, 0]);
         assert!(!registered_call_is_executable(&duplicate));
@@ -624,14 +690,14 @@ mod tests {
         };
         let receiver = SchemeType::Map(Box::new(SchemeType::Ground(Type::UInt)), Box::new(SchemeType::Ground(Type::Str)));
         let result = SchemeType::Result(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Error)));
-        assert!(verify_registered_call(&plan, Some(&receiver), &[Some(&SchemeType::Ground(Type::UInt))], &result));
-        assert!(!verify_registered_call(&plan, Some(&receiver), &[Some(&SchemeType::Ground(Type::Int))], &result));
+        assert!(verify_registered_call(&plan, Some(&receiver), &[Some(&SchemeType::Ground(Type::UInt))], &result, &|_| false));
+        assert!(!verify_registered_call(&plan, Some(&receiver), &[Some(&SchemeType::Ground(Type::Int))], &result, &|_| false));
         let mut missing = plan.clone();
         missing.argument_checks = std::sync::Arc::from([None]);
-        assert!(!verify_registered_call(&missing, Some(&receiver), &[Some(&SchemeType::Ground(Type::UInt))], &result));
+        assert!(!verify_registered_call(&missing, Some(&receiver), &[Some(&SchemeType::Ground(Type::UInt))], &result, &|_| false));
         let mut wrong = plan;
         wrong.argument_checks = std::sync::Arc::from([Some(RegisteredArgumentCheck::Unsigned(Type::Int))]);
-        assert!(!verify_registered_call(&wrong, Some(&receiver), &[Some(&SchemeType::Ground(Type::UInt))], &result));
+        assert!(!verify_registered_call(&wrong, Some(&receiver), &[Some(&SchemeType::Ground(Type::UInt))], &result, &|_| false));
     }
 
     #[test]
@@ -671,7 +737,7 @@ mod tests {
                     let receiver = &generalized.types[0];
                     let result = generalized.types.last().unwrap();
                     let arguments = generalized.types[1..generalized.types.len() - 1].iter().map(Some).collect::<Vec<_>>();
-                    assert!(verify_registered_call(&plan, Some(receiver), &arguments, result), "{domain:?}.{}", named.name);
+                    assert!(verify_registered_call(&plan, Some(receiver), &arguments, result, &|_| false), "{domain:?}.{}", named.name);
                     if !domains.contains(&domain) {
                         domains.push(domain);
                     }
