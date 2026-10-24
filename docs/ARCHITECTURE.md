@@ -585,7 +585,10 @@ field and element proof; their raw shape cannot establish a validated domain.
 Direct slot/null comparisons establish an immutable pattern read in an active
 `if` branch or `while` body, or after a matching `if` branch that cannot complete,
 only when the exact regional binding has no writers. Null exclusion preserves
-the payload's unsigned and validated domains. Typed optional carriers use the
+the payload's unsigned and validated domains. Closed record presence proofs retain
+opaque fields at their exact Any type while proving typed fields independently;
+a null guard cannot refine an opaque field into a typed domain. Typed optional
+carriers use the
 exact read site's active branch, short-circuit prefix, and preceding terminating
 branch while retaining the original broad storage contract and every writer
 proof. Completed structural ownership and return analysis populate the owner census

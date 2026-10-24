@@ -6412,6 +6412,37 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
     }
 
     #[test]
+    fn guarded_opaque_records_preserve_typed_fields_and_reject_opaque_refinement() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-opaque-records.xsh")).unwrap();
+        let mut program = prepare(&source);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "guarded_name").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let base = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Field { base, name: "name", .. }) => Some(base.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let (carriers, _, _) = guarded_record_carriers(&program, owner, base);
+        let leaves = carriers.map(|fact| record_field_type(&program.store, program.store.scheme_body_facts[fact].ty().unwrap(), "opaque"));
+        assert_eq!(leaves.into_iter().collect::<std::collections::BTreeSet<_>>().len(), 3);
+        for leaf in leaves {
+            let node = program.store.scheme_types[leaf.index()];
+            assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+            assert_eq!(program.store.semantic.to_type(super::super::TypeId::from_raw(node.first).unwrap()).unwrap(), Type::Any);
+        }
+        let signed = (0..program.store.semantic.type_count()).map(|index| super::super::super::TypeId::new(index).unwrap()).find(|id| program.store.semantic.to_type(*id).unwrap() == Type::Int).unwrap();
+        let mut changed = program.clone();
+        assert!(changed.store.in_place.get().is_none());
+        for leaf in leaves { changed.store.scheme_types[leaf.index()].first = signed.raw(); }
+        let failure = FullVerifier::verify(&changed).expect_err("opaque data cannot become an integer through a null guard");
+        assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
     fn generic_record_field_guards_reject_refinement_after_a_source_write() {
         let program = guarded_record_fixture();
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "written_record_guard").unwrap();
