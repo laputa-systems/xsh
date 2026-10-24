@@ -6846,6 +6846,84 @@ driver()?
     }
 
     #[test]
+    fn forwarded_guarded_outputs_keep_result_evidence_in_the_actual_callable_namespace() {
+        let mut program = prepare(r#"
+pure selected(value) { if value != null { value + 1 } else { null } }
+pure relay(value) { selected(value) }
+pure repeated(value) { relay(value) }
+proc driver() [error] -> Result[Unit, Error] {
+    let present: Int? = 1
+    assert repeated(2) == 3
+    assert repeated(present) == 2
+    assert repeated(null) == null
+    Ok()
+}
+driver()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = |name| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let repeated = owner("repeated");
+        let relay = owner("relay");
+        let scheme = |owner: usize| match program.store.functions[owner].contract { FullCallableContract::Scheme(id) => id, _ => panic!("forwarded outputs retain their source contract") };
+        let repeated_id = scheme(repeated);
+        let relay_id = scheme(relay);
+        assert_ne!(repeated_id, relay_id);
+        let repeated_root = program.store.scheme(repeated_id).unwrap();
+        let relay_root = program.store.scheme(relay_id).unwrap();
+        let result_binder = program.store.scheme_types[repeated_root.return_type.index()];
+        assert_eq!(result_binder.tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(program.store.scheme_types[relay_root.return_type.index()].first, result_binder.first);
+        assert_eq!(repeated_root.type_parameters.len, relay_root.type_parameters.len);
+        let calls = program.store.checked_call_targets.iter().filter(|site| site.function.index() == repeated).collect::<Vec<_>>();
+        assert_eq!(calls.len(), 3);
+        let results = calls.iter().map(|site| {
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == site.instruction).unwrap();
+            let mut arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            arguments.find(|&index| program.store.call_type_arguments[index].binder == result_binder.first).unwrap()
+        }).collect::<Vec<_>>();
+        let types = results.iter().map(|&index| program.store.call_type_arguments[index].ty).collect::<Vec<_>>();
+        assert!(types.iter().enumerate().all(|(index, ty)| types.iter().skip(index + 1).all(|other| ty != other)));
+        for index in [0, 1] {
+            let mut changed = program.clone();
+            assert!(changed.store.in_place.get().is_none());
+            changed.store.call_type_arguments[results[index]].ty = types[2];
+            changed.store.call_type_arguments[results[2]].ty = types[index];
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert_eq!(error.message, "guard output disagrees with its actual selected branch types");
+        }
+        let site = program.store.checked_call_targets.iter().find(|site| site.function.index() == owner("selected")).unwrap();
+        let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == site.instruction).unwrap();
+        let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap().collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 2);
+        let mut changed = program.clone();
+        assert!(changed.store.in_place.get().is_none());
+        let first = changed.store.call_type_arguments[arguments[0]].ty;
+        changed.store.call_type_arguments[arguments[0]].ty = changed.store.call_type_arguments[arguments[1]].ty;
+        changed.store.call_type_arguments[arguments[1]].ty = first;
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let repeated_scope = scopes[repeated_id.index()].as_ref().unwrap();
+        let relay_scope = scopes[relay_id.index()].as_ref().unwrap();
+        let packet = program.invocation_applications(calls[0].instruction, repeated, &super::super::super::PreparedInvocationBindings::default()).unwrap();
+        let range = repeated_root.guard_calls.bounds(program.store.scheme_guard_calls.len()).unwrap();
+        assert_eq!(range.len(), 1);
+        let call = program.store.scheme_guard_calls[range.start];
+        let mut budget = super::super::SchemeInstantiationBudget::new(&program.store);
+        let (_, evidence) = super::super::guard_calls::resolve_with_output_evidence(&program.store, call, 0, Arc::clone(&packet.substitution), &mut budget).unwrap();
+        let error = evidence.unwrap().extend(relay_id, relay_scope, &mut super::super::SchemeBinderEvidence::default()).unwrap_err();
+        assert_eq!(error.message, "guard output evidence belongs to another callable or lexical scope");
+        let (_, evidence) = super::super::guard_calls::resolve_with_output_evidence(&program.store, call, 0, Arc::clone(&packet.substitution), &mut budget).unwrap();
+        let mut checked = super::super::SchemeBinderEvidence::default();
+        evidence.unwrap().extend(repeated_id, repeated_scope, &mut checked).unwrap();
+        assert!(checked.types.contains(&(result_binder.first as usize)));
+    }
+
+    #[test]
     fn guarded_requirements_authenticate_sources_polarity_scope_and_absence() {
         let mut program = prepare(r#"
 pure selected(value, other) -> Str {

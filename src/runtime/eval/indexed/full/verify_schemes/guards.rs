@@ -324,11 +324,14 @@ pub(super) fn verify_ground_bindings(
         let call_bindings = super::bounded(arguments.guard_call_bindings, &store.call_guard_bindings, "guard call binding range is invalid")?;
         if calls.len() != call_bindings.len() { return Err(IrVerifyError::new("guard call bindings are incomplete")); }
         for (ordinal, (call, binding)) in calls.iter().zip(call_bindings).enumerate() {
-            let resolved = super::guard_calls::resolve(store, *call, u32::try_from(ordinal).map_err(|_| IrVerifyError::new("guard call ordinal is invalid"))?, Arc::clone(&parent), budget)?;
+            let (resolved, output_evidence) = super::guard_calls::resolve_with_output_evidence(store, *call, u32::try_from(ordinal).map_err(|_| IrVerifyError::new("guard call ordinal is invalid"))?, Arc::clone(&parent), budget)?;
             let target_root = store.scheme(resolved.owner)?;
             let target_scope = scopes.get(resolved.owner.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("guard call target has no verified scope"))?;
             if let Some((arguments, local)) = verify_ground_slot(store, target_root, target_scope, resolved.scope, resolved.metadata, *binding, resolved.parent, type_coverage, row_coverage, field_coverage, budget)? {
                 pending.push((resolved.owner, Some(resolved.scope), arguments, local));
+            }
+            if owner == original_owner && parent_id.is_none() && let Some(evidence) = output_evidence {
+                evidence.extend(owner, &active, &mut computed)?;
             }
         }
         let children = census.children.get(&parent_id).map(Vec::as_slice).unwrap_or(&[]);

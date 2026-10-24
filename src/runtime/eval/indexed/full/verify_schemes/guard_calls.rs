@@ -12,7 +12,7 @@ pub(in crate::runtime::eval::indexed::full) struct ResolvedGuardCall {
     pub(in crate::runtime::eval::indexed::full) parent: Arc<CallSubstitution>,
 }
 
-fn source(store: &FullStore, call: FullGuardCall, budget: &mut SchemeInstantiationBudget) -> Result<(FullInstantiation, FullSchemeId), IrVerifyError> {
+pub(super) fn source(store: &FullStore, call: FullGuardCall, budget: &mut SchemeInstantiationBudget) -> Result<(FullInstantiation, FullSchemeId), IrVerifyError> {
     budget.charge(1)?;
     let instruction = call.instruction as usize;
     let arguments;
@@ -95,7 +95,74 @@ pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullS
     Ok(!concrete)
 }
 
-pub(in crate::runtime::eval::indexed::full) fn resolve(store: &FullStore, mut call: FullGuardCall, mut ordinal: u32, caller: Arc<CallSubstitution>, budget: &mut SchemeInstantiationBudget) -> Result<ResolvedGuardCall, IrVerifyError> {
+#[derive(Clone, Copy)]
+struct GuardCallHop {
+    caller: FullSchemeId,
+    scope: Option<GuardScopeId>,
+    callee: FullSchemeId,
+    arguments: FullInstantiation,
+}
+
+pub(super) struct GuardOutputEvidence {
+    owner: FullSchemeId,
+    scope: Option<GuardScopeId>,
+    binders: super::SchemeBinderEvidence,
+}
+
+impl GuardOutputEvidence {
+    pub(super) fn extend(self, owner: FullSchemeId, scope: &SchemeScope, evidence: &mut super::SchemeBinderEvidence) -> Result<(), IrVerifyError> {
+        if self.owner != owner || self.scope != scope.active_guard { return Err(IrVerifyError::new("guard output evidence belongs to another callable or lexical scope")); }
+        for &binder in &self.binders.types { scope.check_type_binder(binder)?; }
+        for &binder in &self.binders.rows { scope.check_row_binder(binder)?; }
+        evidence.types.extend(self.binders.types);
+        evidence.rows.extend(self.binders.rows);
+        Ok(())
+    }
+}
+
+pub(in crate::runtime::eval::indexed::full) fn resolve(store: &FullStore, call: FullGuardCall, ordinal: u32, caller: Arc<CallSubstitution>, budget: &mut SchemeInstantiationBudget) -> Result<ResolvedGuardCall, IrVerifyError> {
+    resolve_inner(store, call, ordinal, caller, None, budget)
+}
+
+pub(super) fn resolve_with_output_evidence(store: &FullStore, call: FullGuardCall, ordinal: u32, caller: Arc<CallSubstitution>, budget: &mut SchemeInstantiationBudget) -> Result<(ResolvedGuardCall, Option<GuardOutputEvidence>), IrVerifyError> {
+    let mut hops = Vec::new();
+    let resolved = resolve_inner(store, call, ordinal, caller, Some(&mut hops), budget)?;
+    let Some(output) = resolved.metadata.output else { return Ok((resolved, None)); };
+    let (types, rows) = super::scheme_type_binders(store, output.outward, budget)?;
+    let mut evidence = super::SchemeBinderEvidence { types, rows };
+    let mut owner = resolved.owner;
+    let origin = *hops.first().ok_or_else(|| IrVerifyError::new("guard output has no actual call origin"))?;
+    for hop in hops.into_iter().rev() {
+        budget.charge(1)?;
+        if hop.callee != owner { return Err(IrVerifyError::new("guard output crosses another callable namespace")); }
+        let mut next = super::SchemeBinderEvidence::default();
+        for argument in bounded(hop.arguments.type_arguments, &store.call_type_arguments, "guard output type arguments are invalid")? {
+            budget.charge(1)?;
+            if !evidence.types.remove(&(argument.binder as usize)) { continue; }
+            let (types, rows) = super::scheme_type_binders(store, argument.ty, budget)?;
+            next.types.extend(types);
+            next.rows.extend(rows);
+        }
+        for argument in bounded(hop.arguments.row_arguments, &store.call_row_arguments, "guard output row arguments are invalid")? {
+            budget.charge(1)?;
+            if !evidence.rows.remove(&(argument.binder as usize)) { continue; }
+            if argument.tail != IR_NONE { next.rows.insert(argument.tail as usize); }
+            for field in bounded(argument.fields, &store.call_row_fields, "guard output row fields are invalid")? {
+                budget.charge(1)?;
+                let (types, rows) = super::scheme_type_binders(store, field.ty, budget)?;
+                next.types.extend(types);
+                next.rows.extend(rows);
+            }
+        }
+        if !evidence.types.is_empty() || !evidence.rows.is_empty() { return Err(IrVerifyError::new("guard output binder has no actual call substitution")); }
+        evidence = next;
+        owner = hop.caller;
+    }
+    if owner != origin.caller { return Err(IrVerifyError::new("guard output has another original caller")); }
+    Ok((resolved, Some(GuardOutputEvidence { owner, scope: origin.scope, binders: evidence })))
+}
+
+fn resolve_inner(store: &FullStore, mut call: FullGuardCall, mut ordinal: u32, caller: Arc<CallSubstitution>, mut hops: Option<&mut Vec<GuardCallHop>>, budget: &mut SchemeInstantiationBudget) -> Result<ResolvedGuardCall, IrVerifyError> {
     let mut parent = caller;
     for _ in 0..=crate::sema::constraints::MAX_TYPE_DEPTH {
         budget.charge(1)?;
@@ -106,6 +173,10 @@ pub(in crate::runtime::eval::indexed::full) fn resolve(store: &FullStore, mut ca
         verify_origin(store, call, ordinal, budget)?;
         let (arguments, owner) = source(store, call, budget)?;
         let scheme = store.scheme(owner)?;
+        if let Some(hops) = hops.as_deref_mut() {
+            budget.charge(4)?;
+            hops.push(GuardCallHop { caller: current_owner, scope: current_scope, callee: owner, arguments });
+        }
         parent = Arc::new(instantiate_invocation(store, owner, scheme, &arguments, &parent, budget)?);
         match call.target {
             FullGuardCallTarget::Scope(id) => {

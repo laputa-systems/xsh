@@ -654,6 +654,13 @@ verification follows this bounded chain to classify the actual source and prove
 the complete live pack or exact Null absence. Prepared residual packets retain
 the caller, lexical scope, call ordinal, and physical source alongside the final
 callee and guard. Forwarding checks both origins before transferring a packet.
+Computed result evidence follows the same authenticated residual call chain.
+After the final guard's output and local bindings pass validation, its required
+binders are projected backward through those exact call type and row arguments.
+Each hop retains its callable namespace. Only the original callable and lexical
+scope can consume the resulting evidence; matching numeric binder IDs or closed
+types do not permit transfer to another owner. Runtime preparation retains the
+existing checked packets and performs no evidence inference.
 Pending source relationships rediscover canonical type, row, and effect watchers
 through the existing wrapper journal after aliases resolve.
 Guarded effect contributions retain an actual local aggregate and a parent-owned
