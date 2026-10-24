@@ -3131,6 +3131,111 @@ test verify_closed_fallbacks {{
         verify_closed_wrapper_fallbacks("");
     }
 
+    fn verify_proc_match_completion(annotation: &str, result_annotation: &str) {
+        let source = format!(r#"error MatchFailure = Bad
+pure source_result(flag: Bool) -> Result[Int] {{ if flag {{ Ok(9) }} else {{ Err(MatchFailure.Bad()) }} }}
+pure expected_bool(value: Bool) -> Result[Bool] {{ Ok(value) }}
+proc tail_match(marker{annotation}, flag: Bool) [] {result_annotation} {{
+  let _ = marker
+  match source_result(flag) {{
+    Ok(_) => Ok(true)
+    Err(failure) => if !flag {{ Ok(false) }} else {{ Err(failure) }}
+  }}
+}}
+test verify_match_completion {{
+  assert tail_match(7, true) == expected_bool(true)
+  assert tail_match(7, false) == expected_bool(false)
+}}
+"#);
+        verify_optional_guard_test_source(&source, "verify_match_completion");
+    }
+
+    #[test]
+    fn typed_proc_tail_match_preserves_value_completion() {
+        verify_proc_match_completion(": Int", "-> Result[Bool]");
+    }
+
+    #[test]
+    fn inferred_proc_tail_match_preserves_value_completion() {
+        verify_proc_match_completion(": Int", "");
+    }
+
+    #[test]
+    fn generic_proc_tail_match_preserves_value_completion() {
+        verify_proc_match_completion("", "");
+    }
+
+    #[test]
+    fn inferred_proc_control_completions_preserve_early_returns_and_unit() {
+        verify_optional_guard_test_source(r#"error CompletionFailure = Bad
+pure failed_number() -> Result[Int] { Err(CompletionFailure.Bad()) }
+proc branches(mode: Int) {
+  if mode == 0 { return Ok(0) }
+  for item in [1] { if mode == 1 { return Ok(item) } }
+  match failed_number() {
+    Ok(value) => Ok(value)
+    Err(failure) => if mode == 2 { Ok(2) } else { Err(failure) }
+  }
+}
+proc statement_only(flag: Bool) { if flag { let _ = 7 } else { let _ = 8 } }
+proc partial_statement(flag: Bool) { if flag { let _ = 7 } }
+test verify_completion_control {
+  assert branches(0) == Ok(0)
+  assert branches(1) == Ok(1)
+  assert branches(2) == Ok(2)
+  assert branches(3) == failed_number()
+  assert statement_only(true) == Ok()
+  assert statement_only(false) == Ok()
+  assert partial_statement(true) == Ok()
+  assert partial_statement(false) == Ok()
+}
+"#, "verify_completion_control");
+    }
+
+    #[test]
+    fn authored_nonunit_proc_still_requires_a_return_value() {
+        for source in [
+            "proc missing(flag: Bool) [] -> Result[Int] { if flag { return Ok(7) } }",
+            "proc missing(flag: Bool) [] -> Result[Int] { if flag { let _ = 7 } else { let _ = 8 } }",
+        ] {
+            let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(!checked.diagnostics.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn inferred_proc_branch_completions_run_cleanup_once() {
+        verify_optional_guard_test_source(r#"var cleaned = 0
+proc complete(flag: Bool) {
+  defer { cleaned += 1 }
+  if flag { Ok(7) } else { Ok(9) }
+}
+test verify_completion_cleanup {
+  assert complete(true) == Ok(7)
+  assert cleaned == 1
+  assert complete(false) == Ok(9)
+  assert cleaned == 2
+}
+"#, "verify_completion_cleanup");
+    }
+
+    #[test]
+    fn inferred_proc_completions_require_physical_arm_returns() {
+        let program = prepare("proc complete(flag: Bool) { if flag { Ok(7) } else { Ok(9) } }");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "complete").unwrap();
+        let returns = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| program.store.tags[instruction] == FullTag::StmtReturn).collect::<Vec<_>>();
+        assert_eq!(returns.len(), 2);
+        for returned in returns {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert_eq!(changed.store.data[returned].range().bounds(changed.store.extra.len()).unwrap().len(), 1);
+            changed.store.tags[returned] = FullTag::StmtValue;
+            assert!(FullVerifier::verify(&changed).is_err());
+        }
+    }
+
     #[test]
     fn closed_result_fallbacks_require_actual_source_payload_and_owner() {
         let program = prepare("pure keep(marker, value: Result[Int, Str], backup: Int, wrong: Str) -> Int { let _ = marker; value ?? backup }\npure other(marker) { marker }");

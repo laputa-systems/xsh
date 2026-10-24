@@ -16,6 +16,19 @@ pub(super) enum TempDirLoweringDomain<'a> {
 
 pub(super) enum CollectYieldKind { Item, List }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum TailBlockPurpose { CheckedPosition, ProcCompletion }
+
+impl TailBlockPurpose {
+    pub(super) fn completes_control(self, arena: &crate::syntax::arena::AstArena, tail: StmtId) -> bool {
+        self == Self::ProcCompletion && match arena.stmt(tail).kind {
+            ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. } => true,
+            ArenaStmtKind::Expr(expression) => matches!(arena.expr(expression).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) enum CollectSlot {
     Ordinary(usize),
@@ -38,12 +51,13 @@ pub(super) enum CollectLoweringDomain<'a> {
 }
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
-    pub(super) fn lower_tail_block(
+    pub(super) fn lower_tail_block_for_purpose(
         &mut self,
         block: BlockId,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        purpose: TailBlockPurpose,
     ) -> Option<Vec<BuildStmtId>> {
         let transfers_resource = self
             .bodies
@@ -63,7 +77,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 item_slot,
             )?);
         }
-        if self.bodies.statement_positions.get(&tail)
+        let completion_control = purpose.completes_control(&self.program.arena, tail);
+        if !completion_control && self.bodies.statement_positions.get(&tail)
             == Some(&crate::sema::check::StatementPosition::Statement)
         {
             lowered.push(self.lower_stmt_with_blocker_guard(
@@ -107,6 +122,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 slots,
                 current_function,
                 item_slot,
+                purpose,
             ) {
                 Some(stmt) => stmt,
                 None => {
@@ -118,6 +134,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         });
                 }
             },
+            ArenaStmtKind::Match { value, arms } if purpose == TailBlockPurpose::ProcCompletion => {
+                self.lower_tail_match_stmt(value, arms, self.program.arena.stmt(tail).span, slots, current_function, item_slot, purpose)?
+            }
             ArenaStmtKind::Match { value, arms } => push_build_row!(
                 self,
                 stmt,
@@ -141,6 +160,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 slots,
                                 current_function,
                                 item_slot,
+                                purpose,
                             ) {
                                 lowered.push(stmt);
                                 return Some(lowered);
@@ -479,11 +499,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         ))
     }
 
-    /// Lower an `if` in tail (return) position into a `BuildStmtRow::If`/`IfBool`
-    /// whose branch bodies (and else body) are lowered as tail-blocks — each
-    /// branch's trailing expression becomes a `Return`. This handles a tail
-    /// `if cond { a } else { b }` whose branches produce a value, which a plain
-    /// statement-if would discard. Returns `None` if any branch cannot lower.
     fn lower_tail_if_stmt(
         &mut self,
         branches: crate::syntax::arena::ArenaRange,
@@ -491,6 +506,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        purpose: TailBlockPurpose,
     ) -> Option<BuildStmtId> {
         let branches = self.program.arena.if_branches(branches).to_vec();
         let mut lowered = Vec::with_capacity(branches.len());
@@ -503,14 +519,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 current_function,
                 item_slot,
             )?;
-            let body = self.lower_tail_block(branch.block, slots, current_function, item_slot);
+            let body = self.lower_tail_block_for_purpose(branch.block, slots, current_function, item_slot, purpose);
             slots.exit(saved);
             lowered.push((condition, body?, captures));
         }
         let else_body = match else_block {
             Some(block) => {
                 let saved = slots.enter();
-                let body = self.lower_tail_block(block, slots, current_function, item_slot);
+                let body = self.lower_tail_block_for_purpose(block, slots, current_function, item_slot, purpose);
                 slots.exit(saved);
                 Some(body?)
             }
@@ -561,12 +577,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         ))
     }
 
-    /// Lower a `match` in tail (return) position into a `BuildStmtRow::Match`
-    /// whose arm bodies are lowered as tail-blocks — each arm's trailing
-    /// expression becomes a `Return`. This handles arms whose body is a
-    /// multi-statement block producing a value (e.g. `P => { let a = ..; a }`),
-    /// which cannot be expressed as a `MatchExpr` (there is no block-expression
-    /// form). Returns `None` if any arm cannot be lowered.
     fn lower_tail_match_stmt(
         &mut self,
         value: ExprId,
@@ -575,6 +585,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
+        purpose: TailBlockPurpose,
     ) -> Option<BuildStmtId> {
         let (ok_binding_ty, err_binding_ty) = self.compact_match_scrutinee_result_types(value);
         let value = self.lower_expr(value, slots, current_function, item_slot)?;
@@ -595,7 +606,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // gets this from `lower_block`; the tail path uses `lower_tail_block`
             // which doesn't scope on its own.)
             let saved = slots.enter();
-            let body = self.lower_tail_block(arm.block, slots, current_function, item_slot);
+            let body = self.lower_tail_block_for_purpose(arm.block, slots, current_function, item_slot, purpose);
             slots.exit(saved);
             let body = match body {
                 Some(body) => body,

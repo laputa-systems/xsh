@@ -2969,13 +2969,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 slots.types.insert(binding, parameter.ty.clone());
             }
         }
+        let ground_tail_purpose = if scheme_body_facts.is_none() && callable_kind == CallableKind::Proc && def.return_ty_defaulted
+            && self.declarations.function_return_types.get(&body_span).is_some_and(|ty| matches!(ty, Type::Result(value, _) if **value != Type::Unit) && !ty.contains_inference())
+        { control::TailBlockPurpose::ProcCompletion } else { control::TailBlockPurpose::CheckedPosition };
         let (mut body, scheme_body_types, scheme_tail_types) =
             if let Some(facts) = scheme_body_facts.as_ref() {
                 self.lower_scheme_body(def.body, &mut slots, def.name, facts, scheme_default_types, scheme_default_visited)
                     .ok_or(CompactFunctionBlocker::Body)?
             } else {
                 let body = self
-                    .lower_tail_block(def.body, &mut slots, Some(def.name), None)
+                    .lower_tail_block_for_purpose(def.body, &mut slots, Some(def.name), None, ground_tail_purpose)
                     .ok_or_else(|| {
                         if self.last_blocker_detail.is_none() {
                             self.last_blocker_detail = Some((
@@ -3039,7 +3042,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .last()
                 .map(|tail| self.program.arena.core_stmt_id(tail))
                 .is_some_and(|tail| {
-                    self.bodies.statement_positions.get(&tail)
+                    ground_tail_purpose.completes_control(&self.program.arena, tail) || self.bodies.statement_positions.get(&tail)
                         != Some(&crate::sema::check::StatementPosition::Statement)
                 });
             block_callable_body_cannot_fall_through_arena(

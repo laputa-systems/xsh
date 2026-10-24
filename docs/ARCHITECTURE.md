@@ -921,7 +921,9 @@ arms and structured `return if` and `return match` arms retain separate raw
 completions. Their control nodes have no material type; conditions, guards, and
 value leaves retain their checked facts. The checker normalizes those completions
 after collecting the body's propagated errors. Lowering emits one return per arm
-with its authenticated envelope. When a structured return has no material control
+with its authenticated envelope. Ground defaulted procs use the same arm-value
+completion rule when their checked return has non-Unit success; statement-only
+Unit bodies retain ordinary fallthrough completion. When a structured return has no material control
 fact, resource transfer requires the checked facts of every completing value leaf.
 Missing leaf evidence blocks publication. Values checked against settled return types retain their contextual
 facts, schemas, and ordinary joins. Branches used as values keep their raw type join. A shared descriptor must
