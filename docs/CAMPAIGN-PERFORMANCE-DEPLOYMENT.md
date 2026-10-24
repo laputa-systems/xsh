@@ -27,34 +27,46 @@ focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration is `b8e136e76`. Reviewed follow-ons now include
-canonical enum and Result comparison, nullable targets, generic Collect, five
-pipeline shape stages, imported callable-value borrowing, scoped constructor
-proofs, shared lexical-binding memoization and generated With lifecycle proofs.
-The constructor change preserves scoped schema arguments and validates phantom
-relationships against canonical declaration context; its 36 focused controls
-pass. Binding memoization keeps the existing work bound and passes six controls;
-older matching products reproduce the original budget failure. The With repair
-passes two new controls and eleven affected existing controls. These are focused
-claims; the next immutable combined library/product boundary remains pending.
+Current provisional integration is `a05a417a9` (2026-10-24). It includes
+reviewed ground and scoped constructors, generic error constructors, actual
+imported declaration relationships, JSON encoding, immutable Optional guards,
+Each/Tee, four adapters, table printing and keyed reductions. Focused results
+remain provisional until the next combined qualification. Mutable Optional guard
+relationships, Sum/Min/Max, closed Null arguments and the remaining corpus
+failures have separate expert owners. No mandatory item is waived.
 
-Combined library source `8a417a9e3` compiles, then reports 2,402 passes,
-four failures and three ignored tests. The preceding `f43200425` attempt failed
-to compile because two newly combined callers retained old helper types; both
-are repaired before this run. The four runtime-boundary failures cover ground
-imported streams, TempDir result evidence, the shared callback companion and
-stream-alias call metadata. Their owners must distinguish real regressions from
-obsolete assertions and retain all meaningful negatives. The product build did
-not run after this failed boundary. Both failed sources and logs remain in
-`.work/wt/full-inference-scoped-wave-{qualification,r2}/`.
+The failed combined library source `8a417a9e3` reported 2,402 passes, four
+failures and three ignored tests. All four failures are repaired and their exact
+controls pass together on immutable `fa7fa2124497c539ffd1a9b41c85eff84b54aab7`.
+Its matching verification products build without warnings. Normal and forced
+native routes each pass 173 selectors; six API selectors also pass, with no
+failures or skips. These results qualify that source, not subsequent edits.
+Products and logs remain in `.work/wt/full-inference-fixed-wave-qualification/`.
+The last complete passing Rust library run remains `c0e6e773f` below.
 
-FsRoot repair `892ad2b9b`, integrated as `b8e136e76`, passes eleven focused
-controls with independent review. The exact source verifies receiver identity,
-optional argument slots, order, effects, close/error behavior and frontend
-disposal on both routes. Matching-product CLI qualification remains pending.
-Remaining stage work is split into observers, numeric/selecting aggregates and
-four text/byte/JSON adapters. Review and preparation continue while regression
-owners repair the failed combined boundary; no broader gate credit transfers.
+The `fa7fa2124` historical replay passes original roots and runtime selectors,
+then fails the reduced system-report root at a guarded Optional relationship.
+The reviewed immutable-guard repair advances the focused source past that
+failure; complete paired replay and interface qualification remain pending.
+There is no new annotation-removal credit. Explicit dynamic output contracts,
+149 empty Map meaning selectors and intentional effect restrictions stay in
+the accounting; percentages do not justify changing source meaning.
+
+The warning-denied boundary precedes the next combined library/product run.
+Runtime and checker lint repairs have disjoint owners; the coordinator owns
+registry, networking and census repairs. Existing physical leases still limit
+the host to two Cargo jobs and one native job. Ready source reviews and
+integration run while those checks execute. The next native roster also adds
+the adapter, observer, table and keyed-reduction fixtures on both routes.
+
+F6 preparation adds six raw counters and four named-constructor workload
+shapes without changing the previous eight families or census denominators.
+Thirty-one of 32 new annotation variants execute successfully; the required
+inferred size-512 case fails the existing generic materialization work bound.
+It remains mandatory. Raw binder-clone counts are 8,704, 33,792, 133,120 and
+528,384 at sizes 64, 128, 256 and 512. These counts are not timing results or
+F6 acceptance. An expert is investigating repeated whole-substitution
+validation per argument without raising the budget or dropping assertions.
 
 The previous `50f4552aa` product boundary passes six API selectors. Each native
 route runs 161 cases: 159 pass and two fixture defects fail. The corrected
