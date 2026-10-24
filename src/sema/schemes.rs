@@ -428,6 +428,27 @@ impl TypeScheme {
         self.callable.return_type()
     }
 
+    pub(crate) fn method_path_return_matches(&self, actual: &SchemeType) -> bool {
+        if !self.explicit_return() { return false; }
+        let payload = match (self.kind(), self.return_type(), actual) {
+            (crate::sema::types::CallableKind::Pure, SchemeType::Ground(Type::Path), actual) => actual,
+            (crate::sema::types::CallableKind::Proc, SchemeType::Result(ok, error), SchemeType::Result(actual_ok, actual_error))
+                if **ok == SchemeType::Ground(Type::Path) && actual_error.matches_body_return(error) => actual_ok,
+            _ => return false,
+        };
+        self.method_path_return_payload(payload)
+    }
+
+    pub(crate) fn method_path_return_payload(&self, actual: &SchemeType) -> bool {
+        if !self.explicit_return() || !matches!(actual, SchemeType::Parameter(_)) { return false; }
+        let header = match (self.kind(), self.return_type()) {
+            (crate::sema::types::CallableKind::Pure, SchemeType::Ground(Type::Path)) => true,
+            (crate::sema::types::CallableKind::Proc, SchemeType::Result(ok, _)) => **ok == SchemeType::Ground(Type::Path),
+            _ => false,
+        };
+        header && self.callable().requirements().methods.iter().any(|method| method.result == *actual && crate::modules::api_spec().method_family_returns_paths(method.family))
+    }
+
     pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation<SchemeType>> {
         self.callable.return_schema()
     }

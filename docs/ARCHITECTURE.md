@@ -414,7 +414,17 @@ is established.
 Finite registered method families retain their receiver, source-ordered
 arguments, parameter slots and result in the checked scheme. Each physical
 method site identifies its owned requirement; call evidence either selects a
-canonical registry member or forwards a caller-owned requirement. Cold
+canonical registry member or forwards a caller-owned requirement. Path parent
+and normalization retain a separate result binder, solved from the selected
+signature after the actual receiver is known. Method dependencies share the
+journaled application fixed point and the binder-evidence reachability graph;
+consumer expectations do not supply actual result types. An authored Path
+return can accept a direct method result binder only when every canonical
+member returns Path or RelPath. The same-owner header and returned producer
+remain independently verified, including a Proc's Result success payload.
+A pending method
+result passed to a known formal retains its exact assignability edge until
+invocation evidence discharges it. Cold
 verification maps source arguments through those slots to the actual physical
 operands. Execution replays the selected identity using the existing invocation
 substitution and host operation path. It performs no runtime type solving or

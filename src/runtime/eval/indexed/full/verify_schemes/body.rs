@@ -1844,11 +1844,13 @@ pub(super) fn verify_body(
                                 }
                                 super::wrappers::completion_accepts_returned_result(store, scheme_scope, group, source, expected_return, budget)?
                             } else { false };
-                            if !actual.matches_body_return(expected_return) && !joined_result_source {
+                            let method_path_return = !actual.matches_body_return(expected_return)
+                                && super::methods::written_path_return_matches(store, decoder.owner, scheme_scope, &actual, expected_return, budget)?;
+                            if !actual.matches_body_return(expected_return) && !joined_result_source && !method_path_return {
                                 return Err(IrVerifyError::new("generic body return does not match its scheme return"));
                             }
                             if let Some(tail) = tails.remove(&instruction) {
-                                let tail_matches = if joined_result_source {
+                                let tail_matches = if joined_result_source || method_path_return {
                                     body_types_equal(&tail, &actual)
                                 } else {
                                     tail.matches_body_return(expected_return)
@@ -2866,6 +2868,163 @@ test namespace_borrow {
                 scheme.body_facts.start += 1;
             }
         }
+    }
+
+    #[test]
+    fn path_method_results_authenticate_receivers_members_and_consumers() {
+        let program = prepare(r#"
+pure parent_transform(location, other: Int) { let _ = other; let _ = "unknown"; location.parent() }
+pure normalize_transform(location) { location.normalize() }
+pure path_text(location: Path) -> Str { location.display() }
+pure contextual(location) { let first = parent_transform(location, 7); path_text(first) }
+let relative: RelPath = p"a/b"
+let parent_relative: RelPath = parent_transform(relative, 7)
+let parent_absolute: Path = parent_transform(p"/a/b", 7)
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "parent_transform").unwrap();
+        let other = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "normalize_transform").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { unreachable!() };
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let method_index = scheme.methods.start as usize;
+        assert_eq!(scheme.methods.len, 1);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let method = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { .. }))).unwrap();
+        let integer = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let reject = |mut changed: FullProgram, label: &str| {
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+        };
+        let receivers = range.clone().filter(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).collect::<Vec<_>>();
+        assert_eq!(receivers.len(), 1);
+        let receiver = receivers[0];
+        assert!(matches!(decoder.expression_view(integer).unwrap(), schema::ExprView::Param(1)));
+        let mut wrong_receiver = program.clone();
+        let receiver_words = wrong_receiver.store.data[receiver].range().bounds(wrong_receiver.store.extra.len()).unwrap();
+        assert_eq!(receiver_words.len(), 1);
+        wrong_receiver.store.extra[receiver_words.start] = 1;
+        reject(wrong_receiver, "actual method receiver");
+        let words = program.store.data[method].range().bounds(program.store.extra.len()).unwrap();
+        let normal_name = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "normalize").unwrap().0 as u32 + 1;
+        let mut wrong_name = program.clone();
+        wrong_name.store.extra[words.start + 1] = normal_name;
+        reject(wrong_name, "actual method name");
+        let mut wrong_family = program.clone();
+        wrong_family.store.scheme_methods[method_index].family = xsh_registry::signature::MethodFamilyId::PathNormalize;
+        reject(wrong_family, "retained method family");
+        let mut wrong_result = program.clone();
+        let result_type = program.store.scheme_methods[method_index].result;
+        let receiver_type = program.store.scheme_methods[method_index].receiver;
+        assert_eq!(program.store.scheme_types[result_type.index()].tag, FullSchemeTypeTag::Parameter);
+        wrong_result.store.scheme_types[result_type.index()].first = program.store.scheme_types[receiver_type.index()].first;
+        reject(wrong_result, "independent result binder");
+        let method_fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Method(_))).unwrap();
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.scheme_body_facts[method_fact].function = IrFunctionId::new(other).unwrap();
+        reject(wrong_owner, "method source owner");
+        let contextual = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "contextual").unwrap();
+        let FullCallableContract::Scheme(contextual_scheme) = program.store.functions[contextual].contract else { unreachable!() };
+        let contextual_scheme = program.store.scheme(contextual_scheme).unwrap();
+        let known = contextual_scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| match program.store.scheme_applications[index] {
+            super::super::super::schemes::FullSchemeApplication::KnownArguments { parameters, arguments } => Some((parameters, arguments)),
+            _ => None,
+        }).unwrap();
+        let context_input = program.store.scheme_params[contextual_scheme.params.start as usize].ty;
+        let mut wrong_edge = program.clone();
+        let argument = known.1.start as usize;
+        let argument_type = program.store.scheme_application_arguments[argument].ty;
+        assert_eq!(program.store.scheme_types[argument_type.index()].tag, FullSchemeTypeTag::Parameter);
+        assert_ne!(program.store.scheme_types[argument_type.index()].first, program.store.scheme_types[context_input.index()].first);
+        wrong_edge.store.scheme_types[argument_type.index()].first = program.store.scheme_types[context_input.index()].first;
+        reject(wrong_edge, "required actual result edge");
+        let mut wrong_formal = program.clone();
+        let integer_type = program.store.scheme_params[scheme.params.start as usize + 1].ty;
+        let formal_type = program.store.scheme_callable_parameters[known.0.start as usize].ty;
+        assert_eq!(program.store.scheme_types[formal_type.index()].tag, FullSchemeTypeTag::Ground);
+        wrong_formal.store.scheme_types[formal_type.index()].first = program.store.scheme_types[integer_type.index()].first;
+        reject(wrong_formal, "required consumer formal");
+    }
+
+    #[test]
+    fn authored_path_method_returns_authenticate_their_header_and_actual_tail() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare("pure written(location, other) -> Path { let _ = other.parent(); location.parent() }\npure foreign(location: Path) -> Path { location }\nlet relative: RelPath = p\"a/b\"\nlet _ = written(p\"/a/b\", relative)\n");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        assert!(scheme.explicit_return);
+        assert_eq!(scheme.methods.len, 2);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) => Some(value.raw()),
+            _ => None,
+        }).unwrap();
+        let (fact, tail) = scheme.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap().find_map(|index| match program.store.scheme_body_facts[index] {
+            super::super::super::schemes::FullSchemeBodyFact { instruction, value: FullSchemeBodyFactValue::Expression(ty), .. } if instruction == value => Some((index, ty)),
+            _ => None,
+        }).unwrap();
+        assert_eq!(program.store.scheme_types[tail.index()].tag, FullSchemeTypeTag::Parameter);
+        let other_result = bounded(scheme.methods, &program.store.scheme_methods, "methods").unwrap().iter().map(|method| method.result).find(|result| program.store.scheme_types[result.index()].first != program.store.scheme_types[tail.index()].first).unwrap();
+        let reject = |mut changed: FullProgram, label: &str| {
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+        };
+        let mut unwritten = program.clone();
+        unwritten.store.schemes[scheme_id.index()].explicit_return = false;
+        reject(unwritten, "actual authored return flag");
+        let mut wrong_tail = program.clone();
+        wrong_tail.store.scheme_types[tail.index()].first = program.store.scheme_types[other_result.index()].first;
+        reject(wrong_tail, "actual returned result binder");
+        let mut wrong_owner = program.clone();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        assert_ne!(owner, foreign);
+        wrong_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(foreign).unwrap();
+        reject(wrong_owner, "actual return source owner");
+    }
+
+    #[test]
+    fn unused_path_method_results_still_require_canonical_call_evidence() {
+        let program = prepare("pure unused_parent(location) { let _ = location.parent(); true }\nlet relative: RelPath = p\"a/b\"\nassert unused_parent(relative)\nassert unused_parent(p\"/a/b\")\n");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let method = program.store.scheme_methods[scheme.methods.start as usize];
+        let result = program.store.scheme_types[method.result.index()];
+        assert_eq!(result.tag, FullSchemeTypeTag::Parameter);
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let scope = scopes[scheme_id.index()].as_ref().unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        let path_type = program.store.call_type_arguments.iter().find_map(|argument| {
+            (program.store.scheme_types[argument.ty.index()].tag == FullSchemeTypeTag::Ground
+                && decode_scheme_type(&program.store, scope, argument.ty, &mut budget, 0).unwrap().closed_ground_type() == Some(Type::Path)).then_some(argument.ty)
+        }).unwrap();
+        let call = program.store.call_instantiations.iter().find(|call| {
+            program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)
+                && bounded(call.arguments.type_arguments, &program.store.call_type_arguments, "arguments").unwrap().iter().any(|argument| argument.binder == result.first
+                    && decode_scheme_type(&program.store, scope, argument.ty, &mut SchemeInstantiationBudget::new(&program.store), 0).unwrap().closed_ground_type() == Some(Type::rel_path()))
+        }).unwrap();
+        let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        let output = arguments.clone().find(|&index| program.store.call_type_arguments[index].binder == result.first).unwrap();
+        let mut wrong_result = program.clone();
+        wrong_result.store.in_place.take();
+        assert!(wrong_result.store.in_place.get().is_none());
+        let result_type = program.store.call_type_arguments[output].ty;
+        let receiver_binder = program.store.scheme_types[method.receiver.index()].first;
+        let receiver_type = arguments.clone().find_map(|index| (program.store.call_type_arguments[index].binder == receiver_binder).then_some(program.store.call_type_arguments[index].ty)).unwrap();
+        assert_ne!(result_type, receiver_type);
+        assert_eq!(program.store.scheme_types[result_type.index()].tag, FullSchemeTypeTag::Ground);
+        wrong_result.store.scheme_types[result_type.index()].first = program.store.scheme_types[path_type.index()].first;
+        let error = FullVerifier::verify(&wrong_result).unwrap_err();
+        assert!(error.message.contains("canonical result"), "{error:?}");
+        let member = crate::modules::api_spec().method_family_members(xsh_registry::signature::MethodFamilyId::PathParent).find(|(_, domain, _, _)| *domain == crate::modules::MethodReceiver::Path).unwrap().0;
+        let mut wrong_member = program.clone();
+        wrong_member.store.in_place.take();
+        assert!(wrong_member.store.in_place.get().is_none());
+        assert_eq!(call.arguments.method_bindings.len, 1);
+        wrong_member.store.call_method_bindings[call.arguments.method_bindings.start as usize] = super::super::super::schemes::FullMethodBinding::Selected(member);
+        assert!(FullVerifier::verify(&wrong_member).unwrap_err().message.contains("canonical input signature"));
     }
 
     #[test]

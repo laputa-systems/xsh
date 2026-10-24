@@ -3211,7 +3211,9 @@ Inferred method calls retain finite registered families. `len()` accepts List,
 Map, Set, and Bytes receivers; `is_empty()` also accepts Str. There is no
 `Str.len()`. A generic `Path.write` call selects its text or bytes overload,
 with or without an explicit mode, from its checked input types. Independent
-calls select independently. Result annotations do not select a receiver or
+calls select independently. `parent()` and `normalize()` accept Path and
+RelPath receivers, returning Path and RelPath respectively. A Path result is
+not inferred to be RelPath. Result annotations do not select a receiver or
 argument domain. Named arguments retain their labels and evaluate once in
 written order, including when that order differs from parameter order.
 
@@ -3418,6 +3420,9 @@ A `convert(T, [Display, Argv, ...])` clause retains every required conversion;
 all listed conversions must hold. A
 `method-family(Family, receiver=T, args=[slot: A, ...]) -> R` clause retains
 the finite registered method family, receiver, argument layout and result.
+Path parent and normalization preserve the canonical selected signature's
+result: Path for a Path receiver and RelPath for a RelPath receiver. A written
+Path return accepts either result without choosing the receiver's domain.
 These clauses describe checked relationships and are not source syntax.
 
 Concrete instance comparison specializes schema arguments through the same

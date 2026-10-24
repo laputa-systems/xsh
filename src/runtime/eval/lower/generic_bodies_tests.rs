@@ -5291,3 +5291,67 @@ fn inferred_env_values_reject_nonconvertible_nullable_and_dynamic_inputs() {
         assert!(errors.iter().all(|diagnostic| diagnostic.code != Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{body}\n{errors:?}");
     }
 }
+
+#[test]
+fn generic_path_transforms_preserve_canonical_results_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/xsh/generic-path-transforms.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-path-transforms.xsh", crate::loader::entry_source_from_text("generic-path-transforms.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_path_transforms_preserve_canonical_results", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert_eq!(result.output.stdout, b"receiver\n", "frames={force_frames}");
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn imported_path_method_schemes_publish_separate_result_binders() {
+    on_scoped_body_test_stack(|| {
+        let directory = tempfile::Builder::new().prefix("path-method-schemes-").tempdir_in(".work/tmp").unwrap();
+        std::fs::write(directory.path().join("transforms.xsh"), "##! Canonical path transformations.\n## Returns the canonical parent domain.\nexport pure parent(location) { location.parent() }\n## Returns the canonical normalized domain.\nexport pure normal(location) { location.normalize() }\n").unwrap();
+        let source = r#"use transforms
+
+test imported_path_method_results {
+  let absolute: Path = p"/usr/share"
+  let relative: RelPath = p"usr/share"
+  let parent_absolute: Path = transforms.parent(absolute)
+  let parent_relative: RelPath = transforms.parent(relative)
+  let normalized: RelPath = transforms.normal(relative)
+  assert parent_absolute == p"/usr"
+  assert parent_relative == p"usr"
+  assert normalized == relative
+}
+"#;
+        let entry = directory.path().join("main.xsh");
+        std::fs::write(&entry, source).unwrap();
+        let (sources, parsed) = crate::loader::parse_script_with_module_roots(entry.to_str().unwrap(), &[directory.path().to_path_buf()]).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        for family in [xsh_registry::signature::MethodFamilyId::PathParent, xsh_registry::signature::MethodFamilyId::PathNormalize] {
+            let scheme = checked.function_schemes.values().find(|scheme| scheme.callable().requirements().methods.iter().any(|method| method.family == family)).unwrap();
+            let crate::sema::schemes::SchemeType::Parameter(receiver) = &scheme.params()[0].ty else { panic!("the exported receiver remains a caller-independent parameter") };
+            let crate::sema::schemes::SchemeType::Parameter(result) = scheme.return_type() else { panic!("the exported result retains its canonical member relationship") };
+            assert_ne!(receiver, result);
+        }
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        drop(directory);
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("imported_path_method_results", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}

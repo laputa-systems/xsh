@@ -46,6 +46,7 @@ impl TypeConstraints {
         let mut supported = self.unresolved_input_variables(formals)?;
         let mut visited = BTreeSet::new();
         let mut operations = BTreeSet::new();
+        let mut methods = BTreeSet::new();
         let mut wrappers = BTreeSet::new();
         loop {
             let mut changed = false;
@@ -57,6 +58,14 @@ impl TypeConstraints {
                 if let Some(result) = entry.operation.result() {
                     supported.extend(self.unresolved_input_variables(std::slice::from_ref(result))?);
                 }
+                changed = true;
+            }
+            for (&id, entry) in &self.methods.entries {
+                if methods.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
+                let inputs = std::iter::once(entry.requirement.receiver.clone()).chain(entry.requirement.arguments.iter().cloned()).collect::<Vec<_>>();
+                if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
+                methods.insert(id);
+                supported.extend(self.unresolved_input_variables(std::slice::from_ref(&entry.requirement.result))?);
                 changed = true;
             }
             for (&id, entry) in &self.wrappers.entries {

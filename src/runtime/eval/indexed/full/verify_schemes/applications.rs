@@ -232,7 +232,7 @@ fn selected_arguments(store: &FullStore, parameters: &[(ArgumentParameterLayout,
     Ok(())
 }
 
-pub(super) fn nullable_assignment_matches_ground(
+pub(super) fn known_argument_assignment_matches_ground(
     store: &FullStore,
     owner: u32,
     scope: &SchemeScope,
@@ -241,7 +241,7 @@ pub(super) fn nullable_assignment_matches_ground(
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<bool, IrVerifyError> {
     if body_type_matches_ground(actual, expected) { return Ok(true); }
-    if !matches!(actual, SchemeType::Parameter(_)) || !matches!(expected, Type::Optional(_)) { return Ok(false); }
+    if !matches!(actual, SchemeType::Parameter(_)) || !matches!(expected, Type::Optional(_)) && !super::methods::owns_selected_result(store, scope, actual, budget)? { return Ok(false); }
     let owner = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("nullable argument proof has no function owner"))?;
     let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("nullable argument proof owner is out of bounds"))?;
     let FullCallableContract::Scheme(scheme) = function.contract else { return Ok(false); };
@@ -408,6 +408,33 @@ pub(super) fn extend_call_binder_evidence(
         let source = parameter.binder as usize;
         let missing = usize::from(!evidence.types.contains(&source));
         if missing != 0 { watchers.entry((false, source)).or_default().push(ordinal); }
+        remaining.push(missing);
+        outputs.push(output);
+        if missing == 0 { ready.push(ordinal); }
+    }
+    for method in bounded(scheme.methods, &store.scheme_methods, "scheme method range is invalid")?.iter().filter(|_| selected_sources) {
+        budget.charge(1)?;
+        if !super::methods::authenticates_result_evidence(store, scope, *method, &substitution, budget)? { continue; }
+        let ordinal = outputs.len();
+        let mut inputs = BTreeSet::new();
+        let arguments = bounded(method.arguments, &store.scheme_method_arguments, "scheme method argument range is invalid")?;
+        budget.charge(arguments.len())?;
+        for root in std::iter::once(method.receiver).chain(arguments.iter().copied()) {
+            let (types, rows) = scheme_type_binders(store, root, budget)?;
+            budget.charge(types.len() + rows.len())?;
+            inputs.extend(types.into_iter().map(|id| (false, id)));
+            inputs.extend(rows.into_iter().map(|id| (true, id)));
+        }
+        let (types, rows) = scheme_type_binders(store, method.result, budget)?;
+        budget.charge(types.len() + rows.len())?;
+        let output = types.into_iter().map(|id| (false, id)).chain(rows.into_iter().map(|id| (true, id))).collect::<BTreeSet<_>>();
+        let mut missing = 0;
+        for key @ (row, binder) in inputs {
+            budget.charge(1)?;
+            if if row { evidence.rows.contains(&binder) } else { evidence.types.contains(&binder) } { continue; }
+            watchers.entry(key).or_default().push(ordinal);
+            missing += 1;
+        }
         remaining.push(missing);
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }

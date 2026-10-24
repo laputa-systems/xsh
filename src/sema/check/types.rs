@@ -320,6 +320,11 @@ impl Checker {
         actual: &Type,
         span: Span,
     ) -> Result<(), crate::sema::constraints::ConstraintConflict> {
+        match self.method_result_matches_written_path_return(expected, actual) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(error) => return Err(crate::sema::constraints::ConstraintConflict { expected: expected.clone(), actual: actual.clone(), initializer: None, established: None, contribution: span, resolution_error: Some(error) }),
+        }
         if let Some(seed) = self.prepared_nullable_seed(expected) {
             if self.collecting_local_constraints() {
                 self.type_constraints

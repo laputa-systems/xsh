@@ -36,6 +36,7 @@ pub(crate) enum CallableApplicationError {
     Effects(super::EffectConstraintError),
     Operation(super::SealedOperationError),
     Wrapper(super::WrapperConstraintError),
+    Method(super::method_constraints::MethodConstraintError),
 }
 
 impl From<ConstraintResolutionError> for CallableApplicationError {
@@ -65,6 +66,7 @@ impl std::fmt::Display for CallableApplicationError {
             },
             Self::Operation(error) => std::fmt::Display::fmt(error, formatter),
             Self::Wrapper(error) => std::fmt::Display::fmt(error, formatter),
+            Self::Method(error) => std::fmt::Display::fmt(error, formatter),
         }
     }
 }
@@ -1054,8 +1056,12 @@ impl TypeConstraints {
     }
 
     fn application_dependencies(&self, application: &CallableApplication<Type, super::EffectVariableId>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
+        self.application_type_dependencies(application.types())
+    }
+
+    pub(super) fn application_type_dependencies<'a>(&self, types: impl Iterator<Item = &'a Type>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
         enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
-        let mut pending = application.types().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
+        let mut pending = types.map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
         let mut dependencies = BTreeSet::new();
         while let Some(node) = pending.pop() {
             match node {
@@ -1121,7 +1127,8 @@ impl TypeConstraints {
                 this.solve_pending_callable_applications()?;
                 this.solve_sealed_operations().map_err(CallableApplicationError::Operation)?;
                 this.solve_wrapper_operations().map_err(CallableApplicationError::Wrapper)?;
-                if this.applications.pending.is_empty() && !this.operations.is_pending() && !this.wrappers.is_pending() { return Ok(()); }
+                this.solve_method_families().map_err(CallableApplicationError::Method)?;
+                if this.applications.pending.is_empty() && !this.operations.is_pending() && !this.wrappers.is_pending() && !this.methods.is_pending() { return Ok(()); }
             }
         })
     }
@@ -1228,6 +1235,7 @@ impl TypeConstraints {
     ) -> Result<bool, CallableApplicationError> {
         let required = self.resolve(required)?;
         let actual = self.resolve(actual)?;
+        if self.unresolved_method_result(&actual)? { return Ok(true); }
         let target = if let (Type::Optional(payload), Type::Inference(id)) = (&required, &actual) {
             if self.record_binding(*id)?.is_none() { return Ok(true); }
             payload.as_ref()

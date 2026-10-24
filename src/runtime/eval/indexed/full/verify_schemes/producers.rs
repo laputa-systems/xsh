@@ -4287,7 +4287,7 @@ impl<'a> ProducerProof<'a> {
         let function = self.store.functions.get(function_index(decoder.owner)?).ok_or_else(|| IrVerifyError::new("nullable pipeline argument owner is invalid"))?;
         let FullCallableContract::Scheme(scheme) = function.contract else { return Ok(false); };
         let scope = self.index.scheme_scopes(self.store)?.get(scheme)?;
-        super::applications::nullable_assignment_matches_ground(self.store, decoder.owner, scope, &actual, expected, &mut self.budget)
+        super::applications::known_argument_assignment_matches_ground(self.store, decoder.owner, scope, &actual, expected, &mut self.budget)
     }
 
     fn checked_unsigned_parameter_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize, function: usize, parameter: usize, expected: &Type) -> Result<bool, IrVerifyError> {

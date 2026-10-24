@@ -161,11 +161,15 @@ impl HostMethodCandidates {
     fn method_family_requirement(&self, name: &str) -> Option<(xsh_registry::signature::MethodFamilyId, Vec<u32>, Type, &'static MethodSig)> {
         let first = *self.candidates.first()?;
         let family = api_spec().method_family_id(first.receiver, name, first.signature)?;
-        let result = first.signature.sig.return_ty.clone();
+        let policy = api_spec().method_family_result(family)?;
+        let result = match &policy {
+            crate::modules::signature::MethodFamilyResult::UniformGround(result) => result.clone(),
+            crate::modules::signature::MethodFamilyResult::SelectedSignature => self.result.clone(),
+        };
         let mut slots = None;
         for candidate in &self.candidates {
             if api_spec().method_family_id(candidate.receiver, name, candidate.signature) != Some(family)
-                || candidate.signature.sig.return_ty != result
+                || matches!(&policy, crate::modules::signature::MethodFamilyResult::UniformGround(result) if candidate.signature.sig.return_ty != *result)
                 || candidate.signature.sig.pure != first.signature.sig.pure
                 || candidate.signature.sig.effects != first.signature.sig.effects
             {
@@ -210,7 +214,10 @@ impl HostMethodCandidates {
         Ok(SelectedHostMethod { method: candidate, signature: instance.signature, binding })
     }
 
-    fn select(&mut self, constraints: &mut TypeConstraints) -> Result<bool, ConstraintResolutionError> {
+    fn select(&mut self, constraints: &mut TypeConstraints, name: &str) -> Result<bool, ConstraintResolutionError> {
+        let selected_family = self.method_family_requirement(name).and_then(|(family, slots, _, _)| {
+            matches!(api_spec().method_family_result(family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)).then_some((family, slots))
+        });
         let mut matching = Vec::new();
         for candidate in std::mem::take(&mut self.candidates) {
             let params = crate::sema::builtin_templates::callable_parameters(&candidate.signature.sig);
@@ -235,12 +242,27 @@ impl HostMethodCandidates {
                 matching.push(candidate);
             }
         }
+        let mut deferred_result = selected_family.is_some();
+        if let Some((family, slots)) = &selected_family {
+            let receiver = constraints.resolve(&self.receiver)?;
+            let arguments = self.arguments.iter().map(|argument| constraints.resolve(&argument.ty)).collect::<Result<Vec<_>, _>>()?;
+            if !receiver.contains_inference() && !arguments.iter().any(Type::contains_inference) {
+                deferred_result = false;
+                match api_spec().select_method_family(*family, &receiver, slots, &arguments) {
+                    crate::modules::signature::MethodFamilySelection::Selected(id) => {
+                        let (domain, _, signature) = api_spec().registered_method(id).expect("selected method remains registered");
+                        matching.retain(|candidate| candidate.receiver == domain && std::ptr::eq(candidate.signature, signature));
+                    }
+                    _ => matching.clear(),
+                }
+            }
+        }
         let competing_domains = matching.iter().filter_map(|candidate| {
             (matching.iter().filter(|other| other.receiver == candidate.receiver).count() > 1)
                 .then_some(candidate.receiver)
         }).collect::<Vec<_>>();
         for candidate in matching {
-            let candidate_matches = if competing_domains.contains(&candidate.receiver) {
+            let candidate_matches = if deferred_result || competing_domains.contains(&candidate.receiver) {
                 true
             } else {
                 constraints.record_host_candidate_trial();
@@ -306,9 +328,10 @@ impl Checker {
         self.retain_original_method_arguments(arena, &call_source, &mut values);
         let continuation = continuation.finish(self, values.contexts);
         let arguments = values.arguments;
-        let candidate_result = self.type_constraints.fresh(span);
+        let result_level = self.callable_solver_level();
+        let candidate_result = self.type_constraints.fresh_at_level(span, result_level);
         let mut obligation = HostMethodCandidates { selected: None, receiver: receiver.clone(), result: candidate_result.clone(), expected: expected.cloned(), arguments, candidates, span };
-        match obligation.select(&mut self.type_constraints) {
+        match obligation.select(&mut self.type_constraints, name) {
             Ok(true) => {
                 if obligation.selected.as_ref().is_some_and(|selected| continuation.phase(selected.method, &obligation.arguments).is_some()) {
                     return self.finalize_host_obligation(arena, &mut HostObligation { continuation, candidates: obligation });
@@ -332,12 +355,42 @@ impl Checker {
                     && !obligation.receiver.contains_recovery()
                     && obligation.arguments.iter().all(|argument| !argument.ty.contains_any() && !argument.ty.contains_recovery())
             }).and_then(|_| obligation.method_family_requirement(&continuation.name).map(|(_, _, result, _)| result));
+            if let Some(owner) = continuation.owner
+                && matches!(continuation.source, HostCallSource::Expression(_))
+                && let Some((family, argument_slots, result, _)) = obligation.method_family_requirement(name)
+                && matches!(api_spec().method_family_result(family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature))
+            {
+                let requirement = crate::sema::schemes::MethodFamilyRequirement {
+                    family, receiver: obligation.receiver.clone(), argument_slots,
+                    arguments: obligation.arguments.iter().map(|argument| argument.ty.clone()).collect(), result,
+                };
+                if let Err(error) = self.type_constraints.register_method_family(crate::sema::constraints::CallableApplicationScope::Declaration(owner), requirement, Some(span), span) {
+                    return self.reject_host_inference_resolution(error, span);
+                }
+            }
             self.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: obligation });
             family_result.unwrap_or(candidate_result)
         } else {
             self.reject_unresolved_host_method(&obligation, registered);
             Type::Invalid
         }
+    }
+
+    pub(in super::super) fn method_result_matches_written_path_return(&self, expected: &Type, actual: &Type) -> Result<bool, ConstraintResolutionError> {
+        let Some(owner) = self.stream_origin_owner else { return Ok(false); };
+        let Some(pending) = self.declaration_inference.pending(super::super::FunctionDeclarationId::new(owner)) else { return Ok(false); };
+        let Some(shape) = pending.provisional() else { return Ok(false); };
+        if !shape.explicit_return { return Ok(false); }
+        let actual = match (pending.kind(), &shape.return_ty, expected, actual) {
+            (crate::sema::types::CallableKind::Pure, Type::Path, Type::Path, actual) => actual,
+            (crate::sema::types::CallableKind::Proc, Type::Result(ok, _), Type::Path, actual) if **ok == Type::Path => actual,
+            (crate::sema::types::CallableKind::Proc, header @ Type::Result(ok, _), expected, actual)
+                if **ok == Type::Path && expected == header && !matches!(actual, Type::Result(_, _)) => actual,
+            (crate::sema::types::CallableKind::Proc, Type::Result(ok, _), Type::Result(expected_ok, expected_error), Type::Result(actual_ok, actual_error))
+                if **ok == Type::Path && **expected_ok == Type::Path && actual_error.matches_expected(expected_error) => actual_ok,
+            _ => return Ok(false),
+        };
+        self.type_constraints.owned_method_result_is_path(crate::sema::constraints::CallableApplicationScope::Declaration(owner), actual)
     }
 
     fn reject_unresolved_host_method(&mut self, candidates: &HostMethodCandidates, registered: bool) {
@@ -370,9 +423,11 @@ impl Checker {
                     let body_result = self.type_constraints.constrain(&obligation.candidates.result, &result, span);
                     let expected_result = if body_result.is_ok() {
                         obligation.candidates.expected.as_ref().map(|expected| {
-                            crate::sema::builtin_templates::BuiltinInstantiation::constrain_result_type(
-                                expected, &result, &mut self.type_constraints, span,
-                            )
+                            match self.method_result_matches_written_path_return(expected, &result) {
+                                Ok(true) => Ok(false),
+                                Ok(false) => crate::sema::builtin_templates::BuiltinInstantiation::constrain_result_type(expected, &result, &mut self.type_constraints, span),
+                                Err(error) => Err(ConstraintConflict { expected: expected.clone(), actual: result.clone(), initializer: None, established: None, contribution: span, resolution_error: Some(error) }),
+                            }
                         })
                     } else {
                         None
@@ -387,7 +442,7 @@ impl Checker {
                             result: result.clone(),
                         };
                         match self.type_constraints.register_method_family(
-                            crate::sema::constraints::CallableApplicationScope::Declaration(owner), requirement, Some(span),
+                            crate::sema::constraints::CallableApplicationScope::Declaration(owner), requirement, Some(span), span,
                         ) {
                             Ok(_) => self.finalize_host_method_effects(&obligation.continuation.after_arguments.context, &representative.sig, &obligation.continuation.name, span),
                             Err(error) => self.error(span, &format!("method family could not be retained: {error:?}"), DiagnosticCode::CheckLocalInference),
@@ -438,7 +493,7 @@ impl Checker {
             if pending[index].candidates.selected.is_some() { continue; }
             let obligation = &mut pending[index];
             let dependencies = obligation.dependencies(arena, &self.type_constraints)?;
-            if obligation.candidates.select(&mut self.type_constraints)? {
+            if obligation.candidates.select(&mut self.type_constraints, &obligation.continuation.name)? {
                 for dependency in dependencies {
                     if let Some(dependents) = watchers.remove(&dependency) {
                         for dependent in dependents {
@@ -546,7 +601,7 @@ mod tests {
                     candidates: vec![candidate],
                     span,
                 };
-                assert_eq!(obligation.select(&mut constraints), Err(expected));
+                assert_eq!(obligation.select(&mut constraints, "trim"), Err(expected));
                 assert_eq!(constraints.resolve(&receiver), Ok(receiver.clone()));
             }
         });
@@ -570,7 +625,7 @@ mod tests {
                 candidates: vec![HostMethod { receiver: MethodReceiver::Str, signature: string }, HostMethod { receiver: MethodReceiver::Str, signature: bytes }],
                 span,
             };
-            assert_eq!(obligation.select(&mut constraints), Ok(false));
+            assert_eq!(obligation.select(&mut constraints, "trim"), Ok(false));
             assert_eq!(obligation.candidates.len(), 2);
             assert_eq!(constraints.resolve(&receiver), Ok(receiver));
             assert_eq!(constraints.metrics().host_candidate_trials, 2);
@@ -602,7 +657,7 @@ mod tests {
                 span,
             };
 
-            assert_eq!(obligation.select(&mut constraints), Ok(true));
+            assert_eq!(obligation.select(&mut constraints, "trim"), Ok(true));
             assert_eq!(obligation.candidates.len(), 1);
             assert_eq!(constraints.resolve(&receiver), Ok(Type::Str));
             assert_eq!(constraints.resolve(&result), Ok(Type::Str));
@@ -1335,4 +1390,75 @@ let observed = probe({argument})
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert_eq!(checked.api_calls.values().next().unwrap().receiver, Some(MethodReceiver::Bytes));
     }
+    #[test]
+    fn typed_path_transform_methods_keep_their_canonical_result_domains() {
+        let source = "pure parent(location: Path) -> Path { location.parent() }\npure relative_parent(location: RelPath) -> RelPath { location.parent() }\npure normal(location: Path) -> Path { location.normalize() }\npure relative_normal(location: RelPath) -> RelPath { location.normalize() }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn inferred_path_transform_methods_retain_independent_result_domains() {
+        for method in ["parent", "normalize"] {
+            for callers in ["", "pure absolute(location: Path) -> Path { transform(location) }\npure relative(location: RelPath) -> RelPath { transform(location) }", "pure relative(location: RelPath) -> RelPath { transform(location) }\npure absolute(location: Path) -> Path { transform(location) }"] {
+                let source = format!("pure transform(location) {{ location.{method}() }}\n{callers}\n");
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+                assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn path_transform_results_cannot_select_the_actual_receiver() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let mut constraints = TypeConstraints::default();
+            let receiver = constraints.fresh_at_level(span, 1);
+            let result = constraints.fresh_at_level(span, 1);
+            let mut obligation = HostMethodCandidates {
+                selected: None, receiver: receiver.clone(), result: result.clone(),
+                expected: Some(Type::rel_path()), arguments: Vec::new(), candidates: method_candidates("parent"), span,
+            };
+            assert_eq!(obligation.select(&mut constraints, "parent"), Ok(false));
+            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+            assert_eq!(constraints.resolve(&result).unwrap(), result);
+            assert_eq!(obligation.candidates.len(), 2);
+            constraints.constrain(&receiver, &Type::Path, span).unwrap();
+            assert_eq!(obligation.select(&mut constraints, "parent"), Ok(false));
+            assert!(obligation.candidates.is_empty());
+        });
+    }
+
+    #[test]
+    fn inferred_path_transforms_reject_incompatible_inputs_and_results() {
+        for source in [
+            "pure parent(location) { location.parent() }\nlet _ = parent(7)",
+            "pure parent(location) { location.parent() }\nlet _ = parent(\"a/b\")",
+            "pure parent(location) { location.parent() }\nproc wrong(location: Any) [] { parent(location) }",
+            "pure parent(location) { location.parent() }\npure wrong(location: Path) -> RelPath { parent(location) }",
+            "pure normal(location) { location.normalize() }\npure wrong(location: Path) -> RelPath { normal(location) }",
+            "pure parent(location) { location.parent() }\npure incompatible(location) { let first = parent(location); need_number(first) }\npure need_number(number: Int) -> Int { number }\nlet _ = incompatible(p\"/a/b\")",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn authored_path_results_preserve_both_canonical_receiver_domains() {
+        for method in ["parent", "normalize"] {
+            let source = format!("pure projected(location) -> Path {{ location.{method}() }}\npure absolute(location: Path) -> Path {{ projected(location) }}\npure relative(location: RelPath) -> Path {{ projected(location) }}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
 }
