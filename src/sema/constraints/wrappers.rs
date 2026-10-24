@@ -900,7 +900,7 @@ impl TypeConstraints {
         let mut wrappers = scope.wrappers.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
         wrappers.sort_unstable();
         if wrappers.len() != callable.requirements().wrappers.len() { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)); }
-        let mut generalization = Self::callable_generalization(callable, scope);
+        let mut generalization = self.callable_generalization(callable, scope);
         for (index, &(ordinal, id)) in wrappers.iter().enumerate() {
             if index != ordinal as usize || self.generalize_wrapper(id, 0, &mut generalization)? != callable.requirements().wrappers[index] { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)); }
         }

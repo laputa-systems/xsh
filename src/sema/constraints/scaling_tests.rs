@@ -22,7 +22,7 @@ fn resolved_output_nodes(ty: &Type) -> usize {
     }
 }
 
-fn named_counters(metrics: ConstraintMetrics) -> [(&'static str, u64); 12] {
+fn named_counters(metrics: ConstraintMetrics) -> [(&'static str, u64); 18] {
     [
         ("fresh_variables", metrics.fresh_variables),
         ("generated_constraints", metrics.generated_constraints),
@@ -39,6 +39,12 @@ fn named_counters(metrics: ConstraintMetrics) -> [(&'static str, u64); 12] {
         ("worklist_wakeups", metrics.worklist_wakeups),
         ("rollbacks", metrics.rollbacks),
         ("rollback_changes", metrics.rollback_changes),
+        ("generalization_type_visits", metrics.generalization_type_visits),
+        ("instantiation_type_visits", metrics.instantiation_type_visits),
+        ("schema_argument_visits", metrics.schema_argument_visits),
+        ("constructor_generalizations", metrics.constructor_generalizations),
+        ("constructor_template_binding_visits", metrics.constructor_template_binding_visits),
+        ("generalization_binding_clones", metrics.generalization_binding_clones),
     ]
 }
 
@@ -50,7 +56,7 @@ struct ScalingObservation {
 }
 
 fn assert_output_normalized_growth(label: &str, observations: &[ScalingObservation]) {
-    let mut previous: Option<(usize, [(&'static str, u64); 12])> = None;
+    let mut previous: Option<(usize, [(&'static str, u64); 18])> = None;
     for observation in observations {
         let output_nodes = u64::try_from(observation.output_nodes).unwrap();
         let raw = named_counters(observation.metrics);

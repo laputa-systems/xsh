@@ -686,7 +686,7 @@ impl TypeConstraints {
         let mut operations = scope.operations.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
         operations.sort_unstable();
         if operations.len() != callable.requirements().operations.len() { return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation)); }
-        let mut generalization = Self::callable_generalization(callable, scope);
+        let mut generalization = self.callable_generalization(callable, scope);
         for (index, &(ordinal, id)) in operations.iter().enumerate() {
             if index != ordinal as usize || self.generalize_sealed_operation(id, 0, &mut generalization)? != callable.requirements().operations[index] {
                 return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));

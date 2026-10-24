@@ -69,6 +69,12 @@ pub struct InferenceWorkMetrics {
     pub diagnostic_work: u64,
     pub output_type_nodes: u64,
     pub evidence_nodes: u64,
+    pub generalization_type_visits: u64,
+    pub instantiation_type_visits: u64,
+    pub schema_argument_visits: u64,
+    pub constructor_generalizations: u64,
+    pub constructor_template_binding_visits: u64,
+    pub generalization_binding_clones: u64,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -1195,6 +1201,12 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         effect_edge_visits: work.effect_edge_visits,
         candidate_tests: work.candidate_tests,
         diagnostic_work: work.diagnostic_work,
+        generalization_type_visits: work.generalization_type_visits,
+        instantiation_type_visits: work.instantiation_type_visits,
+        schema_argument_visits: work.schema_argument_visits,
+        constructor_generalizations: work.constructor_generalizations,
+        constructor_template_binding_visits: work.constructor_template_binding_visits,
+        generalization_binding_clones: work.generalization_binding_clones,
         output_type_nodes,
         evidence_nodes,
     };
@@ -1524,6 +1536,12 @@ fn add_inference_work(
         effect_edge_visits: total.effect_edge_visits.saturating_add(file.effect_edge_visits),
         candidate_tests: total.candidate_tests.saturating_add(file.candidate_tests),
         diagnostic_work: total.diagnostic_work.saturating_add(file.diagnostic_work),
+        generalization_type_visits: total.generalization_type_visits.saturating_add(file.generalization_type_visits),
+        instantiation_type_visits: total.instantiation_type_visits.saturating_add(file.instantiation_type_visits),
+        schema_argument_visits: total.schema_argument_visits.saturating_add(file.schema_argument_visits),
+        constructor_generalizations: total.constructor_generalizations.saturating_add(file.constructor_generalizations),
+        constructor_template_binding_visits: total.constructor_template_binding_visits.saturating_add(file.constructor_template_binding_visits),
+        generalization_binding_clones: total.generalization_binding_clones.saturating_add(file.generalization_binding_clones),
         output_type_nodes: total.output_type_nodes.saturating_add(file.output_type_nodes),
         evidence_nodes: total.evidence_nodes.saturating_add(file.evidence_nodes),
     }
@@ -1556,6 +1574,12 @@ fn max_inference_work(
         effect_edge_visits: maximum.effect_edge_visits.max(file.effect_edge_visits),
         candidate_tests: maximum.candidate_tests.max(file.candidate_tests),
         diagnostic_work: maximum.diagnostic_work.max(file.diagnostic_work),
+        generalization_type_visits: maximum.generalization_type_visits.max(file.generalization_type_visits),
+        instantiation_type_visits: maximum.instantiation_type_visits.max(file.instantiation_type_visits),
+        schema_argument_visits: maximum.schema_argument_visits.max(file.schema_argument_visits),
+        constructor_generalizations: maximum.constructor_generalizations.max(file.constructor_generalizations),
+        constructor_template_binding_visits: maximum.constructor_template_binding_visits.max(file.constructor_template_binding_visits),
+        generalization_binding_clones: maximum.generalization_binding_clones.max(file.generalization_binding_clones),
         output_type_nodes: maximum.output_type_nodes.max(file.output_type_nodes),
         evidence_nodes: maximum.evidence_nodes.max(file.evidence_nodes),
     }
@@ -1727,6 +1751,12 @@ fn inference_work_json(metrics: InferenceWorkMetrics) -> String {
             "\"worklist_wakeups\":{},\"host_candidate_trials\":{},",
             "\"host_obligation_requeues\":{},\"rollbacks\":{},\"rollback_changes\":{},",
             "\"level_adjustments\":{},\"effect_edge_visits\":{},\"candidate_tests\":{},",
+            "\"generalization_type_visits\":{},",
+            "\"instantiation_type_visits\":{},",
+            "\"schema_argument_visits\":{},",
+            "\"constructor_generalizations\":{},",
+            "\"constructor_template_binding_visits\":{},",
+            "\"generalization_binding_clones\":{},",
             "\"diagnostic_work\":{},\"output_type_nodes\":{},\"evidence_nodes\":{}}}"
         ),
         metrics.fresh_variables,
@@ -1746,6 +1776,12 @@ fn inference_work_json(metrics: InferenceWorkMetrics) -> String {
         metrics.level_adjustments,
         metrics.effect_edge_visits,
         metrics.candidate_tests,
+        metrics.generalization_type_visits,
+        metrics.instantiation_type_visits,
+        metrics.schema_argument_visits,
+        metrics.constructor_generalizations,
+        metrics.constructor_template_binding_visits,
+        metrics.generalization_binding_clones,
         metrics.diagnostic_work,
         metrics.output_type_nodes,
         metrics.evidence_nodes,
@@ -1909,7 +1945,7 @@ mod tests {
     }
 
     #[test]
-    fn inference_work_json_has_exactly_twenty_nonnegative_integer_fields() {
+    fn inference_work_json_has_exactly_twenty_six_nonnegative_integer_fields() {
         let file = measure_source("work-counts.xsh", SOURCE);
         let json = file_json(&file);
         let start = json.find("\"inference_work\":").expect("inference_work field")
@@ -1943,6 +1979,12 @@ mod tests {
             "level_adjustments",
             "effect_edge_visits",
             "candidate_tests",
+            "generalization_type_visits",
+            "instantiation_type_visits",
+            "schema_argument_visits",
+            "constructor_generalizations",
+            "constructor_template_binding_visits",
+            "generalization_binding_clones",
             "diagnostic_work",
             "output_type_nodes",
             "evidence_nodes",
@@ -1950,9 +1992,36 @@ mod tests {
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(field_names.len(), 20);
-        assert_eq!(fields.len(), 20);
+        assert_eq!(field_names.len(), 26);
+        assert_eq!(fields.len(), 26);
         assert_eq!(fields, expected);
+    }
+
+    #[test]
+    fn inference_work_counts_named_constructor_and_schema_outputs_independently() {
+        let source = "type Box[T] = {value: T}\npure boxes(first, second) { let a = Box(value: first); let b = Box(value: second); {a, b} }\npure accept(value: Box[Int]) -> Box[Int] { value }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let mut declarations = crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+        assert_eq!(declarations.scheme_bodies.values().map(|facts| facts.constructor_instances().len()).sum::<usize>(), 2);
+        let before_types = measure_output_type_nodes(&declarations);
+        let before_evidence = super::measure_evidence_nodes(&declarations);
+        for facts in declarations.scheme_bodies.values_mut() {
+            *facts = facts.clone().with_constructor_instances(BTreeMap::new()).unwrap();
+        }
+        assert_eq!(before_types - measure_output_type_nodes(&declarations), 6);
+        assert_eq!(before_evidence - super::measure_evidence_nodes(&declarations), 2);
+        let before_types = measure_output_type_nodes(&declarations);
+        let before_evidence = super::measure_evidence_nodes(&declarations);
+        let signature = declarations.function_signatures.values_mut().find(|signature| signature.return_schema.is_some()).unwrap();
+        assert_eq!(signature.return_schema.as_ref().unwrap().instances[0].arguments, vec![Type::Int]);
+        assert_eq!(signature.parameter_schemas[0].as_ref().unwrap().instances[0].arguments, vec![Type::Int]);
+        signature.return_schema = None;
+        signature.parameter_schemas.clear();
+        assert_eq!(before_types - measure_output_type_nodes(&declarations), 2);
+        assert_eq!(before_evidence, super::measure_evidence_nodes(&declarations));
     }
 
     #[test]
@@ -2042,6 +2111,18 @@ mod tests {
         second.inference_work.generated_constraints = 13;
         second.inference_work.evidence_nodes = 5;
 
+        first.inference_work.generalization_type_visits = 11;
+        second.inference_work.generalization_type_visits = 5;
+        first.inference_work.instantiation_type_visits = 11;
+        second.inference_work.instantiation_type_visits = 5;
+        first.inference_work.schema_argument_visits = 11;
+        second.inference_work.schema_argument_visits = 5;
+        first.inference_work.constructor_generalizations = 11;
+        second.inference_work.constructor_generalizations = 5;
+        first.inference_work.constructor_template_binding_visits = 11;
+        second.inference_work.constructor_template_binding_visits = 5;
+        first.inference_work.generalization_binding_clones = 11;
+        second.inference_work.generalization_binding_clones = 5;
         let totals = aggregate_totals(&[first.clone(), second.clone()]);
         let maxima = aggregate_maxima(&[first, second]);
 
@@ -2049,6 +2130,18 @@ mod tests {
         assert_eq!(totals.inference_work.evidence_nodes, 16);
         assert_eq!(maxima.inference_work.generated_constraints, 13);
         assert_eq!(maxima.inference_work.evidence_nodes, 11);
+        assert_eq!(totals.inference_work.generalization_type_visits, 16);
+        assert_eq!(maxima.inference_work.generalization_type_visits, 11);
+        assert_eq!(totals.inference_work.instantiation_type_visits, 16);
+        assert_eq!(maxima.inference_work.instantiation_type_visits, 11);
+        assert_eq!(totals.inference_work.schema_argument_visits, 16);
+        assert_eq!(maxima.inference_work.schema_argument_visits, 11);
+        assert_eq!(totals.inference_work.constructor_generalizations, 16);
+        assert_eq!(maxima.inference_work.constructor_generalizations, 11);
+        assert_eq!(totals.inference_work.constructor_template_binding_visits, 16);
+        assert_eq!(maxima.inference_work.constructor_template_binding_visits, 11);
+        assert_eq!(totals.inference_work.generalization_binding_clones, 16);
+        assert_eq!(maxima.inference_work.generalization_binding_clones, 11);
     }
 
     #[test]

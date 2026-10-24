@@ -19,6 +19,12 @@ METRIC_FIELDS = (
     'host_obligation_requeues', 'rollbacks', 'rollback_changes', 'level_adjustments',
     'effect_edge_visits', 'candidate_tests', 'diagnostic_work', 'output_type_nodes',
     'evidence_nodes',
+    'generalization_type_visits',
+    'instantiation_type_visits',
+    'schema_argument_visits',
+    'constructor_generalizations',
+    'constructor_template_binding_visits',
+    'generalization_binding_clones',
 )
 SCALING_METRICS = tuple(name for name in METRIC_FIELDS
                         if name not in ('output_type_nodes', 'evidence_nodes')) + ('function_body_check_entries',)

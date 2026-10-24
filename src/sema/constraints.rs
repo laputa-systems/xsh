@@ -234,6 +234,12 @@ struct ExtendedConstraintCounters {
     candidate_tests: AtomicU64,
     function_body_check_entries: AtomicU64,
     diagnostic_work: AtomicU64,
+    generalization_type_visits: AtomicU64,
+    instantiation_type_visits: AtomicU64,
+    schema_argument_visits: AtomicU64,
+    constructor_generalizations: AtomicU64,
+    constructor_template_binding_visits: AtomicU64,
+    generalization_binding_clones: AtomicU64,
 }
 
 impl Default for ExtendedConstraintCounters {
@@ -246,6 +252,12 @@ impl Default for ExtendedConstraintCounters {
             candidate_tests: AtomicU64::new(0),
             function_body_check_entries: AtomicU64::new(0),
             diagnostic_work: AtomicU64::new(0),
+            generalization_type_visits: AtomicU64::new(0),
+            instantiation_type_visits: AtomicU64::new(0),
+            schema_argument_visits: AtomicU64::new(0),
+            constructor_generalizations: AtomicU64::new(0),
+            constructor_template_binding_visits: AtomicU64::new(0),
+            generalization_binding_clones: AtomicU64::new(0),
         }
     }
 }
@@ -266,6 +278,12 @@ impl Clone for ExtendedConstraintCounters {
                 self.function_body_check_entries.load(Ordering::Relaxed),
             ),
             diagnostic_work: AtomicU64::new(self.diagnostic_work.load(Ordering::Relaxed)),
+            generalization_type_visits: AtomicU64::new(self.generalization_type_visits.load(Ordering::Relaxed)),
+            instantiation_type_visits: AtomicU64::new(self.instantiation_type_visits.load(Ordering::Relaxed)),
+            schema_argument_visits: AtomicU64::new(self.schema_argument_visits.load(Ordering::Relaxed)),
+            constructor_generalizations: AtomicU64::new(self.constructor_generalizations.load(Ordering::Relaxed)),
+            constructor_template_binding_visits: AtomicU64::new(self.constructor_template_binding_visits.load(Ordering::Relaxed)),
+            generalization_binding_clones: AtomicU64::new(self.generalization_binding_clones.load(Ordering::Relaxed)),
         }
     }
 }
@@ -335,7 +353,37 @@ impl ConstraintCounters {
             diagnostic_work: self.extended.as_ref().map_or(0, |extended| {
                 extended.diagnostic_work.load(Ordering::Relaxed)
             }),
+            generalization_type_visits: self.extended.as_ref().map_or(0, |extended| extended.generalization_type_visits.load(Ordering::Relaxed)),
+            instantiation_type_visits: self.extended.as_ref().map_or(0, |extended| extended.instantiation_type_visits.load(Ordering::Relaxed)),
+            schema_argument_visits: self.extended.as_ref().map_or(0, |extended| extended.schema_argument_visits.load(Ordering::Relaxed)),
+            constructor_generalizations: self.extended.as_ref().map_or(0, |extended| extended.constructor_generalizations.load(Ordering::Relaxed)),
+            constructor_template_binding_visits: self.extended.as_ref().map_or(0, |extended| extended.constructor_template_binding_visits.load(Ordering::Relaxed)),
+            generalization_binding_clones: self.extended.as_ref().map_or(0, |extended| extended.generalization_binding_clones.load(Ordering::Relaxed)),
         }
+    }
+
+    fn record_generalization_type_visits(&self, count: usize) {
+        if let Some(extended) = &self.extended { extended.generalization_type_visits.fetch_add(count as u64, Ordering::Relaxed); }
+    }
+
+    fn record_instantiation_type_visits(&self, count: usize) {
+        if let Some(extended) = &self.extended { extended.instantiation_type_visits.fetch_add(count as u64, Ordering::Relaxed); }
+    }
+
+    fn record_schema_argument_visits(&self, count: usize) {
+        if let Some(extended) = &self.extended { extended.schema_argument_visits.fetch_add(count as u64, Ordering::Relaxed); }
+    }
+
+    fn record_constructor_generalizations(&self, count: usize) {
+        if let Some(extended) = &self.extended { extended.constructor_generalizations.fetch_add(count as u64, Ordering::Relaxed); }
+    }
+
+    fn record_constructor_template_binding_visits(&self, count: usize) {
+        if let Some(extended) = &self.extended { extended.constructor_template_binding_visits.fetch_add(count as u64, Ordering::Relaxed); }
+    }
+
+    fn record_generalization_binding_clones(&self, count: usize) {
+        if let Some(extended) = &self.extended { extended.generalization_binding_clones.fetch_add(count as u64, Ordering::Relaxed); }
     }
 
     fn record_level_adjustment(&self) {
@@ -458,6 +506,12 @@ pub(crate) struct ConstraintMetrics {
     pub(crate) candidate_tests: u64,
     pub(crate) function_body_check_entries: u64,
     pub(crate) diagnostic_work: u64,
+    pub(crate) generalization_type_visits: u64,
+    pub(crate) instantiation_type_visits: u64,
+    pub(crate) schema_argument_visits: u64,
+    pub(crate) constructor_generalizations: u64,
+    pub(crate) constructor_template_binding_visits: u64,
+    pub(crate) generalization_binding_clones: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1097,7 +1151,7 @@ impl TypeConstraints {
         self.validate_generalized_operations(caller, scope)?;
         self.validate_generalized_methods(caller, scope)?;
         self.validate_generalized_wrappers(caller, scope)?;
-        let mut generalization = Self::callable_generalization(caller, scope);
+        let mut generalization = self.callable_generalization(caller, scope);
         let call = self.generalize_call_instantiation(
             callee, instance, &mut generalization, 0,
             caller.type_parameters().is_empty() && caller.row_parameters().is_empty(),
@@ -1111,7 +1165,8 @@ impl TypeConstraints {
         Ok(call)
     }
 
-    fn callable_generalization(callable: &CallableScheme, scope: &CallableGeneralizationScope) -> Generalization {
+    fn callable_generalization(&self, callable: &CallableScheme, scope: &CallableGeneralizationScope) -> Generalization {
+        self.record_generalization_binding_clones(scope, callable.type_parameters().len(), callable.row_parameters(), callable.requirements().effect_parameters.len());
         Generalization {
             type_ids: scope.types.clone(), row_ids: scope.rows.clone(), effect_ids: scope.effects.clone(),
             applications: scope.applications.clone(), operations: scope.operations.clone(), type_parameters: callable.type_parameters().to_vec(),
@@ -1126,14 +1181,24 @@ impl TypeConstraints {
         schema: &super::constants::SchemaExpectation,
         generalized: &GeneralizedTypes,
     ) -> Result<super::constants::SchemaExpectation<SchemeType>, SchemeOperationError> {
-        let mut generalization = Self::body_generalization(generalized);
-        let schema = schema.try_map(&mut |ty| self.generalize_type(ty, 0, &mut generalization, 0))?;
+        let mut generalization = self.body_generalization(generalized);
+        let schema = schema.try_map(&mut |ty| { self.counters.record_schema_argument_visits(1); self.generalize_type(ty, 0, &mut generalization, 0) })?;
         Self::check_body_generalization(&generalization, generalized)?;
         Ok(schema)
     }
 
-    fn body_generalization(generalized: &GeneralizedTypes) -> Generalization {
+    fn record_generalization_binding_clones(&self, scope: &CallableGeneralizationScope, types: usize, rows: &[SchemeRowParameter], effects: usize) {
+        if self.counters.extended.is_some() {
+            let entries = scope.types.len() + scope.rows.len() + scope.effects.len()
+                + scope.applications.len() + scope.operations.len() + scope.methods.len() + scope.wrappers.len()
+                + types + rows.len() + effects + rows.iter().map(|row| row.lacks.len()).sum::<usize>();
+            self.counters.record_generalization_binding_clones(entries);
+        }
+    }
+
+    fn body_generalization(&self, generalized: &GeneralizedTypes) -> Generalization {
         let scope = &generalized.generalization_scope;
+        self.record_generalization_binding_clones(scope, generalized.type_parameters.len(), &generalized.row_parameters, generalized.requirements.effect_parameters.len());
         Generalization {
             type_ids: scope.types.clone(), row_ids: scope.rows.clone(), effect_ids: scope.effects.clone(),
             applications: scope.applications.clone(), operations: scope.operations.clone(), methods: scope.methods.clone(), wrappers: scope.wrappers.clone(),
@@ -1156,12 +1221,13 @@ impl TypeConstraints {
         let mut types = constructor.instance.arguments.clone();
         types.push(constructor.ty.clone());
         let mut generalized = self.generalize_types(&types, 0)?;
-        let binders = generalized.type_parameters.iter().enumerate().map(|(index, binder)|
+        let binders = generalized.type_parameters.iter().enumerate().map(|(index, binder)| {
+            self.counters.record_constructor_template_binding_visits(1);
             u32::try_from(index).map(|index| (*binder, SchemeTypeParameterId(index)))
-                .map_err(|_| SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema)))
+                .map_err(|_| SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema)) })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        for binder in generalized.generalization_scope.types.values_mut() { *binder = binders[binder]; }
-        generalized.type_parameters = generalized.type_parameters.iter().map(|binder| binders[binder]).collect();
+        for binder in generalized.generalization_scope.types.values_mut() { self.counters.record_constructor_template_binding_visits(1); *binder = binders[binder]; }
+        generalized.type_parameters = generalized.type_parameters.iter().map(|binder| { self.counters.record_constructor_template_binding_visits(1); binders[binder] }).collect();
         let normalized = self.generalize_scoped_constructor(constructor, &generalized)?;
         Ok((generalized, normalized))
     }
@@ -1171,7 +1237,8 @@ impl TypeConstraints {
         constructor: &super::constants::CheckedRecordConstructor,
         generalized: &GeneralizedTypes,
     ) -> Result<super::constants::CheckedRecordConstructor<SchemeType>, SchemeOperationError> {
-        let mut generalization = Self::body_generalization(generalized);
+        self.counters.record_constructor_generalizations(1);
+        let mut generalization = self.body_generalization(generalized);
         let arguments = constructor.instance.arguments.iter().map(|ty| self.generalize_type(ty, 0, &mut generalization, 0))
             .collect::<Result<_, _>>()?;
         let ty = self.generalize_type(&constructor.ty, 0, &mut generalization, 0)?;
@@ -1188,6 +1255,7 @@ impl TypeConstraints {
         origin: Span,
     ) -> Result<super::constants::SchemaExpectation, SchemeOperationError> {
         schema.try_map(&mut |ty| {
+            self.counters.record_schema_argument_visits(1);
             let ty = self.instantiate_scheme_type(ty, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, 1, origin, 0)?;
             self.resolve(&ty).map_err(SchemeOperationError::Resolution)
         })
@@ -1255,7 +1323,7 @@ impl TypeConstraints {
         if scope.application_sources.len() != applications.len() {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
         }
-        let mut generalization = Self::callable_generalization(callable, scope);
+        let mut generalization = self.callable_generalization(callable, scope);
         if self.generalized_map_keys(&generalization)? != callable.requirements().map_key_parameters {
             return Err(SchemeOperationError::Build(SchemeBuildError::MapKey));
         }
@@ -1548,6 +1616,7 @@ impl TypeConstraints {
         generalization: &mut Generalization,
         depth: usize,
     ) -> Result<SchemeType, SchemeOperationError> {
+        self.counters.record_generalization_type_visits(1);
         if depth > MAX_TYPE_DEPTH {
             return Err(SchemeOperationError::Resolution(
                 ConstraintResolutionError::TypeDepth,
@@ -1767,6 +1836,7 @@ impl TypeConstraints {
         origin: Span,
         depth: usize,
     ) -> Result<Type, SchemeOperationError> {
+        self.counters.record_instantiation_type_visits(1);
         if depth > MAX_TYPE_DEPTH {
             return Err(SchemeOperationError::Resolution(
                 ConstraintResolutionError::TypeDepth,
@@ -5277,6 +5347,71 @@ mod tests {
             assert_eq!(metrics.representative_hops, expected_hops);
             assert_eq!(metrics.compression_writes, 0);
         }
+    }
+
+    #[test]
+    fn scoped_constructor_metrics_count_whole_binding_copies() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for width in [2, 4, 8, 16] {
+                let mut constraints = TypeConstraints::default();
+                let variables = (0..width).map(|index| constraints.fresh_at_level(span(index), 1)).collect::<Vec<_>>();
+                let generalized = constraints.generalize_types(&variables, 0).unwrap();
+                let constructor = super::super::constants::CheckedRecordConstructor {
+                    instance: super::super::constants::SchemaInstance { definition: crate::syntax::arena::TypeDefId::from_index(0), arguments: vec![variables[0].clone()] },
+                    ty: Type::Record(Arc::new(BTreeMap::from([(crate::symbol::Name::intern("value"), variables[0].clone())]))),
+                };
+                let before = constraints.metrics();
+                for _ in 0..width { constraints.generalize_scoped_constructor(&constructor, &generalized).unwrap(); }
+                let after = constraints.metrics();
+                assert_eq!(after.constructor_generalizations - before.constructor_generalizations, width as u64);
+                assert_eq!(after.generalization_type_visits - before.generalization_type_visits, 3 * width as u64);
+                assert_eq!(after.generalization_binding_clones - before.generalization_binding_clones, 2 * (width * width) as u64);
+                let mut with_row = generalized.clone();
+                with_row.row_parameters.push(SchemeRowParameter { id: SchemeRowParameterId(0), lacks: ["a", "b", "c"].map(crate::symbol::Name::intern).into_iter().collect() });
+                let before = constraints.metrics();
+                constraints.body_generalization(&with_row);
+                assert_eq!(constraints.metrics().generalization_binding_clones - before.generalization_binding_clones, 2 * width as u64 + 4);
+            }
+        });
+    }
+
+    #[test]
+    fn schema_metrics_count_argument_walks_and_template_binders() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let variable = constraints.fresh_at_level(span(0), 1);
+            let generalized = constraints.generalize_types(std::slice::from_ref(&variable), 0).unwrap();
+            let schema = super::super::constants::SchemaExpectation {
+                instances: vec![super::super::constants::SchemaInstance { definition: crate::syntax::arena::TypeDefId::from_index(0), arguments: vec![Type::List(Box::new(variable.clone()))] }],
+                children: Arc::new(BTreeMap::from([(super::super::constants::SchemaComponent::Item, super::super::constants::SchemaExpectation {
+                    instances: vec![super::super::constants::SchemaInstance { definition: crate::syntax::arena::TypeDefId::from_index(1), arguments: vec![Type::Optional(Box::new(variable.clone()))] }],
+                    children: Arc::default(),
+                })])),
+            };
+            let before = constraints.metrics();
+            let symbolic = constraints.generalize_scoped_schema(&schema, &generalized).unwrap();
+            let after = constraints.metrics();
+            assert_eq!(after.schema_argument_visits - before.schema_argument_visits, 2);
+            assert_eq!(after.generalization_type_visits - before.generalization_type_visits, 4);
+            assert_eq!(after.generalization_binding_clones - before.generalization_binding_clones, 2);
+            let instance = InstantiatedScheme { params: vec![], return_type: Type::Int,
+                type_arguments: BTreeMap::from([(generalized.type_parameters[0], Type::Str)]), row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(),
+                applications: vec![], operations: vec![], methods: vec![], wrappers: vec![], };
+            let before = constraints.metrics();
+            let instantiated = constraints.instantiate_schema(&symbolic, &instance, span(1)).unwrap();
+            let after = constraints.metrics();
+            assert_eq!(after.schema_argument_visits - before.schema_argument_visits, 2);
+            assert_eq!(after.instantiation_type_visits - before.instantiation_type_visits, 4);
+            assert_eq!(instantiated.instances[0].arguments, vec![Type::List(Box::new(Type::Str))]);
+            let constructor = super::super::constants::CheckedRecordConstructor { instance: schema.instances[0].clone(), ty: Type::List(Box::new(variable)) };
+            let before = constraints.metrics();
+            constraints.generalize_constructor_template(&constructor).unwrap();
+            let after = constraints.metrics();
+            assert_eq!(after.constructor_template_binding_visits - before.constructor_template_binding_visits, 3);
+            assert_eq!(after.constructor_generalizations - before.constructor_generalizations, 1);
+            assert_eq!(after.generalization_type_visits - before.generalization_type_visits, 8);
+            assert_eq!(after.generalization_binding_clones - before.generalization_binding_clones, 2);
+        });
     }
 
     #[test]
