@@ -2058,6 +2058,68 @@ mod tests {
         program
     }
 
+    #[test]
+    fn resource_scope_return_retains_the_ground_owner_effect_contract() {
+        prepare("proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
+    }
+
+    #[test]
+    fn resource_scope_return_authenticates_cold_release_arguments() {
+        let mut program = prepare("proc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let resource = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::FsCloseRootIfOpen, mut args, .. } = decoder.expression_view(instruction).ok()? else { return None; };
+            Some(args.next().unwrap().unwrap().unwrap().raw() as usize)
+        }).unwrap();
+        let schema::ExprView::Param(original_slot) = decoder.expression_view(resource).unwrap() else { panic!("release reads its bound resource") };
+        assert_ne!(original_slot, 1);
+        assert!(!program.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == resource));
+        let mut changed = program.clone();
+        let words = changed.store.data[resource].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(&changed.store.extra[words.clone()], &[original_slot as u32]);
+        changed.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert!(error.message.contains("native operation arguments have no matching contract"), "{error:?}");
+    }
+
+    #[test]
+    fn resource_scope_return_keeps_explicit_propagation_effect_requirements() {
+        let source = "proc rejected(root: FsRoot) [fs] -> Int { defer root.close()?; 1 }\n";
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("resource-explicit-propagation.xsh", source.to_owned());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation) && diagnostic.message.contains("error")), "{:?}", checked.diagnostics);
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn resource_scope_return_preserves_primary_flow_after_frontend_disposal() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/resource-scope-return.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("resource-scope-return.xsh", crate::loader::entry_source_from_text("resource-scope-return.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_resource_scope_return", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(result.output.stdout.is_empty(), "{:?}", result.output.stdout);
+            let stderr = std::str::from_utf8(&result.output.stderr).unwrap();
+            assert!(stderr.contains("cleanup error [fs-lock]") && stderr.contains("lock handle is not active"), "{stderr}");
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{force_frames}: {:?}", result.result);
+        }
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn imported_effect_union_executes_after_frontend_disposal_on_both_routes() {

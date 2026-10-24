@@ -1278,6 +1278,9 @@ scope. Scope exit stops owned activities before user defers; handles remain
 usable during defers and are released afterward. Explicit `close` and `unlock`
 results flow to the script. Automatic cleanup does not replace the script
 result with a release error.
+Resource scopes register their release operations as deferred `Result[Unit]`
+values. The existing defer consumer handles those results without synthetic `?`
+operations adding caller error requirements.
 
 Network workers receive plain Rust requests. They do not own evaluator values,
 source spans, or trace buffers. The evaluator owns job lifetimes and trace

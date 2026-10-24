@@ -1300,7 +1300,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                            kind: crate::modules::ManagedResource,
                            unless_closing: bool| {
                 let value = push_build_row!(lowerer, expr, BuildExprRow::Param(slot));
-                let call = push_build_row!(
+                let mut release = push_build_row!(
                     lowerer,
                     expr,
                     BuildExprRow::ModuleCall {
@@ -1310,11 +1310,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     }
                 );
-                let mut release =
-                    push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span });
                 if unless_closing {
                     let closing = push_build_row!(lowerer, expr, BuildExprRow::Param(closing_slot));
-                    let nothing = push_build_row!(lowerer, expr, BuildExprRow::Unit);
+                    let unit = push_build_row!(lowerer, expr, BuildExprRow::Unit);
+                    let nothing = push_build_row!(lowerer, expr, BuildExprRow::Ok(unit));
                     release = push_build_row!(
                         lowerer,
                         expr,
