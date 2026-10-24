@@ -96,7 +96,8 @@ pub(super) fn supports_generalized_body(
             ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) | ArenaStmtKind::YieldDelegate(value) if matches!(completion, BodyCompletion::Producer) || collect_yields.contains_key(&node.span) => {
                 if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, value) { return false; }
             }
-            ArenaStmtKind::Return(None) if matches!(completion, BodyCompletion::Producer) => {}
+            ArenaStmtKind::Return(None) if matches!(completion, BodyCompletion::Producer)
+                || owner_kind == crate::sema::types::CallableKind::Proc && matches!(completion, BodyCompletion::Procedure | BodyCompletion::ProcedureStatement) => {}
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), _) if owner_kind != crate::sema::types::CallableKind::Pure => {
                 let supported = if let ArenaExprKind::ValueBlock(block) = program.arena.expr(value).kind {
                     supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, BodyCompletion::Statement)
@@ -193,6 +194,7 @@ pub(super) fn supports_generalized_body(
     match tail_statement.kind {
         ArenaStmtKind::TailBareIdent(_) => bindings.tails.get(&tail).is_some_and(|identity| read_binding_is_available(bindings, &available, captures, identity, tails.get(&tail))),
         ArenaStmtKind::Expr(expression) => is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, expression),
+        ArenaStmtKind::Return(None) if owner_kind == crate::sema::types::CallableKind::Proc && matches!(completion, BodyCompletion::Procedure) => true,
         ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function | BodyCompletion::Procedure) => {
             if matches!(completion, BodyCompletion::Procedure) && positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
                 is_proc_completion_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, expression)
@@ -1604,6 +1606,31 @@ mod ordinary_body_tests {
     #[test]
     fn generic_operators_ordering_chains_keep_adjacent_operands() {
         accepts("pure keep(value, number: Int) { let _ = 0 <= number < 7; value }", "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)");
+    }
+
+    #[test]
+    fn generic_proc_bare_returns_keep_the_unit_success_contract() {
+        for body in ["return when done; let _ = marker", "if done { return }; let _ = marker", "let _ = marker; return"] {
+            accepts(&format!("proc early(marker: Int, done: Bool) [] {{ {body} }}"), "let first = early(7, true)\nlet second = early(8, false)");
+            for calls in ["", "let first = early(7, true)\nlet second = early(\"word\", false)"] {
+                accepts(&format!("proc early(marker, done: Bool) {{ {body} }}"), calls);
+            }
+        }
+    }
+
+    #[test]
+    fn generic_proc_bare_returns_preserve_value_effect_and_cleanup_rejections() {
+        for source in [
+            "proc wrong(marker, done: Bool) -> Result[Int] { let _ = marker; return when done; 7 }",
+            "proc wrong(marker) [] { print marker; return }",
+            "proc wrong(marker) { defer { return }; let _ = marker }",
+            "pure wrong(marker) -> Int { let _ = marker; return }",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
     }
 
     #[test]

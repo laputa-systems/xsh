@@ -947,7 +947,7 @@ value leaves retain their checked facts. The checker normalizes those completion
 after collecting the body's propagated errors. Lowering emits one return per arm
 with its authenticated envelope. Ground defaulted procs use the same arm-value
 completion rule when their checked return has non-Unit success; statement-only
-Unit bodies retain ordinary fallthrough completion. When a structured return has no material control
+Unit bodies retain ordinary fallthrough completion. Bare procedure returns use an actual Unit producer and the same authenticated completion boundary as value returns. Generic fixed-field projections derive their result from the actual closed receiver through the canonical fixed-field relation; records retain their declared field map. When a structured return has no material control
 fact, resource transfer requires the checked facts of every completing value leaf.
 Missing leaf evidence blocks publication. Values checked against settled return types retain their contextual
 facts, schemas, and ordinary joins. Branches used as values keep their raw type join. A shared descriptor must

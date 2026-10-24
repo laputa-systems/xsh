@@ -2742,6 +2742,51 @@ test namespace_borrow {
     }
 
     #[test]
+    fn generic_fixed_fields_require_the_actual_closed_receiver_and_member() {
+        let program = prepare("pure projected(marker, status: Status, number: Int) { let _ = marker; let _ = number; let _ = status.kind; status.ok }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (field, base) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Field { base, name: "ok", .. }) => Some((instruction, base.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let number = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+        assert_ne!(base, number);
+        for name in ["kind", "projected"] {
+            let name = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == name).unwrap().0 as u32 + 1;
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            let words = changed.store.data[field].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[words.start + 1] = name;
+            assert!(FullVerifier::verify(&changed).is_err());
+        }
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        let words = changed.store.data[field].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = number as u32;
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
+    fn generic_proc_bare_returns_authenticate_the_actual_unit_completion() {
+        let program = prepare("proc early(marker, done: Bool) { return when done; let _ = marker }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut range = program.store.function_instruction_range(owner).unwrap();
+        let done = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let returned = range.find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Return { .. }))).unwrap();
+        let schema::StmtView::Return { value } = decoder.statement_view(returned).unwrap() else { unreachable!() };
+        let schema::ExprView::Ok(unit) = decoder.expression_view(value.raw() as usize).unwrap() else { panic!("bare procedure return wraps its Unit success") };
+        assert!(matches!(decoder.expression_view(unit.raw() as usize).unwrap(), schema::ExprView::Unit));
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        let words = changed.store.data[value.raw() as usize].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        changed.store.extra[words.start] = done as u32;
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
     fn proc_completion_source_facts_authenticate_original_return_values() {
         let program = prepare("proc projected(value, marker: Str) [error] { let _ = marker; value?.name }");
         assert_eq!(std::mem::size_of::<super::super::super::schemes::FullSchemeBodyFact>(), 16);

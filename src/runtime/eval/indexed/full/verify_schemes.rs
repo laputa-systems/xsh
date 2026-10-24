@@ -2520,7 +2520,10 @@ fn verify_body_expression(
             match base {
                 SchemeType::Record { fields, .. } => fields.get(&Name::intern(name)).cloned(),
                 _ => match base.closed_ground_type() {
-                    Some(ty) => match ty.unvalidated() { Type::Record(fields) => fields.get(&Name::intern(name)).cloned().map(SchemeType::Ground), _ => None },
+                    Some(ty) => match ty.unvalidated() {
+                        Type::Record(fields) => fields.get(&Name::intern(name)).cloned().map(SchemeType::Ground),
+                        receiver => crate::sema::check::Checker::fixed_field_type(receiver, Name::intern(name)).flatten().map(SchemeType::Ground),
+                    },
                     None => None,
                 },
             }.ok_or_else(|| IrVerifyError::new("generic field projection has no required field contract"))?

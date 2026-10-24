@@ -4884,3 +4884,116 @@ fn typed_record_field_guards_preserve_actual_closed_records_on_both_routes() {
 fn generic_record_field_guards_preserve_actual_closed_records_on_both_routes() {
     verify_record_field_guard_program(false);
 }
+
+#[test]
+fn generic_closed_status_fields_preserve_their_actual_receiver() {
+    let source = "type StatusFields = {ok: Bool, success: Bool, kind: Str}\npure ordinary(status: Status) -> StatusFields { let _ = status.segments; {ok: status.ok, success: status.success, kind: status.kind} }\npure view(marker, status: Status) { let _ = marker; let _ = status.segments; {ok: status.ok, success: status.success, kind: status.kind} }\npure number(status: Status) -> StatusFields { view(7, status) }\npure text(status: Status) -> StatusFields { view(\"word\", status) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for code in [0, 7] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let status = Value::Status(crate::runtime::process::ProcessStatus::exited(code));
+            let ordinary = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("ordinary")));
+            let expected = evaluator.call_indexed_direct(ordinary, CallableKind::Pure, std::slice::from_ref(&status), Span::at(source_id, 0)).unwrap().unwrap();
+            for name in ["number", "text"] {
+                let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(function, CallableKind::Pure, std::slice::from_ref(&status), Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, expected, "{name} code={code} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_proc_bare_returns_run_native_unit_assertions_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/xsh/generic-proc-bare-returns.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-proc-bare-returns.xsh", crate::loader::entry_source_from_text("generic-proc-bare-returns.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_proc_bare_returns_preserve_unit", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn generic_proc_bare_returns_preserve_cleanup_and_inferred_io() {
+    on_scoped_body_test_stack(|| {
+        for typed in [true, false] {
+            let marker = if typed { ": Int" } else { "" };
+            let effects = if typed { " [io]" } else { "" };
+            let mut source = format!(r#"
+proc early(marker{marker}, done: Bool){effects} {{
+  defer {{ print "clean" }}
+  return when done
+  print "work"
+  let _ = marker
+}}
+proc terminal(marker{marker}){effects} {{
+  defer {{ print "clean" }}
+  let _ = marker
+  return
+}}
+proc number(done: Bool) [io] {{ early(7, done) }}
+proc end_number() [io] {{ terminal(7) }}
+"#);
+            if !typed { source.push_str("proc text(done: Bool) [io] { early(\"word\", done) }\nproc end_text() [io] { terminal(\"word\") }\n"); }
+            let (program, sources, source_id) = record_form_program(&source);
+            for force_frames in [false, true] {
+                for done in [true, false] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let names = if typed { &["number"][..] } else { &["number", "text"][..] };
+                    for &name in names {
+                        evaluator.stdout.clear();
+                        let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                        assert_eq!(evaluator.call_indexed_direct(function, CallableKind::Proc, &[Value::Bool(done)], Span::at(source_id, 0)).unwrap().unwrap(), Value::ok(Value::Unit));
+                        assert_eq!(evaluator.stdout, if done { b"clean\n".as_slice() } else { b"work\nclean\n".as_slice() }, "typed={typed} {name} done={done} frames={force_frames}");
+                    }
+                    let names = if typed { &["end_number"][..] } else { &["end_number", "end_text"][..] };
+                    for &name in names {
+                        evaluator.stdout.clear();
+                        let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                        assert_eq!(evaluator.call_indexed_direct(function, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::ok(Value::Unit));
+                        assert_eq!(evaluator.stdout, b"clean\n", "typed={typed} {name} frames={force_frames}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn generic_closed_fixed_fields_preserve_path_and_error_receivers() {
+    for (parameter, field, value) in [
+        ("location: Path", "location.name", Value::Path(crate::runtime::value::PathValue::from_text("/xsh/item.ext").unwrap())),
+        ("error: Error", "error.message", Value::Error(Box::new(crate::runtime::value::RuntimeError::new("probe", "actual message")))),
+    ] {
+        let argument = parameter.split(':').next().unwrap();
+        let source = format!("pure ordinary({parameter}) -> Str {{ {field} }}\npure view(marker, {parameter}) {{ let _ = marker; {field} }}\npure number({parameter}) -> Str {{ view(7, {argument}) }}\npure text({parameter}) -> Str {{ view(\"word\", {argument}) }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("ordinary")));
+            let expected = evaluator.call_indexed_direct(function, CallableKind::Pure, std::slice::from_ref(&value), Span::at(source_id, 0)).unwrap().unwrap();
+            for name in ["number", "text"] {
+                let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(function, CallableKind::Pure, std::slice::from_ref(&value), Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, expected, "{parameter} {name} frames={force_frames}");
+            }
+        }
+    }
+}

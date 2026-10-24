@@ -3447,6 +3447,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let statement = self.program.arena.core_stmt_id(statement);
         match self.program.arena.stmt(statement).kind {
+            ArenaStmtKind::Return(None) if facts.scheme().kind() == CallableKind::Proc => {
+                let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                Some(value)
+            }
             ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. } => {
                 self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Unit);
@@ -3772,10 +3777,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     lowered_types.insert(value, SchemeType::Ground(Type::Unit));
                     BuildStmtRow::Return { value }
                 }
-                ArenaStmtKind::Return(Some(value)) => {
+                ArenaStmtKind::Return(value) => {
                     let (source, source_expression) = match value {
-                        ArenaExprOrRun::Expr(expression) => (self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?, Some(expression)),
-                        ArenaExprOrRun::Run(run) => {
+                        None if facts.scheme().kind() == CallableKind::Proc => {
+                            let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                            lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                            (value, None)
+                        }
+                        None => return None,
+                        Some(ArenaExprOrRun::Expr(expression)) => (self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?, Some(expression)),
+                        Some(ArenaExprOrRun::Run(run)) => {
                             let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
                             (self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?, None)
                         }
@@ -4679,7 +4690,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         SchemeType::Record { fields, .. } => fields.get(&name)?.clone(),
                         _ => match source.closed_ground_type()?.unvalidated() {
                             Type::Record(fields) => SchemeType::Ground(fields.get(&name)?.clone()),
-                            _ => return self.block_scheme_lowering_expr(expression),
+                            receiver => match crate::sema::check::Checker::fixed_field_type(receiver, name).flatten() {
+                                Some(field) => SchemeType::Ground(field),
+                                None => return self.block_scheme_lowering_expr(expression),
+                            },
                         },
                     };
                 }
