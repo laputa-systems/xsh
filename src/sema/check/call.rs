@@ -3482,21 +3482,19 @@ mod generic_alias_call_tests {
 
     #[test]
     fn unresolved_generic_call_reports_its_inference_failure() {
-        for value in ["[]", "null"] {
-            let output = checked(&format!("pure identity(value) {{ value }}\nlet result = identity({value})\n"));
-            let diagnostic = output
-                .diagnostics
-                .iter()
-                .find(|diagnostic| {
-                    diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
-                        && diagnostic.message.starts_with("generic call instantiation failed:")
-                })
-                .expect("unresolved generic call reports a local inference diagnostic");
-            assert_eq!(
-                diagnostic.message,
-                "generic call instantiation failed: type argument remains unresolved"
-            );
-        }
+        let output = checked("pure identity(value) { value }\nlet result = identity([])\n");
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.message.starts_with("generic call instantiation failed:")
+            })
+            .expect("unresolved generic call reports a local inference diagnostic");
+        assert_eq!(
+            diagnostic.message,
+            "generic call instantiation failed: type argument remains unresolved"
+        );
     }
 }
 

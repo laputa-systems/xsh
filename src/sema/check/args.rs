@@ -217,9 +217,21 @@ impl Checker {
             && let Some(expected) = expected_context
             && !expected.contains_inference() && !expected.contains_recovery()
         {
-            let (_, instance) = contract.instantiation.as_ref().expect("guard requires a selected instance");
-            if let Err(conflict) = self.type_constraints.constrain_call_input_context(instance, expected, span) {
-                self.report_inferred_type_conflict(conflict);
+            use crate::sema::arguments::{ArgumentValueSource, bind_static_arguments, expand_named_arguments};
+            if let Ok(expanded) = expand_named_arguments(arena, args, |_| None)
+                && let Ok(binding) = bind_static_arguments(&callable_parameter_types(&contract.params), &expanded)
+            {
+                let inputs = expanded.iter().zip(binding.argument_slots).filter_map(|(argument, slot)| {
+                    let ArgumentValueSource::Expression(expression) = argument.value else { return None; };
+                    matches!(arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+                        .then(|| contract.params[slot].ty.clone())
+                }).collect::<Vec<_>>();
+                if !inputs.is_empty() {
+                    let (_, instance) = contract.instantiation.as_ref().expect("guard requires a selected instance");
+                    if let Err(conflict) = self.type_constraints.constrain_call_input_context(instance, &inputs, expected, span) {
+                        self.report_inferred_type_conflict(conflict);
+                    }
+                }
             }
         }
         let deferred = std::cell::Cell::new(false);
@@ -389,7 +401,18 @@ impl Checker {
             && matches!(self.type_constraints.resolve(actual), Ok(Type::Inference(_)))
         { deferred.set(true); return; }
         if !self.scheme_callable_types_compatible(expected, actual) {
-            if let Some(authority) = authority.instance() {
+            let exact_null = match self.type_constraints.call_argument_has_closed_null_evidence(actual) {
+                Ok(evidence) => evidence,
+                Err(error) => {
+                    self.report_inferred_type_conflict(crate::sema::constraints::ConstraintConflict {
+                        expected: expected.clone(), actual: actual.clone(), initializer: None,
+                        established: None, contribution: span, resolution_error: Some(error),
+                    });
+                    return;
+                }
+            };
+            if let Some(authority) = authority.instance().filter(|instance|
+                exact_null || actual.contains_any() || !instance.wrappers.is_empty() || !instance.applications.is_empty()) {
                 if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(authority, expected, actual, span) {
                     if conflict.resolution_error.is_some() || !actual.contains_any() {
                         self.report_inferred_type_conflict(conflict);

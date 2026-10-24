@@ -2190,6 +2190,18 @@ mod tests {
     }
 
     #[test]
+    fn generic_null_list_context_through_pure_result_wrapper() {
+        let source = "pure wrap(v) { Ok(v) }\nlet xs: Result[List[Str?]] = wrap([null])\n";
+        with_checked_local_source(source, |output| assert!(output.diagnostics.is_empty(), "{source}: {:?}", output.diagnostics));
+    }
+
+    #[test]
+    fn generic_null_list_context_through_proc_result_wrapper() {
+        let source = "proc wrap(v) { v }\nlet xs: Result[List[Str?]] = wrap([null])\n";
+        with_checked_local_source(source, |output| assert!(output.diagnostics.is_empty(), "{source}: {:?}", output.diagnostics));
+    }
+
+    #[test]
     fn generic_call_result_annotation_fact_is_finalized() {
         let source = concat!(
             "pure identity(value) { value }\n",

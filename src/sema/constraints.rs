@@ -1989,6 +1989,10 @@ impl TypeConstraints {
         )
     }
 
+    pub(crate) fn call_argument_has_closed_null_evidence(&self, actual: &Type) -> Result<bool, ConstraintResolutionError> {
+        has_anchor(&self.resolve(actual)?, AnchorEvidence::CheckedNullArgument)
+    }
+
     pub(crate) fn constrain_checked_call_argument(
         &mut self,
         instance: &InstantiatedScheme,
@@ -2184,10 +2188,10 @@ impl TypeConstraints {
     }
 
     pub(crate) fn constrain_call_input_context(
-        &mut self, instance: &InstantiatedScheme, expected: &Type, contribution: Span,
+        &mut self, instance: &InstantiatedScheme, inputs: &[Type], expected: &Type, contribution: Span,
     ) -> Result<(), ConstraintConflict> {
         let context = (|| {
-            let inputs = self.unresolved_input_variables(&instance.params)?;
+            let inputs = self.unresolved_input_variables(inputs)?;
             let mut computed = input_support::UnresolvedVariables::default();
             for id in &instance.operations {
                 let operation = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
@@ -3473,6 +3477,7 @@ impl TypeConstraints {
                 }
             };
             constrained.and_then(|()| {
+                if matches!(authority, ConstraintAuthority::CallInputContext(_)) { return Ok(()); }
                 let resolved_expected = constraints
                     .resolve_with_changes(expected, 0, changes)
                     .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
@@ -3932,6 +3937,7 @@ impl TypeConstraints {
                 (Type::Record(left), Type::Record(right)) => {
                     for (name, expected_field) in left.iter().rev() {
                         let Some(actual_field) = right.get(name) else {
+                            if input_context.is_some() { continue; }
                             return Err((expected, actual, None));
                         };
                         pending.push((
@@ -3944,6 +3950,7 @@ impl TypeConstraints {
                 _ if matches!(expected, Type::Any | Type::Unknown | Type::Invalid)
                     || matches!(actual, Type::Unknown | Type::Invalid) => {}
                 _ if actual.matches_expected(&expected) => {}
+                _ if input_context.is_some() => {},
                 _ => return Err((expected, actual, None)),
             }
         }
@@ -5024,7 +5031,7 @@ mod tests {
                 operations: vec![operation], methods: Vec::new(), wrappers: Vec::new(),
             };
             if union_before_context { constraints.constrain(&input, &result, span(4)).unwrap(); }
-            constraints.constrain_call_input_context(&instance, &Type::UInt, span(5)).unwrap();
+            constraints.constrain_call_input_context(&instance, &instance.params, &Type::UInt, span(5)).unwrap();
             assert!(matches!(constraints.resolve(&input).unwrap(), Type::Inference(_)));
             assert!(matches!(constraints.resolve(&result).unwrap(), Type::Inference(_)));
             constraints.constrain(&input, &Type::Int, span(6)).unwrap();

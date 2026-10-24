@@ -3351,10 +3351,11 @@ A checked generic call can retain the exact closed `Null` type of an argument,
 including within a list or record, when the callable's body requirements admit
 that type. It does not select `Any`, invent an optional payload, or establish an
 unrelated operation domain. A ground checked result context specializes the
-same fresh callable instance through its input variables before its source
-arguments are checked. It cannot choose a computed arithmetic result signature;
-that signature still follows the actual operands. The complete result check
-follows argument checking. Fresh literals can therefore receive input context;
+same fresh callable instance through input variables bound to fresh list
+literals before those arguments are checked. Only compatible result projections
+contribute that early context. It cannot choose a computed arithmetic result signature;
+that signature still follows the actual operands. The complete result check remains with expression completion after argument
+checking and wrapper elaboration. Fresh literals can therefore receive input context;
 pre-existing containers retain their own invariant domains.
 
 Equality or inequality against `null` does not itself choose an inferred
