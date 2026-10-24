@@ -88,6 +88,7 @@ pub(super) enum FullSchemeBodyFactKind {
     EmptyList,
     EmptyMap,
     RecordProducer,
+    NoCompletion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -647,6 +648,7 @@ pub(super) enum FullSchemeBodyFactValue {
     EmptyList,
     EmptyMap,
     RecordProducer,
+    NoCompletion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -672,6 +674,7 @@ impl FullSchemeBodyFact {
             FullSchemeBodyFactValue::EmptyList => FullSchemeBodyFactKind::EmptyList,
             FullSchemeBodyFactValue::EmptyMap => FullSchemeBodyFactKind::EmptyMap,
             FullSchemeBodyFactValue::RecordProducer => FullSchemeBodyFactKind::RecordProducer,
+            FullSchemeBodyFactValue::NoCompletion => FullSchemeBodyFactKind::NoCompletion,
         }
     }
 
@@ -679,7 +682,7 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
             | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
-            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::NoCompletion
             | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_)
             | FullSchemeBodyFactValue::CompletionLiftedValue(_) | FullSchemeBodyFactValue::CompletionReturnedResult(_)
             | FullSchemeBodyFactValue::CompletionAuthoredOk(_) | FullSchemeBodyFactValue::CompletionAuthoredErr(_) => None,
@@ -1180,7 +1183,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::NoCompletion | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
@@ -1842,6 +1845,18 @@ mod tests {
     use crate::syntax::node::Effect;
     use std::collections::{BTreeMap, BTreeSet};
     use std::{cell::RefCell, rc::Rc};
+
+    #[test]
+    fn no_completion_body_fact_has_no_type_payload_or_row_growth() {
+        let fact = super::FullSchemeBodyFact {
+            instruction: 3,
+            function: super::IrFunctionId::new(0).unwrap(),
+            value: super::FullSchemeBodyFactValue::NoCompletion,
+        };
+        assert_eq!(fact.kind(), FullSchemeBodyFactKind::NoCompletion);
+        assert_eq!(fact.ty(), None);
+        assert_eq!(std::mem::size_of::<super::FullSchemeBodyFact>(), 16);
+    }
 
     #[test]
     fn factless_pattern_id_encodes_without_an_instruction_tag() {

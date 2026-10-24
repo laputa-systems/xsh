@@ -313,6 +313,7 @@ pub(crate) enum NonmaterialConstructor {
 pub(crate) struct SchemeBodyFacts {
     scheme: Arc<TypeScheme>,
     expression_types: BTreeMap<ExprId, SchemeType>,
+    noncompleting_expressions: BTreeSet<ExprId>,
     constructor_producers: BTreeMap<ExprId, NonmaterialConstructor>,
     constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<SchemeType>>,
     tail_types: BTreeMap<StmtId, SchemeType>,
@@ -352,6 +353,7 @@ pub(crate) enum SchemeBuildError {
     UnresolvedSchema,
     DynamicType,
     BodyTypeNotBound,
+    ConflictingBodyFact,
     MapKey,
     Conversion,
 }
@@ -1161,6 +1163,7 @@ impl SchemeBodyFacts {
         Ok(Self {
             scheme,
             expression_types,
+            noncompleting_expressions: BTreeSet::new(),
             constructor_producers: BTreeMap::new(),
             constructor_instances: BTreeMap::new(),
             tail_types,
@@ -1291,9 +1294,18 @@ impl SchemeBodyFacts {
 
     pub(crate) fn method_site(&self, expression: ExprId) -> Option<u32> { self.method_sites.get(&expression).copied() }
 
-    pub(crate) fn with_constructor_producers(mut self, constructors: BTreeMap<ExprId, NonmaterialConstructor>) -> Self {
+    pub(crate) fn with_noncompleting_expressions(mut self, expressions: BTreeSet<ExprId>) -> Result<Self, SchemeBuildError> {
+        if expressions.iter().any(|expression| self.expression_types.contains_key(expression) || self.constructor_producers.contains_key(expression)) { return Err(SchemeBuildError::ConflictingBodyFact); }
+        self.noncompleting_expressions = expressions;
+        Ok(self)
+    }
+
+    pub(crate) fn noncompleting_expressions(&self) -> &BTreeSet<ExprId> { &self.noncompleting_expressions }
+
+    pub(crate) fn with_constructor_producers(mut self, constructors: BTreeMap<ExprId, NonmaterialConstructor>) -> Result<Self, SchemeBuildError> {
+        if constructors.keys().any(|expression| self.noncompleting_expressions.contains(expression)) { return Err(SchemeBuildError::ConflictingBodyFact); }
         self.constructor_producers = constructors;
-        self
+        Ok(self)
     }
 
     pub(crate) fn with_constructor_instances(mut self, constructors: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<SchemeType>>) -> Result<Self, SchemeBuildError> {
@@ -1363,6 +1375,7 @@ impl SchemeBodyFacts {
                     .map(SchemeType::retained_bytes)
                     .sum::<usize>(),
             )
+            .saturating_add(self.noncompleting_expressions.len() * size_of::<ExprId>())
             .saturating_add(self.constructor_producers.len() * size_of::<(ExprId, NonmaterialConstructor)>())
             .saturating_add(self.constructor_instances.len() * size_of::<(ExprId, super::constants::CheckedRecordConstructor<SchemeType>)>())
             .saturating_add(self.constructor_instances.values().map(|constructor| constructor.ty.retained_bytes()
@@ -2272,6 +2285,37 @@ mod tests {
                 Box::new(SchemeType::Ground(Type::Str)),
             )
         );
+    }
+
+    #[test]
+    fn noncompleting_body_facts_have_no_value_type() {
+        let scheme = Arc::new(TypeScheme::new(
+            crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(), Vec::new(),
+            SchemeType::Ground(Type::Int), None, true, Some(Vec::new()), false,
+        ).unwrap());
+        let expression = crate::syntax::arena::ExprId::from_index(3);
+        let facts = super::SchemeBodyFacts::new(Arc::clone(&scheme), BTreeMap::new(), BTreeMap::new()).unwrap()
+            .with_noncompleting_expressions(std::collections::BTreeSet::from([expression])).unwrap();
+        assert_eq!(facts.noncompleting_expressions(), &std::collections::BTreeSet::from([expression]));
+        assert_eq!(facts.expression_types().get(&expression), None);
+        let conflicting = super::SchemeBodyFacts::new(scheme, BTreeMap::from([(expression, SchemeType::Ground(Type::Int))]), BTreeMap::new()).unwrap()
+            .with_noncompleting_expressions(std::collections::BTreeSet::from([expression]));
+        assert_eq!(conflicting.unwrap_err(), SchemeBuildError::ConflictingBodyFact);
+        for completion_first in [false, true] {
+            let scheme = Arc::new(TypeScheme::new(
+                crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(), Vec::new(),
+                SchemeType::Ground(Type::Int), None, true, Some(Vec::new()), false,
+            ).unwrap());
+            let facts = super::SchemeBodyFacts::new(scheme, BTreeMap::new(), BTreeMap::new()).unwrap();
+            let completions = std::collections::BTreeSet::from([expression]);
+            let constructors = BTreeMap::from([(expression, super::NonmaterialConstructor::EmptyList)]);
+            let conflicting = if completion_first {
+                facts.with_noncompleting_expressions(completions).unwrap().with_constructor_producers(constructors)
+            } else {
+                facts.with_constructor_producers(constructors).unwrap().with_noncompleting_expressions(completions)
+            };
+            assert_eq!(conflicting.unwrap_err(), SchemeBuildError::ConflictingBodyFact);
+        }
     }
 
     #[test]

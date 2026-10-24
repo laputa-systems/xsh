@@ -58,6 +58,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::UnresolvedWrapper => "wrapper relationship has no complete call evidence",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
+                SchemeBuildError::ConflictingBodyFact => "body expression has conflicting completion and value facts",
                 SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
                 SchemeBuildError::Conversion => "type argument does not satisfy its value conversion requirements",
                 SchemeBuildError::UnresolvedSchema => "callable schema contract has no ground representation",

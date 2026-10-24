@@ -865,7 +865,7 @@ enum ProducerDemand {
 
 impl ProducerDemand {
     fn for_scheme_body(facts: &crate::sema::schemes::SchemeBodyFacts) -> Self {
-        if facts.scheme().kind() == CallableKind::Stream || !facts.registered_calls().is_empty() {
+        if facts.scheme().kind() == CallableKind::Stream || !facts.registered_calls().is_empty() || !facts.noncompleting_expressions().is_empty() {
             Self::Needed
         } else { Self::Absent }
     }

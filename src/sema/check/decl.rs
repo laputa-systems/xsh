@@ -1096,12 +1096,13 @@ impl Checker {
             None
         } else {
             let constructor_instances = pending.generalized_constructor_instances()?.clone();
+            let constructor_producers = pending.generalized_constructor_producers()?.clone();
             match super::super::schemes::SchemeBodyFacts::new(
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
-                Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
+            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
+                Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";
                     self.error(

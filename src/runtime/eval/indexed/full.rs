@@ -28883,7 +28883,7 @@ assert genuine_tail_runs == 0
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
                 schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_)
                 | schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_) | schemes::FullSchemeBodyFactValue::CompletionReturnedResult(_)
-                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) => {},
+                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) | schemes::FullSchemeBodyFactValue::NoCompletion => {},
             }
         }
         for node in &mut program.store.scheme_types {
