@@ -31,15 +31,16 @@ pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord }
+pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord, Env }
 
 impl ValueConversion {
-    pub(crate) const ALL: [Self; 5] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord];
+    pub(crate) const ALL: [Self; 6] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env];
 
     pub(crate) fn accepts(self, ty: &Type) -> bool {
         if ty.contains_recovery() || ty.contains_any() { return false; }
         match self {
             Self::Display => ty.can_display(),
+            Self::Env => ty.can_be_env_value(),
             Self::ProcessWord => ty.can_be_process_command_argv_item(),
             Self::Argv => ty.can_be_argv_item(),
             Self::ArgvOrList => ty.can_be_argv_item() || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
@@ -425,6 +426,27 @@ impl TypeScheme {
 
     pub(crate) fn return_type(&self) -> &SchemeType {
         self.callable.return_type()
+    }
+
+    pub(crate) fn method_path_return_matches(&self, actual: &SchemeType) -> bool {
+        if !self.explicit_return() { return false; }
+        let payload = match (self.kind(), self.return_type(), actual) {
+            (crate::sema::types::CallableKind::Pure, SchemeType::Ground(Type::Path), actual) => actual,
+            (crate::sema::types::CallableKind::Proc, SchemeType::Result(ok, error), SchemeType::Result(actual_ok, actual_error))
+                if **ok == SchemeType::Ground(Type::Path) && actual_error.matches_body_return(error) => actual_ok,
+            _ => return false,
+        };
+        self.method_path_return_payload(payload)
+    }
+
+    pub(crate) fn method_path_return_payload(&self, actual: &SchemeType) -> bool {
+        if !self.explicit_return() || !matches!(actual, SchemeType::Parameter(_)) { return false; }
+        let header = match (self.kind(), self.return_type()) {
+            (crate::sema::types::CallableKind::Pure, SchemeType::Ground(Type::Path)) => true,
+            (crate::sema::types::CallableKind::Proc, SchemeType::Result(ok, _)) => **ok == SchemeType::Ground(Type::Path),
+            _ => false,
+        };
+        header && self.callable().requirements().methods.iter().any(|method| method.result == *actual && crate::modules::api_spec().method_family_returns_paths(method.family))
     }
 
     pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation<SchemeType>> {

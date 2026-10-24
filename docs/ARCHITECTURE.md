@@ -330,6 +330,11 @@ A fresh list comprehension used as a generic argument derives its closed item
 from the actual qualifier bindings and projection. The ordinary argument demand
 then verifies the complete source, targets, filters, and projection; an expected
 parameter type does not supply the comprehension type.
+Guard-bound arguments derive their actual payload from the guard source and
+target, including the error binding inside a terminating handler. The canonical
+completion query proves that handler cannot continue before a ground payload is
+published. Lexical binding, complete writer census, and ordinary argument proofs
+remain mandatory.
 
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor
@@ -414,7 +419,17 @@ is established.
 Finite registered method families retain their receiver, source-ordered
 arguments, parameter slots and result in the checked scheme. Each physical
 method site identifies its owned requirement; call evidence either selects a
-canonical registry member or forwards a caller-owned requirement. Cold
+canonical registry member or forwards a caller-owned requirement. Path parent
+and normalization retain a separate result binder, solved from the selected
+signature after the actual receiver is known. Method dependencies share the
+journaled application fixed point and the binder-evidence reachability graph;
+consumer expectations do not supply actual result types. An authored Path
+return can accept a direct method result binder only when every canonical
+member returns Path or RelPath. The same-owner header and returned producer
+remain independently verified, including a Proc's Result success payload.
+A pending method
+result passed to a known formal retains its exact assignability edge until
+invocation evidence discharges it. Cold
 verification maps source arguments through those slots to the actual physical
 operands. Execution replays the selected identity using the existing invocation
 substitution and host operation path. It performs no runtime type solving or
@@ -743,7 +758,14 @@ substituted application relationship against that caller requirement independent
 of constructor range checks. Declaration-owned requirements remain distinct
 from nongeneralizing invocations. Strict `process.command_argv` word requirements
 use the same conversion requirements for inference, substitution, and cold body
-proof; argv retains an invariant list item binder. Nested committed transactions
+proof; argv retains an invariant list item binder. Environment overlay entries
+use the distinct `Env` conversion, with the same scalar and exact `List[Path]`
+domain as concrete environment values. Its bit occupies the existing conversion
+set and uses the same journal, generalization and call substitution. The Full
+scope consumer proves every owned record field or string-keyed map value against
+that conversion; the ordinary expression proof independently authenticates the
+actual keys, values and binders. Other context-scope inputs retain their closed
+type checks. Nested committed transactions
 and speculative trials share the same journal, including fresh scope ownership
 and panic rollback.
 Direct source applications retain one declaration-and-expression identity across
@@ -921,6 +943,10 @@ arms; incomplete runtime guards still require independent proof of their inputs.
 A closed List type from an actual arm can supply another arm's missing producer
 context, including erased record items. The producer proof still authenticates
 every arm, condition, and writer.
+A plain Result consumer can check a fresh `Err(...).context(...)` through its
+verified argument bindings. Its proof authenticates the registered
+method, error payload, cause, and context arguments; it publishes no success
+type for the absent payload.
 
 Generalized captured runs, retry attempts, error contexts, and restored context
 scopes use the existing command and scoped-block executor. Retry preserves an

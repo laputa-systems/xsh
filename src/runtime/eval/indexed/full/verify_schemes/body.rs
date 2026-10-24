@@ -1110,8 +1110,12 @@ pub(super) fn verify_body(
                                 }
                                 let input_type = expression_type(types, input.raw() as usize, budget)?;
                                 budget.charge_scheme_clone(&input_type)?;
-                                let input_type = input_type.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic context scope input is unresolved"))?;
-                                if !input_type.accepts_context_scope_input(kind) { return Err(IrVerifyError::new("generic context scope input disagrees with its kind")); }
+                                if kind == crate::syntax::arena::ContextScopeKind::Env {
+                                    super::commands::environment_overlay(&input_type, scheme_scope, budget)?;
+                                } else {
+                                    let input_type = input_type.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic context scope input is unresolved"))?;
+                                    if !input_type.accepts_context_scope_input(kind) { return Err(IrVerifyError::new("generic context scope input disagrees with its kind")); }
+                                }
                                 if !body_type_matches(&SchemeType::Ground(Type::Error), &error, budget)? { return Err(IrVerifyError::new("generic context scope has an incompatible error contract")); }
                                 if context_scope_has_known_escape(&ok, budget)? {
                                     return Err(IrVerifyError::new("generic context scope result escapes its restored context"));
@@ -1840,11 +1844,13 @@ pub(super) fn verify_body(
                                 }
                                 super::wrappers::completion_accepts_returned_result(store, scheme_scope, group, source, expected_return, budget)?
                             } else { false };
-                            if !actual.matches_body_return(expected_return) && !joined_result_source {
+                            let method_path_return = !actual.matches_body_return(expected_return)
+                                && super::methods::written_path_return_matches(store, decoder.owner, scheme_scope, &actual, expected_return, budget)?;
+                            if !actual.matches_body_return(expected_return) && !joined_result_source && !method_path_return {
                                 return Err(IrVerifyError::new("generic body return does not match its scheme return"));
                             }
                             if let Some(tail) = tails.remove(&instruction) {
-                                let tail_matches = if joined_result_source {
+                                let tail_matches = if joined_result_source || method_path_return {
                                     body_types_equal(&tail, &actual)
                                 } else {
                                     tail.matches_body_return(expected_return)
@@ -2044,6 +2050,8 @@ proc choose(stored: Record, erased: Any, numbers: List[Int]) -> Result[List[Str]
         assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
         program.store.in_place.take();
         FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
         let empty = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprList).unwrap();
         let decoder = decoder_for_function(&program.store, owner).unwrap();
@@ -2054,6 +2062,127 @@ proc choose(stored: Record, erased: Any, numbers: List[Int]) -> Result[List[Str]
             changed.store.data.swap(empty, spare);
             let error = FullVerifier::verify(&changed).unwrap_err();
             assert!(error.message.contains("producer") && error.message.contains("contract"), "header slot {slot}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn fresh_result_context_consumers_reject_wrong_physical_inputs() {
+        fn swap_rows(program: &FullProgram, left: usize, right: usize) -> FullProgram {
+            let mut changed = program.clone();
+            changed.store.tags.swap(left, right);
+            changed.store.data.swap(left, right);
+            for fact in &mut changed.store.checked_expr_types {
+                if fact.instruction as usize == left { fact.instruction = right as u32; }
+                else if fact.instruction as usize == right { fact.instruction = left as u32; }
+            }
+            changed.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+            changed
+        }
+        fn rejects(program: &FullProgram, input: &str) {
+            let error = FullVerifier::verify(program).unwrap_err();
+            assert!(error.message.starts_with("ground producer value disagrees with its checked contract")
+                || error.message.starts_with("checked value input disagrees with its contract")
+                || error.message.starts_with("checked value input has no producer contract")
+                || error.message.starts_with("ground method has no receiver contract")
+                || error.message.starts_with("ground method has no registered parameter contract"), "{input}: {error:?}");
+        }
+        let mut program = prepare(r#"
+error Failure = Bad(message: Str)
+error Cause = Bad(message: Str)
+error Other = Bad(message: Str)
+pure choose(erased: Any) -> Result[Unit, Error] {
+    let spare: Result[Str, Error] = Ok("wrong")
+    let compatible: Result[Unit, Error] = Ok()
+    let alias: Result[Str, Error] = spare
+    let spare_bool: Any = true
+    let spare_name: Any = "trim"
+    let alternate: Result[Unit, Other] = Err(Other.Bad("other"))
+    let original: Result[Unit, Error] = Err(Failure.Bad("outer"), cause: Cause.Bad("cause")).context("stage", "detail")
+    original
+}
+let observed = choose("data")
+assert observed != Ok()
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (guard, method, checked) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprMethod => Some((instruction, value.raw() as usize, check.ty.id)),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::Method { receiver, args, name: "context", .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let receiver = receiver.raw() as usize;
+        let arguments = args.collect::<Result<Vec<_>, _>>().unwrap().into_iter().map(|argument| argument.raw() as usize).collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 2);
+        let mut constructor = receiver;
+        let mut subjects = Vec::new();
+        while let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(constructor).unwrap() {
+            let (pattern, guard, body) = arms.next().unwrap().unwrap();
+            assert!(guard.is_none() && arms.next().is_none());
+            assert!(matches!(decoder.checked_pattern_view(pattern.raw()).unwrap(), schema::PatternView::Bind { .. }));
+            subjects.push(value.raw() as usize);
+            constructor = body.raw() as usize;
+        }
+        assert!(matches!(decoder.expression_view(constructor).unwrap(), schema::ExprView::Err { cause: Some(_), .. }));
+        assert_eq!(subjects.len(), 2);
+        let primary = subjects[0];
+        let cause = subjects[1];
+        let compatible = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Ok(value)) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Unit)))).unwrap();
+        FullVerifier::verify(&swap_rows(&program, receiver, compatible)).unwrap();
+        let spare = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Ok(value)) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Str("wrong"))))).unwrap();
+        rejects(&swap_rows(&program, receiver, spare), "success payload");
+        let boolean = range.clone().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprBool).unwrap();
+        for (name, input) in [("error", primary), ("cause", cause), ("kind", arguments[0]), ("message", arguments[1])] { rejects(&swap_rows(&program, input, boolean), name); }
+        let alias = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot != 0)).unwrap();
+        let mut erased = swap_rows(&program, receiver, alias);
+        let words = erased.store.data[receiver].range().bounds(erased.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        erased.store.extra[words.start] = 0;
+        assert!(!erased.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == receiver));
+        rejects(&erased, "untyped receiver");
+        let alternate = program.store.checked_expr_types.iter().find(|fact| range.contains(&(fact.instruction as usize)) && fact.instruction as usize != receiver && program.store.tags[fact.instruction as usize] == super::super::super::FullTag::ExprErr).unwrap().type_id;
+        let mut wrong_family = program.clone();
+        let words = wrong_family.store.data[guard].range().bounds(wrong_family.store.extra.len()).unwrap();
+        assert_eq!(wrong_family.store.extra[words.start + 2], checked.raw());
+        wrong_family.store.extra[words.start + 2] = alternate.raw();
+        for fact in &mut wrong_family.store.checked_expr_types {
+            if fact.instruction as usize == guard {
+                assert!(fact.is_contract());
+                fact.type_id = alternate;
+            }
+        }
+        rejects(&wrong_family, "error family");
+        let spelling = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str("trim")))).unwrap();
+        let spelling = program.store.extra[program.store.data[spelling].range().start as usize];
+        assert_eq!(program.store.string(spelling).unwrap(), "trim");
+        let mut wrong_method = program.clone();
+        let words = wrong_method.store.data[method].range().bounds(wrong_method.store.extra.len()).unwrap();
+        assert_eq!(program.store.string(wrong_method.store.extra[words.start + 1]).unwrap(), "context");
+        wrong_method.store.extra[words.start + 1] = spelling;
+        rejects(&wrong_method, "method selection");
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn fresh_result_context_preserves_cause_and_frames_after_disposal() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/fresh-result-context.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("fresh-result-context.xsh", crate::loader::entry_source_from_text("fresh-result-context.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("fresh_result_context", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
         }
     }
 
@@ -2739,6 +2868,163 @@ test namespace_borrow {
                 scheme.body_facts.start += 1;
             }
         }
+    }
+
+    #[test]
+    fn path_method_results_authenticate_receivers_members_and_consumers() {
+        let program = prepare(r#"
+pure parent_transform(location, other: Int) { let _ = other; let _ = "unknown"; location.parent() }
+pure normalize_transform(location) { location.normalize() }
+pure path_text(location: Path) -> Str { location.display() }
+pure contextual(location) { let first = parent_transform(location, 7); path_text(first) }
+let relative: RelPath = p"a/b"
+let parent_relative: RelPath = parent_transform(relative, 7)
+let parent_absolute: Path = parent_transform(p"/a/b", 7)
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "parent_transform").unwrap();
+        let other = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "normalize_transform").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { unreachable!() };
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let method_index = scheme.methods.start as usize;
+        assert_eq!(scheme.methods.len, 1);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let method = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { .. }))).unwrap();
+        let integer = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let reject = |mut changed: FullProgram, label: &str| {
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+        };
+        let receivers = range.clone().filter(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).collect::<Vec<_>>();
+        assert_eq!(receivers.len(), 1);
+        let receiver = receivers[0];
+        assert!(matches!(decoder.expression_view(integer).unwrap(), schema::ExprView::Param(1)));
+        let mut wrong_receiver = program.clone();
+        let receiver_words = wrong_receiver.store.data[receiver].range().bounds(wrong_receiver.store.extra.len()).unwrap();
+        assert_eq!(receiver_words.len(), 1);
+        wrong_receiver.store.extra[receiver_words.start] = 1;
+        reject(wrong_receiver, "actual method receiver");
+        let words = program.store.data[method].range().bounds(program.store.extra.len()).unwrap();
+        let normal_name = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "normalize").unwrap().0 as u32 + 1;
+        let mut wrong_name = program.clone();
+        wrong_name.store.extra[words.start + 1] = normal_name;
+        reject(wrong_name, "actual method name");
+        let mut wrong_family = program.clone();
+        wrong_family.store.scheme_methods[method_index].family = xsh_registry::signature::MethodFamilyId::PathNormalize;
+        reject(wrong_family, "retained method family");
+        let mut wrong_result = program.clone();
+        let result_type = program.store.scheme_methods[method_index].result;
+        let receiver_type = program.store.scheme_methods[method_index].receiver;
+        assert_eq!(program.store.scheme_types[result_type.index()].tag, FullSchemeTypeTag::Parameter);
+        wrong_result.store.scheme_types[result_type.index()].first = program.store.scheme_types[receiver_type.index()].first;
+        reject(wrong_result, "independent result binder");
+        let method_fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Method(_))).unwrap();
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.scheme_body_facts[method_fact].function = IrFunctionId::new(other).unwrap();
+        reject(wrong_owner, "method source owner");
+        let contextual = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "contextual").unwrap();
+        let FullCallableContract::Scheme(contextual_scheme) = program.store.functions[contextual].contract else { unreachable!() };
+        let contextual_scheme = program.store.scheme(contextual_scheme).unwrap();
+        let known = contextual_scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| match program.store.scheme_applications[index] {
+            super::super::super::schemes::FullSchemeApplication::KnownArguments { parameters, arguments } => Some((parameters, arguments)),
+            _ => None,
+        }).unwrap();
+        let context_input = program.store.scheme_params[contextual_scheme.params.start as usize].ty;
+        let mut wrong_edge = program.clone();
+        let argument = known.1.start as usize;
+        let argument_type = program.store.scheme_application_arguments[argument].ty;
+        assert_eq!(program.store.scheme_types[argument_type.index()].tag, FullSchemeTypeTag::Parameter);
+        assert_ne!(program.store.scheme_types[argument_type.index()].first, program.store.scheme_types[context_input.index()].first);
+        wrong_edge.store.scheme_types[argument_type.index()].first = program.store.scheme_types[context_input.index()].first;
+        reject(wrong_edge, "required actual result edge");
+        let mut wrong_formal = program.clone();
+        let integer_type = program.store.scheme_params[scheme.params.start as usize + 1].ty;
+        let formal_type = program.store.scheme_callable_parameters[known.0.start as usize].ty;
+        assert_eq!(program.store.scheme_types[formal_type.index()].tag, FullSchemeTypeTag::Ground);
+        wrong_formal.store.scheme_types[formal_type.index()].first = program.store.scheme_types[integer_type.index()].first;
+        reject(wrong_formal, "required consumer formal");
+    }
+
+    #[test]
+    fn authored_path_method_returns_authenticate_their_header_and_actual_tail() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare("pure written(location, other) -> Path { let _ = other.parent(); location.parent() }\npure foreign(location: Path) -> Path { location }\nlet relative: RelPath = p\"a/b\"\nlet _ = written(p\"/a/b\", relative)\n");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        assert!(scheme.explicit_return);
+        assert_eq!(scheme.methods.len, 2);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) => Some(value.raw()),
+            _ => None,
+        }).unwrap();
+        let (fact, tail) = scheme.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap().find_map(|index| match program.store.scheme_body_facts[index] {
+            super::super::super::schemes::FullSchemeBodyFact { instruction, value: FullSchemeBodyFactValue::Expression(ty), .. } if instruction == value => Some((index, ty)),
+            _ => None,
+        }).unwrap();
+        assert_eq!(program.store.scheme_types[tail.index()].tag, FullSchemeTypeTag::Parameter);
+        let other_result = bounded(scheme.methods, &program.store.scheme_methods, "methods").unwrap().iter().map(|method| method.result).find(|result| program.store.scheme_types[result.index()].first != program.store.scheme_types[tail.index()].first).unwrap();
+        let reject = |mut changed: FullProgram, label: &str| {
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+        };
+        let mut unwritten = program.clone();
+        unwritten.store.schemes[scheme_id.index()].explicit_return = false;
+        reject(unwritten, "actual authored return flag");
+        let mut wrong_tail = program.clone();
+        wrong_tail.store.scheme_types[tail.index()].first = program.store.scheme_types[other_result.index()].first;
+        reject(wrong_tail, "actual returned result binder");
+        let mut wrong_owner = program.clone();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        assert_ne!(owner, foreign);
+        wrong_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(foreign).unwrap();
+        reject(wrong_owner, "actual return source owner");
+    }
+
+    #[test]
+    fn unused_path_method_results_still_require_canonical_call_evidence() {
+        let program = prepare("pure unused_parent(location) { let _ = location.parent(); true }\nlet relative: RelPath = p\"a/b\"\nassert unused_parent(relative)\nassert unused_parent(p\"/a/b\")\n");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let method = program.store.scheme_methods[scheme.methods.start as usize];
+        let result = program.store.scheme_types[method.result.index()];
+        assert_eq!(result.tag, FullSchemeTypeTag::Parameter);
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let scope = scopes[scheme_id.index()].as_ref().unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        let path_type = program.store.call_type_arguments.iter().find_map(|argument| {
+            (program.store.scheme_types[argument.ty.index()].tag == FullSchemeTypeTag::Ground
+                && decode_scheme_type(&program.store, scope, argument.ty, &mut budget, 0).unwrap().closed_ground_type() == Some(Type::Path)).then_some(argument.ty)
+        }).unwrap();
+        let call = program.store.call_instantiations.iter().find(|call| {
+            program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)
+                && bounded(call.arguments.type_arguments, &program.store.call_type_arguments, "arguments").unwrap().iter().any(|argument| argument.binder == result.first
+                    && decode_scheme_type(&program.store, scope, argument.ty, &mut SchemeInstantiationBudget::new(&program.store), 0).unwrap().closed_ground_type() == Some(Type::rel_path()))
+        }).unwrap();
+        let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        let output = arguments.clone().find(|&index| program.store.call_type_arguments[index].binder == result.first).unwrap();
+        let mut wrong_result = program.clone();
+        wrong_result.store.in_place.take();
+        assert!(wrong_result.store.in_place.get().is_none());
+        let result_type = program.store.call_type_arguments[output].ty;
+        let receiver_binder = program.store.scheme_types[method.receiver.index()].first;
+        let receiver_type = arguments.clone().find_map(|index| (program.store.call_type_arguments[index].binder == receiver_binder).then_some(program.store.call_type_arguments[index].ty)).unwrap();
+        assert_ne!(result_type, receiver_type);
+        assert_eq!(program.store.scheme_types[result_type.index()].tag, FullSchemeTypeTag::Ground);
+        wrong_result.store.scheme_types[result_type.index()].first = program.store.scheme_types[path_type.index()].first;
+        let error = FullVerifier::verify(&wrong_result).unwrap_err();
+        assert!(error.message.contains("canonical result"), "{error:?}");
+        let member = crate::modules::api_spec().method_family_members(xsh_registry::signature::MethodFamilyId::PathParent).find(|(_, domain, _, _)| *domain == crate::modules::MethodReceiver::Path).unwrap().0;
+        let mut wrong_member = program.clone();
+        wrong_member.store.in_place.take();
+        assert!(wrong_member.store.in_place.get().is_none());
+        assert_eq!(call.arguments.method_bindings.len, 1);
+        wrong_member.store.call_method_bindings[call.arguments.method_bindings.start as usize] = super::super::super::schemes::FullMethodBinding::Selected(member);
+        assert!(FullVerifier::verify(&wrong_member).unwrap_err().message.contains("canonical input signature"));
     }
 
     #[test]
@@ -5182,6 +5468,79 @@ test verify_completion_cleanup {
     }
 
     #[test]
+    fn guard_arguments_authenticate_actual_payloads_handlers_writers_and_owners() {
+        let program = prepare(r#"pure same(value) { value }
+proc foreign(raw: Result[Str, Str]) -> Str { guard let text = raw else { return "foreign" }; text }
+proc selected(raw: Result[Str, Str], other: Result[Int, Str], bad: Int) -> Str {
+    var spare = 3
+    let spare_other: Any = other
+    let spare_bad: Any = bad
+    guard let text = raw else { |failure| return same(failure) }
+    spare = 7
+    same(text)
+}
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (guard, source, target, failure, handler_return) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Guard { value, target: super::super::super::decode::CompTargetView::Slot(target), else_param_slot: Some(failure), mut else_body, .. }) => {
+                let handler_return = else_body.find_map(|statement| {
+                    let statement = statement.unwrap().raw() as usize;
+                    matches!(decoder.statement_view(statement), Ok(schema::StmtView::Return { .. })).then_some(statement)
+                }).unwrap();
+                Some((instruction, value.raw() as usize, target, failure, handler_return))
+            }
+            _ => None,
+        }).unwrap();
+        let parameter = |slot| range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::AssignInt { .. }))).unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        for (label, from, to) in [("payload", source, parameter(1)), ("source", source, parameter(2)), ("handler binding", parameter(target), parameter(failure))] {
+            let mut changed = cold();
+            changed.store.tags.swap(from, to);
+            changed.store.data.swap(from, to);
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert_eq!(error.message, match label { "payload" => "generic call argument does not match its checked parameter slot", "source" => "ground guard has no slot transfer contract", "handler binding" => "ground producer use has no visible lexical declaration", _ => unreachable!() }, "{label}");
+        }
+        let mut written = cold();
+        let words = written.store.data[assignment].range().bounds(written.store.extra.len()).unwrap();
+        written.store.extra[words.start] = target as u32;
+        let error = FullVerifier::verify(&written).unwrap_err();
+        assert_eq!(error.message, "integer writer disagrees with its ground slot contract");
+        let mut continuing = cold();
+        assert_eq!(continuing.store.tags[handler_return], FullTag::StmtReturn);
+        continuing.store.tags[handler_return] = FullTag::StmtValue;
+        let error = FullVerifier::verify(&continuing).unwrap_err();
+        assert_eq!(error.message, "ground guard failure branch can complete");
+        let mut premature = cold();
+        let body = IrBlockId::from_raw(premature.store.functions[owner].body).unwrap();
+        let words = premature.store.blocks[body.index()].instructions.bounds(premature.store.extra.len()).unwrap();
+        let statements = (words.start + 1)..words.end;
+        let guard_word = statements.clone().find(|word| premature.store.extra[*word] == guard as u32).unwrap();
+        let return_word = statements.filter(|word| premature.store.tags[premature.store.extra[*word] as usize] == FullTag::StmtReturn).last().unwrap();
+        premature.store.extra.swap(guard_word, return_word);
+        let error = FullVerifier::verify(&premature).unwrap_err();
+        assert_eq!(error.message, "ground producer use has no visible lexical declaration");
+        let mut foreign_read = cold();
+        let words = foreign_read.store.data[guard].range().bounds(foreign_read.store.extra.len()).unwrap();
+        let references = words.filter(|word| foreign_read.store.extra[*word] == source as u32).collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        foreign_read.store.extra[references[0]] = foreign_source as u32;
+        assert_eq!(FullVerifier::verify(&foreign_read).unwrap_err().message, "full IR instruction belongs to another function");
+    }
+
+    #[test]
     fn fresh_comprehension_arguments_authenticate_actual_sources_items_and_filters() {
         let program = prepare(r#"pure same(value) { value }
 pure foreign(rows: List[Int]) -> List[Int] { rows }
@@ -5230,12 +5589,14 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
                 ("projection", projection.unwrap(), wrong_item.unwrap()),
             ] {
                 let mut changed = original.clone();
+                if uncached { changed.store.in_place.take(); assert!(changed.store.in_place.get().is_none()); }
                 changed.store.tags.swap(from, to);
                 changed.store.data.swap(from, to);
                 let error = FullVerifier::verify(&changed).unwrap_err();
                 assert_eq!(error.message, if label == "filter" { "condition producer disagrees with its control role" } else { "generic call argument does not match its checked parameter slot" }, "{label} uncached={uncached}");
             }
             let mut foreign_read = original.clone();
+            if uncached { foreign_read.store.in_place.take(); assert!(foreign_read.store.in_place.get().is_none()); }
             let words = foreign_read.store.data[comprehension].range().bounds(foreign_read.store.extra.len()).unwrap();
             let qualifiers = IrBlockId::from_raw(foreign_read.store.extra[words.start + 1]).unwrap();
             let words = foreign_read.store.blocks[qualifiers.index()].instructions.bounds(foreign_read.store.extra.len()).unwrap();
@@ -5959,6 +6320,80 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
             let failure = FullVerifier::verify(&stale).expect_err("a write invalidates the original record field refinement");
             assert_eq!(failure.message, "generic body expression disagrees with its checked type", "{name}");
         }
+    }
+
+
+    fn direct_env_fixture() -> FullProgram {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-env-values.xsh")).unwrap();
+        prepare(&source)
+    }
+
+    #[test]
+    fn generic_env_overlay_requires_its_own_conversion_evidence() {
+        let program = direct_env_fixture();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct_env_pair").unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { unreachable!() };
+        let parameters = program.store.schemes[scheme.index()].type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        assert_eq!(parameters.len(), 2);
+        let env = 1 << (ValueConversion::Env as u8);
+        for index in parameters {
+            assert_eq!(program.store.scheme_type_parameters[index].conversions, env);
+            for replacement in [0, 1 << (ValueConversion::ArgvOrList as u8)] {
+                let mut missing = program.clone();
+                missing.store.in_place.take();
+                missing.store.scheme_type_parameters[index].conversions = replacement;
+                assert!(missing.store.in_place.get().is_none());
+                let failure = FullVerifier::verify(&missing).expect_err("the body must retain the Env conversion for each actual field");
+                assert_eq!(failure.message, "generic environment overlay value has no Env conversion requirement");
+            }
+        }
+    }
+
+    #[test]
+    fn generic_env_overlay_authenticates_fields_and_actual_parameter_owners() {
+        let program = direct_env_fixture();
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct_env_pair").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let record = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRecord).unwrap();
+        let schema::ExprView::Record(mut entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+        assert_eq!(entries.len(), 2);
+        let block = entries.block_identity_for_test();
+        let super::super::super::decode::RecordEntryView::Field(left_name, left) = entries.next().unwrap().unwrap() else { unreachable!() };
+        let super::super::super::decode::RecordEntryView::Field(right_name, _) = entries.next().unwrap().unwrap() else { unreachable!() };
+        assert_ne!(left_name, right_name);
+        let schema::ExprView::Param(temporary) = decoder.expression_view(left.raw() as usize).unwrap() else { unreachable!() };
+        let raw = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if slot == temporary => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(raw).unwrap(), schema::ExprView::Param(0)));
+        let mut wrong_source = program.clone();
+        wrong_source.store.in_place.take();
+        let words = wrong_source.store.data[raw].range().bounds(wrong_source.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_source.store.extra[words.start] = 1;
+        assert!(wrong_source.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_source).expect_err("another Env-capable binder cannot supply the field value");
+        assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+        let mut wrong_key = program.clone();
+        wrong_key.store.in_place.take();
+        let words = wrong_key.store.blocks[block.index()].instructions.bounds(wrong_key.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 7);
+        assert_eq!(&wrong_key.store.extra[words.start..words.start + 3], &[2, 0, left_name.symbol().raw()]);
+        assert_eq!(&wrong_key.store.extra[words.start + 4..words.start + 6], &[0, right_name.symbol().raw()]);
+        wrong_key.store.extra[words.start + 2] = right_name.symbol().raw();
+        assert!(wrong_key.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_key).expect_err("the actual record fields must agree with the overlay contract");
+        assert_eq!(failure.message, "generic record producer repeats a field");
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct_env_value").unwrap();
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && fact.instruction as usize == raw && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut foreign_owner = program.clone();
+        foreign_owner.store.in_place.take();
+        foreign_owner.store.scheme_body_facts[fact].function = super::super::super::IrFunctionId::new(foreign).unwrap();
+        assert!(foreign_owner.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&foreign_owner).expect_err("a foreign function cannot own the overlay producer fact");
+        assert!(failure.message.contains("owner"), "{failure:?}");
     }
 
 }

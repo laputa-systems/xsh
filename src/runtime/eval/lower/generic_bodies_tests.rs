@@ -8,6 +8,47 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_guard_argument_call(typed: bool) {
+    let identity = if typed { "pure same(value: Str) -> Str { value }" } else { "pure same(value) { value }" };
+    let source = format!(r#"{identity}
+proc optional(raw: Bytes) -> Str {{
+    let _ = raw.len()
+    guard let text = raw.utf8() else {{ return "missing" }}
+    same(text)
+}}
+proc outcome(raw: Result[Str, Str]) -> Str {{
+    guard let text = raw else {{ |failure| return same(failure) }}
+    same(text)
+}}
+"#);
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, argument, expected) in [
+            ("optional", Value::Bytes(b"value".to_vec()), "value"),
+            ("optional", Value::Bytes(vec![255]), "missing"),
+            ("outcome", Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from("success"))))), "success"),
+            ("outcome", Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("failure"))))), "failure"),
+        ] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[argument], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Str(Arc::from(expected)), "typed={typed} {name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn typed_guard_arguments_preserve_optional_and_result_payloads() {
+    verify_guard_argument_call(true);
+}
+
+#[test]
+fn inferred_guard_arguments_preserve_optional_and_result_payloads() {
+    verify_guard_argument_call(false);
+}
+
 fn verify_comprehension_argument_call(typed: bool) {
     let same = if typed { "pure same(value: List[Int]) -> List[Int] { value }" } else { "pure same(value) { value }" };
     let source = format!("{same}\npure selected(values: List[Int]) -> List[Int] {{ same([item for item in values if item > 0]) }}\n");
@@ -5229,6 +5270,131 @@ fn typed_record_guard_continuations_preserve_actual_closed_records_on_both_route
 #[test]
 fn generic_record_guard_continuations_preserve_actual_closed_records_on_both_routes() {
     verify_record_guard_continuation_program(false);
+}
+
+fn verify_direct_env_value_program(typed: bool) {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-env-values.xsh");
+    let source = if typed {
+        source.replace("proc direct_env_value(value)", "proc direct_env_value(value: EnvScalar)")
+            .replace("proc direct_env_paths(values)", "proc direct_env_paths(values: List[Path])")
+            .replace("proc direct_env_map(value)", "proc direct_env_map(value: EnvScalar)")
+            .replace("proc direct_env_pair(left, right)", "proc direct_env_pair(left: Str, right: Str)")
+            .replace("proc observe_env(value)", "proc observe_env(value: Str)")
+            .replace("proc fail_env(value)", "proc fail_env(value: Str)")
+            .replace("proc collect_env(value)", "proc collect_env(value: Str)")
+    } else { source.to_owned() };
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-env-values.xsh", crate::loader::entry_source_from_text("generic-env-values.xsh", source), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("verify_generic_env_values", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+    }
+}
+
+#[test]
+fn typed_env_values_preserve_conversion_scope_cleanup_and_stream_timing_on_both_routes() {
+    verify_direct_env_value_program(true);
+}
+
+#[test]
+fn inferred_env_values_preserve_conversion_scope_cleanup_and_stream_timing_on_both_routes() {
+    verify_direct_env_value_program(false);
+}
+
+#[test]
+fn inferred_env_values_reject_nonconvertible_nullable_and_dynamic_inputs() {
+    let definitions = include_str!("../../../../tests/fixtures/runtime/generic-env-values.xsh");
+    for body in [
+        "let _ = direct_env_value(1.5)",
+        "let _ = direct_env_value(b\"bytes\")",
+        "let _ = direct_env_value(null)",
+        "let value: Str? = \"maybe\"; let _ = direct_env_value(value)",
+        "let value: Any = \"erased\"; let _ = direct_env_value(value)",
+        "let _ = direct_env_value([1, 2])",
+        "let _ = direct_env_value([\"one\", \"two\"])",
+        "let value: Result[Str, Str] = Err(\"opaque\"); let _ = direct_env_value(value)",
+        "enum EnvToken { Kept }\nproc rejected(value: EnvToken) [env, error] -> Result[Str] { direct_env_value(value) }",
+        "proc rejected(value: FsRoot) [env, error] -> Result[Str] { direct_env_value(value) }",
+    ] {
+        let source = format!("{definitions}\n{body}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{body}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(!errors.is_empty(), "{body}");
+        assert!(errors.iter().all(|diagnostic| diagnostic.code != Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{body}\n{errors:?}");
+    }
+}
+
+#[test]
+fn generic_path_transforms_preserve_canonical_results_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/xsh/generic-path-transforms.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-path-transforms.xsh", crate::loader::entry_source_from_text("generic-path-transforms.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_path_transforms_preserve_canonical_results", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert_eq!(result.output.stdout, b"receiver\n", "frames={force_frames}");
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn imported_path_method_schemes_publish_separate_result_binders() {
+    on_scoped_body_test_stack(|| {
+        let directory = tempfile::Builder::new().prefix("path-method-schemes-").tempdir_in(".work/tmp").unwrap();
+        std::fs::write(directory.path().join("transforms.xsh"), "##! Canonical path transformations.\n## Returns the canonical parent domain.\nexport pure parent(location) { location.parent() }\n## Returns the canonical normalized domain.\nexport pure normal(location) { location.normalize() }\n").unwrap();
+        let source = r#"use transforms
+
+test imported_path_method_results {
+  let absolute: Path = p"/usr/share"
+  let relative: RelPath = p"usr/share"
+  let parent_absolute: Path = transforms.parent(absolute)
+  let parent_relative: RelPath = transforms.parent(relative)
+  let normalized: RelPath = transforms.normal(relative)
+  assert parent_absolute == p"/usr"
+  assert parent_relative == p"usr"
+  assert normalized == relative
+}
+"#;
+        let entry = directory.path().join("main.xsh");
+        std::fs::write(&entry, source).unwrap();
+        let (sources, parsed) = crate::loader::parse_script_with_module_roots(entry.to_str().unwrap(), &[directory.path().to_path_buf()]).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        for family in [xsh_registry::signature::MethodFamilyId::PathParent, xsh_registry::signature::MethodFamilyId::PathNormalize] {
+            let scheme = checked.function_schemes.values().find(|scheme| scheme.callable().requirements().methods.iter().any(|method| method.family == family)).unwrap();
+            let crate::sema::schemes::SchemeType::Parameter(receiver) = &scheme.params()[0].ty else { panic!("the exported receiver remains a caller-independent parameter") };
+            let crate::sema::schemes::SchemeType::Parameter(result) = scheme.return_type() else { panic!("the exported result retains its canonical member relationship") };
+            assert_ne!(receiver, result);
+        }
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        drop(directory);
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("imported_path_method_results", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
 }
 
 mod guarded_requirements_tests;

@@ -253,6 +253,28 @@ impl ApiSpec {
         registry::api_spec().method_family_member_ids(family).len()
     }
 
+    pub(crate) fn method_family_result(&self, family: registry::MethodFamilyId) -> Option<MethodFamilyResult> {
+        let mut members = self.method_family_members(family);
+        let (_, _, name, first) = members.next()?;
+        let mut uniform = true;
+        let mut selected = first.sig.params.is_empty() && first.sig.pure && first.sig.effects.is_empty()
+            && first.receiver_ty.as_ref() == Some(&first.sig.return_ty);
+        for (_, _, candidate_name, candidate) in members {
+            if candidate_name != name || candidate.sig.pure != first.sig.pure || candidate.sig.effects != first.sig.effects { return None; }
+            uniform &= candidate.sig.return_ty == first.sig.return_ty;
+            selected &= candidate.sig.params.is_empty() && candidate.sig.op == first.sig.op
+                && candidate.receiver_ty.as_ref() == Some(&candidate.sig.return_ty);
+        }
+        if uniform { Some(MethodFamilyResult::UniformGround(first.sig.return_ty.clone())) }
+        else if selected { Some(MethodFamilyResult::SelectedSignature) }
+        else { None }
+    }
+
+    pub(crate) fn method_family_returns_paths(&self, family: registry::MethodFamilyId) -> bool {
+        matches!(self.method_family_result(family), Some(MethodFamilyResult::SelectedSignature))
+            && self.method_family_members(family).all(|(_, _, _, member)| member.sig.return_ty == Type::Path || member.sig.return_ty == Type::rel_path())
+    }
+
     pub(crate) fn select_method_family(
         &self,
         family: registry::MethodFamilyId,
@@ -267,9 +289,22 @@ impl ApiSpec {
         {
             return MethodFamilySelection::Unsupported;
         }
+        let Some((_, _, name, _)) = self.method_family_members(family).next() else { return MethodFamilySelection::Unsupported; };
+        let mut actual = receiver_type;
+        let domain = loop {
+            match actual {
+                Type::Validated(validated) => {
+                    if let Some(receiver) = validated.validation().method_receiver()
+                        && self.method_overloads(receiver, name).is_some()
+                    { break Some(receiver); }
+                    actual = validated.base();
+                }
+                _ => break None,
+            }
+        };
         let mut selected = None;
         for (id, receiver, _, signature) in self.method_family_members(family) {
-            if !method_receiver_accepts(receiver, receiver_type.unvalidated()) { continue; }
+            if domain.map_or_else(|| !method_receiver_accepts(receiver, actual), |domain| receiver != domain) { continue; }
             let mut supplied = BTreeSet::new();
             let mut fits = true;
             for (argument, &slot) in arguments.iter().zip(argument_slots) {
@@ -311,6 +346,12 @@ pub(crate) enum MethodFamilySelection {
     Selected(registry::RegisteredMethodId),
     Unsupported,
     Ambiguous,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum MethodFamilyResult {
+    UniformGround(Type),
+    SelectedSignature,
 }
 
 fn method_receiver_accepts(receiver: MethodReceiver, ty: &Type) -> bool {

@@ -46,7 +46,7 @@ pub struct ApiSpec {
     docs: BTreeMap<String, ApiDocs>,
     registered_methods: Vec<RegisteredMethodLocation>,
     registered_method_ids: Vec<BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
-    method_family_members: [Vec<RegisteredMethodId>; 3],
+    method_family_members: [Vec<RegisteredMethodId>; 5],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -62,6 +62,8 @@ pub enum MethodFamilyId {
     Length,
     Emptiness,
     PathWrite,
+    PathParent,
+    PathNormalize,
 }
 
 impl MethodFamilyId {
@@ -70,6 +72,8 @@ impl MethodFamilyId {
             0 => Some(Self::Length),
             1 => Some(Self::Emptiness),
             2 => Some(Self::PathWrite),
+            3 => Some(Self::PathParent),
+            4 => Some(Self::PathNormalize),
             _ => None,
         }
     }
@@ -116,6 +120,12 @@ fn method_family_for_signature(
         {
             Some(MethodFamilyId::PathWrite)
         }
+        (MethodReceiver::Path | MethodReceiver::RelPath, "parent", RuntimeOp::PathParent)
+            if params.is_empty() && signature.sig.pure
+                && signature.receiver_ty.as_ref() == Some(result_ty) => Some(MethodFamilyId::PathParent),
+        (MethodReceiver::Path | MethodReceiver::RelPath, "normalize", RuntimeOp::PathNormalize)
+            if params.is_empty() && signature.sig.pure
+                && signature.receiver_ty.as_ref() == Some(result_ty) => Some(MethodFamilyId::PathNormalize),
         _ => None,
     }
 }
@@ -139,7 +149,7 @@ impl ApiSpec {
         let docs = docs::build_api_docs(&modules, &methods);
         let mut registered_methods = Vec::new();
         let mut registered_method_ids = Vec::<BTreeMap<_, Vec<_>>>::new();
-        let mut method_family_members = [Vec::new(), Vec::new(), Vec::new()];
+        let mut method_family_members = std::array::from_fn(|_| Vec::new());
         for (receiver_index, receiver) in methods.iter().enumerate() {
             let lookup_index = receiver.receiver as usize;
             if registered_method_ids.len() <= lookup_index { registered_method_ids.resize_with(lookup_index + 1, BTreeMap::new); }

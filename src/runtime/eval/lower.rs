@@ -3396,7 +3396,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> bool {
         let Some(returned_type) = lowered_types.get(&returned) else { return false; };
         let expected = facts.scheme().return_type();
-        if returned_type.matches_body_return(expected) { return true; }
+        if returned_type.matches_body_return(expected) || facts.scheme().method_path_return_matches(returned_type) { return true; }
         if returned != producer { return false; }
         let Some(source_type) = lowered_types.get(&producer) else { return false; };
         if !matches!(self.scheme_completion_source_form(source_type, source_expression), Some(
@@ -3430,6 +3430,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
     ) -> Option<BuildExprId> {
         let actual = lowered_types.get(&value)?;
+        if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
+            && let SchemeType::Result(_, error) = facts.scheme().return_type()
+            && facts.scheme().method_path_return_payload(actual)
+        {
+            let actual = SchemeType::Result(Box::new(actual.clone()), error.clone());
+            let value = push_build_row!(self, expr, BuildExprRow::Ok(value));
+            lowered_types.insert(value, actual);
+            return Some(value);
+        }
         if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
             && let SchemeType::Result(ok, _) = facts.scheme().return_type()
             && actual == ok.as_ref()

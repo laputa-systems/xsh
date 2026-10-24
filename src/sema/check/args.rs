@@ -397,8 +397,21 @@ impl Checker {
         actual: &Type,
         span: Span,
     ) {
+        let pending_method_result = if matches!(actual, Type::Inference(_)) {
+            match self.type_constraints.unresolved_method_result(actual) {
+                Ok(pending) => pending,
+                Err(error) => {
+                    self.report_inferred_type_conflict(crate::sema::constraints::ConstraintConflict {
+                        expected: expected.clone(), actual: actual.clone(), initializer: None,
+                        established: None, contribution: span, resolution_error: Some(error),
+                    });
+                    return;
+                }
+            }
+        } else { false };
         if let CallArgumentAuthority::KnownCallable { deferred, .. } = authority
-            && matches!(self.type_constraints.resolve(expected), Ok(Type::Optional(_)))
+            && (matches!(self.type_constraints.resolve(expected), Ok(Type::Optional(_)))
+                || pending_method_result)
             && matches!(self.type_constraints.resolve(actual), Ok(Type::Inference(_)))
         { deferred.set(true); return; }
         if !self.scheme_callable_types_compatible(expected, actual) {

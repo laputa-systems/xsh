@@ -2560,7 +2560,7 @@ fn verify_body_expression(
                             let Type::List(item) = &parameter.ty else { return Err(IrVerifyError::new("generic typed rest parameter has no list domain")); };
                             item.as_ref()
                         } else { &parameter.ty };
-                        if splice && supplied < fixed || !applications::nullable_assignment_matches_ground(store, decoder.owner, scheme_scope, &actual, expected, budget)? { return Err(IrVerifyError::new("generic typed argument disagrees with its actual parameter")); }
+                        if splice && supplied < fixed || !applications::known_argument_assignment_matches_ground(store, decoder.owner, scheme_scope, &actual, expected, budget)? { return Err(IrVerifyError::new("generic typed argument disagrees with its actual parameter")); }
                     }
                 }
                 supplied += 1;
@@ -2607,7 +2607,7 @@ fn verify_body_expression(
                             let Type::List(item) = expected else { return Err(IrVerifyError::new("generic rest parameter has no list domain")) };
                             *item
                         } else { expected };
-                        if *splice && index < fixed || !applications::nullable_assignment_matches_ground(store, decoder.owner, scheme_scope, actual, &expected, budget)? { return Err(IrVerifyError::new("generic body call argument disagrees with its checked parameter")); }
+                        if *splice && index < fixed || !applications::known_argument_assignment_matches_ground(store, decoder.owner, scheme_scope, actual, &expected, budget)? { return Err(IrVerifyError::new("generic body call argument disagrees with its checked parameter")); }
                     }
                     let result = if target.checked_return_type != IR_NONE { TypeId::from_raw(target.checked_return_type).ok_or_else(|| IrVerifyError::new("generic body call result is invalid"))? } else { store.semantic.signature_return_type(signature)? };
                     SchemeType::Ground(store.semantic.to_type_with_budget(result, &mut budget.semantic_types)?)

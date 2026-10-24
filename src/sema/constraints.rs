@@ -812,6 +812,7 @@ impl TypeConstraints {
                     .enqueue_changes(0, &mut changes, &self.counters);
                 self.operations.enqueue_changes(0, &mut changes);
                 self.wrappers.enqueue_changes(0, &mut changes);
+                self.methods.enqueue_changes(0, &mut changes);
                 self.retain_trial_changes(changes);
                 Ok(())
             }
@@ -1471,7 +1472,7 @@ impl TypeConstraints {
             let result = self.instantiate_scheme_type(&method.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
             methods.push(self.register_method_family(scope, super::schemes::MethodFamilyRequirement {
                 family: method.family, receiver, argument_slots: method.argument_slots.clone(), arguments, result,
-            }, None)?);
+            }, None, origin)?);
         }
         let mut wrappers_by_ordinal = vec![None; callable.requirements().wrappers.len()];
         let mut wrapper_groups = vec![None; callable.requirements().wrappers.len()];
@@ -2198,6 +2199,10 @@ impl TypeConstraints {
                 if let super::sealed_operation::SealedOperation::Binary(binary) = &operation.operation {
                     computed.extend(self.unresolved_input_variables(std::slice::from_ref(&binary.result))?);
                 }
+            }
+            for id in &instance.methods {
+                let method = self.methods.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                computed.extend(self.unresolved_input_variables(std::slice::from_ref(&method.requirement.result))?);
             }
             Ok::<_, ConstraintResolutionError>(CallInputContext { inputs, computed })
         })().map_err(|error| ConstraintConflict {
@@ -4776,6 +4781,7 @@ impl TypeConstraints {
             root_value.binding = binding.clone();
         }
         self.operations.inherit_type_watchers(child, root, changes);
+        self.methods.inherit_type_watchers(child, root, changes);
         if let (Some(first), Some(second)) = (left_iteration, right_iteration) {
             let merged = self.merge_iteration(&first, &second, origin, 0, changes).map_err(|error| error.2)?;
             let root = self.representative(root, Some(changes)).map_err(Some)?;

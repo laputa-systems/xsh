@@ -39,6 +39,84 @@ pub(super) fn decode(
     })
 }
 
+pub(super) fn authenticates_result_evidence(
+    store: &FullStore,
+    scope: &SchemeScope,
+    encoded: FullSchemeMethod,
+    substitution: &ApplicationSubstitution<'_>,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    let requirement = decode(store, scope, encoded, substitution, budget)?;
+    validate_requirement_for_binding(&requirement, budget)?;
+    if !matches!(crate::modules::api_spec().method_family_result(requirement.family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(false); }
+    if matches!(substitution, ApplicationSubstitution::Ground(_)) {
+        let MethodSelection::Selected(selected) = select(&requirement, budget)? else { return Err(IrVerifyError::new("method output evidence has no canonical input selection")); };
+        let (_, _, signature) = crate::modules::api_spec().registered_method(selected).ok_or_else(|| IrVerifyError::new("method output evidence has no registered member"))?;
+        budget.charge_scheme_clone(&requirement.result)?;
+        if requirement.result.closed_ground_type().as_ref() != Some(&signature.sig.return_ty) {
+            return Err(IrVerifyError::new("method output evidence disagrees with its canonical result"));
+        }
+    }
+    Ok(true)
+}
+
+pub(super) fn owns_selected_result(
+    store: &FullStore,
+    scope: &SchemeScope,
+    actual: &SchemeType,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    if !matches!(actual, SchemeType::Parameter(_)) { return Ok(false); }
+    for encoded in bounded(scope.methods, &store.scheme_methods, "scheme method range is invalid")? {
+        budget.charge(1)?;
+        let requirement = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+        if !body_types_equal(actual, &requirement.result) { continue; }
+        validate_requirement_for_binding(&requirement, budget)?;
+        if matches!(crate::modules::api_spec().method_family_result(requirement.family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(true); }
+    }
+    Ok(false)
+}
+
+pub(super) fn written_path_return_matches(
+    store: &FullStore,
+    owner: u32,
+    scope: &SchemeScope,
+    actual: &SchemeType,
+    expected: &SchemeType,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    let owner = super::IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("method return proof owner is invalid"))?;
+    let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("method return proof owner is out of bounds"))?;
+    let super::super::FullCallableContract::Scheme(scheme) = function.contract else { return Ok(false); };
+    let scheme = store.scheme(scheme)?;
+    if !scheme.explicit_return || scheme.methods != scope.methods { return Ok(false); }
+    let header = super::decode_scheme_type(store, scope, scheme.return_type, budget, 0)?;
+    if !body_types_equal(&header, expected) { return Err(IrVerifyError::new("method return proof differs from its actual owner header")); }
+    budget.charge_scheme_clone(actual)?;
+    let payload = match (scheme.callable_kind, &header, actual) {
+        (crate::sema::types::CallableKind::Pure, SchemeType::Ground(Type::Path), actual) => actual,
+        (crate::sema::types::CallableKind::Proc, SchemeType::Result(ok, error), SchemeType::Result(actual_ok, actual_error))
+            if **ok == SchemeType::Ground(Type::Path) && actual_error.matches_body_return(error) => actual_ok,
+        (crate::sema::types::CallableKind::Proc, SchemeType::Ground(Type::Result(ok, error)), SchemeType::Result(actual_ok, actual_error))
+            if **ok == Type::Path => {
+                budget.charge_clone(error)?;
+                if !actual_error.matches_body_return(&SchemeType::Ground((**error).clone())) { return Ok(false); }
+                actual_ok
+            }
+        _ => return Ok(false),
+    };
+    if !matches!(payload, SchemeType::Parameter(_)) { return Ok(false); }
+    for encoded in bounded(scope.methods, &store.scheme_methods, "scheme method range is invalid")? {
+        budget.charge(1)?;
+        let requirement = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+        if !body_types_equal(payload, &requirement.result) { continue; }
+        validate_requirement_for_binding(&requirement, budget)?;
+        budget.charge(crate::modules::api_spec().method_family_member_count(requirement.family))?;
+        if crate::modules::api_spec().method_family_returns_paths(requirement.family) { return Ok(true); }
+    }
+    Ok(false)
+}
+
 pub(super) fn verify_body_site(
     store: &FullStore,
     scope: &SchemeScope,
@@ -89,7 +167,13 @@ pub(super) fn verify_bindings(
         let requirement = decode(store, scope, encoded, &substitution, budget)?;
         validate_requirement_for_binding(&requirement, budget)?;
         match (select(&requirement, budget)?, binding) {
-            (MethodSelection::Selected(expected), FullMethodBinding::Selected(actual)) if expected == actual => {}
+            (MethodSelection::Selected(expected), FullMethodBinding::Selected(actual)) if expected == actual => {
+                let (_, _, signature) = crate::modules::api_spec().registered_method(expected).ok_or_else(|| IrVerifyError::new("selected method is not registered"))?;
+                budget.charge_scheme_clone(&requirement.result)?;
+                if requirement.result.closed_ground_type().as_ref() != Some(&signature.sig.return_ty) {
+                    return Err(IrVerifyError::new("selected method differs from its canonical result signature"));
+                }
+            }
             (MethodSelection::Selected(_), FullMethodBinding::Selected(_)) => {
                 return Err(IrVerifyError::new("selected method differs from its canonical input signature"));
             }
@@ -141,7 +225,16 @@ fn validate_requirement(
 ) -> Result<(), IrVerifyError> {
     validate_requirement_for_binding(requirement, budget)?;
     let (family_name, return_type, _, _) = family_contract(requirement.family, budget)?;
-    if family_name != name || !body_types_equal(&requirement.result, &SchemeType::Ground(return_type)) {
+    let result_matches = match return_type {
+        crate::modules::signature::MethodFamilyResult::UniformGround(return_type) => body_types_equal(&requirement.result, &SchemeType::Ground(return_type)),
+        crate::modules::signature::MethodFamilyResult::SelectedSignature => match &requirement.result {
+            SchemeType::Parameter(_) => true,
+            SchemeType::Ground(actual) => crate::modules::api_spec().method_family_members(requirement.family).any(|(_, _, _, member)| *actual == member.sig.return_ty),
+            SchemeType::Validated(_, _) => requirement.result.closed_ground_type().is_some_and(|actual| crate::modules::api_spec().method_family_members(requirement.family).any(|(_, _, _, member)| actual == member.sig.return_ty)),
+            _ => false,
+        },
+    };
+    if family_name != name || !result_matches {
         return Err(IrVerifyError::new("generic method family disagrees with its canonical result contract"));
     }
     let api = crate::modules::api_spec();
@@ -159,20 +252,20 @@ fn validate_requirement(
 fn family_contract(
     family: MethodFamilyId,
     budget: &mut SchemeInstantiationBudget,
-) -> Result<(&'static str, Type, bool, Vec<Effect>), IrVerifyError> {
+) -> Result<(&'static str, crate::modules::signature::MethodFamilyResult, bool, Vec<Effect>), IrVerifyError> {
     let api = crate::modules::api_spec();
     let mut members = api.method_family_members(family);
     let Some((_, _, name, first)) = members.next() else {
         return Err(IrVerifyError::new("generic method family has no canonical members"));
     };
     budget.charge(1)?;
-    let return_type = first.sig.return_ty.clone();
-    budget.charge_clone(&return_type)?;
+    let return_type = api.method_family_result(family).ok_or_else(|| IrVerifyError::new("generic method family has inconsistent canonical result contracts"))?;
+    if let crate::modules::signature::MethodFamilyResult::UniformGround(ty) = &return_type { budget.charge_clone(ty)?; }
     let pure = first.sig.pure;
     let effects = first.sig.effects.to_vec();
     for (_, _, candidate_name, candidate) in members {
         budget.charge(1 + candidate.sig.effects.len())?;
-        if candidate_name != name || candidate.sig.return_ty != return_type || candidate.sig.pure != pure || candidate.sig.effects != effects {
+        if candidate_name != name || candidate.sig.pure != pure || candidate.sig.effects != effects {
             return Err(IrVerifyError::new("generic method family has inconsistent canonical contracts"));
         }
     }
@@ -184,7 +277,7 @@ fn receiver_may_match(receiver: crate::modules::MethodReceiver, ty: &SchemeType)
     match ty {
         SchemeType::Parameter(_) => true,
         SchemeType::Validated(_, inner) => receiver_may_match(receiver, inner),
-        SchemeType::Ground(ty) => receiver_type_matches(receiver, ty.unvalidated()),
+        SchemeType::Ground(ty) => receiver_type_matches(receiver, ty),
         SchemeType::List(_) => receiver == R::List,
         SchemeType::Map(_, _) => receiver == R::Map,
         SchemeType::Set(_) => receiver == R::Set,
@@ -195,6 +288,8 @@ fn receiver_may_match(receiver: crate::modules::MethodReceiver, ty: &SchemeType)
 fn receiver_type_matches(receiver: crate::modules::MethodReceiver, ty: &Type) -> bool {
     use crate::modules::MethodReceiver as R;
     use Type as T;
+    if receiver == R::RelPath && matches!(ty, T::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath) { return true; }
+    let ty = ty.unvalidated();
     matches!((receiver, ty),
         (R::List, T::List(_))
             | (R::Map, T::Map(_, _))

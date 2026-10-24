@@ -1,7 +1,8 @@
 use super::{ConstraintChange, ConstraintResolutionError, Generalization, TypeConstraints};
+use super::application_constraints::ApplicationDependency;
 use crate::sema::schemes::{CallableScheme, MethodFamilyRequirement, SchemeType};
 use crate::source::Span;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -12,19 +13,26 @@ pub(crate) struct SealedMethodId(NonZeroU64);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ScopedMethod {
-    owner: super::CallableApplicationScope,
-    requirement: MethodFamilyRequirement<crate::sema::types::Type>,
+    pub(super) owner: super::CallableApplicationScope,
+    pub(super) requirement: MethodFamilyRequirement<crate::sema::types::Type>,
+    span: Span,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SealedMethods {
-    entries: BTreeMap<SealedMethodId, ScopedMethod>,
+    pub(super) entries: BTreeMap<SealedMethodId, ScopedMethod>,
+    watchers: BTreeMap<ApplicationDependency, BTreeSet<SealedMethodId>>,
+    pending: VecDeque<SealedMethodId>,
+    queued: BTreeSet<SealedMethodId>,
     source_sites: BTreeMap<(super::CallableApplicationScope, Span), SealedMethodId>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) enum MethodChange {
     Fresh(SealedMethodId, Option<(super::CallableApplicationScope, Span)>),
+    Watcher(ApplicationDependency, SealedMethodId),
+    Queued(SealedMethodId),
+    Dequeued(SealedMethodId),
 }
 
 impl SealedMethods {
@@ -42,10 +50,21 @@ impl SealedMethods {
                         .sum::<usize>()
             }).sum::<usize>()
             + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span), SealedMethodId)>()
+            + self.watchers.len() * size_of::<(ApplicationDependency, BTreeSet<SealedMethodId>)>()
+            + self.watchers.values().map(|ids| ids.len() * size_of::<SealedMethodId>()).sum::<usize>()
+            + self.pending.capacity() * size_of::<SealedMethodId>()
+            + self.queued.len() * size_of::<SealedMethodId>()
     }
 
     pub(super) fn rollback(&mut self, change: MethodChange) {
         match change {
+            MethodChange::Queued(id) => { assert_eq!(self.pending.pop_back(), Some(id)); assert!(self.queued.remove(&id)); }
+            MethodChange::Dequeued(id) => { self.pending.push_front(id); assert!(self.queued.insert(id)); }
+            MethodChange::Watcher(dependency, id) => {
+                let watchers = self.watchers.get_mut(&dependency).expect("method watcher belongs to its journal");
+                assert!(watchers.remove(&id));
+                if watchers.is_empty() { self.watchers.remove(&dependency); }
+            }
             MethodChange::Fresh(id, source) => {
                 self.entries.remove(&id).expect("method requirement belongs to its journal");
                 if let Some(source) = source {
@@ -54,6 +73,36 @@ impl SealedMethods {
             }
         }
     }
+
+    fn enqueue(&mut self, id: SealedMethodId, changes: &mut Vec<ConstraintChange>) {
+        if self.queued.insert(id) {
+            self.pending.push_back(id);
+            changes.push(ConstraintChange::Method(MethodChange::Queued(id)));
+        }
+    }
+
+    fn watch(&mut self, dependency: ApplicationDependency, id: SealedMethodId, changes: &mut Vec<ConstraintChange>) {
+        if self.watchers.entry(dependency).or_default().insert(id) { changes.push(ConstraintChange::Method(MethodChange::Watcher(dependency, id))); }
+    }
+
+    pub(super) fn inherit_type_watchers(&mut self, source: super::TypeVariableId, target: super::TypeVariableId, changes: &mut Vec<ConstraintChange>) {
+        let ids = self.watchers.get(&ApplicationDependency::Type(source)).into_iter().flatten().copied().collect::<Vec<_>>();
+        for id in ids { self.watch(ApplicationDependency::Type(target), id, changes); }
+    }
+
+    pub(super) fn enqueue_changes(&mut self, from: usize, changes: &mut Vec<ConstraintChange>) {
+        let dependencies = changes[from..].iter().filter_map(|change| match change {
+            ConstraintChange::Type(id, _) | ConstraintChange::FreshType(id) => Some(ApplicationDependency::Type(*id)),
+            ConstraintChange::Row(id, _) => Some(ApplicationDependency::Row(*id)),
+            _ => None,
+        }).collect::<BTreeSet<_>>();
+        for dependency in dependencies {
+            for id in self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>() { self.enqueue(id, changes); }
+        }
+    }
+
+    pub(super) fn is_pending(&self) -> bool { !self.pending.is_empty() }
+
 }
 
 impl TypeConstraints {
@@ -62,7 +111,9 @@ impl TypeConstraints {
         owner: super::CallableApplicationScope,
         requirement: MethodFamilyRequirement<crate::sema::types::Type>,
         source: Option<Span>,
+        span: Span,
     ) -> Result<SealedMethodId, ConstraintResolutionError> {
+        let dependencies = self.application_type_dependencies(std::iter::once(&requirement.receiver).chain(requirement.arguments.iter()).chain(std::iter::once(&requirement.result)))?;
         let source = source.map(|span| (owner, span));
         if let Some(source) = source
             && let Some(id) = self.methods.source_sites.get(&source).copied()
@@ -75,14 +126,68 @@ impl TypeConstraints {
         }
         let id = SealedMethodId(NonZeroU64::new(NEXT_METHOD.fetch_add(1, Ordering::Relaxed)).expect("method identities are nonzero"));
         self.apply_journaled(|this, changes| {
-            assert!(this.methods.entries.insert(id, ScopedMethod { owner, requirement }).is_none());
+            assert!(this.methods.entries.insert(id, ScopedMethod { owner, requirement, span }).is_none());
             if let Some(source) = source {
                 assert!(this.methods.source_sites.insert(source, id).is_none());
             }
             changes.push(ConstraintChange::Method(MethodChange::Fresh(id, source)));
+            for dependency in dependencies { this.methods.watch(dependency, id, changes); }
+            this.methods.enqueue(id, changes);
             Ok::<_, ConstraintResolutionError>(())
         })?;
         Ok(id)
+    }
+
+    pub(crate) fn unresolved_method_result(&self, ty: &crate::sema::types::Type) -> Result<bool, ConstraintResolutionError> {
+        let crate::sema::types::Type::Inference(id) = self.resolve(ty)? else { return Ok(false); };
+        let root = self.representative_root(id)?;
+        for id in self.methods.watchers.get(&ApplicationDependency::Type(root)).into_iter().flatten() {
+            let entry = self.methods.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if !matches!(crate::modules::api_spec().method_family_result(entry.requirement.family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { continue; }
+            if let crate::sema::types::Type::Inference(result) = self.resolve(&entry.requirement.result)?
+                && self.representative_root(result)? == root { return Ok(true); }
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn owned_method_result_is_path(&self, owner: super::CallableApplicationScope, ty: &crate::sema::types::Type) -> Result<bool, ConstraintResolutionError> {
+        let crate::sema::types::Type::Inference(id) = self.resolve(ty)? else { return Ok(false); };
+        let root = self.representative_root(id)?;
+        for id in self.methods.watchers.get(&ApplicationDependency::Type(root)).into_iter().flatten() {
+            let entry = self.methods.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if entry.owner != owner || !crate::modules::api_spec().method_family_returns_paths(entry.requirement.family) { continue; }
+            if let crate::sema::types::Type::Inference(result) = self.resolve(&entry.requirement.result)?
+                && self.representative_root(result)? == root { return Ok(true); }
+        }
+        Ok(false)
+    }
+
+    pub(super) fn solve_method_families(&mut self) -> Result<(), MethodConstraintError> {
+        self.apply_journaled(|this, changes| {
+            while let Some(id) = this.methods.pending.pop_front() {
+                assert!(this.methods.queued.remove(&id));
+                changes.push(ConstraintChange::Method(MethodChange::Dequeued(id)));
+                let entry = this.methods.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.clone();
+                let types = std::iter::once(&entry.requirement.receiver).chain(entry.requirement.arguments.iter()).chain(std::iter::once(&entry.requirement.result));
+                for dependency in this.application_type_dependencies(types)? { this.methods.watch(dependency, id, changes); }
+                let receiver = this.resolve(&entry.requirement.receiver)?;
+                let arguments = entry.requirement.arguments.iter().map(|ty| this.resolve(ty)).collect::<Result<Vec<_>, _>>()?;
+                if receiver.contains_inference() || arguments.iter().any(crate::sema::types::Type::contains_inference) { continue; }
+                let api = crate::modules::api_spec();
+                let crate::modules::signature::MethodFamilySelection::Selected(selected) = api.select_method_family(entry.requirement.family, &receiver, &entry.requirement.argument_slots, &arguments) else {
+                    return Err(MethodConstraintError::Unsupported { family: entry.requirement.family, receiver });
+                };
+                let (_, _, signature) = api.registered_method(selected).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                this.constrain_inner(&entry.requirement.result, &signature.sig.return_ty, entry.span, false, 0, changes)
+                    .map_err(|(expected, actual, resolution_error)| MethodConstraintError::Constraint(super::ConstraintConflict {
+                        expected, actual, contribution: entry.span, initializer: None, established: None, resolution_error,
+                    }))?;
+                if this.resolve(&entry.requirement.result)? != signature.sig.return_ty {
+                    return Err(MethodConstraintError::Unsupported { family: entry.requirement.family, receiver });
+                }
+            }
+            Ok(())
+        })
     }
 
     pub(crate) fn source_method_family(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedMethodId> {
@@ -225,4 +330,67 @@ fn generalize_method_family(
             .collect::<Result<_, _>>()?,
         result: constraints.generalize_type(&requirement.result, environment_level, generalization, 0)?,
     })
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum MethodConstraintError {
+    Resolution(ConstraintResolutionError),
+    Constraint(super::ConstraintConflict),
+    Unsupported { family: xsh_registry::signature::MethodFamilyId, receiver: crate::sema::types::Type },
+}
+
+impl From<ConstraintResolutionError> for MethodConstraintError {
+    fn from(error: ConstraintResolutionError) -> Self { Self::Resolution(error) }
+}
+
+impl std::fmt::Display for MethodConstraintError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Resolution(error) => write!(formatter, "method type resolution failed: {error:?}"),
+            Self::Constraint(error) => write!(formatter, "method requires {}, found {}", error.expected, error.actual),
+            Self::Unsupported { family, receiver } => write!(formatter, "{family:?} has no canonical result for {receiver}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sema::types::Type;
+
+    #[test]
+    fn method_results_follow_late_roots_and_restore_failed_transactions() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let mut constraints = TypeConstraints::default();
+            let receiver = constraints.fresh_at_level(span, 1);
+            let result = constraints.fresh_at_level(span, 1);
+            let anchor = constraints.fresh_at_level(span, 1);
+            let peer = constraints.fresh_at_level(span, 1);
+            constraints.constrain(&anchor, &peer, span).unwrap();
+            let id = constraints.register_method_family(super::super::CallableApplicationScope::Invocation, MethodFamilyRequirement {
+                family: xsh_registry::signature::MethodFamilyId::PathParent,
+                receiver: receiver.clone(), result: result.clone(), argument_slots: Vec::new(), arguments: Vec::new(),
+            }, None, span).unwrap();
+            constraints.solve_callable_applications().unwrap();
+            assert!(constraints.unresolved_method_result(&result).unwrap());
+            constraints.constrain(&receiver, &anchor, span).unwrap();
+            let Type::Inference(root) = constraints.resolve(&anchor).unwrap() else { unreachable!() };
+            assert!(constraints.methods.watchers[&ApplicationDependency::Type(root)].contains(&id));
+            let before = constraints.clone();
+            let rejected = constraints.commit_constraint_transaction(|this| {
+                this.constrain(&receiver, &Type::Path, span).map_err(super::super::CallableApplicationError::Constraint)?;
+                this.constrain(&result, &Type::Bool, span).map_err(super::super::CallableApplicationError::Constraint)?;
+                this.solve_callable_applications()
+            });
+            assert!(rejected.is_err());
+            assert_eq!(constraints.methods, before.methods);
+            assert_eq!(constraints.resolve(&receiver).unwrap(), before.resolve(&receiver).unwrap());
+            assert_eq!(constraints.resolve(&result).unwrap(), before.resolve(&result).unwrap());
+            constraints.constrain(&receiver, &Type::rel_path(), span).unwrap();
+            constraints.solve_callable_applications().unwrap();
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::rel_path());
+            assert!(!constraints.unresolved_method_result(&result).unwrap());
+        });
+    }
 }
