@@ -789,6 +789,13 @@ empty input followed by `count` retains its ordinary `Int` result. Required
 callback demand is necessary for the whole-pipeline completion claim, not for
 that independent terminal result.
 
+A ground returned value block may carry a coarse `Result` summary without a
+success value. Its consumer omits the success comparison only after proving that
+the actual physical block cannot complete normally and that its actual error
+component fits the required error contract. The existing structural body, return,
+error, effect, and resource obligations still run. A normally completing captured
+`Err` does not obtain this permission merely from an unconstrained success summary.
+
 Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation

@@ -4779,10 +4779,17 @@ impl<'a> ProducerProof<'a> {
                     _ => false,
                 } }
             } else { false };
+            let noncompleting_result = if !fits && returned
+                && self.store.tags[instruction] == FullTag::ExprValueBlock
+                && matches!((actual.as_ref(), expected.as_ref()), (Type::Result(_, actual_error), Type::Result(_, expected_error)) if actual_error.matches_expected(expected_error))
+            {
+                self.budget.charge(decoder.instruction_range.len())?;
+                !super::super::indexed_expr_can_complete(&decoder, instruction, 0)?
+            } else { false };
             let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
             let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
-            if !fits && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())

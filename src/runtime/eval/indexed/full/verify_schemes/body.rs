@@ -2192,6 +2192,82 @@ mod tests {
         }
     }
 
+    #[test]
+    fn resource_failure_tails_require_physical_completion_and_owned_error_resource_proofs() {
+        let source = include_str!("../../../../../../tests/fixtures/runtime/resource-scope-failure-tail.xsh");
+        let source = source.replace("lock: FsLock", "lock: FsLock, decoy: Bool");
+        let mut program = prepare(&format!("{source}\nproc foreign_failure(lock: FsLock) [fs, error] -> Result[Unit] {{ with held = lock {{ fail \"foreign\" }} }}\n"));
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let mut range = decoder.instruction_range.clone();
+        let returned = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprValueBlock => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert_eq!(program.store.tags[returned.1], super::super::super::FullTag::ExprValueBlock);
+        assert!(!super::super::super::indexed_expr_can_complete(&decoder, returned.1, 0).unwrap());
+        let failure = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprErr => Some(instruction),
+            _ => None,
+        }).unwrap();
+        let message = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::ErrorFailure, mut args, .. }) => Some(args.next().unwrap().unwrap().unwrap().raw() as usize),
+            _ => None,
+        }).unwrap();
+        let resource = range.find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ModuleCall { op, mut args, .. }) if op != super::super::super::RuntimeOp::ErrorFailure => Some(args.next().unwrap().unwrap().unwrap().raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(resource), Ok(schema::ExprView::Param(_))));
+
+        let mut completing = program.clone();
+        completing.store.in_place.take();
+        assert!(completing.store.in_place.get().is_none());
+        completing.store.tags[failure] = super::super::super::FullTag::StmtValue;
+        let changed = decoder_for_function(&completing.store, 0).unwrap();
+        assert!(matches!(changed.statement_view(failure), Ok(schema::StmtView::Value { .. })));
+        assert!(super::super::super::indexed_expr_can_complete(&changed, returned.1, 0).unwrap());
+        let error = FullVerifier::verify(&completing).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+
+        let mut wrong_message = program.clone();
+        wrong_message.store.in_place.take();
+        assert!(wrong_message.store.in_place.get().is_none());
+        assert!(matches!(decoder.expression_view(message), Ok(schema::ExprView::Str(_))));
+        wrong_message.store.tags[message] = super::super::super::FullTag::ExprParam;
+        wrong_message.store.data[message] = program.store.data[resource];
+        let error = FullVerifier::verify(&wrong_message).unwrap_err();
+        assert_eq!(error.message, "ground native operation arguments have no matching contract");
+
+        let mut wrong_resource = program.clone();
+        wrong_resource.store.in_place.take();
+        assert!(wrong_resource.store.in_place.get().is_none());
+        let payload = wrong_resource.store.data[resource].range().bounds(wrong_resource.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_ne!(wrong_resource.store.extra[payload.start], 1);
+        wrong_resource.store.extra[payload.start] = 1;
+        let error = FullVerifier::verify(&wrong_resource).unwrap_err();
+        assert_eq!(error.message, "ground native operation arguments have no matching contract");
+
+        let foreign = decoder_for_function(&program.store, 1).unwrap();
+        let foreign_value = foreign.instruction_range.clone().find_map(|instruction| match foreign.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprValueBlock => Some(value.raw()),
+            _ => None,
+        }).unwrap();
+        let mut foreign_owner = program.clone();
+        foreign_owner.store.in_place.take();
+        assert!(foreign_owner.store.in_place.get().is_none());
+        let payload = foreign_owner.store.data[returned.0].range().bounds(foreign_owner.store.extra.len()).unwrap();
+        assert_eq!(foreign_owner.store.extra[payload.start] as usize, returned.1);
+        foreign_owner.store.extra[payload.start] = foreign_value;
+        let error = FullVerifier::verify(&foreign_owner).unwrap_err();
+        assert_eq!(error.message, "full IR instruction belongs to another function");
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn imported_effect_union_executes_after_frontend_disposal_on_both_routes() {
@@ -6978,6 +7054,7 @@ observe()?
         let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && fact.instruction as usize == raw && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
         let mut foreign_owner = program.clone();
         foreign_owner.store.in_place.take();
+        assert!(foreign_owner.store.in_place.get().is_none());
         foreign_owner.store.scheme_body_facts[fact].function = super::super::super::IrFunctionId::new(foreign).unwrap();
         assert!(foreign_owner.store.in_place.get().is_none());
         let failure = FullVerifier::verify(&foreign_owner).expect_err("a foreign function cannot own the overlay producer fact");

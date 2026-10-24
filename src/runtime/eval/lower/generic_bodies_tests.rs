@@ -6062,3 +6062,29 @@ fn named_pipeline_cardinality_preserves_unknown_sources_and_initializer_effects(
         assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
     }
 }
+
+#[test]
+fn resource_failure_value_tails_have_no_success_value_obligation() {
+    let source = include_str!("../../../../tests/fixtures/runtime/resource-scope-failure-tail.xsh");
+    let _ = record_form_program(source);
+}
+
+#[test]
+fn resource_failure_value_tails_preserve_errors_and_cleanup_after_frontend_disposal() {
+    let source = format!("{}\n{}", include_str!("../../../../tests/fixtures/runtime/resource-scope-failure-tail.xsh"), include_str!("../../../../tests/fixtures/runtime/resource-scope-failure-tail-runtime.xsh"));
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("resource-failure-tail.xsh", crate::loader::entry_source_from_text("resource-failure-tail.xsh", source), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("verify_resource_failure_tail", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(result.output.stdout.is_empty(), "{:?}", result.output.stdout);
+        assert!(result.output.stderr.is_empty(), "{:?}", result.output.stderr);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+    }
+}
