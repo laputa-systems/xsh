@@ -223,7 +223,7 @@ test test_full_inference_recursive_infinite_type_is_rejected { |ctx|
 let nested = nest(42)
 """,
     status: 2,
-    stderr: ["[check.type-mismatch]"],
+    stderr: ["[check.type-mismatch]", "nest([value])", "type inference started here"],
   )?
 }
 
@@ -236,7 +236,7 @@ test test_full_inference_polymorphic_recursion_is_rejected { |ctx|
 let result = descend(42, 2)
 """,
     status: 2,
-    stderr: ["[check.type-mismatch]"],
+    stderr: ["[check.type-mismatch]", "descend([value], count - 1)", "type inference started here"],
   )?
 }
 

@@ -8,6 +8,9 @@ pure append_first(...items) {
   let first = items[0]
   items.push(first)
 }
+pure pair(value, count = 2) {
+  {value, count}
+}
 let omitted = fallback()
 let supplied = fallback(value: "provided")
 let integers = append_first(2, 4)
@@ -20,10 +23,28 @@ print $omitted
 print $supplied
 print ${json.encode(integers)?}
 print ${json.encode(words)?}
+let integer_omitted = pair(7)
+let integer_positional = pair(7, 2)
+let integer_named = pair(count: 2, value: 7)
+let text_omitted = pair("seven")
+let text_positional = pair("seven", 2)
+let text_named = pair(count: 2, value: "seven")
+assert integer_omitted == {value: 7, count: 2}
+assert integer_positional == integer_omitted
+assert integer_named == integer_omitted
+assert text_omitted == {value: "seven", count: 2}
+assert text_positional == text_omitted
+assert text_named == text_omitted
+print f"{integer_omitted.value}:{integer_omitted.count}"
+print f"{integer_positional.value}:{integer_positional.count}"
+print f"{integer_named.value}:{integer_named.count}"
+print f"{text_omitted.value}:{text_omitted.count}"
+print f"{text_positional.value}:{text_positional.count}"
+print f"{text_named.value}:{text_named.count}"
 """,
   )?
   assert output.success, output.stderr
-  assert output.stdout == "fallback\nprovided\n[2,4,2]\n[\"one\",\"two\",\"one\"]\n"
+  assert output.stdout == "fallback\nprovided\n[2,4,2]\n[\"one\",\"two\",\"one\"]\n7:2\n7:2\n7:2\nseven:2\nseven:2\nseven:2\n"
 }
 
 test test_full_inference_default_parameter_rejects_a_conflicting_argument { |ctx|
@@ -36,6 +57,16 @@ let invalid = fallback("three")
 """,
     status: 2,
     stderr: ["[check.type-mismatch]"],
+  )?
+  test.expect(
+    ctx,
+    r"""pure pair(value, count = 2) {
+  {value, count}
+}
+let invalid = pair("seven", "two")
+""",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "expected Int, found Str", "pair(\"seven\", \"two\")"],
   )?
 }
 
