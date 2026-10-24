@@ -41,10 +41,21 @@ independent solver controls. Its immutable checkout and terminal log remain in
 Fresh comprehension argument evidence and direct Env conversion bounds are now
 integrated provisionally. The Env slice passes eleven focused checks and
 independent review; guarded nullable values remain a separate open relationship.
-Remaining corpus causes include guard argument evidence, correlated Path method
-results and a fresh `Err.context` consumer proof. Complete
-interface/migration qualification and inherited performance/deployment gates
-remain required. No mandatory item is waived.
+Guard argument evidence, correlated Path method results and the fresh
+`Err.context` consumer proof are now integrated at `cc79637f3`. Independent
+combined-source review is clear and matching verification products build.
+The full library run finishes with 2,574 passes, one failure and three ignored
+tests: the existing Length-family diagnostic assertion is under repair, so this
+run remains failed. Strict native qualification is running against these
+products; all earlier selectors remain required.
+
+Guard-local requirements and formatted-path producer evidence remain active
+inference work. A separate ListBuild repair now prepares Laputa's unchanged
+43-file module and passes its four discovery controls on both routes in a
+focused evaluator check. That later source still needs its final cold checks,
+integration and matching native CLI qualification. Complete interface/migration
+qualification and inherited performance/deployment gates remain required.
+No mandatory item is waived.
 
 Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
 verification products. With the precise native-input correction `1c9694a3c`,
