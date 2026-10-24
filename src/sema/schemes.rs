@@ -791,6 +791,17 @@ fn validate_wrapper_group_contracts(
 }
 
 impl CallableRequirements {
+    pub(crate) fn guard(&self, id: super::guarded_requirements::GuardScopeId) -> Option<&super::guarded_requirements::GuardRequirements> {
+        let mut guards = self.guards.as_slice();
+        for _ in 0..=super::constraints::MAX_TYPE_DEPTH {
+            let end = guards.partition_point(|guard| guard.scope <= id);
+            let guard = guards.get(end.checked_sub(1)?)?;
+            if guard.scope == id { return Some(guard); }
+            guards = &guard.requirements.guards;
+        }
+        None
+    }
+
     fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         let mut bytes = size_of::<Self>()
@@ -1116,7 +1127,7 @@ impl CallInstantiation {
         for parameter in scope.rows {
             let evidence = &row_arguments[&parameter.id];
             for ty in evidence.fields.values() {
-                if let Some(error) = ty.body_build_error() {
+                if let Some(error) = ty.row_build_error() {
                     return Err(error);
                 }
                 ty.validate(
@@ -1238,7 +1249,7 @@ impl RowEvidence {
         tail: SchemeRowTail,
     ) -> Result<Self, SchemeBuildError> {
         for ty in fields.values() {
-            if let Some(error) = ty.body_build_error() {
+            if let Some(error) = ty.row_build_error() {
                 return Err(error);
             }
         }
@@ -1350,8 +1361,16 @@ impl SchemeBodyFacts {
     pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
     pub(crate) fn proc_return_site_count(&self) -> usize { self.proc_return_sites.len() }
 
+    pub(crate) fn requirement_pack_at(&self, expression: ExprId) -> Result<&CallableRequirements, SchemeBuildError> {
+        let root = self.scheme.callable().requirements();
+        match self.guard_scopes.expressions.get(&expression) {
+            Some(scope) => root.guard(*scope).map(|guard| guard.requirements.as_ref()).ok_or(SchemeBuildError::UnresolvedGuardScope),
+            None => Ok(root),
+        }
+    }
+
     pub(crate) fn with_operation_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
-        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.scheme.callable().requirements().operations.get(*ordinal as usize).is_none()) {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| requirements.operations.get(*ordinal as usize).is_none())) {
             return Err(SchemeBuildError::UnresolvedSealedOperation);
         }
         self.operation_sites = sites;
@@ -1360,7 +1379,7 @@ impl SchemeBodyFacts {
 
     pub(crate) fn operation_site(&self, expression: ExprId) -> Option<u32> { self.operation_sites.get(&expression).copied() }
     pub(crate) fn with_wrapper_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
-        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.scheme.callable().requirements().wrappers.get(*ordinal as usize).is_none()) { return Err(SchemeBuildError::UnresolvedWrapper); }
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| requirements.wrappers.get(*ordinal as usize).is_none())) { return Err(SchemeBuildError::UnresolvedWrapper); }
         self.wrapper_sites = sites;
         Ok(self)
     }
@@ -1430,7 +1449,7 @@ impl SchemeBodyFacts {
 
 
     pub(crate) fn with_method_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
-        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.scheme.callable().requirements().methods.get(*ordinal as usize).is_none()) {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| requirements.methods.get(*ordinal as usize).is_none())) {
             return Err(SchemeBuildError::UnresolvedMethodFamily);
         }
         self.method_sites = sites;
@@ -1588,6 +1607,9 @@ pub(crate) fn schema_expectation_retained_bytes<T>(
     }
     bytes
 }
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SchemeValueRole { Body, RecordRow }
 
 impl SchemeType {
     pub(crate) fn satisfies_conversion(&self, conversion: ValueConversion, parameters: &impl Fn(SchemeTypeParameterId) -> Option<ValueConversionSet>) -> bool {
@@ -1816,27 +1838,30 @@ impl SchemeType {
         }
     }
 
-    fn body_build_error(&self) -> Option<SchemeBuildError> {
+    fn body_build_error(&self) -> Option<SchemeBuildError> { self.build_error(SchemeValueRole::Body) }
+    fn row_build_error(&self) -> Option<SchemeBuildError> { self.build_error(SchemeValueRole::RecordRow) }
+
+    fn build_error(&self, role: SchemeValueRole) -> Option<SchemeBuildError> {
         match self {
-            Self::Ground(ty) if ty.contains_any() => Some(SchemeBuildError::DynamicType),
+            Self::Ground(ty) if role == SchemeValueRole::Body && ty.contains_any() => Some(SchemeBuildError::DynamicType),
             Self::Ground(ty) if ty.contains_recovery() => Some(SchemeBuildError::RecoveryType),
             Self::Ground(ty) if ty.contains_inference() => Some(SchemeBuildError::UnresolvedType),
             Self::Ground(_) | Self::Parameter(_) | Self::SchemeCallable(_) => None,
             Self::Callable { monotype, .. } => monotype.params().iter()
-                .find_map(|parameter| parameter.ty.body_build_error())
-                .or_else(|| monotype.return_type().body_build_error()),
+                .find_map(|parameter| parameter.ty.build_error(role))
+                .or_else(|| monotype.return_type().build_error(role)),
             Self::List(inner)
             | Self::Stream(inner)
             | Self::Set(inner)
             | Self::Optional(inner)
-            | Self::Validated(_, inner) => inner.body_build_error(),
+            | Self::Validated(_, inner) => inner.build_error(role),
             Self::Map(key, value) | Self::Result(key, value) => {
-                key.body_build_error().or_else(|| value.body_build_error())
+                key.build_error(role).or_else(|| value.build_error(role))
             }
             Self::Record { fields, .. } => {
-                fields.values().find_map(Self::body_build_error)
+                fields.values().find_map(|ty| ty.build_error(role))
             }
-            Self::Union(members) => members.iter().find_map(Self::body_build_error),
+            Self::Union(members) => members.iter().find_map(|ty| ty.build_error(role)),
         }
     }
 
@@ -2454,19 +2479,18 @@ mod tests {
     }
 
     #[test]
-    fn row_evidence_rejects_any_and_call_instantiations_require_valid_evidence() {
+    fn row_evidence_retains_opaque_data_and_call_instantiations_require_valid_evidence() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let field = Name::intern("dynamic");
-            assert_eq!(
-                RowEvidence::new(
-                    BTreeMap::from([(
-                        field,
-                        SchemeType::Ground(Type::Set(Box::new(Type::Any))),
-                    )]),
-                    SchemeRowTail::Closed,
-                ),
-                Err(SchemeBuildError::DynamicType)
-            );
+            let opaque = SchemeType::Ground(Type::Set(Box::new(Type::Any)));
+            let data = RowEvidence::new(BTreeMap::from([(field, opaque.clone())]), SchemeRowTail::Closed).unwrap();
+            assert_eq!(data.fields(), &BTreeMap::from([(field, opaque)]));
+            for (invalid, expected) in [
+                (Type::Unknown, SchemeBuildError::RecoveryType),
+                (Type::Record(Arc::new(BTreeMap::from([(field, Type::Any), (Name::intern("bad"), Type::Invalid)]))), SchemeBuildError::RecoveryType),
+            ] {
+                assert_eq!(RowEvidence::new(BTreeMap::from([(field, SchemeType::Ground(invalid))]), SchemeRowTail::Closed), Err(expected));
+            }
 
             let row_id = SchemeRowParameterId(0);
             let callable = CallableScheme::new(

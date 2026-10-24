@@ -364,7 +364,7 @@ impl Checker {
                     family, receiver: obligation.receiver.clone(), argument_slots,
                     arguments: obligation.arguments.iter().map(|argument| argument.ty.clone()).collect(), result,
                 };
-                if let Err(error) = self.type_constraints.register_method_family(crate::sema::constraints::CallableApplicationScope::Declaration(owner), requirement, Some(span), span) {
+                if let Err(error) = self.type_constraints.register_method_family(self.constraint_scope_at(owner, span), requirement, Some(span), span) {
                     return self.reject_host_inference_resolution(error, span);
                 }
             }
@@ -442,7 +442,7 @@ impl Checker {
                             result: result.clone(),
                         };
                         match self.type_constraints.register_method_family(
-                            crate::sema::constraints::CallableApplicationScope::Declaration(owner), requirement, Some(span), span,
+                            self.constraint_scope_at(owner, span), requirement, Some(span), span,
                         ) {
                             Ok(_) => self.finalize_host_method_effects(&obligation.continuation.after_arguments.context, &representative.sig, &obligation.continuation.name, span),
                             Err(error) => self.error(span, &format!("method family could not be retained: {error:?}"), DiagnosticCode::CheckLocalInference),

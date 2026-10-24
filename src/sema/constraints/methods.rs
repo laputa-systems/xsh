@@ -202,11 +202,10 @@ impl TypeConstraints {
         scope: &super::CallableGeneralizationScope,
     ) -> Result<Option<u32>, super::SchemeOperationError> {
         let entry = self.methods.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-        if entry.owner != super::CallableApplicationScope::Declaration(owner) || scope.owner != entry.owner {
-            return Err(ConstraintResolutionError::ForeignVariable.into());
-        }
-        self.validate_generalized_methods(callable, scope)?;
-        Ok(scope.methods.get(&id).copied())
+        if scope.owner != super::CallableApplicationScope::Declaration(owner) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let view = self.generalized_requirement_view(entry.owner, callable, scope)?;
+        self.validate_generalized_methods_view(callable, scope, &view)?;
+        Ok(view.methods.get(&id).copied())
     }
 
     pub(super) fn generalize_method_families(
@@ -232,16 +231,26 @@ impl TypeConstraints {
         callable: &CallableScheme,
         scope: &super::CallableGeneralizationScope,
     ) -> Result<Vec<SealedMethodId>, super::SchemeOperationError> {
-        let mut methods = scope.methods.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+        let view = self.generalized_requirement_view(scope.owner, callable, scope)?;
+        self.validate_generalized_methods_view(callable, scope, &view)
+    }
+
+    pub(super) fn validate_generalized_methods_view(
+        &self,
+        callable: &CallableScheme,
+        scope: &super::CallableGeneralizationScope,
+        view: &super::GeneralizedRequirementView<'_>,
+    ) -> Result<Vec<SealedMethodId>, super::SchemeOperationError> {
+        let mut methods = view.methods.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
         methods.sort_unstable();
-        if methods.len() != callable.requirements().methods.len() {
+        if methods.len() != view.requirements.methods.len() {
             return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedMethodFamily));
         }
-        let mut generalization = self.callable_generalization(callable, scope);
+        let mut generalization = self.requirement_generalization(callable, scope, view);
         for (index, &(ordinal, id)) in methods.iter().enumerate() {
             let entry = self.methods.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if index != ordinal as usize
-                || generalize_method_family(self, &entry.requirement, 0, &mut generalization)? != callable.requirements().methods[index]
+                || generalize_method_family(self, &entry.requirement, 0, &mut generalization)? != view.requirements.methods[index]
             {
                 return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedMethodFamily));
             }

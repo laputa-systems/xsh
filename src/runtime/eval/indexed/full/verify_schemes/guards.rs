@@ -20,6 +20,7 @@ pub(super) struct GuardPack {
 
 #[derive(Clone, Debug)]
 pub(super) struct GuardCensus {
+    pub(super) owner: super::FullSchemeId,
     pub(super) root: BinderPack,
     pub(super) root_applications: IrRange,
     pub(super) root_operations: IrRange,

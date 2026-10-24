@@ -595,6 +595,11 @@ record guard membership. Cold guard metadata identifies the physical source,
 comparison, and identity reads. Each live call packet owns only its local dense
 arguments and refers to its authenticated ancestor packet. Null supplies no
 local arguments. Root argument evidence remains independently total.
+Prepared packets retain the callable identity as well as their guard identity.
+Runtime consumers select the verified local packet from the physical instruction's
+guard membership; they do not infer bindings during execution. Closed record input
+evidence preserves opaque fields in row data and proves every required typed field
+independently. Static row binding still rejects opaque substitution domains.
 Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the

@@ -70,6 +70,7 @@ impl std::ops::Deref for SchemeScope {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CallSubstitution {
+    owner: Option<FullSchemeId>,
     pub(super) types: Vec<Type>,
     pub(super) rows: Vec<BTreeMap<Name, Type>>,
     pub(super) effects: Vec<EffectContract<SchemeEffectParameterId>>,
@@ -84,13 +85,29 @@ enum CallSubstitutionOrigin {
 }
 
 impl CallSubstitution {
-    fn type_argument(&self, ordinal: usize) -> Option<&Type> {
+    pub(super) fn type_argument(&self, ordinal: usize) -> Option<&Type> {
         match &self.origin {
             CallSubstitutionOrigin::Root => self.types.get(ordinal),
             CallSubstitutionOrigin::Guard { pack, parent, .. } => if pack.types.contains(&ordinal) {
                 self.types.get(ordinal - pack.types.start)
             } else { parent.type_argument(ordinal) },
         }
+    }
+
+    pub(super) fn owns_prepared_scope(&self, owner: FullSchemeId, scope: Option<crate::sema::guarded_requirements::GuardScopeId>) -> bool {
+        self.owner == Some(owner) && match (&self.origin, scope) {
+            (CallSubstitutionOrigin::Root, None) => true,
+            (CallSubstitutionOrigin::Guard { scope: actual, .. }, Some(expected)) => *actual == expected,
+            _ => false,
+        }
+    }
+
+    pub(super) fn prepared_owner(&self) -> Option<FullSchemeId> { self.owner }
+
+    pub(super) fn retarget_prepared_root(&mut self, owner: FullSchemeId) -> Result<(), IrVerifyError> {
+        if !matches!(self.origin, CallSubstitutionOrigin::Root) { return Err(IrVerifyError::new("prepared target mapping has a guard-local substitution")); }
+        self.owner = Some(owner);
+        Ok(())
     }
 
     fn row_argument(&self, ordinal: usize) -> Option<&BTreeMap<Name, Type>> {
@@ -443,7 +460,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
                 let id = crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
                 children.entry(parent).or_default().push(id);
             }
-            scope.guards = guards::GuardScopes::Scoped(Arc::new(guards::GuardCensus { root: root_pack, root_applications: scheme.applications, root_operations: scheme.operations, root_methods: scheme.methods, root_wrappers: scheme.wrappers, scopes: guard_packs, memberships, children }));
+            scope.guards = guards::GuardScopes::Scoped(Arc::new(guards::GuardCensus { owner: scheme_id, root: root_pack, root_applications: scheme.applications, root_operations: scheme.operations, root_methods: scheme.methods, root_wrappers: scheme.wrappers, scopes: guard_packs, memberships, children }));
         }
         scope.applications = scheme.applications;
         scope.operations = scheme.operations;
@@ -3349,7 +3366,7 @@ fn build_pack_substitution(
             let guards::GuardScopes::Scoped(census) = &scope.guards else { return Err(IrVerifyError::new("guard substitution has no callable owner")); };
             let expected = census.parent(id)?;
             let actual = match &parent.origin { CallSubstitutionOrigin::Root => None, CallSubstitutionOrigin::Guard { scope, .. } => Some(*scope) };
-            if expected != actual { return Err(IrVerifyError::new("guard substitution inherits another lexical scope")); }
+            if expected != actual || parent.owner != Some(census.owner) { return Err(IrVerifyError::new("guard substitution inherits another lexical scope")); }
             CallSubstitutionOrigin::Guard { scope: id, pack: pack.clone(), parent }
         },
         _ => return Err(IrVerifyError::new("generic substitution has another root or guard owner")),
@@ -3410,8 +3427,8 @@ fn build_pack_substitution(
             if scope.row_lacks[binder].contains(&name) {
                 return Err(IrVerifyError::new("generic call row evidence violates a lacks constraint"));
             }
-            let ty = ground_call_substitution_type(store, field.ty, &mut materialization)?;
-            ensure_substitution_type(&ty)?;
+            let ty = ground_call_type_argument_type(store, field.ty, &mut materialization)?;
+            ensure_closed_type(&ty)?;
             if fields.insert(name, ty).is_some() {
                 return Err(IrVerifyError::new("generic call row field is duplicated"));
             }
@@ -3426,6 +3443,7 @@ fn build_pack_substitution(
     let effects = effects::build_substitution(store, scope, None, effect_rows,
         &mut SchemeInstantiationBudget::new(store))?;
     let substitution = CallSubstitution {
+        owner: match &scope.guards { guards::GuardScopes::Root => None, guards::GuardScopes::Scoped(census) => Some(census.owner) },
         origin,
         effects,
         types: types.into_iter().map(Option::unwrap).collect(),
@@ -3437,15 +3455,6 @@ fn build_pack_substitution(
     Ok(substitution)
 }
 
-fn ground_call_substitution_type(
-    store: &FullStore,
-    id: SchemeTypeId,
-    budget: &mut TypeMaterializationBudget,
-) -> Result<Type, IrVerifyError> {
-    let ty = ground_call_type_argument_type(store, id, budget)?;
-    ensure_substitution_type(&ty)?;
-    Ok(ty)
-}
 
 fn ground_call_type_argument_type(
     store: &FullStore,
@@ -3719,7 +3728,7 @@ fn build_symbolic_substitution(
                 ));
             }
             let ty = decode_scheme_type(store, caller_scope, field.ty, budget, 0)?;
-            validate_symbolic_substitution_type(&ty, caller_scope, 0)?;
+            validate_symbolic_call_type_argument(&ty, caller_scope, 0)?;
             if fields.insert(name, ty).is_some() {
                 return Err(IrVerifyError::new("generic call row field is duplicated"));
             }
@@ -3951,13 +3960,6 @@ fn decode_schema_with(
     Ok(SchemaExpectation { instances, children: Arc::new(children) })
 }
 
-fn validate_symbolic_substitution_type(
-    ty: &SchemeType,
-    caller_scope: &SchemeScope,
-    depth: usize,
-) -> Result<(), IrVerifyError> {
-    validate_symbolic_argument_type(ty, caller_scope, depth, ensure_substitution_type)
-}
 
 fn validate_symbolic_call_type_argument(
     ty: &SchemeType,
@@ -6181,7 +6183,8 @@ impl<'a> ValidatedCallSubstitution<'a> {
             (CallSubstitutionOrigin::Guard { scope: id, pack: actual, .. }, Some(expected)) => *id == expected && actual == &pack,
             _ => false,
         };
-        if !same_owner || pack.types.len() != substitution.types.len()
+        let callable_matches = match &scope.guards { guards::GuardScopes::Root => true, guards::GuardScopes::Scoped(census) => substitution.owner == Some(census.owner) };
+        if !same_owner || !callable_matches || pack.types.len() != substitution.types.len()
             || pack.rows.len() != substitution.rows.len()
             || pack.effects.len() != substitution.effects.len()
         {
@@ -6277,14 +6280,35 @@ pub(super) fn invocation_callable_type(
 }
 
 pub(super) fn instantiate_invocation(
-    store: &FullStore, scheme: &FullScheme, instance: &super::schemes::FullInstantiation,
+    store: &FullStore, owner: FullSchemeId, scheme: &FullScheme, instance: &super::schemes::FullInstantiation,
     caller: &CallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<CallSubstitution, IrVerifyError> {
-    let type_parameters = bounded(scheme.type_parameters, &store.scheme_type_parameters, "invocation type parameter range is invalid")?;
+    instantiate_invocation_pack(store, owner, super::schemes::FullBinderRanges { types: scheme.type_parameters, rows: scheme.row_parameters, effects: scheme.effect_parameters }, instance, caller, CallSubstitutionOrigin::Root, budget)
+}
+
+pub(super) fn instantiate_guard_invocation(
+    store: &FullStore, owner: FullSchemeId, guard: &super::guard_schemes::FullGuardScope,
+    instance: &super::schemes::FullInstantiation, caller: &CallSubstitution,
+    parent: Arc<CallSubstitution>, ordinals: (usize, usize, usize), budget: &mut SchemeInstantiationBudget,
+) -> Result<CallSubstitution, IrVerifyError> {
+    let id = crate::sema::guarded_requirements::GuardScopeId::from_index(guard.id as usize).map_err(|_| IrVerifyError::new("prepared guard scope is invalid"))?;
+    let parent_id = match &parent.origin { CallSubstitutionOrigin::Root => IR_NONE, CallSubstitutionOrigin::Guard { scope, .. } => scope.raw() };
+    if parent.owner != Some(owner) || parent_id != guard.parent { return Err(IrVerifyError::new("prepared guard has another callable or parent")); }
+    let ranges = super::schemes::FullBinderRanges { types: guard.type_parameters, rows: guard.row_parameters, effects: guard.effect_parameters };
+    let pack = guards::BinderPack { types: ordinals.0..ordinals.0 + ranges.types.len as usize, rows: ordinals.1..ordinals.1 + ranges.rows.len as usize, effects: ordinals.2..ordinals.2 + ranges.effects.len as usize };
+    instantiate_invocation_pack(store, owner, ranges, instance, caller, CallSubstitutionOrigin::Guard { scope: id, pack, parent }, budget)
+}
+
+fn instantiate_invocation_pack(
+    store: &FullStore, owner: FullSchemeId, ranges: super::schemes::FullBinderRanges,
+    instance: &super::schemes::FullInstantiation, caller: &CallSubstitution,
+    origin: CallSubstitutionOrigin, budget: &mut SchemeInstantiationBudget,
+) -> Result<CallSubstitution, IrVerifyError> {
+    let type_parameters = bounded(ranges.types, &store.scheme_type_parameters, "invocation type parameter range is invalid")?;
     let type_arguments = bounded(instance.type_arguments, &store.call_type_arguments, "invocation type argument range is invalid")?;
-    let row_parameters = bounded(scheme.row_parameters, &store.scheme_row_parameters, "invocation row parameter range is invalid")?;
+    let row_parameters = bounded(ranges.rows, &store.scheme_row_parameters, "invocation row parameter range is invalid")?;
     let row_arguments = bounded(instance.row_arguments, &store.call_row_arguments, "invocation row argument range is invalid")?;
-    let effect_parameters = bounded(scheme.effect_parameters, &store.scheme_effect_parameters, "invocation effect parameter range is invalid")?;
+    let effect_parameters = bounded(ranges.effects, &store.scheme_effect_parameters, "invocation effect parameter range is invalid")?;
     let effect_arguments = bounded(instance.effect_arguments, &store.call_effect_arguments, "invocation effect argument range is invalid")?;
     if type_parameters.len() != type_arguments.len() || row_parameters.len() != row_arguments.len()
         || effect_parameters.len() != effect_arguments.len()
@@ -6298,7 +6322,7 @@ pub(super) fn instantiate_invocation(
     if type_parameters.len() != type_arguments.len() || row_parameters.len() != row_arguments.len()
         || effect_parameters.len() != effect_arguments.len()
     { return Err(IrVerifyError::new("invocation substitution binder is duplicated")); }
-    let mut result = CallSubstitution::default();
+    let mut result = CallSubstitution { owner: Some(owner), origin, ..CallSubstitution::default() };
     for parameter in type_parameters {
         budget.charge(1)?;
         let argument = type_arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
@@ -6325,7 +6349,7 @@ pub(super) fn instantiate_invocation(
             budget.charge(1)?;
             let name = Name::intern(store.string(field.name)?);
             let ty = instantiate_bound_type(store, field.ty, caller, budget, 0)?;
-            ensure_substitution_type(&ty)?;
+            ensure_closed_type(&ty)?;
             if fields.insert(name, ty).is_some() { return Err(IrVerifyError::new("invocation row field is duplicated")); }
         }
         for lack in bounded(parameter.lacks, &store.scheme_row_lacks, "invocation row lacks range is invalid")? {
@@ -6677,7 +6701,7 @@ mod tests {
             unused.binder = 1;
             Arc::make_mut(&mut scope.bindings).type_parameters.push(unused);
             Arc::make_mut(&mut scope.bindings).type_binders.insert(11, 1);
-            let substitution = CallSubstitution { types: vec![Type::Int, Type::Str], rows: vec![BTreeMap::new()], effects: Vec::new(), origin: Default::default() };
+            let substitution = CallSubstitution { owner: None, types: vec![Type::Int, Type::Str], rows: vec![BTreeMap::new()], effects: Vec::new(), origin: Default::default() };
             let budget = || SchemeInstantiationBudget { remaining: 64, semantic_types: TypeMaterializationBudget::default() };
             let mut work = budget();
             let validated = ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut work).unwrap();

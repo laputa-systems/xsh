@@ -615,7 +615,7 @@ impl Checker {
             checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
                 let span = program.arena.expr(expression).span;
                 self.type_constraints.source_method_family(
-                    crate::sema::constraints::CallableApplicationScope::Declaration(declaration.effect_declaration()), span,
+                    self.constraint_scope_at(declaration.effect_declaration(), span), span,
                 ).map(|_| span)
             }));
             checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
@@ -1057,7 +1057,7 @@ impl Checker {
         let mut method_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
             let operation = self.binary_operators.get(&expression).and_then(|operator| operator.operation).or_else(|| {
-                matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Index { .. } | crate::syntax::arena::ArenaExprKind::Slice { .. } | crate::syntax::arena::ArenaExprKind::Record(_)).then(|| self.type_constraints.sealed_operation_at(crate::sema::constraints::CallableApplicationScope::Declaration(effect_declaration), program.arena.expr(expression).span)).flatten()
+                matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Index { .. } | crate::syntax::arena::ArenaExprKind::Slice { .. } | crate::syntax::arena::ArenaExprKind::Record(_)).then(|| self.type_constraints.sealed_operation_at(self.constraint_scope_at(effect_declaration, program.arena.expr(expression).span), program.arena.expr(expression).span)).flatten()
             });
             if let Some(operation) = operation {
                 match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
@@ -1071,7 +1071,7 @@ impl Checker {
             }
             let span = program.arena.expr(expression).span;
             if let Some(method) = self.type_constraints.source_method_family(
-                crate::sema::constraints::CallableApplicationScope::Declaration(effect_declaration), span,
+                self.constraint_scope_at(effect_declaration, span), span,
             ) {
                 match self.type_constraints.generalized_method_ordinal(method, effect_declaration, &callable, pending.generalized_scope()?) {
                     Ok(Some(ordinal)) => { method_sites.insert(expression, ordinal); }
@@ -1090,7 +1090,7 @@ impl Checker {
                 crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right } => Span::new(checked.span.source_id, program.arena.expr(left).span.start(), program.arena.expr(right).span.end()),
                 _ => checked.span,
             };
-            if let Some(wrapper) = self.type_constraints.wrapper_at(crate::sema::constraints::CallableApplicationScope::Declaration(effect_declaration), span) {
+            if let Some(wrapper) = self.type_constraints.wrapper_at(self.constraint_scope_at(effect_declaration, span), span) {
                 match self.type_constraints.generalized_wrapper_ordinal(wrapper, effect_declaration, &callable, pending.generalized_scope()?) {
                     Ok(Some(ordinal)) => { wrapper_sites.insert(expression, ordinal); }
                     Ok(None) => {}

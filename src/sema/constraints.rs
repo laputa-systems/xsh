@@ -202,6 +202,9 @@ enum ConstraintAuthority<'a> {
     CallInputContext(&'a CallInputContext),
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RowBindingPurpose { Static, ClosedRecordInput }
+
 struct CallInputContext {
     inputs: input_support::UnresolvedVariables,
     computed: input_support::UnresolvedVariables,
@@ -634,6 +637,15 @@ pub(super) struct GuardRequirementOrdinals {
     operations: BTreeMap<SealedOperationId, u32>,
     methods: BTreeMap<SealedMethodId, u32>,
     wrappers: BTreeMap<WrapperOperationId, u32>,
+}
+
+struct GeneralizedRequirementView<'a> {
+    guard: Option<super::guarded_requirements::GuardScopeId>,
+    requirements: &'a CallableRequirements,
+    applications: &'a BTreeMap<CallableApplicationId, u32>,
+    operations: &'a BTreeMap<SealedOperationId, u32>,
+    methods: &'a BTreeMap<SealedMethodId, u32>,
+    wrappers: &'a BTreeMap<WrapperOperationId, u32>,
 }
 
 #[derive(Debug)]
@@ -1235,6 +1247,29 @@ impl TypeConstraints {
             return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
         }
         Ok(call)
+    }
+
+    fn generalized_requirement_view<'a>(&self, owner: CallableApplicationScope, callable: &'a CallableScheme, scope: &'a CallableGeneralizationScope) -> Result<GeneralizedRequirementView<'a>, SchemeOperationError> {
+        if owner == scope.owner {
+            return Ok(GeneralizedRequirementView { guard: None, requirements: callable.requirements(), applications: &scope.applications, operations: &scope.operations, methods: &scope.methods, wrappers: &scope.wrappers });
+        }
+        let CallableApplicationScope::Guard(id) = owner else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+        let guard = self.generalized_guard_scope(id, scope)?.filter(|guard| scope.guards.get(&id) == Some(guard)).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        let requirements = callable.requirements().guard(guard).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedGuardScope))?;
+        let ordinals = scope.guard_ordinals.get(&guard).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        Ok(GeneralizedRequirementView { guard: Some(guard), requirements: &requirements.requirements, applications: &ordinals.applications, operations: &ordinals.operations, methods: &ordinals.methods, wrappers: &ordinals.wrappers })
+    }
+
+    fn requirement_generalization(&self, callable: &CallableScheme, scope: &CallableGeneralizationScope, view: &GeneralizedRequirementView<'_>) -> Generalization {
+        let mut generalization = self.callable_generalization(callable, scope);
+        if view.guard.is_some() {
+            self.counters.record_generalization_binding_clones(view.applications.len() + view.operations.len() + view.methods.len() + view.wrappers.len());
+            generalization.applications = view.applications.clone();
+            generalization.operations = view.operations.clone();
+            generalization.methods = view.methods.clone();
+            generalization.wrappers = view.wrappers.clone();
+        }
+        generalization
     }
 
     fn callable_generalization(&self, callable: &CallableScheme, scope: &CallableGeneralizationScope) -> Generalization {
@@ -2054,6 +2089,35 @@ impl TypeConstraints {
         has_anchor(&self.resolve(actual)?, AnchorEvidence::CheckedNullArgument)
     }
 
+    fn constrain_closed_record_input(
+        &mut self, expected: &Type, actual: &Type, rows: &BTreeMap<SchemeRowParameterId, RowVariableId>,
+        contribution: Span, changes: &mut Vec<ConstraintChange>,
+    ) -> Result<bool, (Type, Type, Option<ConstraintResolutionError>)> {
+        let fail = |error| (expected.clone(), actual.clone(), Some(error));
+        if actual.contains_inference() || actual.contains_recovery() { return Ok(false); }
+        let (Type::Inference(variable), Type::Record(actual_fields)) = (expected, actual) else { return Ok(false); };
+        let Some(record) = self.record_binding(*variable).map_err(fail)? else { return Ok(false); };
+        let record = self.resolve_row_inner(&record.shape, 0, &mut ResolutionAccess::Journal(changes)).map_err(fail)?;
+        let RowTail::Variable(tail) = record.tail else { return Ok(false); };
+        let tail = self.row_representative_root(tail).map_err(fail)?;
+        let mut owned = false;
+        for &row in rows.values() { owned |= self.row_representative_root(row).map_err(fail)? == tail; }
+        if !owned { return Ok(false); }
+        self.counters.generated_constraints.fetch_add(1, Ordering::Relaxed);
+        self.counters.unifications.fetch_add(1, Ordering::Relaxed);
+        self.counters.worklist_wakeups.fetch_add(1, Ordering::Relaxed);
+        for (name, required) in &record.fields {
+            self.counters.row_field_visits.fetch_add(1, Ordering::Relaxed);
+            let provided = actual_fields.get(name).ok_or_else(|| (row_type(&record), actual.clone(), None))?;
+            self.constrain_inner(required, provided, contribution, true, 1, changes)?;
+        }
+        self.counters.row_field_visits.fetch_add(actual_fields.len() as u64, Ordering::Relaxed);
+        let fields = actual_fields.iter().filter(|(name, _)| !record.fields.contains_key(name)).map(|(&name, value)| (name, value.clone())).collect();
+        self.bind_row_for(RowBindingPurpose::ClosedRecordInput, tail, RowShape { fields, tail: RowTail::Closed }, contribution, 0, changes)
+            .map_err(|error| (row_type(&record), actual.clone(), error))?;
+        Ok(true)
+    }
+
     pub(crate) fn constrain_checked_call_argument(
         &mut self,
         instance: &InstantiatedScheme,
@@ -2081,6 +2145,14 @@ impl TypeConstraints {
             if !variables.is_empty() && variables.iter().all(|id| owned.contains(id)
                 && matches!(self.variables.get(id), Some(Variable::Representative(variable)) if variable.rank == 0))
             { return self.constrain_context(&resolved, &actual, contribution); }
+        }
+        if matches!(actual, Type::Record(_)) && actual.contains_any() {
+            let mut applied = false;
+            self.apply_journaled(|this, changes| {
+                applied = this.constrain_closed_record_input(expected, &actual, &instance.row_arguments, contribution, changes)?;
+                Ok::<_, (Type, Type, Option<ConstraintResolutionError>)>(())
+            }).map_err(|(expected, actual, resolution_error)| ConstraintConflict { expected, actual, resolution_error, initializer: None, established: None, contribution })?;
+            if applied { return Ok(()); }
         }
         let exact_null_argument = has_anchor(&actual, AnchorEvidence::CheckedNullArgument).map_err(conflict)?;
         if !actual.contains_any() && !exact_null_argument || actual.contains_inference() || actual.contains_recovery() {
@@ -2969,12 +3041,24 @@ impl TypeConstraints {
         depth: usize,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), Option<ConstraintResolutionError>> {
+        self.bind_row_for(RowBindingPurpose::Static, id, shape, contribution, depth, changes)
+    }
+
+    fn bind_row_for(
+        &mut self,
+        purpose: RowBindingPurpose,
+        id: RowVariableId,
+        shape: RowShape,
+        contribution: Span,
+        depth: usize,
+        changes: &mut Vec<ConstraintChange>,
+    ) -> Result<(), Option<ConstraintResolutionError>> {
         let root = self.row_representative(id, Some(changes)).map_err(Some)?;
         let shape = {
             let mut access = ResolutionAccess::Journal(changes);
             self.resolve_row_inner(&shape, depth, &mut access).map_err(Some)?
         };
-        if shape.fields.values().any(Type::contains_any) {
+        if purpose == RowBindingPurpose::Static && shape.fields.values().any(Type::contains_any) {
             return Err(None);
         }
         if let Some(binding) = self.row_binding(root).map_err(Some)?.cloned() {

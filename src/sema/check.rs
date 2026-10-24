@@ -2878,6 +2878,11 @@ impl Checker {
         else { self.guarded_nodes.remove(&span); }
     }
 
+    fn constraint_scope_at(&self, owner: EffectDeclarationId, span: Span) -> crate::sema::constraints::CallableApplicationScope {
+        self.guarded_nodes.get(&span).copied().map(crate::sema::constraints::CallableApplicationScope::Guard)
+            .unwrap_or(crate::sema::constraints::CallableApplicationScope::Declaration(owner))
+    }
+
     fn constraint_scope(&self) -> super::constraints::CallableApplicationScope {
         self.scopes.last().and_then(|scope| scope.guard).map_or_else(
             || self.stream_origin_owner.map_or(super::constraints::CallableApplicationScope::Invocation, super::constraints::CallableApplicationScope::Declaration),

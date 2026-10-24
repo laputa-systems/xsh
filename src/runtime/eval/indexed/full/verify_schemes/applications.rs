@@ -681,7 +681,7 @@ mod tests {
                 let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
                 let id = builder.intern_scheme(&scheme).unwrap();
                 let scheme = *builder.store.scheme(id).unwrap();
-                let substitution = CallSubstitution { types, rows: Vec::new(), effects: Vec::new(), origin: Default::default() };
+                let substitution = CallSubstitution { owner: None, types, rows: Vec::new(), effects: Vec::new(), origin: Default::default() };
                 let mut evidence = SchemeBinderEvidence { types: initial, rows: BTreeSet::new() };
                 extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
                 evidence.types
@@ -715,6 +715,7 @@ mod tests {
                 },
             }));
             let mut substitution = CallSubstitution {
+                owner: None,
                 origin: Default::default(),
                 types: vec![callback(Type::Int, false, true), callback(Type::Str, true, false), Type::Int, Type::Str],
                 rows: Vec::new(), effects: vec![EffectContract::finite(EffectSet::default()); 2],
