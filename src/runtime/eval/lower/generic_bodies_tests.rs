@@ -6199,3 +6199,21 @@ fn resource_failure_value_tails_preserve_errors_and_cleanup_after_frontend_dispo
         assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
     }
 }
+
+#[test]
+fn known_tag_patterns_preserve_resolved_families_after_disposal() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/fixtures/runtime/known-tag-pattern-relationships.xsh");
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
+                    .unwrap_or_else(|error| panic!("frames={force_frames} step={step}: {error:?}"));
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames} step={step}: {flow:?}");
+            }
+        }
+    });
+}

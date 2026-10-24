@@ -22,6 +22,16 @@ impl Checker {
         }
     }
 
+    fn constrain_known_tag_pattern_subject(&mut self, value: &Type, family: Name, span: Span) -> Type {
+        let resolved = self.resolve_pattern_subject_type(value, span);
+        if matches!(resolved, Type::Inference(_)) {
+            self.expect_type(&Type::Tag(family), value, span);
+            self.resolve_pattern_subject_type(value, span)
+        } else {
+            resolved
+        }
+    }
+
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -519,6 +529,8 @@ impl Checker {
                         DiagnosticCode::CheckPatternTestAmbiguous,
                     );
                 } else if let Some(info) = constructor {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if info.field_count != 0 {
                         self.error(
                             span,
@@ -569,6 +581,8 @@ impl Checker {
                 if let Some(info) = self.tag_variants.get(name).cloned()
                     && info.field_count == 0
                 {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
@@ -751,6 +765,8 @@ impl Checker {
             ArenaPatternKind::TextHole { .. } => {}
             ArenaPatternKind::Constructor { name, arg } => {
                 if let Some(info) = self.tag_variants.get(name).cloned() {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
@@ -840,6 +856,8 @@ impl Checker {
                 if fields.len == 0
                     && let Some(info) = self.tag_variants.get(&qualified).cloned()
                 {
+                    let resolved = self.constrain_known_tag_pattern_subject(value_ty, info.type_name, span);
+                    let value_ty = &resolved;
                     if info.field_count != 0 {
                         self.error(
                             span,
@@ -1180,4 +1198,50 @@ impl Checker {
         };
         self.error(span, &message, DiagnosticCode::CheckMatchValueExhaustive);
     }
+}
+
+#[cfg(test)]
+mod known_tag_relationship_tests {
+    use super::*;
+    use crate::source::SourceMap;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn resolved_tag_patterns_constrain_direct_and_indexed_subjects() {
+        let mut failures = Vec::new();
+        for (name, parameter, body) in [
+            ("typed_direct", "block: Block", "match block {\nPara(text) => text\nStop => \"stop\"\n}"),
+            ("direct", "block", "match block {\nPara(text) => text\nStop => \"stop\"\n}"),
+            ("typed_indexed", "items: List[Block]", "if let Para(text) = items[0] { return text }\n\"stop\""),
+            ("indexed", "items", "if let Para(text) = items[0] { return text }\n\"stop\""),
+        ] {
+            let source = format!("enum Block {{\nPara(Str),\nStop,\n}}\npure {name}({parameter}) -> Str {{\n{body}\n}}\n");
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("known-tag-relationships.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            if !checked.diagnostics.is_empty() { failures.push(format!("{name}: {:?}", checked.diagnostics)); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn resolved_tag_patterns_preserve_family_and_payload_boundaries() {
+        for (body, expected) in [
+            ("pure wrong(value: Other) -> Str { if let Para(text) = value { return text }; \"stop\" }", DiagnosticCode::CheckPatternType),
+            ("pure wrong(value) -> Str { if let Para() = value { return \"bad\" }; \"stop\" }", DiagnosticCode::CheckPatternArity),
+            ("pure wrong(value) -> Str { if let Pair(name, name) = value { return name }; \"stop\" }", DiagnosticCode::CheckPatternBinding),
+            ("pure wrong(value) -> Str { if let .Para(text) = value { return text }; \"stop\" }", DiagnosticCode::CheckInferredVariant),
+        ] {
+            let source = format!("enum Block {{\nPara(Str),\nPair(Str, Str),\nStop,\n}}\nenum Other {{\nDifferent,\n}}\n{body}\n");
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("known-tag-boundaries.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
 }
