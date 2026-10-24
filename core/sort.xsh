@@ -176,7 +176,7 @@ pure sort_record(data: Bytes) -> SortRecord {
 
 ## Diagnostics use a byte quote when the input has no Unicode spelling.
 ## External sorts unwind their temp-root defer before returning shell status 130.
-on SIGINT [] {
+on SIGINT [process] {
   exit 130
 }
 
