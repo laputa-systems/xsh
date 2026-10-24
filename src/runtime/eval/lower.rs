@@ -3054,6 +3054,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 &self.bodies.conversions,
                 &self.bodies.argument_bindings,
                 &self.bodies.checked_control_flow,
+                &self.bodies.resolved_bindings,
             )
         };
         if !body_cannot_fall_through {

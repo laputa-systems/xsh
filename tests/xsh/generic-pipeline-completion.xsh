@@ -24,3 +24,15 @@ test completing_pipeline_and_effect_permissions_remain_checked { |ctx|
   assert effectful.status == 2
   assert "check.effect-violation" in effectful.stderr
 }
+
+test named_pipeline_inputs_require_actual_nonempty_initializers { |ctx|
+  for source in [
+    "pure pending(value) -> Int { let rows: List[Int] = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n",
+    "pure pending(value) -> Int { var rows = [value]; rows = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+    "pure pending(value, values: List[Int]) -> Int { let rows = values; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n"
+  ] {
+    let output = test.run_xsh(ctx, source)?
+    assert output.status == 2
+    assert "check.stream-sort" in output.stderr
+  }
+}

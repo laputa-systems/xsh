@@ -5964,3 +5964,65 @@ pure present_count() -> Int { counted(7, [1]) }
 }
 
 mod guarded_requirements_tests;
+
+#[test]
+fn named_immutable_pipeline_inputs_preserve_required_nonlocal_returns() {
+    let mut failures = Vec::new();
+    for (label, definitions, stages, typed) in [
+        ("immutable", "let rows = [value];", "rows", false),
+        ("immutable-alias", "let rows = [value]; let alias = rows;", "alias", false),
+        ("typed-immutable", "let rows = [value];", "rows", true),
+    ] {
+        for suffix in ["", " |> sort |> take(0)"] {
+            let signature = if typed { "value: Int) -> Int" } else { "value)" };
+            let text = if typed { "" } else { "pure text() -> Str { chosen(\"retained\") }\n" };
+            let source = format!("pure chosen({signature} {{ {definitions} let ignored = {stages} |> map {{ |item| return item }}{suffix}; value }}\npure number() -> Int {{ chosen(7) }}\n{text}");
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("named-pipeline-input.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            if !checked.diagnostics.is_empty() {
+                failures.push(format!("{label} suffix={suffix:?}\n{source}\n{:?}", checked.diagnostics));
+                continue;
+            }
+            let program = match FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources.clone()), source_id) {
+                Ok(program) => Arc::new(program),
+                Err(error) => { failures.push(format!("{label} suffix={suffix:?}: {error:?}")); continue; }
+            };
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut entries = vec![("number", Value::Int(7))];
+                if !typed { entries.push(("text", Value::Str(Arc::from("retained")))); }
+                for (name, expected) in entries {
+                    let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                    assert_eq!(actual, expected, "{label} suffix={suffix:?} frames={force_frames}");
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+#[test]
+fn named_pipeline_cardinality_preserves_unknown_sources_and_initializer_effects() {
+    use crate::diagnostic::DiagnosticCode;
+    for (source, expected) in [
+        ("pure pending(value) -> Int { let rows: List[Int] = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure pending(value) -> Int { var rows = [value]; rows = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure pending(value) -> Int { let rows = [value]; { let rows: List[Int] = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }; 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure pending(value, values: List[Int]) -> Int { let rows = values; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure outer(values: List[Int]) -> Int { pure inner() -> Int { let rows = values; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }; inner() }\n", DiagnosticCode::CheckStreamSort),
+        ("proc pending(value) [] -> Result[Int] { let rows = [error.fail(\"failed\")?]; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n", DiagnosticCode::CheckEffectViolation),
+    ] {
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("named-pipeline-negative.xsh", source.to_string());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+    }
+}

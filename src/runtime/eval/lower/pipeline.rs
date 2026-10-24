@@ -158,7 +158,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     _ => return None,
                 };
                 let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
-                if crate::sema::check::block_callable_body_cannot_fall_through_arena(self.program, block, false, &self.bodies.expr_types, &self.declarations.tag_variants_by_name, &self.bodies.conversions, &self.bodies.argument_bindings, &self.bodies.checked_control_flow) {
+                if crate::sema::check::block_callable_body_cannot_fall_through_arena(self.program, block, false, &self.bodies.expr_types, &self.declarations.tag_variants_by_name, &self.bodies.conversions, &self.bodies.argument_bindings, &self.bodies.checked_control_flow, &self.bodies.resolved_bindings) {
                     let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
                     let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.span(definition.span) });
                     self.scratch.borrow_mut().scheme_noncompleting.insert(value.index());

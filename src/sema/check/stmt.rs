@@ -62,6 +62,7 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
     conversions: &FxHashMap<ExprId, super::Conversion>,
     argument_bindings: &BTreeMap<Span, super::CheckedArguments>,
     checked_control_flow: &super::CheckedControlFlowFacts,
+    bindings: &super::ResolvedBindings,
 ) -> bool {
     let cardinality_cache = StreamCardinalityCache::default();
     let facts = FlowFacts {
@@ -81,6 +82,7 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
         ),
         exhaustive_match_spans: Some(&checked_control_flow.exhaustive_match_spans),
         cardinality_cache: Some(&cardinality_cache),
+        bindings: Some(bindings),
         ..FlowFacts::AST_ONLY
     };
     tail_is_value
@@ -99,6 +101,7 @@ struct ControlFlow {
 
 #[derive(Clone, Copy, Default)]
 struct FlowFacts<'a> {
+    bindings: Option<&'a super::ResolvedBindings>,
     expression_types: Option<&'a BTreeMap<Span, Type>>,
     expression_types_by_id: Option<&'a FxHashMap<ExprId, Type>>,
     tag_variants: Option<&'a FxHashMap<Name, TagVariantInfo>>,
@@ -120,6 +123,7 @@ struct FlowFacts<'a> {
 
 impl FlowFacts<'static> {
     const AST_ONLY: Self = Self {
+        bindings: None,
         expression_types: None,
         expression_types_by_id: None,
         tag_variants: None,
@@ -1617,13 +1621,22 @@ fn expression_cardinality(
     facts: &FlowFacts<'_>,
 ) -> StreamCardinality {
     let Some(cache) = facts.cardinality_cache else {
-        return expression_cardinality_uncached(arena, expr, facts);
+        let cache = StreamCardinalityCache::default();
+        return expression_cardinality(arena, expr, &FlowFacts { cardinality_cache: Some(&cache), ..*facts });
     };
-    if let Some(cardinality) = cache.values.borrow().get(&expr).copied() {
-        return cardinality;
-    }
-    let cardinality = expression_cardinality_uncached(arena, expr, facts);
-    cache.values.borrow_mut().insert(expr, cardinality);
+    let mut expression = expr;
+    let mut aliases = Vec::new();
+    let cardinality = loop {
+        if let Some(cardinality) = cache.values.borrow().get(&expression).copied() { break cardinality; }
+        cache.values.borrow_mut().insert(expression, StreamCardinality::Maybe);
+        aliases.push(expression);
+        if let Some(value) = facts.bindings.and_then(|bindings| bindings.immutable_value_source(arena, expression)) {
+            expression = value;
+            continue;
+        }
+        break expression_cardinality_uncached(arena, expression, facts);
+    };
+    for expression in aliases { cache.values.borrow_mut().insert(expression, cardinality); }
     cardinality
 }
 
@@ -2352,6 +2365,7 @@ impl Checker {
 
     fn checked_flow_facts(&self) -> FlowFacts<'_> {
         FlowFacts {
+            bindings: Some(&self.resolved_bindings),
             expression_types: Some(&self.expr_types),
             expression_types_by_id: None,
             tag_variants: Some(&self.tag_variants),

@@ -845,13 +845,14 @@ impl Checker {
                 )
             });
         }
+        let quantified = callable.is_quantified();
         let generalized_body_spans = generalized_body_types
             .iter()
             .filter_map(|(&expression, ty)| {
                 ty.contains_parameter()
                     .then_some(program.arena.expr(expression).span)
             })
-            .chain(noncompleting_expressions.iter().map(|&expression| program.arena.expr(expression).span))
+            .chain(noncompleting_expressions.iter().filter(|_| quantified).map(|&expression| program.arena.expr(expression).span))
             .chain(generalized_tail_types.iter().filter_map(|(&statement, ty)| {
                 ty.contains_parameter()
                     .then_some(program.arena.stmt(statement).span)
@@ -861,7 +862,7 @@ impl Checker {
             .filter_map(|statement| match program.arena.stmt(statement).kind {
                 ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
                 | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
-                    if (noncompleting_expressions.contains(&value) || generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter()))
+                    if (quantified && noncompleting_expressions.contains(&value) || generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter()))
                         && self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span).is_some_and(Type::contains_inference) => Some(program.arena.stmt(statement).span),
                 _ => None,
             }).collect::<std::collections::BTreeSet<_>>();

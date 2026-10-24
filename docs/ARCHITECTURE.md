@@ -778,8 +778,12 @@ completion role settles implicit-discard classification without bypassing the
 remaining effect checks. Cardinality queries can
 borrow the same lexical producer prefix to follow a visible single-writer value
 initializer through ANF temporaries. Header and captured storage do not supply
-initializer evidence, and cycles retain unknown cardinality. Authored identifier
-cardinality remains outside source completion recognition. A callback that cannot
+initializer evidence, and cycles retain unknown cardinality. Source cardinality
+uses the existing lexical resolver's exact read binding to follow same-callable
+immutable local initializers and aliases at their original expression sites.
+Shadowed names retain distinct bindings; mutable, header, and captured sources
+supply no initializer relationship. Ground callables retain concrete expression
+facts even when completion analysis proves that no result is produced. A callback that cannot
 complete does not by itself make the entire pipeline noncompleting: a possibly
 empty input followed by `count` retains its ordinary `Int` result. Required
 callback demand is necessary for the whole-pipeline completion claim, not for
