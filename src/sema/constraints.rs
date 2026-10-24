@@ -1518,8 +1518,8 @@ impl TypeConstraints {
         if applications.len() != view.requirements.applications.len()
             || applications.iter().enumerate().any(|(index, (ordinal, id))| *ordinal as usize != index
                 || match self.callable_application_reference(*id) {
-                    Ok(reference) => self.generalized_requirement_view(reference.scope, callable, scope).map_or(true, |actual| actual.guard != view.guard)
-                        || view.guard.is_none() && scope.application_sources.get(id) != Some(&reference),
+                    Ok(reference) if view.guard.is_none() => scope.application_sources.get(id) != Some(&reference),
+                    Ok(reference) => self.generalized_requirement_view(reference.scope, callable, scope).map_or(true, |actual| actual.guard != view.guard),
                     Err(_) => true,
                 })
         {
