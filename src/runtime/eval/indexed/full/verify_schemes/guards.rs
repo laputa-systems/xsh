@@ -40,6 +40,7 @@ pub(super) enum GuardScopes {
 }
 
 impl GuardScopes {
+    #[cfg(test)]
     pub(super) fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         match self {

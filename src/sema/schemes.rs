@@ -1320,6 +1320,7 @@ impl RowEvidence {
 }
 
 impl SchemeBodyFacts {
+    #[cfg(test)]
     pub(crate) fn new(
         scheme: Arc<TypeScheme>,
         expression_types: BTreeMap<ExprId, SchemeType>,
