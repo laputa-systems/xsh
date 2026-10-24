@@ -1,7 +1,7 @@
 use super::{CheckOutput, CheckedApiCall, CheckedCommandArgument, CheckedErrorConstructor, CheckedFunctionKind,
     CheckedProjection, Conversion, EffectDeclarationId, FunctionEffectFact, InferredVariant, InferredVariantPattern,
     RequirementTarget, ResourceTransferSite, StatementPosition, TextPattern};
-use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_bound_effects, same_schema, schema_identities, structural_schema_is_redundant};
+use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_bound_effects, same_schema, schema_has_obligations, schema_identities, structural_schema_is_redundant, structural_storage_type};
 use crate::modules::signature::{MethodReceiver, ModuleFnSig};
 use crate::modules::ManagedResource;
 use crate::sema::builtin_templates::registered_argument_check;
@@ -842,7 +842,8 @@ impl Capture<'_> {
             Some(annotation) => {
                 let constructors = &self.checked.checked_declarations.record_constructors;
                 match constructors.annotation_expectation(&self.program.arena, annotation, namespace) {
-                    Ok(schema) if structural_schema_is_redundant(&schema, &stored, &self.schemas) => LocalStorageValidation::Structural,
+                    Ok(schema) if structural_schema_is_redundant(&schema, &stored, &self.schemas)
+                        || !schema_has_obligations(&schema) && structural_storage_type(&stored, &self.checked.checked_declarations.wire_enums) => LocalStorageValidation::Structural,
                     _ => LocalStorageValidation::Retained,
                 }
             }

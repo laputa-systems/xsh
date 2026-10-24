@@ -207,8 +207,22 @@ mod tests {
     }
 
     #[test]
+    fn ground_list_storage_compares_actual_initializer_validation_boundaries() {
+        let source = "pure keep(values: List[Str]) -> List[Str] { let kept: List[Str] = collect { for item in values { yield item } }; kept }\n";
+        let original = declaration(source);
+        let candidate = declaration(&source.replace("let kept: List[Str]", "let kept"));
+        assert!(original.interface.as_ref().unwrap().equivalent_to(candidate.interface.as_ref().unwrap()));
+        assert!(original.semantic.preserved_by(&candidate.semantic), "{:?}\n{:?}", original.semantic, candidate.semantic);
+        assert!(original.preserved_by(&candidate), "{:?}\n{:?}", original.validations, candidate.validations);
+    }
+
+    #[test]
     fn structural_local_projection_retains_domains_effects_and_schema_obligations() {
         for (original, candidate) in [
+            ("pure keep() -> Any { let kept: Map[Str, Int] = {}; kept }\n",
+             "pure keep() -> Any { let kept = {}; kept }\n"),
+            ("proc keep(value: Any) [error] -> Any { let kept: List[Str] = value.require(List[Str])?; kept }\n",
+             "proc keep(value: Any) [error] -> Any { let kept = value.require(List[Int])?; kept }\n"),
             ("pure keep(value: Int) -> Int { let checked: UInt = value; checked }\n",
              "pure keep(value: Int) -> Int { let checked = value; checked }\n"),
             ("pure keep(value: Int) -> Any { let checked: Result[Int] = Ok(value); checked }\n",

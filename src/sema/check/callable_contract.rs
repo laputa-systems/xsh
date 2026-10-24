@@ -154,7 +154,7 @@ pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::se
     }).collect())
 }
 
-fn structural_storage_type(ty: &Type, wire_enums: &PreparedWireEnums) -> bool {
+pub(super) fn structural_storage_type(ty: &Type, wire_enums: &PreparedWireEnums) -> bool {
     match ty {
         Type::Unit | Type::Null | Type::Bool | Type::Int | Type::Float | Type::Str
         | Type::Bytes | Type::Duration | Type::Path => true,
@@ -490,7 +490,7 @@ impl CheckOutput {
     }
 }
 
-fn schema_has_obligations<T>(schema: &SchemaExpectation<T>) -> bool {
+pub(super) fn schema_has_obligations<T>(schema: &SchemaExpectation<T>) -> bool {
     let mut pending = vec![schema];
     while let Some(schema) = pending.pop() {
         if !schema.instances.is_empty() { return true; }

@@ -501,7 +501,7 @@ export pure accepts(value: Instant) -> Bool { true }\n";
         for (changed_fact, model, main, diagnostic) in cases {
             write_sources(&candidate, &model, &main);
             assert_eq!(qualify(&candidate, &candidate, &["main.xsh", "model.xsh"]), Ok((3, 0)), "candidate {changed_fact}");
-            let error = qualify(&original, &candidate, &["main.xsh", "model.xsh"]).unwrap_err();
+            let error = qualify(&original, &candidate, &["main.xsh", "model.xsh"]).expect_err(changed_fact);
             assert!(error.contains(diagnostic), "{changed_fact}: {error}");
         }
     }
@@ -604,6 +604,27 @@ proc observe() [time] -> Int { let _ = time.now(); 1 }\n";
             assert!(diagnostic.contains("checked body contract mismatch"), "{diagnostic}");
             assert!(diagnostic.contains(&format!("main.xsh::{owner}")), "{diagnostic}");
         }
+    }
+
+    #[test]
+    fn paired_qualification_preserves_known_collect_list_initializer_types() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let source = "pure keep(values: List[Str]) -> List[Str] { let kept: List[Str] = collect { for item in values { yield item } }; kept }\nassert keep([\"a\", \"b\"]) == [\"a\", \"b\"]\n";
+        fs::write(original.join("main.xsh"), source).unwrap();
+        fs::write(candidate.join("main.xsh"), source.replace("let kept: List[Str]", "let kept")).unwrap();
+        let qualify = |old: &Path, new: &Path| {
+            let entries = [new.join("main.xsh").to_str().unwrap().to_owned()];
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &entries, &StageTimings::start())
+        };
+        assert_eq!(qualify(&original, &original), Ok((1, 0)));
+        assert_eq!(qualify(&candidate, &candidate), Ok((1, 0)));
+        assert_eq!(qualify(&original, &candidate), Ok((1, 0)));
     }
 
     #[test]
