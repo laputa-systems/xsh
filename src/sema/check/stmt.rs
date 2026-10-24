@@ -3818,6 +3818,16 @@ impl Checker {
         }
     }
 
+    pub(super) fn is_proven_nonnull_subject_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
+        self.proof_subject_arena(arena, expr).is_some_and(|(_, path, _, binding)| {
+            binding
+                .unrefined_ty
+                .as_ref()
+                .and_then(|ty| super::proof::projected_type(ty, &path))
+                .is_some_and(|ty| matches!(ty, Type::Optional(_)))
+        })
+    }
+
     pub(super) fn infer_condition_proof_arena(
         &self,
         arena: &ArenaProgram,

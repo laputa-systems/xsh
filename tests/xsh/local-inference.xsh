@@ -860,3 +860,40 @@ test solved_locals_keep_exact_types_without_widening_or_dropping_null { |ctx|
     assert "check.type-mismatch" in output.stderr, output.stderr
   }
 }
+
+test nullable_local_fallback_after_non_null_proof_keeps_the_proven_value { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure ascending(samples: List[Int]) -> Bool {
+  var previous = null
+  for sample in samples {
+    if previous != null and sample <= (previous ?? sample) {
+      return false
+    }
+    previous = sample
+  }
+  true
+}
+pure last_before_gap(samples: List[Int]) -> Int {
+  var previous = null
+  for sample in samples {
+    if previous != null {
+      return previous ?? -1
+    }
+    previous = sample
+  }
+  -1
+}
+print ${ascending([1, 2, 3])}
+print ${ascending([1, 3, 3])}
+print ${last_before_gap([7, 8])}
+print ${last_before_gap([7])}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """true
+false
+7
+-1
+"""
+}
