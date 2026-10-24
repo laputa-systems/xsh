@@ -19,7 +19,8 @@ use crate::source::{SourceId, Span};
 use crate::syntax::arena::ArenaTableStats;
 use crate::syntax::cst::SyntaxTree;
 use crate::syntax::lexer::Lexer;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use rustc_hash::FxHashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::mem::size_of;
@@ -614,7 +615,7 @@ fn measure_compact_body_types(
 #[derive(Default)]
 struct OutputTypeNodes {
     count: usize,
-    shared_nodes: HashSet<usize>,
+    shared_nodes: FxHashSet<usize>,
 }
 
 impl OutputTypeNodes {
@@ -1804,8 +1805,7 @@ mod tests {
             let mut isolated = CheckOutput::default();
             isolated.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
             let checked_bytes = measure_check_output(Some(&isolated)).1;
-            let mut compact = CompactDeclOutput::default();
-            compact.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
+            let compact = CompactDeclOutput { scheme_callables: std::sync::Arc::clone(&checked.scheme_callables), ..Default::default() };
             let compact_bytes = measure_compact_declarations(&compact).1;
             (checked_bytes, compact_bytes)
         };
@@ -1830,8 +1830,7 @@ mod tests {
             assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
             let mut isolated = CheckOutput::default();
             isolated.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
-            let mut compact = CompactDeclOutput::default();
-            compact.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
+            let compact = CompactDeclOutput { scheme_callables: std::sync::Arc::clone(&checked.scheme_callables), ..Default::default() };
             let standalone = measure_check_output(Some(&isolated)).1 + measure_compact_declarations(&compact).1;
             let mut allocations = Default::default();
             let shared = measure_check_output_with_allocations(Some(&isolated), &mut allocations).1
