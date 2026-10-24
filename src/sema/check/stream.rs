@@ -610,14 +610,23 @@ impl Checker {
                         return Type::Invalid;
                     }
                 };
-                if let Err(conflict) = self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("key"), self.callable_solver_level(), stage_span) {
-                    self.report_inferred_type_conflict(conflict);
-                    return Type::Invalid;
-                }
-                let value_ty = match self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("value"), self.callable_solver_level(), stage_span) {
-                    Ok(ty) => ty,
-                    Err(conflict) => {
-                        self.report_inferred_type_conflict(conflict);
+                let value_ty = match block_ty.unvalidated() {
+                    Type::Record(fields) if fields.contains_key(&Name::intern("key")) && fields.contains_key(&Name::intern("value")) => fields[&Name::intern("value")].clone(),
+                    Type::Inference(_) => {
+                        if let Err(conflict) = self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("key"), self.callable_solver_level(), stage_span) {
+                            self.report_inferred_type_conflict(conflict);
+                            return Type::Invalid;
+                        }
+                        match self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("value"), self.callable_solver_level(), stage_span) {
+                            Ok(ty) => ty,
+                            Err(conflict) => {
+                                self.report_inferred_type_conflict(conflict);
+                                return Type::Invalid;
+                            }
+                        }
+                    }
+                    _ => {
+                        self.error(stage_span, "reduce-by requires a record with key and value fields", DiagnosticCode::CheckTypeMismatch);
                         return Type::Invalid;
                     }
                 };
@@ -1589,6 +1598,39 @@ let words: List[Str] = shorthand("kept")
         let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
         assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn reduce_by_preserves_nested_record_payloads_with_dynamic_fields() {
+        let source = r#"type Stats = {count: Int, blobs: Map[Any]}
+type Summary = {count: Int, reports: List[Stats]}
+pure summarize(rows: List[Stats]) -> Map[Summary] {
+    rows |> reduce-by(sum: true) { |row|
+        {key: "bucket", value: {count: row.count, reports: [row]}}
+    }
+}
+let rows: List[Stats] = [{count: 2, blobs: {}}]
+let groups = summarize(rows)
+let result = groups.get("bucket") ?? {count: 0, reports: []}
+assert result.count == 2
+assert result.reports.len() == 1
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn reduce_by_rejects_missing_fields_and_dynamic_record_heads() {
+        for expression in ["{key: \"bucket\"}", "{value: item}", "7", "item"] {
+            let source = format!("pure invalid(item: Any) -> Map[Any] {{ [1] |> reduce-by(min: true) {{ |ignored| {expression} }} }}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
     }
 
     #[test]

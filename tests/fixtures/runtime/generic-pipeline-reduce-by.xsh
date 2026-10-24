@@ -1,4 +1,9 @@
 type ReductionRow = {key: Str, value: Int}
+type DynamicReductionStats = {count: Int, blobs: Map[Any]}
+type NestedReductionSummary = {count: Int, reports: List[DynamicReductionStats]}
+pure nested_record_reduction(rows: List[DynamicReductionStats]) -> Map[NestedReductionSummary] {
+  rows |> reduce-by(sum: true) { |row| {key: "bucket", value: {count: row.count, reports: [row]}} }
+}
 pure nominal_reduction(values: List[Int]) { values |> reduce-by(sum: true) { |item| ReductionRow(key: "bucket", value: item) } }
 pure reduce_rows(row) { [row, row] |> reduce-by(min: true) { |item| item } }
 pure minimum_by_key(value) { [value, value] |> reduce-by(min: true) { |item| { key: "bucket", value: item } } }
@@ -46,6 +51,10 @@ proc invalid_reduce_key() -> Result[Unit] { let _ = unsupported_reduction_key(7)
 proc invalid_reduce_mode() -> Result[Unit] { let _ = runtime_reduction_mode(7, false) }
 
 proc generic_reduce_by() -> Result[Unit] {
+  let nested_rows: List[DynamicReductionStats] = [{count: 2, blobs: {["tag"]: 7}}, {count: 3, blobs: {["tag"]: "kept"}}]
+  let nested = nested_record_reduction(nested_rows).get("bucket") ?? {count: 0, reports: []}
+  assert nested.count == 5
+  assert nested.reports == nested_rows
   assert (reduce_rows({ key: 7, value: "row", extra: true }).get("7") ?? "") == "row"
   assert (minimum_by_key(7).get("bucket") ?? 0) == 7
   assert (maximum_by_key("kept").get("bucket") ?? "") == "kept"
