@@ -853,7 +853,8 @@ impl TypeConstraints {
         let id = self.referenced_callable_application(reference).map_err(super::SchemeOperationError::Application)?;
         let entry = self.applications.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
         if entry.owner != reference.scope { return Err(ConstraintResolutionError::ForeignVariable.into()); }
-        let view = self.generalized_requirement_view(entry.owner, callable, scope)?;
+        let pack_owner = if scope.application_sources.get(&id) == Some(&reference) { scope.owner } else { entry.owner };
+        let view = self.generalized_requirement_view(pack_owner, callable, scope)?;
         self.validate_generalized_applications_view(callable, scope, &view)?;
         if view.applications.contains_key(&id) {
             return view.applications.get(&id).copied().map(Some)
