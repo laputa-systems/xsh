@@ -4732,6 +4732,12 @@ environment overrides; the overlay is a `Record` or `Map[Str, V]` whose values
 use argv conversion (11.4), and `null` is rejected rather than meaning "unset".
 Names and values must be valid environment entries without NUL.
 
+An unannotated value used as an overlay entry in a generic procedure retains
+an environment-value conversion requirement. Each call must supply a scalar argv
+value or a `List[Path]`; `Any`, `Null`, and lists of other element types do not
+satisfy this requirement. The inferred requirement does not choose `Str` as a
+default for the value.
+
 An environment value may also be a `List[Path]`, a search path:
 
 ```xsh
