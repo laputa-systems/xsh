@@ -14182,12 +14182,14 @@ impl<'a> FullDecoder<'a> {
         let path = match prefix { Some(prefix) => prefix.guard_value_binding_path(self, value, use_site, target, charge)?, None => self.checked_binding_path(value, charge)? };
         if path.as_ref() != Some(target) { return Ok(false); }
         let GuardedReadContract::OptionalPayload(expected_payload) = expected_payload else { return Ok(true); };
+        if let Some(subject_type) = source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten() {
+            return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload));
+        }
         let subject_type = match self.checked_physical_field_type(value, charge)? {
             Some(ty) => Some(ty),
             None => self.checked_binding_path_type(use_site, target, charge)?,
         };
-        if let Some(subject_type) = subject_type { return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload)); }
-        Ok(matches!(source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten(), Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
+        Ok(matches!(subject_type, Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
     }
 
     fn checked_condition_proves_nonnull_with_prefix(
@@ -48783,9 +48785,87 @@ pure apply(container: Outer, fallback: RequiredInner) -> Int {
   select(container, fallback).holder.callback(1)
 }
 "#] {
-            let program = fixture("optional-record-field-value-transfer.xsh", source);
+            let mut program = fixture("optional-record-field-value-transfer.xsh", source);
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
             FullVerifier::verify(&program).unwrap();
+            let cold = || {
+                let mut program = program.clone();
+                program.store.in_place.take();
+                assert!(program.store.in_place.get().is_none());
+                program
+            };
+            let _symbols = program.symbol_owner().enter();
+            let owner = scheme_fixture_root_function(&program, "select");
+            let decoder = function_view_decoder(&program.store, owner);
+            let comparisons = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| {
+                let schema::ExprView::Binary { op: BinaryOp::Ne, left, right, .. } = decoder.expression_view(instruction).ok()? else { return None };
+                let subject = if matches!(decoder.expression_view(left.raw() as usize).unwrap(), schema::ExprView::Null) { right }
+                    else if matches!(decoder.expression_view(right.raw() as usize).unwrap(), schema::ExprView::Null) { left }
+                    else { return None };
+                Some((instruction, subject.raw() as usize))
+            }).collect::<Vec<_>>();
+            assert!(!comparisons.is_empty());
+            for (comparison, subject) in comparisons {
+                let mut wrong_guard = cold();
+                let operation = wrong_guard.store.extra[wrong_guard.store.data[comparison].range().start as usize] as usize;
+                wrong_guard.store.binary_ops[operation] = BinaryOp::Eq;
+                let error = FullVerifier::verify(&wrong_guard).expect_err("each optional value transfer requires its actual null guard");
+                assert!(!error.message.contains("work bound"), "{error:?}");
+
+                let fact = program.store.checked_expr_types.binary_search_by_key(&(subject as u32), |fact| fact.instruction)
+                    .expect("the callable-bearing guard field retains its physical contract");
+                let Type::Optional(payload) = program.store.semantic.to_type(program.store.checked_expr_types[fact].type_id).unwrap() else {
+                    panic!("the guard subject retains its optional contract")
+                };
+                let Type::Record(fields) = payload.as_ref() else { panic!("the guard subject contains a record") };
+                let mut fields = fields.as_ref().clone();
+                fields.insert(Name::intern("missing"), Type::Int);
+                let mut wrong_field = cold();
+                let mut semantic = SemanticPoolBuilder::default();
+                wrong_field.store.checked_expr_types[fact].type_id = semantic.intern_type(
+                    &mut wrong_field.store.semantic, &Type::Optional(Box::new(Type::Record(Arc::new(fields)))),
+                ).unwrap();
+                let error = FullVerifier::verify(&wrong_field).expect_err("a source contract cannot replace the guard field's structural producer");
+                assert!(error.message.contains("checked field fact disagrees"), "{error:?}");
+            }
         }
+    }
+
+    #[test]
+    fn typed_callable_optional_record_value_transfer_rejects_preceding_write() {
+        let mut program = fixture("optional-record-value-transfer-write.xsh", r#"type Holder = {callback: pure(n: Int) -> Int}
+type Container = {holder: Holder?}
+pure select(container: Container, fallback: Holder) -> Holder {
+  var current = container
+  if current.holder != null {
+    let selected = current.holder
+    current.holder = null
+    return selected
+  }
+  fallback
+}
+"#);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        let body = first_if_body_block(&program, "select");
+        let range = block_statement_range(&program, body);
+        let statements = &program.store.extra[range.clone()];
+        assert_eq!(statements.len(), 3);
+        let transfer = statements[0] as usize;
+        let write = statements[1] as usize;
+        let owner = scheme_fixture_root_function(&program, "select");
+        let decoder = function_view_decoder(&program.store, owner);
+        let schema::StmtView::Let { value, .. } = decoder.statement_view(transfer).unwrap() else { panic!("the first statement binds the narrowed record") };
+        assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Field { name: "holder", .. }));
+        assert_eq!(program.store.tags[write], FullTag::StmtAssignField);
+        let mut reordered = program.clone();
+        reordered.store.in_place.take();
+        assert!(reordered.store.in_place.get().is_none());
+        reordered.store.extra[range].swap(0, 1);
+        let error = FullVerifier::verify(&reordered).expect_err("an overlapping write invalidates source-backed optional record presence");
+        assert!(!error.message.contains("work bound"), "{error:?}");
     }
 
     #[test]
