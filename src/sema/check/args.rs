@@ -278,6 +278,7 @@ impl Checker {
                             crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort,
                             crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey,
                             crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream,
+                            crate::sema::sealed_operation::TypeDomain::MinMaxItem => DiagnosticCode::CheckDynamicBoundary,
                         },
                         crate::sema::constraints::SealedOperationError::UnsupportedIndex { .. } => DiagnosticCode::CheckIndexType,
                         crate::sema::constraints::SealedOperationError::UnsupportedSlice { .. } => DiagnosticCode::CheckSliceType,

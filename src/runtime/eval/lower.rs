@@ -5102,7 +5102,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             };
                             LoweredPipelineStage::Sort { descending }
                         }
-                        StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
+                        StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last
+                        | StreamStageKind::Sum | StreamStageKind::Min | StreamStageKind::Max if arguments.is_empty() => match stage.kind {
                             StreamStageKind::Enumerate => {
                                 item_type = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item_type)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
                                 LoweredPipelineStage::Enumerate
@@ -5111,6 +5112,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             StreamStageKind::Count => LoweredPipelineStage::Count,
                             StreamStageKind::First => LoweredPipelineStage::First,
                             StreamStageKind::Last => LoweredPipelineStage::Last,
+                            StreamStageKind::Sum => LoweredPipelineStage::Sum,
+                            StreamStageKind::Min => LoweredPipelineStage::Min,
+                            StreamStageKind::Max => LoweredPipelineStage::Max,
                             _ => unreachable!(),
                         },
                         _ => return self.block_scheme_lowering_expr(expression),

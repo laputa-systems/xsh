@@ -407,7 +407,7 @@ impl TypeConstraints {
                                             if !domain.may_accept(ty) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: ty.clone() }); }
                                         }
                                     }
-                                    crate::sema::sealed_operation::TypeDomain::CollectItem => {},
+                                    crate::sema::sealed_operation::TypeDomain::CollectItem | crate::sema::sealed_operation::TypeDomain::MinMaxItem => {},
                                     crate::sema::sealed_operation::TypeDomain::CountKey => return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }),
                                 }
                             }
