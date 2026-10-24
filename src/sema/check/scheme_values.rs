@@ -123,6 +123,7 @@ impl Checker {
     pub(super) fn check_scheme_callable_application(
         &mut self, program: &ArenaProgram, source: &str, callee: ExprId, id: SchemeCallableId,
         arguments: &[ArenaCallArg], span: Span, checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+        expected_context: Option<&Type>,
     ) -> Type {
         let relationship = match self.scheme_callable_relationship(id) {
             Ok(relationship) => relationship,
@@ -140,7 +141,7 @@ impl Checker {
                 self.error(span, "effectful callable value is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
                 None
             } else { self.check_function_invocation_effects(&contract, "callable value", span) };
-        if !self.check_function_contract_arguments_arena(program, source, arguments, &contract, span, checked_argument) {
+        if !self.check_function_contract_arguments_arena(program, source, arguments, &contract, span, checked_argument, expected_context) {
             self.reject_invocation_return(invocation, &contract.effects, span);
             return Type::Invalid;
         }

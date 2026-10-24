@@ -283,7 +283,7 @@ impl TypeConstraints {
                 actual.clone()
             } else {
                 let fallback = self.resolve(fallback)?;
-                if !fallback.contains_inference() && super::has_anchor(&fallback, false)? { fallback } else { result }
+                if !fallback.contains_inference() && super::has_anchor(&fallback, super::AnchorEvidence::Inference)? { fallback } else { result }
             };
             if *actual != Type::Null && !payload.contains_inference() && actual.matches_expected(&payload) && !actual.matches_stored(&payload) { return Ok(None); }
             return Ok(Some(Type::Optional(Box::new(payload))));

@@ -208,10 +208,20 @@ impl Checker {
         contract: &super::FunctionCallContract,
         span: Span,
         checked_argument: Option<CheckedCallArgument<'_>>,
+        expected_context: Option<&Type>,
     ) -> bool {
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         let constructor_arguments = self.type_constraints.begin_constructor_arguments(owner);
         let diagnostics_before_arguments = self.diagnostics.len();
+        if contract.instantiation.is_some() && contract.return_ty.contains_inference()
+            && let Some(expected) = expected_context
+            && !expected.contains_inference() && !expected.contains_recovery()
+        {
+            let (_, instance) = contract.instantiation.as_ref().expect("guard requires a selected instance");
+            if let Err(conflict) = self.type_constraints.constrain_call_input_context(instance, expected, span) {
+                self.report_inferred_type_conflict(conflict);
+            }
+        }
         let deferred = std::cell::Cell::new(false);
         self.check_function_call_arguments_with_authority_arena(
             arena,
@@ -378,7 +388,7 @@ impl Checker {
             && matches!(self.type_constraints.resolve(actual), Ok(Type::Inference(_)))
         { deferred.set(true); return; }
         if !self.scheme_callable_types_compatible(expected, actual) {
-            if let Some(authority) = authority.instance().filter(|authority| actual.contains_any() || !authority.wrappers.is_empty() || !authority.applications.is_empty()) {
+            if let Some(authority) = authority.instance() {
                 if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(authority, expected, actual, span) {
                     if conflict.resolution_error.is_some() || !actual.contains_any() {
                         self.report_inferred_type_conflict(conflict);

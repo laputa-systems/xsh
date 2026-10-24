@@ -195,10 +195,42 @@ enum ConstraintChange {
 }
 
 #[derive(Clone, Copy)]
-enum ConstraintAuthority {
+enum ConstraintAuthority<'a> {
     Inference,
     CheckedContext,
     NullableSeedCollection(TypeVariableId),
+    CallInputContext(&'a CallInputContext),
+}
+
+struct CallInputContext {
+    inputs: input_support::UnresolvedVariables,
+    computed: input_support::UnresolvedVariables,
+}
+
+impl CallInputContext {
+    fn permits(&self, constraints: &TypeConstraints, id: TypeVariableId) -> Result<bool, ConstraintResolutionError> {
+        let root = constraints.representative_root(id)?;
+        let mut input = false;
+        for variable in &self.inputs.types {
+            input |= constraints.representative_root(*variable)? == root;
+        }
+        if !input { return Ok(false); }
+        for variable in &self.computed.types {
+            if constraints.representative_root(*variable)? == root { return Ok(false); }
+        }
+        Ok(true)
+    }
+
+    fn permits_binding(&self, constraints: &TypeConstraints, id: TypeVariableId) -> Result<bool, ConstraintResolutionError> {
+        let reachable = constraints.unresolved_input_variables(&[Type::Inference(id)])?;
+        for variable in &self.computed.types {
+            let computed = constraints.representative_root(*variable)?;
+            for variable in &reachable.types {
+                if constraints.representative_root(*variable)? == computed { return Ok(false); }
+            }
+        }
+        Ok(true)
+    }
 }
 
 enum ResolutionAccess<'a> {
@@ -1985,7 +2017,8 @@ impl TypeConstraints {
                 && matches!(self.variables.get(id), Some(Variable::Representative(variable)) if variable.rank == 0))
             { return self.constrain_context(&resolved, &actual, contribution); }
         }
-        if !actual.contains_any() || actual.contains_inference() || actual.contains_recovery() {
+        let exact_null_argument = has_anchor(&actual, AnchorEvidence::CheckedNullArgument).map_err(conflict)?;
+        if !actual.contains_any() && !exact_null_argument || actual.contains_inference() || actual.contains_recovery() {
             if !expected.contains_inference() && !actual.contains_inference() && actual.matches_expected(expected) { return Ok(()); }
             return self.constrain(expected, &actual, contribution);
         }
@@ -2044,7 +2077,7 @@ impl TypeConstraints {
             .map_err(|error| conflict(expected.clone(), actual.clone(), Some(error)))?;
         if resolved_expected.contains_inference()
             && (resolved_actual.contains_inference()
-                || !has_anchor(&resolved_actual, false)
+                || !has_anchor(&resolved_actual, AnchorEvidence::Inference)
                     .map_err(|error| conflict(expected.clone(), actual.clone(), Some(error)))?)
         {
             return Ok(());
@@ -2107,7 +2140,7 @@ impl TypeConstraints {
         annotation: &Type,
         contribution: Span,
     ) -> Result<(), ConstraintConflict> {
-        let has_anchor = has_anchor(annotation, true).map_err(|error| ConstraintConflict {
+        let has_anchor = has_anchor(annotation, AnchorEvidence::CheckedContext).map_err(|error| ConstraintConflict {
             expected: expected.clone(),
             actual: annotation.clone(),
             initializer: self.provenance(expected).map(|value| value.0),
@@ -2148,6 +2181,26 @@ impl TypeConstraints {
             contribution,
             ConstraintAuthority::CheckedContext,
         )
+    }
+
+    pub(crate) fn constrain_call_input_context(
+        &mut self, instance: &InstantiatedScheme, expected: &Type, contribution: Span,
+    ) -> Result<(), ConstraintConflict> {
+        let context = (|| {
+            let inputs = self.unresolved_input_variables(&instance.params)?;
+            let mut computed = input_support::UnresolvedVariables::default();
+            for id in &instance.operations {
+                let operation = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                if let super::sealed_operation::SealedOperation::Binary(binary) = &operation.operation {
+                    computed.extend(self.unresolved_input_variables(std::slice::from_ref(&binary.result))?);
+                }
+            }
+            Ok::<_, ConstraintResolutionError>(CallInputContext { inputs, computed })
+        })().map_err(|error| ConstraintConflict {
+            expected: expected.clone(), actual: instance.return_type.clone(),
+            initializer: None, established: None, contribution, resolution_error: Some(error),
+        })?;
+        self.constrain_with_authority(expected, &instance.return_type, contribution, ConstraintAuthority::CallInputContext(&context))
     }
 
     #[cfg(test)]
@@ -2616,6 +2669,18 @@ impl TypeConstraints {
         depth: usize,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
+        self.unify_rows_with_input_context(expected, actual, contribution, depth, None, changes)
+    }
+
+    fn unify_rows_with_input_context(
+        &mut self,
+        expected: &RowShape,
+        actual: &RowShape,
+        contribution: Span,
+        depth: usize,
+        input_context: Option<&CallInputContext>,
+        changes: &mut Vec<ConstraintChange>,
+    ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
         if depth > MAX_TYPE_DEPTH {
             return Err((
                 row_type(expected),
@@ -2644,11 +2709,12 @@ impl TypeConstraints {
                 .row_field_visits
                 .fetch_add(1, Ordering::Relaxed);
             if let Some(actual_field) = actual.fields.get(name) {
-                self.constrain_inner(
+                self.constrain_inner_with_input_context(
                     expected_field,
                     actual_field,
                     contribution,
-                    false,
+                    input_context.is_some(),
+                    input_context,
                     depth + 1,
                     changes,
                 )?;
@@ -3382,7 +3448,7 @@ impl TypeConstraints {
         expected: &Type,
         actual: &Type,
         contribution: Span,
-        authority: ConstraintAuthority,
+        authority: ConstraintAuthority<'_>,
     ) -> Result<(), ConstraintConflict> {
         self.counters
             .generated_constraints
@@ -3394,12 +3460,13 @@ impl TypeConstraints {
             let constrained = match authority {
                 ConstraintAuthority::NullableSeedCollection(seed) => constraints
                     .constrain_nullable_seed_inner(seed, actual, contribution, changes),
-                ConstraintAuthority::Inference | ConstraintAuthority::CheckedContext => {
-                    constraints.constrain_inner(
+                ConstraintAuthority::Inference | ConstraintAuthority::CheckedContext | ConstraintAuthority::CallInputContext(_) => {
+                    constraints.constrain_inner_with_input_context(
                         expected,
                         actual,
                         contribution,
-                        matches!(authority, ConstraintAuthority::CheckedContext),
+                        !matches!(authority, ConstraintAuthority::Inference),
+                        match authority { ConstraintAuthority::CallInputContext(context) => Some(context), _ => None },
                         0,
                         changes,
                     )
@@ -3471,7 +3538,7 @@ impl TypeConstraints {
         let Some(candidate) = candidate else {
             return self.constrain_inner(&expected, &actual, contribution, false, 0, changes);
         };
-        if !has_anchor(candidate, false)
+        if !has_anchor(candidate, AnchorEvidence::Inference)
             .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
         {
             return self.constrain_inner(&expected, &actual, contribution, false, 0, changes);
@@ -3516,6 +3583,19 @@ impl TypeConstraints {
         depth: usize,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
+        self.constrain_inner_with_input_context(expected, actual, contribution, annotation, None, depth, changes)
+    }
+
+    fn constrain_inner_with_input_context(
+        &mut self,
+        expected: &Type,
+        actual: &Type,
+        contribution: Span,
+        annotation: bool,
+        input_context: Option<&CallInputContext>,
+        depth: usize,
+        changes: &mut Vec<ConstraintChange>,
+    ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
         let mut pending = vec![(expected.clone(), actual.clone(), depth)];
         'pairs: while let Some((expected, actual, depth)) = pending.pop() {
             if depth > MAX_TYPE_DEPTH {
@@ -3531,6 +3611,14 @@ impl TypeConstraints {
             self.counters
                 .worklist_wakeups
                 .fetch_add(1, Ordering::Relaxed);
+            if let Some(context) = input_context {
+                if !expected.contains_inference() && !actual.contains_inference() { continue; }
+                for variable in [&expected, &actual] {
+                    if let Type::Inference(id) = variable
+                        && !context.permits(self, *id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
+                    { continue 'pairs; }
+                }
+            }
             match (&expected, &actual) {
                 (Type::Inference(id), Type::Record(fields))
                     if self.record_binding(*id).ok().flatten().is_some() =>
@@ -3539,7 +3627,7 @@ impl TypeConstraints {
                         .record_binding(*id)
                         .expect("constraint variable belongs to this problem")
                         .expect("guard checked for a record binding");
-                    self.unify_rows_inner(
+                    self.unify_rows_with_input_context(
                         &record.shape,
                         &RowShape {
                             fields: fields.as_ref().clone(),
@@ -3547,6 +3635,7 @@ impl TypeConstraints {
                         },
                         contribution,
                         depth,
+                        input_context,
                         changes,
                     )?;
                     continue;
@@ -3558,7 +3647,7 @@ impl TypeConstraints {
                         .record_binding(*id)
                         .expect("constraint variable belongs to this problem")
                         .expect("guard checked for a record binding");
-                    self.unify_rows_inner(
+                    self.unify_rows_with_input_context(
                         &RowShape {
                             fields: fields.as_ref().clone(),
                             tail: RowTail::Closed,
@@ -3566,6 +3655,7 @@ impl TypeConstraints {
                         &record.shape,
                         contribution,
                         depth,
+                        input_context,
                         changes,
                     )?;
                     continue;
@@ -3615,11 +3705,12 @@ impl TypeConstraints {
                     if let (Some(left_record), Some(right_record)) =
                         (&left_record, &right_record)
                     {
-                        self.unify_rows_inner(
+                        self.unify_rows_with_input_context(
                             &left_record.shape,
                             &right_record.shape,
                             contribution,
                             depth,
+                            input_context,
                             changes,
                         )?;
                     }
@@ -3634,7 +3725,7 @@ impl TypeConstraints {
                         .is_some()
                     && !matches!(value, Type::Inference(_) | Type::Record(_))
                 {
-                    if !has_anchor(value, annotation)
+                    if !has_anchor(value, if annotation { AnchorEvidence::CheckedContext } else { AnchorEvidence::Inference })
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
                     {
                         continue 'pairs;
@@ -3741,7 +3832,7 @@ impl TypeConstraints {
                         .map_err(|error| (expected, actual, error))?;
                 }
                 (Type::Inference(id), value) | (value, Type::Inference(id)) => {
-                    if !has_anchor(value, annotation)
+                    if !has_anchor(value, if annotation { AnchorEvidence::CheckedContext } else { AnchorEvidence::Inference })
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
                     {
                         continue;
@@ -3752,6 +3843,9 @@ impl TypeConstraints {
                     {
                         return Err((expected, actual, None));
                     }
+                    if let Some(context) = input_context
+                        && !context.permits_binding(self, *id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
+                    { continue; }
                     let iteration = self.iteration_requirement(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
                     self.bind(*id, value.clone(), contribution, annotation, changes)
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
@@ -3812,9 +3906,9 @@ impl TypeConstraints {
                         return Err((expected, actual, None));
                     }
                     for (left, right) in left.sig.params.iter().zip(&right.sig.params) {
-                        self.constrain_inner(&left.ty, &right.ty, contribution, annotation, depth + 1, changes)?;
+                        self.constrain_inner_with_input_context(&left.ty, &right.ty, contribution, annotation, input_context, depth + 1, changes)?;
                     }
-                    self.constrain_inner(&left.sig.return_ty, &right.sig.return_ty, contribution, annotation, depth + 1, changes)?;
+                    self.constrain_inner_with_input_context(&left.sig.return_ty, &right.sig.return_ty, contribution, annotation, input_context, depth + 1, changes)?;
                     let mut expected_signature = left.sig.clone();
                     self.resolve_callable_depth_inner(&mut expected_signature, depth + 1, &mut ResolutionAccess::Journal(changes))
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
@@ -4786,13 +4880,21 @@ fn row_type(row: &RowShape) -> Type {
     Type::Record(Arc::new(row.fields.clone()))
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AnchorEvidence {
+    Inference,
+    CheckedContext,
+    CheckedNullArgument,
+}
+
 fn has_anchor(
     ty: &Type,
-    annotation: bool,
+    evidence: AnchorEvidence,
 ) -> Result<bool, ConstraintResolutionError> {
     if matches!(ty, Type::Inference(_)) {
         return Ok(false);
     }
+    let mut saw_null = false;
     let mut pending = vec![(ty, 0)];
     while let Some((ty, depth)) = pending.pop() {
         if depth > MAX_TYPE_DEPTH {
@@ -4800,13 +4902,15 @@ fn has_anchor(
         }
         match ty {
             Type::Unknown | Type::Invalid => return Ok(false),
-            Type::Inference(_) if annotation => return Ok(false),
-            Type::Any | Type::ErasedRecord | Type::Null if !annotation => return Ok(false),
-            Type::Record(fields) if fields.is_empty() && !annotation => return Ok(false),
+            Type::Inference(_) if evidence != AnchorEvidence::Inference => return Ok(false),
+            Type::Any | Type::ErasedRecord if evidence != AnchorEvidence::CheckedContext => return Ok(false),
+            Type::Null if evidence == AnchorEvidence::Inference => return Ok(false),
+            Type::Null => saw_null = true,
+            Type::Record(fields) if fields.is_empty() && evidence != AnchorEvidence::CheckedContext => return Ok(false),
             _ => ty.for_each_child(|child| pending.push((child, depth + 1))),
         }
     }
-    Ok(true)
+    Ok(evidence != AnchorEvidence::CheckedNullArgument || saw_null)
 }
 
 fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionError> {
@@ -4903,6 +5007,33 @@ mod tests {
     }
 
     #[test]
+    fn call_result_context_cannot_anchor_computed_input_aliases() {
+        use crate::sema::sealed_operation::{ArithmeticOperator, SealedBinaryOperation};
+        for union_before_context in [false, true] {
+            let mut constraints = TypeConstraints::default();
+            let input = constraints.fresh(span(1));
+            let result = if union_before_context { constraints.fresh(span(2)) } else { input.clone() };
+            let operation = constraints.register_sealed_operation(CallableApplicationScope::Invocation, SealedBinaryOperation {
+                operator: ArithmeticOperator::Divide, left: input.clone(), right: Type::Int,
+                result: result.clone(), span: span(3),
+            }).unwrap();
+            let instance = InstantiatedScheme {
+                params: vec![input.clone()], return_type: result.clone(),
+                type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), input.clone())]),
+                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(),
+                operations: vec![operation], methods: Vec::new(), wrappers: Vec::new(),
+            };
+            if union_before_context { constraints.constrain(&input, &result, span(4)).unwrap(); }
+            constraints.constrain_call_input_context(&instance, &Type::UInt, span(5)).unwrap();
+            assert!(matches!(constraints.resolve(&input).unwrap(), Type::Inference(_)));
+            assert!(matches!(constraints.resolve(&result).unwrap(), Type::Inference(_)));
+            constraints.constrain(&input, &Type::Int, span(6)).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+        }
+    }
+
+    #[test]
     fn checked_dynamic_call_arguments_keep_authority_with_the_instance() {
         for owned_first in [false, true] {
             let mut constraints = TypeConstraints::default();
@@ -4931,6 +5062,71 @@ mod tests {
         constraints.require_map_key(&argument, span(6)).unwrap();
         assert!(constraints.constrain_checked_call_argument(&instance, &argument, &Type::Any, span(7)).is_err());
         assert_eq!(constraints.resolve(&argument).unwrap(), argument);
+    }
+
+    #[test]
+    fn checked_null_arguments_preserve_exact_shapes_without_inventing_payloads() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for actual in [
+                Type::Null,
+                Type::List(Box::new(Type::Null)),
+                Type::Record(Arc::new(BTreeMap::from([(crate::symbol::Name::intern("item"), Type::Null)]))),
+            ] {
+                let mut constraints = TypeConstraints::default();
+                let argument = constraints.fresh(span(1));
+                let instance = InstantiatedScheme {
+                    params: vec![argument.clone()], return_type: argument.clone(),
+                    type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
+                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
+                };
+                constraints.constrain(&argument, &actual, span(2)).unwrap();
+                assert_eq!(constraints.resolve(&argument).unwrap(), argument);
+                constraints.constrain_checked_call_argument(&instance, &argument, &actual, span(3)).unwrap();
+                assert_eq!(constraints.resolve(&argument).unwrap(), actual);
+                assert_eq!(constraints.resolve(&instance.return_type).unwrap(), actual);
+            }
+        });
+        let mut constraints = TypeConstraints::default();
+        let payload = constraints.fresh(span(1));
+        let optional = Type::Optional(Box::new(payload.clone()));
+        let instance = InstantiatedScheme {
+            params: vec![optional.clone()], return_type: payload.clone(),
+            type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), payload.clone())]),
+            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
+        };
+        constraints.constrain_checked_call_argument(&instance, &optional, &Type::Null, span(2)).unwrap();
+        assert_eq!(constraints.resolve(&payload).unwrap(), payload);
+        assert_eq!(constraints.resolve(&optional).unwrap(), optional);
+        let outside = constraints.fresh(span(3));
+        constraints.constrain_checked_call_argument(&instance, &outside, &Type::List(Box::new(Type::Null)), span(4)).unwrap();
+        assert_eq!(constraints.resolve(&outside).unwrap(), outside);
+        assert!(constraints.constrain_checked_call_argument(&instance, &Type::Int, &Type::Null, span(5)).is_err());
+        for actual in [Type::List(Box::new(Type::Unknown)), Type::Record(Arc::new(BTreeMap::new()))] {
+            constraints.constrain_checked_call_argument(&instance, &payload, &actual, span(6)).unwrap();
+            assert_eq!(constraints.resolve(&payload).unwrap(), payload);
+        }
+    }
+
+    #[test]
+    fn checked_null_arguments_cannot_borrow_caller_variable_authority() {
+        for actual in [Type::Null, Type::List(Box::new(Type::Null))] {
+            for owned_first in [false, true] {
+                let mut constraints = TypeConstraints::default();
+                let first = constraints.fresh(span(1));
+                let second = constraints.fresh(span(2));
+                let (argument, outside) = if owned_first { (first, second) } else { (second, first) };
+                let instance = InstantiatedScheme {
+                    params: vec![argument.clone()], return_type: argument.clone(),
+                    type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
+                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
+                };
+                constraints.constrain(&argument, &outside, span(3)).unwrap();
+                let original = constraints.resolve(&outside).unwrap();
+                constraints.constrain_checked_call_argument(&instance, &argument, &actual, span(4)).unwrap();
+                assert_eq!(constraints.resolve(&argument).unwrap(), original);
+                assert_eq!(constraints.resolve(&outside).unwrap(), original);
+            }
+        }
     }
 
     #[test]

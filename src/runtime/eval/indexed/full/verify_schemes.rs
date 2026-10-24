@@ -4179,7 +4179,9 @@ fn verify_instantiated_call_arguments(
             .or_else(|| expected_ground_type.cloned())
             .ok_or_else(|| IrVerifyError::new("generic call argument type is invalid"))?;
         let pipeline_item = if is_splice { None } else { producer_proof.pipeline_item_argument_type(decoder.owner, value.raw() as usize)? };
-        let actual = if pipeline_item.is_some() { None } else { checked_argument_type(
+        let literal_context = if pipeline_item.is_some() { None } else { producer_proof.literal_argument_context(decoder.owner, value.raw() as usize)? };
+        let actual = if let Some(actual) = literal_context { Some(CheckedArgumentType::Known(actual)) }
+        else if pipeline_item.is_some() { None } else { checked_argument_type(
             store,
             &decoder,
             instruction,

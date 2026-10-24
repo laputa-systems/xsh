@@ -2118,6 +2118,78 @@ mod tests {
     }
 
     #[test]
+    fn closed_null_arguments_anchor_exact_generic_instances() {
+        let mut failures = Vec::new();
+        for (argument, actual_type) in [
+            ("null", Some(Type::Null)),
+            ("[null]", Some(Type::List(Box::new(Type::Null)))),
+            ("[[null]]", Some(Type::List(Box::new(Type::List(Box::new(Type::Null)))))),
+            ("{item: null}", None),
+        ] {
+            let call = format!("keep({argument})");
+            let source = format!("pure keep(value) {{ value }}\nlet result = {call}\n");
+            with_checked_local_source(&source, |output| {
+                let actual_type = actual_type.unwrap_or_else(|| Type::Record(Arc::new(BTreeMap::from([(super::super::Name::intern("item"), Type::Null)]))));
+                let call_start = source.find(&call).unwrap();
+                let argument_start = call_start + "keep(".len();
+                let argument_span = Span::new(SourceId::new(0), argument_start, argument_start + argument.len());
+                assert_eq!(output.expr_types.get(&argument_span), Some(&actual_type), "actual source argument: {source}");
+                let diagnostics = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+                if !diagnostics.is_empty() {
+                    failures.push(format!("{argument}: actual {actual_type:?}; {diagnostics:?}"));
+                    return;
+                }
+                let call_span = Span::new(SourceId::new(0), call_start, call_start + call.len());
+                assert_eq!(output.expr_types.get(&call_span), Some(&actual_type), "exact closed call result: {source}");
+            });
+        }
+        with_checked_local_source("pure keep(value) { value }\nlet values: List[Int?] = [null, 7]\nlet result = keep(values)\n", |output| {
+            assert!(output.diagnostics.is_empty(), "known mixed nullable Int input: {:?}", output.diagnostics);
+        });
+        with_checked_local_source("pure keep(value) { value }\nlet result: List[Str?] = keep([null])\n", |output| {
+            if output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                failures.push(format!("explicit List[Str?] context: {:?}", output.diagnostics));
+            }
+        });
+        for source in [
+            "pure integer(value) { value + 1 }\nlet result = integer(null)\n",
+            "pure integer(value) { value + 1 }\nlet result = integer([null])\n",
+            "pure integer(value) { value + 1 }\nlet result = integer({item: null})\n",
+        ] {
+            with_checked_local_source(source, |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "body input requirement: {source}"));
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn generic_result_context_checks_actual_null_literal_arguments() {
+        for source in [
+            "pure keep(value) { value }\nlet result: List[Str?] = keep([null])\n",
+            "pure keep(value) { value }\nlet shared = keep\nlet result: List[Str?] = shared([null])\n",
+            "pure keep(value) { value }\nlet result: List[Int?] = keep([7])\n",
+            "pure keep(value) { value }\nlet result: Any = keep(null)\n",
+            "proc saved(value) -> Result[Unit] { let _ = value; Ok() }\nproc forward(value) -> Unit { saved(value) }\nforward(7)\n",
+        ] {
+            with_checked_local_source(source, |output| assert!(output.diagnostics.is_empty(), "{source}: {:?}", output.diagnostics));
+        }
+        let source = "pure keep(value) { value }\nvar missing = null\nlet result = keep(missing)\n";
+        with_checked_local_source(source, |output| {
+            assert!(output.diagnostics.is_empty(), "closed mutable Null input: {:?}", output.diagnostics);
+            let start = source.find("keep(missing)").unwrap() + "keep(".len();
+            assert_eq!(output.expr_types.get(&Span::new(SourceId::new(0), start, start + "missing".len())), Some(&Type::Null));
+        });
+        for source in [
+            "pure keep(value) { value }\nlet values: List[Null] = [null]\nlet result: List[Str?] = keep(values)\n",
+            "pure keep(value) { value }\nlet values: List[Int] = [7]\nlet result: List[Int?] = keep(values)\n",
+            "pure keep(value) { value }\nlet result = keep([])\n",
+            "pure fallback(value) { value ?? null }\nlet result = fallback(null)\n",
+            "pure consume(value) { value[0] }\nlet result: Any = consume(null)\n",
+        ] {
+            with_checked_local_source(source, |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "missing input evidence: {source}"));
+        }
+    }
+
+    #[test]
     fn generic_call_result_annotation_fact_is_finalized() {
         let source = concat!(
             "pure identity(value) { value }\n",

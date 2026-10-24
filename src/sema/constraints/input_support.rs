@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 #[derive(Default)]
 pub(super) struct UnresolvedVariables {
-    types: FxHashSet<TypeVariableId>,
+    pub(super) types: FxHashSet<TypeVariableId>,
     rows: FxHashSet<RowVariableId>,
     effects: BTreeSet<EffectVariableId>,
 }
@@ -19,7 +19,7 @@ impl UnresolvedVariables {
             && self.effects.is_subset(&other.effects)
     }
 
-    fn extend(&mut self, other: Self) {
+    pub(super) fn extend(&mut self, other: Self) {
         self.types.extend(other.types);
         self.rows.extend(other.rows);
         self.effects.extend(other.effects);
@@ -175,7 +175,7 @@ impl TypeConstraints {
         }
     }
 
-    fn unresolved_input_variables(&self, types: &[Type]) -> Result<UnresolvedVariables, ConstraintResolutionError> {
+    pub(super) fn unresolved_input_variables(&self, types: &[Type]) -> Result<UnresolvedVariables, ConstraintResolutionError> {
         let mut variables = UnresolvedVariables::default();
         let mut pending = types.iter().map(|ty| self.resolve(ty).map(|ty| (ty, 0))).collect::<Result<Vec<_>, _>>()?;
         while let Some((ty, depth)) = pending.pop() {

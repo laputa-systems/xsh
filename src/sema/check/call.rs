@@ -309,7 +309,7 @@ impl Checker {
             && let Ok(Type::SchemeCallable(id)) = self.type_constraints.resolve(&binding.ty)
         {
             self.check_expr_arena(arena, source, callee, None);
-            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument);
+            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument, expected_context);
         }
         if matches!(&call_source, super::method::HostCallSource::Callback { .. })
             && let ArenaExprKind::Field { base, name } = callee_kind
@@ -321,7 +321,7 @@ impl Checker {
         {
             self.check_expr_arena(arena, source, base, None);
             if let Some(Type::SchemeCallable(relationship)) = self.retain_named_scheme_callable(arena, &alias, callee) {
-                return self.check_scheme_callable_application(arena, source, callee, relationship, args, span, checked_argument);
+                return self.check_scheme_callable_application(arena, source, callee, relationship, args, span, checked_argument, expected_context);
             }
         }
         if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
@@ -380,10 +380,12 @@ impl Checker {
                 && name == "call"
                 && self.resolve_callable_alias_call(arena, base).is_some()
             {
-                self.static_callable_aliases
-                    .get_mut(&arena.arena.expr(callee).span)
-                    .unwrap()
-                    .method_call = true;
+                if contract.instantiation.is_none() {
+                    self.static_callable_aliases
+                        .get_mut(&arena.arena.expr(callee).span)
+                        .expect("a monomorphic alias retains its checked method contract")
+                        .method_call = true;
+                }
             }
             let mut invocation = None;
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
@@ -402,7 +404,7 @@ impl Checker {
                 }
             }
             if !self.check_function_contract_arguments_arena(
-                arena, source, args, &contract, span, checked_argument,
+                arena, source, args, &contract, span, checked_argument, expected_context,
             ) {
                 self.reject_invocation_return(invocation, &contract.effects, span);
                 return Type::Invalid;
@@ -478,7 +480,7 @@ impl Checker {
                     );
                 }
                 if !self.check_function_contract_arguments_arena(
-                    arena, source, args, &sig, span, checked_argument,
+                    arena, source, args, &sig, span, checked_argument, expected_context,
                 ) {
                     self.reject_invocation_return(invocation, &sig.effects, span);
                     return Type::Invalid;
@@ -492,7 +494,7 @@ impl Checker {
             {
                 self.record_function_call_target(span, sig.definition_target);
                 if !self.check_function_contract_arguments_arena(
-                    arena, source, args, &sig, span, checked_argument,
+                    arena, source, args, &sig, span, checked_argument, expected_context,
                 ) {
                     self.reject_invocation_return(None, &sig.effects, span);
                     return Type::Invalid;
@@ -519,7 +521,7 @@ impl Checker {
                     );
                 }
                 if !self.check_function_contract_arguments_arena(
-                    arena, source, args, &sig, span, checked_argument,
+                    arena, source, args, &sig, span, checked_argument, expected_context,
                 ) {
                     self.reject_invocation_return(invocation, &sig.effects, span);
                     return Type::Invalid;
@@ -667,7 +669,7 @@ impl Checker {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
                     if !self.check_function_contract_arguments_arena(
-                        arena, source, args, &contract, span, checked_argument,
+                        arena, source, args, &contract, span, checked_argument, expected_context,
                     ) {
                         self.reject_invocation_return(None, &contract.effects, span);
                         return Type::Invalid;
@@ -691,7 +693,7 @@ impl Checker {
                         invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
                     if !self.check_function_contract_arguments_arena(
-                        arena, source, args, &contract, span, checked_argument,
+                        arena, source, args, &contract, span, checked_argument, expected_context,
                     ) {
                         self.reject_invocation_return(invocation, &contract.effects, span);
                         return Type::Invalid;
@@ -715,7 +717,7 @@ impl Checker {
                         invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
                     if !self.check_function_contract_arguments_arena(
-                        arena, source, args, &contract, span, checked_argument,
+                        arena, source, args, &contract, span, checked_argument, expected_context,
                     ) {
                         self.reject_invocation_return(invocation, &contract.effects, span);
                         return Type::Invalid;
@@ -874,7 +876,7 @@ impl Checker {
         let diagnostics_before = self.diagnostics.len();
         let callee_type = self.check_expr_arena(arena, source, callee, None);
         if let Type::SchemeCallable(id) = callee_type {
-            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument);
+            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument, expected_context);
         }
         if let Type::Callable(callable) = &callee_type {
             return self.check_typed_callable_call(arena, source, callee, args, callable, span);
@@ -912,7 +914,7 @@ impl Checker {
         if let Type::Record(fields) = &base_ty
             && let Some(Type::SchemeCallable(id)) = fields.get(&name)
         {
-            return self.check_scheme_callable_application(arena, source, callee, *id, args, span, checked_argument);
+            return self.check_scheme_callable_application(arena, source, callee, *id, args, span, checked_argument, expected);
         }
         // A record field of a callable type is called like a method. The
         // field wins over a record method of the same name, because the

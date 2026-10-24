@@ -445,7 +445,7 @@ impl Checker {
                 self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
             } else { invocation = self.check_function_invocation_effects(&contract, &name, span); }
         }
-        if !self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument) {
+        if !self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument, None) {
             self.reject_invocation_return(invocation, &contract.effects, span);
             return Type::Invalid;
         }

@@ -125,6 +125,18 @@ the result or its nominal identity. A body result annotation cannot supply that
 source evidence or authorize a constructor from another function.
 Only checker-selected constructor callees use a static namespace role. Their
 arguments and independent module-value reads retain ordinary capture rules.
+Checked generic arguments retain exact closed null-bearing shapes through the
+existing fresh invocation owner. Ordinary nullable storage seeds still require
+non-null payload evidence. A ground checked result context relates to that same
+instance before source argument checking through its unresolved input
+variables. Computed arithmetic result variables retain operand-selected
+signatures, including when aliased into an input. The complete result relation
+follows argument solving. This context does not bind declaration or
+recursive-component monotypes. Contextual list literals retain their actual
+checker domains as owned producer contexts. Cold proof checks their physical
+members before accepting strict generic binder evidence. Existing Any and
+Optional widening use checked-value argument elaborations rather than treating
+a formal target as the actual producer type.
 Error variant constructors in generic bodies reuse the canonical checked
 family, variant, and source-ordered payload binding from ordinary lowering.
 Generated default-message and unsigned-check rows retain actual producer types

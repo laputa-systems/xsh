@@ -11249,6 +11249,7 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Bool(_) => Ok(Some(Type::Bool)),
             schema::ExprView::Duration(_) => Ok(Some(Type::Duration)),
             schema::ExprView::Tag { type_name, .. } => Ok(Some(Type::Tag(type_name))),
+            schema::ExprView::Null => Ok(Some(Type::Null)),
             schema::ExprView::Unit => Ok(Some(Type::Unit)),
             schema::ExprView::UInt(_) => Ok(Some(Type::UInt)),
             schema::ExprView::Binary {
@@ -11579,8 +11580,7 @@ impl<'a> FullDecoder<'a> {
                     Ok(Some(output))
                 }
             }
-            schema::ExprView::Null
-            | schema::ExprView::PreparedRegex(_)
+            schema::ExprView::PreparedRegex(_)
             | schema::ExprView::PreparedConstant(_)
             | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Glob { .. }
@@ -27402,6 +27402,96 @@ assert observed.scoped == Ok(8)
             let error = FullVerifier::verify(&forged).unwrap_err();
             assert!(error.message.contains("error") || error.message.contains("producer") || error.message.contains("checked"), "{}", error.message);
         });
+    }
+
+    #[test]
+    fn generic_null_arguments_execute_exact_shapes_and_checked_contexts() {
+        run_with_large_stack(|| {
+            let mut failures = Vec::new();
+            for (name, body) in [
+                ("scalar", "let result = keep(null)\nassert result == null\n"),
+                ("list", "let result = keep([null])\nassert result == [null]\n"),
+                ("nested-list", "let result = keep([[null]])\nassert result == [[null]]\n"),
+                ("record", "let result = keep({item: null})\nassert result.item == null\n"),
+                ("nested-record-list", "let result = keep([{item: [null]}])\nassert result[0].item == [null]\n"),
+                ("forwarded", "let result = forward([null])\nassert result == [null]\n"),
+                ("checked-alias", "let shared = keep\nlet result: List[Str?] = shared([null])\nassert result.len() == 1\nassert result[0] == null\n"),
+                ("known-nullable", "let mixed: List[Int?] = [null, 7]\nlet result = keep(mixed)\nassert result[0] == null\nassert result[1] == 7\n"),
+                ("authored-any", "let result: Any = keep(null)\n"),
+            ] {
+                let source = format!("pure keep(value) {{ value }}\npure forward(value) {{ keep(value) }}\n{body}");
+                let program = match fixture_result(name, &source) {
+                    Ok(program) => Arc::new(program),
+                    Err(error) => { failures.push(format!("{name}: {error:?}")); continue; }
+                };
+                FullVerifier::verify(&program).unwrap();
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        let completion = evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                        assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{name}: {completion:?}");
+                    }
+                    if matches!(name, "scalar" | "authored-any") {
+                        assert_eq!(evaluator.lookup(Name::intern("result")).unwrap().value, Value::Null);
+                    }
+                    assert!(evaluator.stdout.is_empty());
+                }
+            }
+            assert!(failures.is_empty(), "{}", failures.join("\n"));
+        });
+    }
+
+    #[test]
+    fn generic_null_argument_contexts_keep_module_callable_ownership() {
+        run_with_large_stack(|| {
+            let source = "use model\nlet direct: List[Str?] = model.keep([null])\nlet shared = model.keep\nlet aliased: List[Str?] = shared([null])\nlet method: List[Str?] = shared.call([null])\nassert direct.len() == 1\nassert direct[0] == null\nassert aliased[0] == null\nassert method[0] == null\n";
+            let module = "##! Null argument fixture.\n## Returns its argument unchanged.\nexport pure keep(value) { value }\n";
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_module(source, module));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    let completion = evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}");
+                }
+                assert!(evaluator.stdout.is_empty());
+            }
+        });
+    }
+
+    #[test]
+    fn generic_null_argument_proofs_authenticate_actual_literal_fields() {
+        for (name, body) in [
+            ("record", "let result = keep({item: null})\n"),
+            ("contextual-list", "let shared = keep\nlet result: List[Str?] = shared([null])\n"),
+        ] {
+            let source = format!("pure keep(value) {{ value }}\nlet spare = 7\n{body}");
+            let program = fixture(name, &source);
+            FullVerifier::verify(&program).unwrap();
+            let null = program.store.tags.iter().position(|tag| *tag == FullTag::ExprNull).unwrap();
+            let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+            let mut nonnull = program.clone();
+            nonnull.store.in_place.take();
+            nonnull.store.tags[null] = program.store.tags[integer];
+            nonnull.store.data[null] = program.store.data[integer];
+            FullVerifier::verify(&nonnull).expect_err("the actual Int leaf cannot prove the checked Null or nullable Str domain");
+            if name == "contextual-list" {
+                let context = program.store.checked_expr_types.iter().position(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_))).unwrap();
+                let mut missing = program.clone();
+                missing.store.in_place.take();
+                missing.store.checked_expr_types.remove(context);
+                FullVerifier::verify(&missing).expect_err("the call target cannot supply a missing actual literal domain");
+                let mut foreign = program.clone();
+                foreign.store.in_place.take();
+                foreign.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Driver(usize::MAX));
+                FullVerifier::verify(&foreign).expect_err("a literal domain must belong to its actual source owner");
+            }
+        }
     }
 
     #[test]

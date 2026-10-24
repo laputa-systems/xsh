@@ -4103,7 +4103,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for argument in arguments {
             let super::LoweredCallArg::Single(value) = argument else { continue; };
             let checked = match self.scratch.borrow().expressions.get(value.index()) {
-                Some(BuildExprRow::CheckedValue { check: LoweredValueCheck::Ground(check), .. }) if matches!(check.ty, Type::Optional(_)) => Some(check.ty.clone()),
+                Some(BuildExprRow::CheckedValue { check: LoweredValueCheck::Ground(check), .. }) if matches!(check.ty, Type::Optional(_) | Type::Any) => Some(check.ty.clone()),
                 _ => None,
             };
             if let Some(checked) = checked { self.record_scheme_storage_elaboration(*value, &SchemeType::Ground(checked), lowered_types); }
@@ -5247,7 +5247,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
                     let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
                     let parameters = contract.canonical().scheme().params();
-                    let arguments = self.lower_optional_function_call_arguments(expression, arguments, parameters, slots, Some(current_function), None, SchemeType::closed_ground_type)?;
+                    let arguments = self.lower_function_call_argument_elaborations(expression, arguments, parameters, slots, Some(current_function), None, SchemeType::closed_ground_type)?;
                     let arguments = self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Scheme(parameters)), self.call_argument_slots(expression), None, slots, Some(current_function), None)?;
                     self.record_scheme_call_argument_checks(&arguments, lowered_types);
                     let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args: arguments, span });

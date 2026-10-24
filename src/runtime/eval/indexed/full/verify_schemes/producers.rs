@@ -2424,6 +2424,16 @@ impl<'a> ProducerProof<'a> {
         Ok(Some((*actual).clone()))
     }
 
+    pub(super) fn literal_argument_context(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        if !matches!(self.store.tags.get(instruction), Some(FullTag::ExprList | FullTag::ExprListBuild)) { return Ok(None); }
+        let decoder = self.owner(owner)?;
+        let Some(actual) = self.contextual_producer_type(&decoder, instruction)? else { return Ok(None); };
+        if !matches!(actual.as_ref(), Type::List(_)) { return Err(IrVerifyError::new("literal argument context is not a checked list domain")); }
+        ensure_closed_type(&actual)?;
+        self.budget.charge_clone(&actual)?;
+        Ok(Some((*actual).clone()))
+    }
+
     pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
             return Err(IrVerifyError::new("derived argument proof has no mandatory producer demand"));
