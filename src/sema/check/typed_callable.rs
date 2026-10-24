@@ -430,10 +430,12 @@ impl Checker {
             && args.iter().any(|argument| matches!(argument.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }))
         {
             for argument in args {
-                if matches!(argument.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }) {
+                if let ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } = argument.kind {
                     self.error(super::args::call_arg_span_arena(arena, &argument.kind), "a call through a fixed-arity callable type requires explicit arguments, without splices or field spreads", DiagnosticCode::CheckCallableMismatch);
+                    self.check_expr_arena(arena, source, value, None);
+                } else {
+                    self.check_call_arg_arena(arena, source, &argument.kind, None);
                 }
-                self.check_call_arg_arena(arena, source, &argument.kind, None);
             }
             return Type::Invalid;
         }
@@ -530,8 +532,41 @@ mod inferred_callable_tests {
             "type Action = pure() -> Int\npure target() -> Int { 7 }\npure wrong() -> Int { let action: Action = target; action(@[]) }\n",
         ] {
             let output = checked(source);
-            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch) && diagnostic.message.contains("requires explicit arguments")), "{source}\n{:?}", output.diagnostics);
+            let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(DiagnosticCode::CheckCallableMismatch), "{source}\n{errors:?}");
+            assert!(errors[0].message.contains("requires explicit arguments"), "{source}\n{errors:?}");
         }
+    }
+
+    #[test]
+    fn fixed_arity_spread_recovery_retains_operand_errors() {
+        for (argument, operand) in [("@missing", "missing"), ("...missing", "missing")] {
+            let source = format!("type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path {{ action({argument}) }}\n");
+            let output = checked(&source);
+            let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 2, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(DiagnosticCode::CheckCallableMismatch), "{errors:?}");
+            assert_eq!(errors[1].code, Some(DiagnosticCode::CheckUnresolvedName), "{errors:?}");
+            for (diagnostic, text) in [(errors[0], argument), (errors[1], operand)] {
+                let span = diagnostic.labels.iter().find(|label| label.style == crate::diagnostic::LabelStyle::Primary).unwrap().span;
+                assert_eq!(&source[span.start()..span.end()], text);
+            }
+        }
+        let output = checked("reveal_type(@[1])\n");
+        let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(DiagnosticCode::CheckCallSplice), "{errors:?}");
+    }
+
+    #[test]
+    fn documented_callable_rejections_have_one_diagnostic_per_cause() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/snippets/spec/rejected/28-callable-mismatch.xsh"));
+        let output = checked(source);
+        let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 6, "{errors:?}");
+        assert_eq!(errors.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)).count(), 4, "{errors:?}");
+        assert_eq!(errors.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableType)).count(), 2, "{errors:?}");
     }
 
     #[test]
