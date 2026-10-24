@@ -28,19 +28,22 @@ for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
 Current provisional integration is the reviewed all-stage source plus the
-context, verifier-oracle, closed-fallback, public-name and Proc-completion
-repairs integrated through `89bd87511` on 2026-10-24. All 35 pipeline stages
-have focused proof and runtime controls. Remaining work follows actual corpus
-failures: generic membership-container inference, a guarded record refinement,
-complete interface/migration qualification, and inherited performance/deployment
-gates. No mandatory item is waived.
+context, verifier-oracle, closed-fallback, public-name, Proc-completion and
+membership repairs integrated through `43574d8aa` on 2026-10-24. All 35 pipeline
+stages have focused proof and runtime controls. Membership passes 13 focused
+controls, including UInt validation order, captured errors and cold ownership
+mutations. Remaining work follows actual corpus failures: guarded record
+refinement, inferred Proc body eligibility, Kbuild `List[Record]` verification,
+complete interface/migration qualification, and inherited
+performance/deployment gates. No mandatory item is waived.
 
 Immutable `c7617a979` passes the exact canonical workspace warning gate through
 the pinned launcher. Its full Rust library run reports 2,476 passes, 19 failures
 and three ignored tests. The Result/context regressions are repaired with 113
 focused controls; the verifier subgroup passes 18 distinct controls after stale
 assertions are corrected without relaxing production checks. Those repairs
-still need the next combined full-library boundary. The last complete passing
+are in the combined full-library run on immutable `f5c3baa91`; its result is
+pending. The last complete passing
 library checkpoint remains `c0e6e773f` below.
 
 Immutable `4de7c99e4a518a2bf685860fe110d385aebe17ee` passes six combined
@@ -63,10 +66,17 @@ false rejection is repaired; the WC probe advances through closed fallback and
 Proc completion to a separate guarded-record proof. No new removal credit is
 awarded.
 
-Laputa's isolated kernel-discovery source is reviewed, but its tests remain
-blocked before execution by the old product's producer/type-context checks.
-Recheck it with the next matching compiler before committing or claiming
-behavioral, Scenario or P0 acceptance. Pyramid closure still follows inference
+Immutable `374872034` builds matching verification products. With the reviewed
+fixture-only input repairs `05d5cc223` and `a4896a076`, normal and forced native
+routes each pass 191 selectors in 25 batches, including all aggregate stages,
+Null arguments and public-name controls. All 163 primary-family declarations
+are discovered. Its six API selectors also pass. These products predate the
+membership and subsequent corpus repairs; no native credit transfers to them.
+
+Laputa's isolated kernel-discovery source is reviewed, but the unchanged Kbuild
+module still fails preparation with these products. A separate expert owns the
+actual producer/type-context cause. Recheck with the repaired matching compiler
+before committing or claiming behavioral, Scenario or P0 acceptance. Pyramid closure still follows inference
 acceptance, local master integration and completed-worktree cleanup.
 
 Physical limits remain two ordinary Cargo jobs and one native job. Canonical

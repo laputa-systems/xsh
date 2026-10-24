@@ -1926,10 +1926,13 @@ type from another list-literal branch. This rule also applies when a branch
 value is the tail of a nested block. A stored list keeps one inferred item
 type across its uses.
 
-Without an expected type, an `if` expression may use an `Optional[T]` already
-provided by one reachable branch when every other branch value fits it,
-regardless of branch order. A plain `null` branch and plain `T` branch do not
-infer `T?`. Add an `Optional[T]` context or annotate the result.
+Without an expected type, an `if` or `match` expression joins a plain `null`
+branch with a non-dynamic `T` branch as `T?`, regardless of branch order. An
+existing Optional payload stays Optional, and branches that all produce `null`
+stay `Null`. This does not merge invariant container domains: `[null]` and `[7]`
+remain incompatible branch values. An unvalidated `Any` branch does not
+establish an inferred concrete payload. An explicit expected type still
+constrains every value-producing branch.
 
 ```xsh
 {{.spec.conditional_expressions.source}}
