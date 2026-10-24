@@ -52190,13 +52190,13 @@ pure apply() -> Int {
 
     #[test]
     fn signal_hook_errors_restore_live_bindings_and_root_slots() {
-        for failure in ["let _ = 1 / divisor", "exit 23"] {
+        for (failure, effects) in [("let _ = 1 / divisor", "[]"), ("exit 23", "[process]")] {
             let source = r#"var label = "before"
     var divisor = 0
     pure current() -> Str { label }
     on USR1 [] { label = "hook"; let _ = 1 / divisor }
     label = "after"
-    "#.replace("let _ = 1 / divisor", failure);
+    "#.replace("let _ = 1 / divisor", failure).replace("on USR1 []", &format!("on USR1 {effects}"));
             let program = Arc::new(fixture("signal-hook-restore.xsh", &source));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
