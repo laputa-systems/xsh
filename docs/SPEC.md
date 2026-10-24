@@ -2022,6 +2022,15 @@ stable when independent declarations are reordered. Printed `forall` notation
 is diagnostic notation, not an annotation the source rewriter can insert.
 `reveal_type` is rejected everywhere else.
 
+Guarded callable displays use `when-non-null(T)` to enclose the live view and its
+local type, row, and effect requirements. The `Null` type supplies no local view.
+An Optional source supplies its potential live payload type, even for a null value.
+`guard-call` and `guard-value` show requirements inherited from a checked call or
+callable materialization. Their `callee.` names belong to that callee, with
+explicit bindings to the enclosing signature. Conditional effects show their
+local and outward contracts, including the empty outward contract for `null`.
+`unknown` preserves an unresolved published effect contract.
+
 ### 5.5 Target-typed variants
 
 ```xsh

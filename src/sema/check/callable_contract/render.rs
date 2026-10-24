@@ -3,7 +3,7 @@ use crate::sema::scheme_callable::SchemeCallableTable;
 use crate::syntax::arena::TypeDefId;
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::schemes::{
-    CallableMonotype, SchemeParameter, SchemeRowParameterId, SchemeType,
+    CallableMonotype, CallableRequirements, SchemeParameter, SchemeRowParameterId, SchemeType,
     SchemeTypeParameterId, TypeScheme,
 };
 use crate::sema::types::{CallableType, ModuleExportType, Type};
@@ -13,13 +13,18 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Default)]
-struct BinderNames {
+struct BinderNames<'a> {
+    parent: Option<&'a BinderNames<'a>>,
+    prefix: String,
+    type_base: usize,
+    row_base: usize,
+    effect_base: usize,
     types: BTreeMap<SchemeTypeParameterId, usize>,
     effects: BTreeMap<crate::sema::schemes::SchemeEffectParameterId, usize>,
     rows: BTreeMap<SchemeRowParameterId, usize>,
 }
 
-impl BinderNames {
+impl BinderNames<'_> {
     fn from_scheme(scheme: &TypeScheme) -> Self {
         let mut names = Self::default();
         for (index, &id) in scheme.callable().requirements().effect_parameters.iter().enumerate() {
@@ -50,14 +55,91 @@ impl BinderNames {
             names.visit_scheme_type(&SchemeType::Parameter(*source));
             for ty in iteration.types() { names.visit_scheme_type(ty); }
         }
+        names.visit_guard_inputs(scheme.callable().requirements());
         names
+    }
+
+    fn visit_guard_inputs(&mut self, requirements: &CallableRequirements) {
+        for guard in &requirements.guards {
+            self.visit_scheme_type(&guard.source);
+            for read in &guard.reads { self.visit_scheme_type(&read.source); }
+            if let Some(effects) = &guard.effects { self.visit_effects(&effects.outward); }
+        }
+        for call in &requirements.guard_calls {
+            for ty in call.type_arguments.values() { self.visit_scheme_type(ty); }
+            for row in call.row_arguments.values() {
+                for ty in row.fields().values() { self.visit_scheme_type(ty); }
+                if let crate::sema::schemes::SchemeRowTail::Parameter(id) = row.tail() { self.bind_row(id); }
+            }
+            for effects in call.effect_arguments.values() { self.visit_effects(effects); }
+        }
+    }
+
+    fn bind_row(&mut self, id: SchemeRowParameterId) {
+        let next = self.row_base + self.rows.len();
+        self.rows.entry(id).or_insert(next);
+    }
+
+    fn visit_effects(&mut self, effects: &crate::sema::effects::EffectContract<crate::sema::schemes::SchemeEffectParameterId>) {
+        if let crate::sema::effects::EffectContract::Known(expression) = effects {
+            for (id, _) in expression.variables() {
+                let next = self.effect_base + self.effects.len();
+                self.effects.entry(*id).or_insert(next);
+            }
+        }
+    }
+
+    fn for_guard(&self, guard: &crate::sema::guarded_requirements::GuardRequirements) -> BinderNames<'_> {
+        let mut names = BinderNames {
+            parent: Some(self), prefix: self.prefix.clone(),
+            type_base: self.type_base + self.types.len(),
+            row_base: self.row_base + self.rows.len(),
+            effect_base: self.effect_base + self.effects.len(),
+            ..BinderNames::default()
+        };
+        for &id in &guard.type_parameters {
+            assert!(self.find_type(id).is_none(), "guard type binders are locally owned");
+            let next = names.type_base + names.types.len();
+            assert!(names.types.insert(id, next).is_none(), "guard type binders are unique");
+        }
+        for parameter in &guard.row_parameters {
+            assert!(self.find_row(parameter.id).is_none(), "guard row binders are locally owned");
+            let next = names.row_base + names.rows.len();
+            assert!(names.rows.insert(parameter.id, next).is_none(), "guard row binders are unique");
+        }
+        for &id in &guard.requirements.effect_parameters {
+            assert!(self.find_effect(id).is_none(), "guard effect binders are locally owned");
+            let next = names.effect_base + names.effects.len();
+            assert!(names.effects.insert(id, next).is_none(), "guard effect binders are unique");
+        }
+        names
+    }
+
+    fn local_quantifiers(&self, guard: &crate::sema::guarded_requirements::GuardRequirements) -> Vec<String> {
+        let mut types = guard.type_parameters.iter().map(|id| {
+            let name = self.type_name(*id);
+            (self.find_type(*id).expect("checked local type binder"), if guard.requirements.map_key_parameters.contains(id) { format!("{name}: MapKey") } else { name })
+        }).collect::<Vec<_>>();
+        types.sort_by_key(|(index, _)| *index);
+        let mut binders = types.into_iter().map(|(_, name)| name).collect::<Vec<_>>();
+        let mut rows = guard.row_parameters.iter().collect::<Vec<_>>();
+        rows.sort_by_key(|parameter| self.find_row(parameter.id).expect("checked local row binder"));
+        for row in rows {
+            let name = self.row_name(row.id);
+            let lacks = row.lacks.iter().map(ToString::to_string).collect::<Vec<_>>();
+            binders.push(if lacks.is_empty() { name } else { format!("{name}\\{{{}}}", lacks.join(", ")) });
+        }
+        let mut effects = guard.requirements.effect_parameters.iter().collect::<Vec<_>>();
+        effects.sort_by_key(|id| self.find_effect(**id).expect("checked local effect binder"));
+        binders.extend(effects.into_iter().map(|id| self.effect_name(*id)));
+        binders
     }
 
     fn visit_scheme_type(&mut self, ty: &SchemeType) {
         match ty {
             SchemeType::Ground(_) | SchemeType::SchemeCallable(_) => {}
             SchemeType::Parameter(id) => {
-                let next = self.types.len();
+                let next = self.type_base + self.types.len();
                 self.types.entry(*id).or_insert(next);
             }
             SchemeType::Callable { monotype, .. } => self.visit_monotype(monotype),
@@ -75,7 +157,7 @@ impl BinderNames {
                     self.visit_scheme_type(field);
                 }
                 if let crate::sema::schemes::SchemeRowTail::Parameter(id) = tail {
-                    let next = self.rows.len();
+                    let next = self.row_base + self.rows.len();
                     self.rows.entry(*id).or_insert(next);
                 }
             }
@@ -94,12 +176,28 @@ impl BinderNames {
         self.visit_scheme_type(monotype.return_type());
     }
 
+    fn find_type(&self, id: SchemeTypeParameterId) -> Option<usize> {
+        self.types.get(&id).copied().or_else(|| self.parent.and_then(|parent| parent.find_type(id)))
+    }
+
+    fn find_row(&self, id: SchemeRowParameterId) -> Option<usize> {
+        self.rows.get(&id).copied().or_else(|| self.parent.and_then(|parent| parent.find_row(id)))
+    }
+
+    fn find_effect(&self, id: crate::sema::schemes::SchemeEffectParameterId) -> Option<usize> {
+        self.effects.get(&id).copied().or_else(|| self.parent.and_then(|parent| parent.find_effect(id)))
+    }
+
     fn type_name(&self, id: SchemeTypeParameterId) -> String {
-        format!("T{}", self.types[&id])
+        format!("{}T{}", self.prefix, self.find_type(id).expect("checked callable type binder"))
     }
 
     fn row_name(&self, id: SchemeRowParameterId) -> String {
-        format!("R{}", self.rows[&id])
+        format!("{}R{}", self.prefix, self.find_row(id).expect("checked callable row binder"))
+    }
+
+    fn effect_name(&self, id: crate::sema::schemes::SchemeEffectParameterId) -> String {
+        format!("{}E{}", self.prefix, self.find_effect(id).expect("checked callable effect binder"))
     }
 
     fn quantifiers(&self, scheme: &TypeScheme) -> Vec<String> {
@@ -147,7 +245,7 @@ impl BinderNames {
         }
         let mut effects = self.effects.values().copied().collect::<Vec<_>>();
         effects.sort_unstable();
-        binders.extend(effects.into_iter().map(|index| format!("E{index}")));
+        binders.extend(effects.into_iter().map(|index| format!("{}E{index}", self.prefix)));
         binders
     }
 }
@@ -178,7 +276,7 @@ pub(in crate::sema::check) fn render_revealed_type(ty: &Type, table: &SchemeCall
     render_type(ty, &mut context)
 }
 
-fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+fn render_scheme(scheme: &TypeScheme, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut parts = Vec::new();
     let quantifiers = names.quantifiers(scheme);
     if !quantifiers.is_empty() {
@@ -198,14 +296,20 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     if let Some(schema) = scheme.return_schema() {
         parts.push(format!("return-schema={}", render_schema(schema, names, identities, context)));
     }
-    let mut conversions = scheme.callable().requirements().conversion_parameters.iter().collect::<Vec<_>>();
-    conversions.sort_by_key(|(parameter, _)| names.types[*parameter]);
+    parts.extend(render_requirement_parts(scheme.callable().requirements(), Some(scheme.effects().contract()), names, identities, context));
+    parts.join(" ")
+}
+
+fn render_requirement_parts(requirements: &CallableRequirements, effects: Option<&crate::sema::effects::EffectContract<crate::sema::schemes::SchemeEffectParameterId>>, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut conversions = requirements.conversion_parameters.iter().collect::<Vec<_>>();
+    conversions.sort_by_key(|(parameter, _)| names.find_type(**parameter).expect("checked conversion type binder"));
     for (parameter, conversions) in conversions {
         let conversions = crate::sema::schemes::ValueConversion::ALL.into_iter().filter(|conversion| conversions.contains(*conversion))
             .map(|conversion| format!("{conversion:?}")).collect::<Vec<_>>().join(", ");
         parts.push(format!("convert({}, [{conversions}])", names.type_name(*parameter)));
     }
-    for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
+    for (source, iteration) in &requirements.iteration_parameters {
         let item = render_scheme_type(&iteration.item, names, identities, context);
         let failure = match &iteration.policy {
             crate::sema::schemes::IterationPolicy::IterableInfallible | crate::sema::schemes::IterationPolicy::PipelineInfallible => "infallible".to_owned(),
@@ -219,11 +323,11 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         let domain = if iteration.policy.is_pipeline() { ", domain=pipeline" } else { "" };
         parts.push(format!("{source_kind}({}, item={item}, {failure}{domain})", names.type_name(*source)));
     }
-    parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
-    for application in &scheme.callable().requirements().applications {
+    if let Some(effects) = effects { parts.push(format!("effects={}", render_bound_effects(effects, names))); }
+    for application in &requirements.applications {
         parts.push(render_application(application, names, identities, context));
     }
-    for method in &scheme.callable().requirements().methods {
+    for method in &requirements.methods {
         let receiver = render_scheme_type(&method.receiver, names, identities, context);
         let arguments = method.argument_slots.iter().zip(method.arguments.iter()).map(|(slot, argument)| {
             format!("{slot}: {}", render_scheme_type(argument, names, identities, context))
@@ -231,7 +335,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         let result = render_scheme_type(&method.result, names, identities, context);
         parts.push(format!("method-family({:?}, receiver={receiver}, args=[{arguments}]) -> {result}", method.family));
     }
-    for predicate in &scheme.callable().requirements().effect_predicates {
+    for predicate in &requirements.effect_predicates {
         use crate::sema::effects::EffectPredicate;
         let rendered = match predicate {
             EffectPredicate::Equal(left, right) => format!("effects-equal({}, {})", render_bound_effects(left, names), render_bound_effects(right, names)),
@@ -241,7 +345,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         };
         parts.push(rendered);
     }
-    for operation in &scheme.callable().requirements().operations {
+    for operation in &requirements.operations {
         let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
         let result = operation.result().map(|ty| render_scheme_type(ty, names, identities, context));
         parts.push(match operation {
@@ -260,7 +364,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
             }
         });
     }
-    for wrapper in &scheme.callable().requirements().wrappers {
+    for wrapper in &requirements.wrappers {
         let types = wrapper.types().into_iter().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
         let effects = match &wrapper.kind {
             crate::sema::wrapper_operation::WrapperRequirementKind::Field { effects, .. } => format!(", effects={}", render_bound_effects(effects, names)),
@@ -268,10 +372,70 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         };
         parts.push(format!("wrapper({:?}, {types}{effects})", wrapper.shape()));
     }
-    parts.join(" ")
+    for guard in &requirements.guards { parts.push(render_guard(guard, names, identities, context)); }
+    for call in &requirements.guard_calls { parts.push(render_guard_call(call, names, identities, context)); }
+    parts
 }
 
-fn render_application(application: &crate::sema::callable_application::CallableApplication<SchemeType, crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+fn render_guard(guard: &crate::sema::guarded_requirements::GuardRequirements, parent: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+    let crate::sema::guarded_requirements::GuardRequirements {
+        scope: _, source, view, subject: _, comparison: _, reads, effects,
+        type_parameters: _, row_parameters: _, requirements,
+    } = guard;
+    let source = render_scheme_type(source, parent, identities, context);
+    let names = parent.for_guard(guard);
+    let mut parts = Vec::new();
+    let quantified = names.local_quantifiers(guard);
+    if !quantified.is_empty() { parts.push(format!("forall {}.", quantified.join(", "))); }
+    parts.push(format!("view={}", render_scheme_type(view, &names, identities, context)));
+    for read in reads {
+        parts.push(format!("identity({})={}", render_scheme_type(&read.source, parent, identities, context), render_scheme_type(&read.view, &names, identities, context)));
+    }
+    if let Some(effects) = effects {
+        parts.push(format!("effects(local={}, outward={}, null=[])", render_bound_effects(&effects.local, &names), render_bound_effects(&effects.outward, parent)));
+    }
+    parts.extend(render_requirement_parts(requirements, None, &names, identities, context));
+    format!("when-non-null({source}) {{ {} }}", parts.join(" "))
+}
+
+fn render_guard_call(call: &crate::sema::guarded_requirements::GuardCallRequirement, caller: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+    call.validate_target().expect("a published guard call retains its actual callee template");
+    let mut callee = BinderNames { prefix: format!("{}callee.", caller.prefix), ..BinderNames::default() };
+    callee.visit_scheme_type(&call.template.source);
+    for read in &call.template.reads { callee.visit_scheme_type(&read.source); }
+    if let Some(effects) = &call.template.effects { callee.visit_effects(&effects.outward); }
+    for &id in call.type_arguments.keys() {
+        let next = callee.types.len();
+        callee.types.entry(id).or_insert(next);
+    }
+    for &id in call.row_arguments.keys() { callee.bind_row(id); }
+    for &id in call.effect_arguments.keys() {
+        let next = callee.effects.len();
+        callee.effects.entry(id).or_insert(next);
+    }
+    let mut type_arguments = call.type_arguments.iter().collect::<Vec<_>>();
+    type_arguments.sort_by_key(|(id, _)| callee.find_type(**id).expect("checked callee type argument"));
+    let types = type_arguments.into_iter().map(|(id, ty)| format!("{}={}", callee.type_name(*id), render_scheme_type(ty, caller, identities, context))).collect::<Vec<_>>().join(", ");
+    let mut row_arguments = call.row_arguments.iter().collect::<Vec<_>>();
+    row_arguments.sort_by_key(|(id, _)| callee.find_row(**id).expect("checked callee row argument"));
+    let rows = row_arguments.into_iter().map(|(id, row)| format!("{}={}", callee.row_name(*id), render_record(row.fields(), row.tail(), caller, identities, context))).collect::<Vec<_>>().join(", ");
+    let mut effect_arguments = call.effect_arguments.iter().collect::<Vec<_>>();
+    effect_arguments.sort_by_key(|(id, _)| callee.find_effect(**id).expect("checked callee effect argument"));
+    let effects = effect_arguments.into_iter().map(|(id, effects)| format!("{}={}", callee.effect_name(*id), render_bound_effects(effects, caller))).collect::<Vec<_>>().join(", ");
+    let role = match call.source.role {
+        crate::sema::schemes::InstantiationRole::Call => "guard-call",
+        crate::sema::schemes::InstantiationRole::Value => "guard-value",
+    };
+    format!("{role}(types=[{types}], rows=[{rows}], effects=[{effects}]) {{ {} }}", render_guard(&call.template, &callee, identities, context))
+}
+
+fn render_record(fields: &BTreeMap<crate::symbol::Name, SchemeType>, tail: crate::sema::schemes::SchemeRowTail, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+    let mut entries = fields.iter().map(|(name, ty)| format!("{name}: {}", render_scheme_type(ty, names, identities, context))).collect::<Vec<_>>();
+    if let crate::sema::schemes::SchemeRowTail::Parameter(id) = tail { entries.push(format!("..{}", names.row_name(id))); }
+    format!("{{{}}}", entries.join(", "))
+}
+
+fn render_application(application: &crate::sema::callable_application::CallableApplication<SchemeType, crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     use crate::sema::callable_application::{CallableApplication, CallableKindRequirement};
     use crate::sema::arguments::StaticArgumentKind;
     let arguments = application.arguments().iter().map(|argument| {
@@ -306,7 +470,7 @@ fn render_application(application: &crate::sema::callable_application::CallableA
     }
 }
 
-fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+fn render_parameter(parameter: &SchemeParameter, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut rendered = String::new();
     if parameter.rest {
         rendered.push_str("...");
@@ -324,7 +488,7 @@ fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities
     rendered
 }
 
-fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+fn render_scheme_type(ty: &SchemeType, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     match ty {
         SchemeType::Ground(ty) => render_type(ty, context),
         SchemeType::SchemeCallable(id) => render_scheme_callable(*id, context),
@@ -370,16 +534,7 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
             render_scheme_type(error, names, identities, context)
         ),
         SchemeType::Optional(item) => format!("{}?", render_scheme_type(item, names, identities, context)),
-        SchemeType::Record { fields, tail } => {
-            let mut entries = fields
-                .iter()
-                .map(|(name, ty)| format!("{name}: {}", render_scheme_type(ty, names, identities, context)))
-                .collect::<Vec<_>>();
-            if let crate::sema::schemes::SchemeRowTail::Parameter(id) = tail {
-                entries.push(format!("..{}", names.row_name(*id)));
-            }
-            format!("{{{}}}", entries.join(", "))
-        }
+        SchemeType::Record { fields, tail } => render_record(fields, *tail, names, identities, context),
         SchemeType::Union(members) => format!(
             "Union[{}]",
             members
@@ -532,7 +687,7 @@ fn render_validation(validation: Validation, base: String) -> String {
     }
 }
 
-fn render_schema(expectation: &SchemaExpectation<SchemeType>, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
+fn render_schema(expectation: &SchemaExpectation<SchemeType>, names: &BinderNames<'_>, identities: &BTreeMap<TypeDefId, SchemaIdentity>, context: &mut CallableRenderContext<'_>) -> String {
     let mut entries = expectation
         .instances
         .iter()
@@ -567,12 +722,12 @@ fn render_schema_component(component: SchemaComponent) -> String {
     }
 }
 
-fn render_bound_effects(effects: &crate::sema::effects::EffectContract<crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames) -> String {
+fn render_bound_effects(effects: &crate::sema::effects::EffectContract<crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames<'_>) -> String {
     match effects {
         crate::sema::effects::EffectContract::Unknown => "unknown".to_owned(),
         crate::sema::effects::EffectContract::Known(expression) => {
             let mut terms = expression.direct().iter().map(|effect| effect.as_str().to_owned()).collect::<Vec<_>>();
-            terms.extend(expression.variables().map(|(id, mask)| format!("E{}&{}", names.effects[id], render_effects(Some(&mask.iter().collect::<Vec<_>>())))));
+            terms.extend(expression.variables().map(|(id, mask)| format!("{}&{}", names.effect_name(*id), render_effects(Some(&mask.iter().collect::<Vec<_>>())))));
             format!("[{}]", terms.join(", "))
         }
     }
@@ -606,4 +761,115 @@ fn render_schema_identity(identity: &SchemaIdentity) -> String {
         Some(module) => format!("{module}::{}", identity.name),
         None => identity.name.to_string(),
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sema::check::{CheckOptions, Checker};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn exported_contract(source: &str) -> CheckedCallableContract {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name.as_str() == "describe").unwrap();
+            assert!(declaration.is_exported());
+            declaration.callable_contract().unwrap()
+        })
+    }
+
+    #[test]
+    fn exported_guarded_contracts_render_their_actual_local_domains() {
+        let display = exported_contract("export pure describe(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\n");
+        let record = exported_contract("export pure describe(value) -> Str { if value == null { \"\" } else { value.name } }\n");
+        assert!(!display.equivalent_to(&record));
+        assert_ne!(display.to_string(), record.to_string());
+        assert_eq!(display.to_string(), "forall T0. pure(value: T0) -> Str return-schema={} effects=unknown when-non-null(T0) { forall T1. view=T1 convert(T1, [Display]) }");
+    }
+
+    #[test]
+    fn exported_guarded_rows_and_methods_keep_scoped_results() {
+        let row = exported_contract("export pure describe(value) -> Str { if value == null { \"\" } else { value.name } }\n");
+        let path = exported_contract("export pure describe(value) -> Path { if value == null { p\"/absent\" } else { value.parent() } }\n");
+        assert_eq!(row.scheme().callable().requirements().guards.len(), 1);
+        assert_eq!(path.scheme().callable().requirements().guards.len(), 1);
+        let row = row.to_string();
+        let path = path.to_string();
+        assert_eq!(row, "forall T0. pure(value: T0) -> Str return-schema={} effects=unknown when-non-null(T0) { forall R0\\{name}. view={name: Str, ..R0} }");
+        assert_eq!(path, "forall T0. pure(value: T0) -> Path return-schema={} effects=unknown when-non-null(T0) { forall T1. view=T1 method-family(PathParent, receiver=T1, args=[]) -> Path }");
+    }
+
+    #[test]
+    fn exported_guard_calls_render_callee_bindings_as_call_origins() {
+        let contract = exported_contract("pure helper(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\nexport pure describe(value) -> Str { helper(value) }\n");
+        assert!(contract.scheme().callable().requirements().guards.is_empty());
+        assert_eq!(contract.scheme().callable().requirements().guard_calls.len(), 1);
+        let rendered = contract.to_string();
+        assert_eq!(rendered, "forall T0. pure(value: T0) -> Str return-schema={} effects=unknown guard-call(types=[callee.T0=T0], rows=[], effects=[]) { when-non-null(callee.T0) { forall callee.T1. view=callee.T1 convert(callee.T1, [Display]) } }");
+        let relayed = exported_contract("pure helper(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\npure relay(value) -> Str { helper(value) }\nexport pure describe(value) -> Str { relay(value) }\n");
+        assert_eq!(relayed.to_string(), rendered);
+    }
+
+    #[test]
+    fn exported_guarded_effects_keep_outward_and_declared_bounds() {
+        let source = include_str!("../../../../tests/fixtures/modules/guarded-requirements/guarded_preload.xsh")
+            .replace("export proc preload(", "export proc describe(");
+        let contract = exported_contract(&source);
+        assert!(contract.scheme().callable().requirements().guards.iter().any(|guard| guard.effects.is_some()));
+        let rendered = contract.to_string();
+        let covered = "effects-covered([E0&[fs, net, process, env, time, error, io]], [env, error])";
+        let bounds = [covered; 4].join(" ");
+        let signature = "forall T0, E0. proc(value: T0) -> Result[Str, Error] return-schema={success: {}, error: {}} effects=[env, error]";
+        assert_eq!(rendered, format!("{signature} {bounds} when-non-null(T0) {{ forall T1. view=T1 effects(local=[env, error], outward=[E0&[fs, net, process, env, time, error, io]], null=[]) convert(T1, [Env]) {bounds} }}"));
+    }
+
+    #[test]
+    fn guarded_rendering_is_independent_of_physical_ids_and_source_spans() {
+        let source = "export pure describe(value) -> Str { if value == null { \"\" } else { f\"{value}\" } }\n";
+        let original = exported_contract(source);
+        let relocated = exported_contract(&format!("pure unrelated(value) {{ [value] }}\n{}", source.replace(" { ", " {\n ")));
+        assert!(original.equivalent_to(&relocated));
+        assert_eq!(original.to_string(), relocated.to_string());
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &format!("{source}reveal_type(describe)\n"));
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &format!("{source}reveal_type(describe)\n"), CheckOptions::for_check_cli());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.reveal_types.len(), 1);
+        assert!(checked.reveal_types[0].message.contains(&original.to_string()), "{:?}", checked.reveal_types);
+    }
+
+    #[test]
+    fn nested_guard_rendering_preserves_ancestor_conversion_identity() {
+        let source = "export pure describe(value, other) -> Str { if value == null { \"\" } else { if other == null { \"\" } else { f\"{value}\" } } }\n";
+        let ancestor = exported_contract(source);
+        let local = exported_contract(&source.replace("f\"{value}\"", "f\"{other}\""));
+        assert!(!ancestor.equivalent_to(&local));
+        assert_ne!(ancestor.to_string(), local.to_string());
+        let relocated = exported_contract(&format!("pure unrelated(value) {{ [value] }}\n{source}"));
+        assert!(ancestor.equivalent_to(&relocated));
+        assert_eq!(ancestor.to_string(), relocated.to_string());
+    }
+
+    #[test]
+    fn guarded_api_preserves_authored_any_and_unknown_method_diagnostics() {
+        let opaque = exported_contract("export pure describe(value: Any) -> Any { value }\n");
+        assert_eq!(opaque.scheme().params()[0].ty, SchemeType::Ground(Type::Any));
+        assert_eq!(opaque.to_string(), "pure(value: Any schema={}) -> Any return-schema={} effects=unknown");
+        for (source, code, span) in [
+            ("export pure describe(value: Any) -> Str { if value == null { \"\" } else { f\"{value}\" } }\n", crate::diagnostic::DiagnosticCode::CheckDynamicBoundary, "value"),
+            ("export pure describe(value: Str?) -> Str { if value == null { \"\" } else { value.missing_guard_member() } }\n", crate::diagnostic::DiagnosticCode::CheckUnknownMethod, "value.missing_guard_member()"),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_check_cli());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)
+                && diagnostic.labels.iter().any(|label| &source[label.span.range()] == span)), "{:?}", checked.diagnostics);
+        }
+    }
+
 }
