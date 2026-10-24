@@ -19,10 +19,11 @@ pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
 pub(crate) enum SliceBounds { Unbounded, Start, End, Both }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TypeDomain { SortKey, CountKey, CollectItem }
+pub(crate) enum TypeDomain { SortKey, CountKey, CollectItem, MinMaxItem }
 
 impl TypeDomain {
     pub(crate) fn may_accept(self, ty: &Type) -> bool {
+        if self == Self::MinMaxItem { return !ty.contains_recovery() && ty != &Type::Any; }
         match ty.unvalidated() {
             Type::Inference(_) => true,
             Type::Record(fields) if self == Self::SortKey => fields.values().all(|ty| self.may_accept(ty)),
@@ -32,6 +33,7 @@ impl TypeDomain {
 
     pub(crate) fn accepts(self, ty: &Type) -> bool {
         if ty.contains_recovery() { return false; }
+        if self == Self::MinMaxItem { return !ty.contains_inference() && ty != &Type::Any; }
         match (self, ty.unvalidated()) {
             (Self::CollectItem, ty) => !matches!(ty, Type::Stream(_) | Type::Inference(_)),
             (Self::SortKey, Type::Int | Type::Str | Type::Bool | Type::Path)

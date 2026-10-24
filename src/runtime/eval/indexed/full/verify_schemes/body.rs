@@ -1398,7 +1398,14 @@ pub(super) fn verify_body(
                                     terminal = Some(SchemeType::List(Box::new(item.clone())));
                                 }
                                 super::super::StageView::Count => terminal = Some(SchemeType::Ground(Type::Int)),
-                                super::super::StageView::First | super::super::StageView::Last => {
+                                super::super::StageView::Sum => {
+                                    if !body_type_matches(&item, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic pipeline sum item is not Int")); }
+                                    terminal = Some(SchemeType::Ground(Type::Int));
+                                }
+                                super::super::StageView::First | super::super::StageView::Last | super::super::StageView::Min | super::super::StageView::Max => {
+                                    if matches!(stage.view, super::super::StageView::Min | super::super::StageView::Max) {
+                                        super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::MinMaxItem, &item, budget)?;
+                                    }
                                     budget.charge_scheme_clone(&item)?;
                                     terminal = Some(SchemeType::Result(Box::new(item.clone()), Box::new(SchemeType::Ground(Type::Error))));
                                 }
@@ -5413,6 +5420,193 @@ pure nominal(values: List[Int]) { values |> reduce-by(sum: true) { |item| Row(ke
         let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == input).unwrap();
         fact.function = super::super::super::IrFunctionId::new(foreign).unwrap();
         assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    fn opaque_literal_list_source(typed: bool) -> String {
+        let source = r#"type ColdRecord = {value: Int}
+pure identity(value) { value }
+pure observed(value: List[Any], spare: Bool, unknown: Any) -> List[List[Any]] { let _ = spare; let _ = unknown; identity([value]) }
+pure text() -> Str { "wrong" }
+pure erased(value: Any) -> Any { value }
+pure flags(flag: Bool) -> List[Bool] { [flag] }
+pure row() -> ColdRecord { {value: 1} }
+let opaque: Any = 7
+let nested: List[Any] = [opaque]
+let kept = observed(nested, false, opaque)
+"#;
+        if typed { source.replace("pure identity(value)", "pure identity(value: List[List[Any]]) -> List[List[Any]]") } else { source.to_owned() }
+    }
+
+    #[test]
+    fn typed_literal_list_arguments_preserve_nested_opaque_data() {
+        prepare(&opaque_literal_list_source(true));
+    }
+
+    #[test]
+    fn generic_literal_list_arguments_preserve_nested_opaque_data() {
+        prepare(&opaque_literal_list_source(false));
+    }
+
+    #[test]
+    fn literal_list_data_contexts_require_actual_members_roles_and_owners() {
+        use super::super::super::{ExecutableOwner, FullCallableContract, FullCheckedExprPurpose, FullCheckedExprType, IrFunctionId};
+        let program = prepare(&opaque_literal_list_source(false));
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "observed").unwrap();
+        let owner_id = IrFunctionId::new(owner).unwrap();
+        let context = program.store.checked_expr_types.iter().position(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(function)) if function == owner_id)).unwrap();
+        let instruction = program.store.checked_expr_types[context].instruction as usize;
+        assert_eq!(program.store.tags[instruction], FullTag::ExprList);
+        let return_type = |name| {
+            let function = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let FullCallableContract::Ground(signature) = function.contract else { panic!("the cold types are ordinary authored contracts") };
+            program.store.semantic.signature_return_type(signature).unwrap()
+        };
+        for name in ["text", "erased", "flags"] {
+            let mut wrong_type = program.clone();
+            wrong_type.store.in_place.take();
+            wrong_type.store.checked_expr_types[context].type_id = return_type(name);
+            assert!(FullVerifier::verify(&wrong_type).is_err(), "forged context {name}");
+        }
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "flags").unwrap();
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.in_place.take();
+        wrong_owner.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(foreign).unwrap()));
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::List(mut values) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        let child = values.next().unwrap().unwrap().raw() as usize;
+        assert!(matches!(decoder.expression_view(child).unwrap(), schema::ExprView::Param(0)));
+        let mut wrong_child = program.clone();
+        wrong_child.store.in_place.take();
+        wrong_child.store.extra[program.store.data[child].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_child).is_err());
+        let opaque = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+        for ty in [program.store.checked_expr_types[context].type_id, return_type("row")] {
+            let mut invented_shape = program.clone();
+            invented_shape.store.in_place.take();
+            let fact = FullCheckedExprType { instruction: opaque as u32, type_id: ty, purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(owner_id)) };
+            match invented_shape.store.checked_expr_types.binary_search_by_key(&(opaque as u32), |fact| fact.instruction) {
+                Ok(index) => invented_shape.store.checked_expr_types[index] = fact,
+                Err(index) => invented_shape.store.checked_expr_types.insert(index, fact),
+            }
+            assert!(FullVerifier::verify(&invented_shape).is_err());
+        }
+        let decoder = super::super::decoder_for_function(&program.store, foreign).unwrap();
+        let unused = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::List(_)))).unwrap();
+        let mut unused_context = program.clone();
+        unused_context.store.in_place.take();
+        let fact = FullCheckedExprType { instruction: unused as u32, type_id: return_type("flags"), purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(foreign).unwrap())) };
+        match unused_context.store.checked_expr_types.binary_search_by_key(&(unused as u32), |fact| fact.instruction) {
+            Ok(index) => unused_context.store.checked_expr_types[index] = fact,
+            Err(index) => unused_context.store.checked_expr_types.insert(index, fact),
+        }
+        assert!(FullVerifier::verify(&unused_context).unwrap_err().message.contains("unused"));
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_aggregates_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-aggregates.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-aggregates.xsh", crate::loader::entry_source_from_text("generic-pipeline-aggregates.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_aggregates", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn generic_pipeline_aggregate_predicates_authenticate_domains_subjects_and_inputs() {
+        use crate::sema::sealed_operation::{SealedOperationSignature, TypeDomain};
+        use crate::sema::schemes::SealedOperationBinding;
+        use super::super::super::schemes::FullSealedOperation;
+        let program = prepare("pure selected(value, other) { let _ = other; [value] |> min() }\nlet kept = selected(7, true)\n");
+        let (predicate, subject) = program.store.scheme_operations.iter().enumerate().find_map(|(index, operation)| match operation {
+            FullSealedOperation::TypePredicate { domain: TypeDomain::MinMaxItem, subject } => Some((index, *subject)),
+            _ => None,
+        }).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let super::super::super::FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("selected is generic") };
+        let other = program.store.scheme_params[program.store.schemes[scheme.index()].params.start as usize + 1].ty;
+        assert_ne!(subject, other);
+        let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+        let mut wrong_domain = cold();
+        wrong_domain.store.scheme_operations[predicate] = FullSealedOperation::TypePredicate { domain: TypeDomain::CountKey, subject };
+        for binding in &mut wrong_domain.store.call_operation_bindings {
+            if matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::MinMaxItem))) {
+                *binding = SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::CountKey));
+            }
+        }
+        FullVerifier::verify(&wrong_domain).expect_err("a min stage must retain its own canonical item domain");
+        let mut wrong_subject = cold();
+        wrong_subject.store.scheme_operations[predicate] = FullSealedOperation::TypePredicate { domain: TypeDomain::MinMaxItem, subject: other };
+        FullVerifier::verify(&wrong_subject).expect_err("another valid binder cannot prove the actual min item");
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let input = program.store.function_instruction_range(owner).unwrap().find(|instruction|
+            matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0))))
+            .expect("the staged list input reads its actual header item");
+        let mut wrong_input = cold();
+        wrong_input.store.extra[program.store.data[input].range().start as usize] = 1;
+        FullVerifier::verify(&wrong_input).expect_err("stage result facts cannot replace the actual source item");
+    }
+
+    #[test]
+    fn generic_pipeline_aggregate_domains_reject_outer_any_and_preserve_contract_text() {
+        use crate::diagnostic::{DiagnosticCode, Severity};
+        for stage in ["min", "max"] {
+            let source = format!("pure selected(value) {{ [value] |> {stage}() }}\nlet unchecked: Any = 7\nlet kept = selected(unchecked)\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckDynamicBoundary)), "{source}\n{:?}", checked.diagnostics);
+        }
+        let source = "pure selected(values) { values |> min() }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        let checked = crate::sema::check::Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+        let contract = checked.checked_declarations.functions.values().find(|function| function.name.as_str() == "selected").unwrap().callable_contract().unwrap();
+        let shown = contract.to_string();
+        assert!(shown.contains("MinMaxItem(") && shown.contains("Result["), "{shown}");
+    }
+
+    #[test]
+    fn generic_pipeline_aggregate_null_item_preserves_closed_null() {
+        prepare("pure minimum(values) { values |> min() }\nassert minimum([null])? == null\n");
+    }
+
+    #[test]
+    fn typed_pipeline_aggregates_preserve_existing_item_domains() {
+        prepare(r#"
+pure total(values: List[Int]) -> Int { values |> sum() }
+pure least(values: List[Result[Int, Str]]) -> Result[Result[Int, Str]] { values |> min() }
+pure greatest(values: List[List[Int]]) -> Result[List[Int]] { values |> max() }
+pure least_float(values: List[Float]) -> Result[Float] { values |> min() }
+let opaque: Result[Int, Str] = Err("data")
+assert total([1, 2, 3]) == 6
+assert least([opaque]) == Ok(opaque)
+assert greatest([[2], [1]]) == Ok([1])
+assert least_float([9.0, 1.0]) == Ok(9.0)
+"#);
+    }
+
+    #[test]
+    fn inferred_pipeline_aggregates_preserve_item_and_result_relationships() {
+        prepare(r#"
+pure total(marker, values: List[Int]) -> Int { let _ = marker; values |> sum() }
+pure least(value) { [value] |> min() }
+pure greatest(value) { [value] |> max() }
+let opaque: Result[Int, Str] = Err("data")
+assert total(opaque, [1, 2, 3]) == 6
+assert least(opaque) == Ok(opaque)
+assert greatest([1]) == Ok([1])
+"#);
     }
 
     #[test]

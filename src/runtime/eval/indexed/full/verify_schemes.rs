@@ -6316,6 +6316,28 @@ pub(super) fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
     closed_type_contains_any(ty, &mut |_| Ok(())).map(|_| ())
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ProducerContextRole { Static, LiteralListData }
+
+fn producer_context_role(tag: FullTag, ty: &Type) -> ProducerContextRole {
+    if matches!(tag, FullTag::ExprList | FullTag::ExprListBuild) && matches!(ty, Type::List(_)) {
+        ProducerContextRole::LiteralListData
+    } else { ProducerContextRole::Static }
+}
+
+impl ProducerContextRole {
+    fn verify_type(self, ty: &Type) -> Result<(), IrVerifyError> {
+        match self {
+            Self::Static => ensure_substitution_type(ty),
+            Self::LiteralListData => ensure_closed_type(ty),
+        }
+    }
+}
+
+pub(super) fn ensure_producer_context_type(tag: FullTag, ty: &Type) -> Result<(), IrVerifyError> {
+    producer_context_role(tag, ty).verify_type(ty)
+}
+
 pub(super) fn ensure_substitution_type(ty: &Type) -> Result<(), IrVerifyError> {
     if closed_type_contains_any(ty, &mut |_| Ok(()))? {
         return Err(IrVerifyError::new(

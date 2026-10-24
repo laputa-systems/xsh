@@ -18848,7 +18848,7 @@ impl FullVerifier {
             }
             let ty = store.semantic.to_type(fact.type_id)?;
             if matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_)) {
-                verify_schemes::ensure_substitution_type(&ty)?;
+                verify_schemes::ensure_producer_context_type(store.tags[instruction], &ty)?;
                 previous_checked_expression = Some(instruction);
                 continue;
             }

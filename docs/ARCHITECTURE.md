@@ -133,9 +133,12 @@ variables. Computed arithmetic result variables retain operand-selected
 signatures, including when aliased into an input. The complete result relation
 follows argument solving. This context does not bind declaration or
 recursive-component monotypes. Contextual list literals retain their actual
-checker domains as owned producer contexts. Cold proof checks their physical
-members before accepting strict generic binder evidence. Existing Any and
-Optional widening use checked-value argument elaborations rather than treating
+checker domains as owned producer contexts. A shared context-role classifier admits
+closed opaque data only for physical list literals or list builders with an outer
+List domain. The literal-argument reader selects that role; other context readers
+retain static substitution rules. Cold proof checks actual members, writers,
+ownership, and context use before accepting strict generic binder evidence.
+Existing Any and Optional widening use checked-value argument elaborations rather than treating
 a formal target as the actual producer type.
 Error variant constructors in generic bodies reuse the canonical checked
 family, variant, and source-ordered payload binding from ordinary lowering.
@@ -239,6 +242,10 @@ Generalization retains the whole subject, including row tails. Invocation
 substitution checks every actual field. Cold pipeline proof derives the key
 from its input or callback and requires the matching scoped predicate.
 Computational operations retain their existing use-site ownership checks.
+Sum keeps its Int input and result. Min and Max reuse the existing selection rows
+with a distinct `MinMaxItem` predicate on the actual item. That predicate rejects
+only outer Any, preserving opaque fields and nested collections under the
+ordinary typed ordering behavior. The result retains the item under Result.
 
 Cold generic verification proves actual fixed arguments, rest items and splices
 against the selected callable contract. Default prefixes require unique matching

@@ -4680,6 +4680,14 @@ building a list. `break`, `continue`, errors, and `take` close the source.
 | `shuffle(seed)` | shuffled `List[T]` |
 | `each { ... }`, `table.print(...)` | `Unit` |
 
+Inferred pipeline bodies retain the `sum()` input requirement `Int` and its
+`Int` result. `min()` and `max()` retain their actual item type in `Result[T]`.
+Their inferred `MinMaxItem(T)` predicate rejects an item whose type is `Any`.
+It preserves the existing typed behavior for Float, lists, records containing
+Any, and Result values used as data. It does not apply the sort-key domain.
+Empty selections return an error. Source failures and cleanup keep the ordinary
+pipeline behavior.
+
 The adapters `text.lines()`, `bytes.chunks(size)`, `json.lines()`, and
 `json.stream()` are valid only as the first stage.
 `text.lines()` takes `Str` and produces `Str` items; `bytes.chunks(size)` takes

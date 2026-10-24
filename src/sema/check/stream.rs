@@ -479,9 +479,7 @@ impl Checker {
                         DiagnosticCode::CheckArity,
                     );
                 }
-                if item_ty == Type::Any {
-                    self.reject_dynamic_use("an ordering operand", None, stage_span);
-                }
+                self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::MinMaxItem, &item_ty, stage_span);
                 Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
             StreamStageKind::GroupBy => {
@@ -711,9 +709,10 @@ impl Checker {
             Ok(key) => key,
             Err(error) => { self.error(span, &format!("pipeline key cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference); return; }
         };
-        let code = match domain { crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort, crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey, crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream };
-        if key.contains_any() {
-            self.reject_dynamic_use(match domain { crate::sema::sealed_operation::TypeDomain::SortKey => "a sort key", crate::sema::sealed_operation::TypeDomain::CountKey => "a count key", crate::sema::sealed_operation::TypeDomain::CollectItem => "a collected item" }, None, span);
+        let code = match domain { crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort, crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey, crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream, crate::sema::sealed_operation::TypeDomain::MinMaxItem => DiagnosticCode::CheckDynamicBoundary };
+        let unchecked = if domain == crate::sema::sealed_operation::TypeDomain::MinMaxItem { key == Type::Any } else { key.contains_any() };
+        if unchecked {
+            self.reject_dynamic_use(match domain { crate::sema::sealed_operation::TypeDomain::SortKey => "a sort key", crate::sema::sealed_operation::TypeDomain::CountKey => "a count key", crate::sema::sealed_operation::TypeDomain::CollectItem => "a collected item", crate::sema::sealed_operation::TypeDomain::MinMaxItem => "an ordering operand" }, None, span);
             return;
         }
         if !domain.may_accept(&key) {

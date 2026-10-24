@@ -4,7 +4,7 @@ use super::{
     IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
     checked_argument_type, checked_expression_type_id, decoder_for_driver_step,
     decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
-    merge_list_item_types, expected_list_item, PropagationBoundary,
+    merge_list_item_types, expected_list_item, PropagationBoundary, ProducerContextRole, producer_context_role,
 };
 use crate::sema::types::{CallableKind, ConditionRole, ModuleExportType, TypedCallable};
 use std::{cell::{OnceCell, RefCell}, rc::Rc, sync::Arc};
@@ -2427,8 +2427,7 @@ impl<'a> ProducerProof<'a> {
     pub(super) fn literal_argument_context(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if !matches!(self.store.tags.get(instruction), Some(FullTag::ExprList | FullTag::ExprListBuild)) { return Ok(None); }
         let decoder = self.owner(owner)?;
-        let Some(actual) = self.contextual_producer_type(&decoder, instruction)? else { return Ok(None); };
-        if !matches!(actual.as_ref(), Type::List(_)) { return Err(IrVerifyError::new("literal argument context is not a checked list domain")); }
+        let Some(actual) = self.producer_context_type(&decoder, instruction, ProducerContextRole::LiteralListData)? else { return Ok(None); };
         ensure_closed_type(&actual)?;
         self.budget.charge_clone(&actual)?;
         Ok(Some((*actual).clone()))
@@ -3359,6 +3358,10 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn contextual_producer_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        self.producer_context_type(decoder, instruction, ProducerContextRole::Static)
+    }
+
+    fn producer_context_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize, role: ProducerContextRole) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let key = instruction as u32;
         let owner = super::super::ExecutableOwner::from_raw(decoder.owner)?;
         let ty = match &self.contexts {
@@ -3385,11 +3388,17 @@ impl<'a> ProducerProof<'a> {
                             super::super::FullCheckedExprPurpose::ProducerContext(candidate_owner) if candidate_owner == owner => Some(fact.type_id),
                             _ => None,
                         }
-                    }).map(|id| self.ground_type(id)).transpose()?
+                    }).map(|id| match role {
+                        ProducerContextRole::Static => self.ground_type(id),
+                        ProducerContextRole::LiteralListData => self.contract_type(id),
+                    }).transpose()?
             }
         };
         if let Some(ty) = &ty {
-            ensure_substitution_type(ty)?;
+            if role == ProducerContextRole::LiteralListData && producer_context_role(self.store.tags[instruction], ty) != role {
+                return Err(IrVerifyError::new("literal argument context is not actual list data"));
+            }
+            role.verify_type(ty)?;
             self.used_contexts.insert(key, (owner, Arc::clone(ty)));
             self.expression(decoder.owner, instruction, Arc::clone(ty), false);
         }
@@ -6739,6 +6748,9 @@ impl<'a> ProducerProof<'a> {
             S::First | S::Last | S::Min | S::Max => {
                 let Type::Result(item, error) = expected.unvalidated() else { return Err(IrVerifyError::new("pipeline selection has no result contract")) };
                 if !Type::Error.matches_expected(error) { return Err(IrVerifyError::new("pipeline selection has an incompatible error contract")); }
+                if matches!(last, S::Min | S::Max) && !crate::sema::sealed_operation::TypeDomain::MinMaxItem.accepts(item) {
+                    return Err(IrVerifyError::new("pipeline min/max item has an unsupported canonical domain"));
+                }
                 self.pipeline_prefix(owner, pipeline, position, Arc::new((**item).clone()));
                 Ok(())
             }
