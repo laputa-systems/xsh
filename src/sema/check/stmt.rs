@@ -2284,6 +2284,48 @@ fn block_has_exit_point_ast(arena: &ArenaProgram, block_id: BlockId) -> bool {
 }
 
 impl Checker {
+    pub(super) fn stream_pipeline_callback_is_required_arena(
+        &self,
+        arena: &ArenaProgram,
+        input: ExprId,
+        stages: ArenaRange,
+        stage_index: usize,
+    ) -> bool {
+        let facts = self.checked_flow_facts();
+        let pipeline_stages = pipeline_flow_stages(arena, stages, true);
+        let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages, &facts);
+        let mut cardinality = expression_cardinality(arena, input, &facts);
+        for (index, stage) in pipeline_stages.iter().copied().enumerate() {
+            match stage {
+                PipelineFlowStage::Expression(_) => {
+                    cardinality = StreamCardinality::Maybe;
+                }
+                PipelineFlowStage::Stream {
+                    kind,
+                    args,
+                    block,
+                    ..
+                } => {
+                    let required = block.is_some()
+                        && callback_demand(downstream_pulls[index + 1], cardinality, kind)
+                            == CallbackDemand::Required;
+                    if index == stage_index {
+                        return required;
+                    }
+                    cardinality = stage_output_cardinality(
+                        arena,
+                        cardinality,
+                        kind,
+                        args,
+                        block,
+                        &facts,
+                    );
+                }
+            }
+        }
+        false
+    }
+
     pub(super) fn stream_loop_body_may_enter(&self, arena: &ArenaProgram, kind: super::stream_origins::StreamLoopKind) -> bool {
         match kind {
             super::stream_origins::StreamLoopKind::For(iter) => expression_cardinality(arena, iter, &self.checked_flow_facts()) != StreamCardinality::Empty,

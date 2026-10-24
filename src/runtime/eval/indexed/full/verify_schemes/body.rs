@@ -6842,6 +6842,80 @@ mod structured_pipeline_tests {
         program
     }
 
+    #[test]
+    fn noncompleting_map_sort_requires_its_cold_callback_and_owner() {
+        let source = "pure target() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }\npure foreign() -> Int { let ignored = [2] |> map { |item| return item } |> sort |> take(0) }\n";
+        let mut sources = crate::source::SourceMap::default();
+        let source_id = sources.add_file("noncompleting-map-sort.xsh", source.to_owned());
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let mut program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        super::super::prepare_tables(&program.store).unwrap();
+        let mut ground_functions = program.store.functions.iter().filter(|function| program.store.string(function.name).is_ok_and(|name| name == "target" || name == "foreign"));
+        assert_eq!(ground_functions.clone().count(), 2);
+        assert!(ground_functions.all(|function| matches!(function.contract, super::super::super::FullCallableContract::Ground(_))));
+        FullVerifier::verify(&program).unwrap();
+
+        let map_stage = |program: &super::super::super::FullProgram, name: &str| {
+            let owner = program.store.functions.iter().position(|function| {
+                program.store.string(function.name).is_ok_and(|function_name| function_name == name)
+            }).unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let pipeline = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ListPipeline { .. }))
+            }).unwrap();
+            let schema::ExprView::ListPipeline { mut stages, .. } = decoder.expression_view(pipeline).unwrap() else { unreachable!() };
+            while let Some(stage) = stages.next_with_id() {
+                let stage = stage.unwrap();
+                let decoded = super::super::super::StageView::decode(
+                    super::super::super::DecodeContext::from_decoder(&decoder),
+                    stage.id.raw(),
+                ).unwrap();
+                match decoded {
+                    super::super::super::StageView::Map { value, .. }
+                    | super::super::super::StageView::MapBlock { value, .. } => {
+                        return (stage.id.raw() as usize, value.raw() as usize);
+                    }
+                    _ => {}
+                }
+            }
+            panic!("{name} has a map stage");
+        };
+
+        let (target_stage, _) = map_stage(&program, "target");
+        let (_, foreign_value) = map_stage(&program, "foreign");
+        let stage_range = program.store.stage_data[target_stage]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+
+        let mut value_instead_of_return = program.clone();
+        value_instead_of_return.store.in_place.take();
+        assert!(value_instead_of_return.store.in_place.get().is_none());
+        let target_owner = value_instead_of_return.store.functions.iter().position(|function| {
+            value_instead_of_return.store.string(function.name).is_ok_and(|name| name == "target")
+        }).unwrap();
+        let returned = value_instead_of_return.store.function_instruction_range(target_owner).unwrap()
+            .find(|&instruction| value_instead_of_return.store.tags[instruction] == FullTag::StmtReturn)
+            .unwrap();
+        value_instead_of_return.store.tags[returned] = FullTag::StmtValue;
+        super::super::prepare_tables(&value_instead_of_return.store).unwrap();
+        let value_denial = FullVerifier::verify(&value_instead_of_return).expect_err("a Value statement cannot claim the noncompleting map callback");
+        assert_eq!(value_denial.message, "function 0 body does not terminate with a return");
+
+        let mut foreign_callback = program;
+        foreign_callback.store.in_place.take();
+        assert!(foreign_callback.store.in_place.get().is_none());
+        foreign_callback.store.extra[stage_range.start as usize + 1] = foreign_value as u32;
+        super::super::prepare_tables(&foreign_callback.store).unwrap();
+        let foreign_denial = FullVerifier::verify(&foreign_callback).expect_err("a map stage cannot borrow a callback value from another function");
+        assert_eq!(foreign_denial.message, "full IR instruction belongs to another function");
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_reduce_by_executes_after_disposal_on_both_routes() {
