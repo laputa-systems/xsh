@@ -481,16 +481,10 @@ impl<'a> Linter<'a> {
             return None;
         }
         let removed = removed.into_iter().collect::<Vec<_>>();
-        if source == self.source && removed.is_empty() {
-            if let Some(checked) = self.checked_output.as_deref() {
-                if !checked_effect_facts_cover_source(
-                    checked,
-                    source_id,
-                    &self.effect_body_spans,
-                ) {
-                    return None;
-                }
-            }
+        if source == self.source && removed.is_empty()
+            && let Some(checked) = self.checked_output.as_deref()
+            && !checked_effect_facts_cover_source(checked, source_id, &self.effect_body_spans) {
+            return None;
         }
         if source == self.source && removed.is_empty() && self.return_proof.is_none() {
             let checked = self.checked_output.as_deref()?;

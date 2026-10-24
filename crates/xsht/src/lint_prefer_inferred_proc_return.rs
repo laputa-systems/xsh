@@ -173,16 +173,10 @@ impl Linter<'_> {
         if self.source_id != Some(source_id) {
             return None;
         }
-        if source == self.source && removed.is_empty() {
-            if let Some(checked) = self.checked_output.as_deref() {
-                if !super::probes::checked_effect_facts_cover_source(
-                    checked,
-                    source_id,
-                    &self.effect_body_spans,
-                ) {
-                    return None;
-                }
-            }
+        if source == self.source && removed.is_empty()
+            && let Some(checked) = self.checked_output.as_deref()
+            && !super::probes::checked_effect_facts_cover_source(checked, source_id, &self.effect_body_spans) {
+            return None;
         }
         if source == self.source && removed.is_empty() && self.return_proof.is_none() {
             let checked = self.checked_output.as_deref()?;

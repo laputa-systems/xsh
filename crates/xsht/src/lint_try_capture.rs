@@ -170,7 +170,7 @@ pub(super) fn lint_try_capture_helpers(
                             if name == "_"
                                 || !closed_scalar_expression(
                                     program,
-                                    &before,
+                                    before,
                                     value,
                                     &locals,
                                     &mut propagated,
@@ -185,7 +185,7 @@ pub(super) fn lint_try_capture_helpers(
                         ArenaStmtKind::Expr(value) if index + 1 == body_statements.len() => {
                             closed_scalar_expression(
                                 program,
-                                &before,
+                                before,
                                 value,
                                 &locals,
                                 &mut propagated,
