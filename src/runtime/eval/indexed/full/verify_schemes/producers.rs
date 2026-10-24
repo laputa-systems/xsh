@@ -4806,6 +4806,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Method { receiver, name, args, .. } => {
+                if self.checked_fresh_result_context(&decoder, instruction, &expected)? { return Ok(()); }
                 if matches!(crate::modules::signature::native_method_effect_rule(name), Some(crate::modules::signature::NativeEffectRule::Uniform { .. }))
                     && let Some(actual) = self.scoped_expression_type(&decoder, instruction)?.and_then(|ty| ty.closed_ground_type())
                     && actual == *expected
@@ -5368,6 +5369,10 @@ impl<'a> ProducerProof<'a> {
                         return Err(IrVerifyError::new("scheme callable value materialization has an invalid storage contract"));
                     }
                     self.expression(owner, value.raw() as usize, source, false);
+                    return Ok(());
+                }
+                if check.schema.is_none() && self.checked_fresh_result_context(&decoder, value.raw() as usize, &checked)? {
+                    self.expression(owner, value.raw() as usize, checked, false);
                     return Ok(());
                 }
                 let mut runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
@@ -6021,11 +6026,10 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn contextual_match_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<(ProducerBinding, usize)>, IrVerifyError> {
+    fn checked_match_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<(ProducerBinding, usize)>, IrVerifyError> {
         self.budget.charge(1)?;
         if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
         let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(instruction)? else { unreachable!("contextual match tag has another view") };
-        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap) { return Ok(None); }
         let Some((pattern, guard, body)) = arms.next().transpose()? else { return Ok(None) };
         if guard.is_some() || arms.next().transpose()?.is_some() { return Ok(None); }
         let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw())? else { return Ok(None) };
@@ -6038,6 +6042,14 @@ impl<'a> ProducerProof<'a> {
             || matches!(owner.header_binding(self.store, decoder.owner, slot)?, Some(ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_)))
         { return Ok(None); }
         Ok(Some((binding, source.source)))
+    }
+
+    fn contextual_match_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<(ProducerBinding, usize)>, IrVerifyError> {
+        self.budget.charge(1)?;
+        if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
+        let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(instruction)? else { return Ok(None); };
+        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap) { return Ok(None); }
+        self.checked_match_binding(decoder, instruction)
     }
 
     fn fresh_contextual_argument_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
@@ -6567,6 +6579,45 @@ impl<'a> ProducerProof<'a> {
         };
         if self.store.tags[value] != FullTag::ExprPipeline { return Ok(false); }
         Ok(!super::super::indexed_expr_can_complete(decoder, value, 0)?)
+    }
+
+    fn checked_fresh_result_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Arc<Type>) -> Result<bool, IrVerifyError> {
+        if !matches!(expected.as_ref(), Type::Result(_, _)) { return Ok(false); }
+        let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else { return Ok(false); };
+        let receiver = receiver.raw() as usize;
+        let mut constructor = receiver;
+        loop {
+            self.budget.charge(1)?;
+            if matches!(decoder.expression_view(constructor)?, schema::ExprView::Err { .. }) { break; }
+            let Some((ProducerBinding::ScopedDeclaration(body, _), _)) = self.checked_match_binding(decoder, constructor)? else { return Ok(false); };
+            constructor = body;
+        }
+        let Some(overloads) = crate::modules::api_spec().method_overloads(crate::modules::signature::MethodReceiver::Result, name) else { return Ok(false); };
+        let [method] = overloads else { return Err(IrVerifyError::new("fresh Result context method is ambiguous")); };
+        let signature = &method.sig;
+        if signature.op != super::super::RuntimeOp::ResultContext
+            || signature.arg_check != crate::modules::signature::ApiArgCheck::ResultContext
+            || signature.return_ty != Type::BuiltinParameter(crate::sema::types::BuiltinTypeParameter::Receiver)
+            || !signature.pure
+            || !matches!(signature.binding, crate::modules::signature::ImplBinding::Native)
+            || !matches!(method.receiver_ty.as_ref(), Some(Type::Result(success, error))
+                if success.as_ref() == &Type::BuiltinParameter(crate::sema::types::BuiltinTypeParameter::Element)
+                    && error.as_ref() == &Type::BuiltinParameter(crate::sema::types::BuiltinTypeParameter::Error))
+            || signature.params.iter().any(|parameter| parameter.ty != Type::Str)
+        { return Err(IrVerifyError::new("fresh Result context method has an incompatible registered contract")); }
+        let arguments = args.collect::<Result<Vec<_>, _>>()?;
+        self.budget.charge(arguments.len() + signature.params.len())?;
+        if arguments.len() > signature.params.len()
+            || signature.params[arguments.len()..].iter().any(|parameter| !parameter.defaulted)
+        { return Err(IrVerifyError::new("fresh Result context arguments do not match its registered contract")); }
+        self.require_callable_effects(decoder, instruction, Some(signature.effects), signature.pure)?;
+        self.expression(decoder.owner, receiver, Arc::clone(expected), false);
+        for (argument, parameter) in arguments.iter().zip(&signature.params) {
+            let argument = argument.raw() as usize;
+            self.contextual_argument(decoder, argument, &parameter.ty)?;
+            self.expression(decoder.owner, argument, Arc::new(parameter.ty.clone()), false);
+        }
+        Ok(true)
     }
 
     fn verify_registered_method(&mut self, decoder: &FullDecoder<'a>, instruction: usize, receiver: usize, name: &str, arguments: &[usize], expected: &Type) -> Result<(), IrVerifyError> {

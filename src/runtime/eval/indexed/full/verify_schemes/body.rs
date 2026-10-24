@@ -2048,6 +2048,8 @@ proc choose(stored: Record, erased: Any, numbers: List[Int]) -> Result[List[Str]
         assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
         program.store.in_place.take();
         FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
         let empty = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprList).unwrap();
         let decoder = decoder_for_function(&program.store, owner).unwrap();
@@ -2058,6 +2060,127 @@ proc choose(stored: Record, erased: Any, numbers: List[Int]) -> Result[List[Str]
             changed.store.data.swap(empty, spare);
             let error = FullVerifier::verify(&changed).unwrap_err();
             assert!(error.message.contains("producer") && error.message.contains("contract"), "header slot {slot}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn fresh_result_context_consumers_reject_wrong_physical_inputs() {
+        fn swap_rows(program: &FullProgram, left: usize, right: usize) -> FullProgram {
+            let mut changed = program.clone();
+            changed.store.tags.swap(left, right);
+            changed.store.data.swap(left, right);
+            for fact in &mut changed.store.checked_expr_types {
+                if fact.instruction as usize == left { fact.instruction = right as u32; }
+                else if fact.instruction as usize == right { fact.instruction = left as u32; }
+            }
+            changed.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+            changed
+        }
+        fn rejects(program: &FullProgram, input: &str) {
+            let error = FullVerifier::verify(program).unwrap_err();
+            assert!(error.message.starts_with("ground producer value disagrees with its checked contract")
+                || error.message.starts_with("checked value input disagrees with its contract")
+                || error.message.starts_with("checked value input has no producer contract")
+                || error.message.starts_with("ground method has no receiver contract")
+                || error.message.starts_with("ground method has no registered parameter contract"), "{input}: {error:?}");
+        }
+        let mut program = prepare(r#"
+error Failure = Bad(message: Str)
+error Cause = Bad(message: Str)
+error Other = Bad(message: Str)
+pure choose(erased: Any) -> Result[Unit, Error] {
+    let spare: Result[Str, Error] = Ok("wrong")
+    let compatible: Result[Unit, Error] = Ok()
+    let alias: Result[Str, Error] = spare
+    let spare_bool: Any = true
+    let spare_name: Any = "trim"
+    let alternate: Result[Unit, Other] = Err(Other.Bad("other"))
+    let original: Result[Unit, Error] = Err(Failure.Bad("outer"), cause: Cause.Bad("cause")).context("stage", "detail")
+    original
+}
+let observed = choose("data")
+assert observed != Ok()
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (guard, method, checked) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprMethod => Some((instruction, value.raw() as usize, check.ty.id)),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::Method { receiver, args, name: "context", .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let receiver = receiver.raw() as usize;
+        let arguments = args.collect::<Result<Vec<_>, _>>().unwrap().into_iter().map(|argument| argument.raw() as usize).collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 2);
+        let mut constructor = receiver;
+        let mut subjects = Vec::new();
+        while let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(constructor).unwrap() {
+            let (pattern, guard, body) = arms.next().unwrap().unwrap();
+            assert!(guard.is_none() && arms.next().is_none());
+            assert!(matches!(decoder.checked_pattern_view(pattern.raw()).unwrap(), schema::PatternView::Bind { .. }));
+            subjects.push(value.raw() as usize);
+            constructor = body.raw() as usize;
+        }
+        assert!(matches!(decoder.expression_view(constructor).unwrap(), schema::ExprView::Err { cause: Some(_), .. }));
+        assert_eq!(subjects.len(), 2);
+        let primary = subjects[0];
+        let cause = subjects[1];
+        let compatible = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Ok(value)) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Unit)))).unwrap();
+        FullVerifier::verify(&swap_rows(&program, receiver, compatible)).unwrap();
+        let spare = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Ok(value)) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Str("wrong"))))).unwrap();
+        rejects(&swap_rows(&program, receiver, spare), "success payload");
+        let boolean = range.clone().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprBool).unwrap();
+        for (name, input) in [("error", primary), ("cause", cause), ("kind", arguments[0]), ("message", arguments[1])] { rejects(&swap_rows(&program, input, boolean), name); }
+        let alias = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot != 0)).unwrap();
+        let mut erased = swap_rows(&program, receiver, alias);
+        let words = erased.store.data[receiver].range().bounds(erased.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        erased.store.extra[words.start] = 0;
+        assert!(!erased.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == receiver));
+        rejects(&erased, "untyped receiver");
+        let alternate = program.store.checked_expr_types.iter().find(|fact| range.contains(&(fact.instruction as usize)) && fact.instruction as usize != receiver && program.store.tags[fact.instruction as usize] == super::super::super::FullTag::ExprErr).unwrap().type_id;
+        let mut wrong_family = program.clone();
+        let words = wrong_family.store.data[guard].range().bounds(wrong_family.store.extra.len()).unwrap();
+        assert_eq!(wrong_family.store.extra[words.start + 2], checked.raw());
+        wrong_family.store.extra[words.start + 2] = alternate.raw();
+        for fact in &mut wrong_family.store.checked_expr_types {
+            if fact.instruction as usize == guard {
+                assert!(fact.is_contract());
+                fact.type_id = alternate;
+            }
+        }
+        rejects(&wrong_family, "error family");
+        let spelling = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str("trim")))).unwrap();
+        let spelling = program.store.extra[program.store.data[spelling].range().start as usize];
+        assert_eq!(program.store.string(spelling).unwrap(), "trim");
+        let mut wrong_method = program.clone();
+        let words = wrong_method.store.data[method].range().bounds(wrong_method.store.extra.len()).unwrap();
+        assert_eq!(program.store.string(wrong_method.store.extra[words.start + 1]).unwrap(), "context");
+        wrong_method.store.extra[words.start + 1] = spelling;
+        rejects(&wrong_method, "method selection");
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn fresh_result_context_preserves_cause_and_frames_after_disposal() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/fresh-result-context.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("fresh-result-context.xsh", crate::loader::entry_source_from_text("fresh-result-context.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("fresh_result_context", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
         }
     }
 

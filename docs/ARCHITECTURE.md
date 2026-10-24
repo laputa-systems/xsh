@@ -923,6 +923,10 @@ arms; incomplete runtime guards still require independent proof of their inputs.
 A closed List type from an actual arm can supply another arm's missing producer
 context, including erased record items. The producer proof still authenticates
 every arm, condition, and writer.
+A plain Result consumer can check a fresh `Err(...).context(...)` through its
+verified argument bindings. Its proof authenticates the registered
+method, error payload, cause, and context arguments; it publishes no success
+type for the absent payload.
 
 Generalized captured runs, retry attempts, error contexts, and restored context
 scopes use the existing command and scoped-block executor. Retry preserves an
