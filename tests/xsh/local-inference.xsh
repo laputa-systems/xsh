@@ -897,3 +897,29 @@ false
 -1
 """
 }
+
+test compound_assignment_resolves_deferred_operand_to_the_target_numeric_type { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure radix_digits(rounds: List[Int]) -> List[Int] {
+  var digits = []
+  var carry = 0
+  for round in rounds {
+    carry = round
+    for i in range(digits.len()) {
+      carry += digits[i] * 256
+      digits[i] = carry % 58
+      carry /= 58
+    }
+    while carry > 0 { digits += [carry % 58]; carry /= 58 }
+  }
+  digits
+}
+let digits = radix_digits([1, 2, 3])
+print ${digits[0]} ${digits[1]} ${digits[2]}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """47 36 19
+"""
+}

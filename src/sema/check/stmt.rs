@@ -2895,7 +2895,25 @@ impl Checker {
         rhs_span: Span,
     ) -> Type {
         let Ok(mut left) = self.resolve_compound_operand(left, op_span) else { return Type::Invalid };
-        let Ok(right) = self.resolve_compound_operand(right, rhs_span) else { return Type::Invalid };
+        let Ok(mut right) = self.resolve_compound_operand(right, rhs_span) else { return Type::Invalid };
+        if matches!(right, Type::Inference(_)) {
+            let target = match (&left, op) {
+                (Type::Int | Type::UInt, _) => Some(left.clone()),
+                (Type::Float, op) if op != AssignOp::Rem => Some(Type::Float),
+                (Type::Duration, AssignOp::Add | AssignOp::Sub) => Some(Type::Duration),
+                (Type::Duration, AssignOp::Mul | AssignOp::Div) => Some(Type::Int),
+                _ => None,
+            };
+            if let Some(target) = target {
+                let diagnostic_start = self.diagnostics.len();
+                self.expect_type(&target, &right, rhs_span);
+                if self.diagnostics[diagnostic_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                    return Type::Invalid;
+                }
+                let Ok(resolved) = self.resolve_compound_operand(&right, rhs_span) else { return Type::Invalid };
+                right = resolved;
+            }
+        }
         let right = right.unvalidated();
         if op == AssignOp::Add && matches!(left, Type::Inference(_)) && matches!(right, Type::List(_)) {
             let diagnostic_start = self.diagnostics.len();
