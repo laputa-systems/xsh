@@ -27,7 +27,7 @@ focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration is `a05a417a9` (2026-10-24). It includes
+Current provisional integration is `85788b7d6` (2026-10-24). It includes
 reviewed ground and scoped constructors, generic error constructors, actual
 imported declaration relationships, JSON encoding, immutable Optional guards,
 Each/Tee, four adapters, table printing and keyed reductions. Focused results
@@ -52,7 +52,18 @@ There is no new annotation-removal credit. Explicit dynamic output contracts,
 149 empty Map meaning selectors and intentional effect restrictions stay in
 the accounting; percentages do not justify changing source meaning.
 
-The warning-denied boundary precedes the next combined library/product run.
+The `0c2cd81a7` combined workspace all-target/all-feature Clippy check passes
+with `--no-deps -D warnings` in the bounded development launcher. The exact
+canonical pre-freeze launcher remains required. The next immutable combined
+library source `69ac216f1` reports 2,456 passes, four failures and three ignored
+tests. Three failures share a Tokei checking error; the fourth rejects an
+imported generic procedure's structural field fact. Separate owners are
+repairing the two classes. Its dependent product build did not run. Logs remain
+in `.work/wt/full-inference-wide-wave-qualification/`. The line-loop repair
+`85788b7d6` additionally prepares both historical system-report source views
+in focused checks, without new matching-product or interface credit.
+
+The canonical warning boundary precedes the next combined library/product run.
 Runtime and checker lint repairs have disjoint owners; the coordinator owns
 registry, networking and census repairs. Existing physical leases still limit
 the host to two Cargo jobs and one native job. Ready source reviews and
@@ -63,7 +74,10 @@ F6 preparation adds six raw counters and four named-constructor workload
 shapes without changing the previous eight families or census denominators.
 Thirty-one of 32 new annotation variants execute successfully; the required
 inferred size-512 case fails the existing generic materialization work bound.
-It remains mandatory. Raw binder-clone counts are 8,704, 33,792, 133,120 and
+The reviewed validate-once substitution repair is now integrated at
+`69ac216f1`: the unchanged size-512 program and all 512 assertions pass strict
+normal and forced execution, alongside unused-binder and resource negatives.
+Complete F6 scaling and timing qualification remain pending. Raw binder-clone counts are 8,704, 33,792, 133,120 and
 528,384 at sizes 64, 128, 256 and 512. These counts are not timing results or
 F6 acceptance. An expert is investigating repeated whole-substitution
 validation per argument without raising the budget or dropping assertions.
