@@ -741,6 +741,50 @@ mod tests {
     }
 
     #[test]
+    fn inferred_row_alias_environment_effects_bind_to_their_declaration() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/guarded-row-null-input.xsh"));
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("guarded-row-null-input.xsh", source.to_owned());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let output = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions::for_check_cli());
+        assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error), "{:?}", output.diagnostics);
+        for invalid in [
+            source.replace("spec: 1", "spec: true"),
+            format!("{source}\nlet _ = execute(true)\n"),
+            source.replace("spec: 1", "spec: missing"),
+        ] {
+            let parsed = Parser::parse_source_arena_only(source_id, &invalid);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = Checker::check_arena_with_options(&parsed.arena, &invalid, CheckOptions::for_check_cli());
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{invalid}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn guarded_row_null_inputs_execute_after_frontend_disposal_on_both_routes() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/guarded-row-null-input.xsh"));
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("guarded-row-null-input.xsh", crate::loader::entry_source_from_text("guarded-row-null-input.xsh", source.to_owned()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+            for force_frames in [false, true] {
+                let result = prepared.eval_test("verify_guarded_row_null_input", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert_eq!(result.output.stdout, b"1\n2\n3\n4\n");
+                assert!(result.output.stderr.is_empty(), "{:?}", result.output.stderr);
+                assert!(matches!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)));
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
     fn imported_effect_union_missing_bound_reports_the_actual_capability() {
         let checked = check_imported_effect_union("proc denied() [io, error] { let _ = selected(clock, emit, 7)? }");
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();

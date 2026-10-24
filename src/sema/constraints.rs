@@ -2242,7 +2242,8 @@ impl TypeConstraints {
                 && matches!(self.variables.get(id), Some(Variable::Representative(variable)) if variable.rank == 0))
             { return self.constrain_context(&resolved, &actual, contribution); }
         }
-        if matches!(actual, Type::Record(_)) && actual.contains_any() {
+        let exact_null_argument = has_anchor(&actual, AnchorEvidence::CheckedNullArgument).map_err(conflict)?;
+        if matches!(actual, Type::Record(_)) && (actual.contains_any() || exact_null_argument) {
             let mut applied = false;
             self.apply_journaled(|this, changes| {
                 applied = this.constrain_closed_record_input(expected, &actual, &instance.row_arguments, contribution, changes)?;
@@ -2250,7 +2251,6 @@ impl TypeConstraints {
             }).map_err(|(expected, actual, resolution_error)| ConstraintConflict { expected, actual, resolution_error, initializer: None, established: None, contribution })?;
             if applied { return Ok(()); }
         }
-        let exact_null_argument = has_anchor(&actual, AnchorEvidence::CheckedNullArgument).map_err(conflict)?;
         if !actual.contains_any() && !exact_null_argument || actual.contains_inference() || actual.contains_recovery() {
             if !expected.contains_inference() && !actual.contains_inference() && actual.matches_expected(expected) { return Ok(()); }
             return self.constrain(expected, &actual, contribution);

@@ -626,7 +626,10 @@ arguments and refers to its authenticated ancestor packet. Null supplies no
 local arguments. Root argument evidence remains independently total.
 Prepared packets retain the callable identity as well as their guard identity.
 Runtime consumers select the verified local packet from the physical instruction's
-guard membership; they do not infer bindings during execution. Closed record input
+guard membership; they do not infer bindings during execution. Actual closed
+record arguments containing Null use the same owned open-row input protocol as
+opaque record data, so a Null field fixes its source without inventing a payload.
+Unrelated row owners and recovery values retain ordinary rejection. Closed record input
 evidence preserves opaque fields in row data and proves every required typed field
 independently. Static row binding still rejects opaque substitution domains.
 Callable contract comparison preserves each guard's source, view, local domains,
