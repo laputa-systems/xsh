@@ -666,6 +666,13 @@ impl Type {
         }
     }
 
+    pub(crate) fn set_operator_result(&self, op: crate::syntax::node::BinaryOp, right: &Self) -> Option<Self> {
+        if !matches!(op, crate::syntax::node::BinaryOp::Union | crate::syntax::node::BinaryOp::Intersect) { return None; }
+        let (Self::Set(left), Self::Set(right_item)) = (self.unvalidated(), right.unvalidated()) else { return None };
+        if !left.is_map_key() || !right_item.is_map_key() || !right.unvalidated().matches_expected(self.unvalidated()) { return None; }
+        Some(self.unvalidated().clone())
+    }
+
     pub(crate) fn membership_needle_type<'a>(&'a self, needle: &'a Type) -> MembershipCheck<'a> {
         use MembershipCheck as M;
         match self.unvalidated() {

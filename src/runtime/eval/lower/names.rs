@@ -545,8 +545,11 @@ mod tests {
         let (source, sources, parsed, mut declarations) = checked_program();
         let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
-        assert_eq!(declarations.bodies.expr_types.get(&expression), Some(&Type::Function(crate::sema::types::CallableKind::Pure)));
-        declarations.bodies.expr_types.insert(expression, Type::Function(crate::sema::types::CallableKind::Proc));
+        let Some(Type::Callable(actual)) = declarations.bodies.expr_types.get(&expression) else { panic!("the actual function value retains its callable signature") };
+        assert_eq!(actual.kind, crate::sema::types::CallableKind::Pure);
+        let mut wrong_kind = (**actual).clone();
+        wrong_kind.kind = crate::sema::types::CallableKind::Proc;
+        declarations.bodies.expr_types.insert(expression, Type::Callable(std::sync::Arc::new(wrong_kind)));
 
         let probe = probe(&parsed, &declarations, &source, &sources);
         assert!(probe

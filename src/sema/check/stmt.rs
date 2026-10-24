@@ -62,6 +62,7 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
     conversions: &FxHashMap<ExprId, super::Conversion>,
     argument_bindings: &BTreeMap<Span, super::CheckedArguments>,
     checked_control_flow: &super::CheckedControlFlowFacts,
+    bindings: &super::ResolvedBindings,
 ) -> bool {
     let cardinality_cache = StreamCardinalityCache::default();
     let facts = FlowFacts {
@@ -81,6 +82,7 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
         ),
         exhaustive_match_spans: Some(&checked_control_flow.exhaustive_match_spans),
         cardinality_cache: Some(&cardinality_cache),
+        bindings: Some(bindings),
         ..FlowFacts::AST_ONLY
     };
     tail_is_value
@@ -99,6 +101,7 @@ struct ControlFlow {
 
 #[derive(Clone, Copy, Default)]
 struct FlowFacts<'a> {
+    bindings: Option<&'a super::ResolvedBindings>,
     expression_types: Option<&'a BTreeMap<Span, Type>>,
     expression_types_by_id: Option<&'a FxHashMap<ExprId, Type>>,
     tag_variants: Option<&'a FxHashMap<Name, TagVariantInfo>>,
@@ -120,6 +123,7 @@ struct FlowFacts<'a> {
 
 impl FlowFacts<'static> {
     const AST_ONLY: Self = Self {
+        bindings: None,
         expression_types: None,
         expression_types_by_id: None,
         tag_variants: None,
@@ -1617,13 +1621,22 @@ fn expression_cardinality(
     facts: &FlowFacts<'_>,
 ) -> StreamCardinality {
     let Some(cache) = facts.cardinality_cache else {
-        return expression_cardinality_uncached(arena, expr, facts);
+        let cache = StreamCardinalityCache::default();
+        return expression_cardinality(arena, expr, &FlowFacts { cardinality_cache: Some(&cache), ..*facts });
     };
-    if let Some(cardinality) = cache.values.borrow().get(&expr).copied() {
-        return cardinality;
-    }
-    let cardinality = expression_cardinality_uncached(arena, expr, facts);
-    cache.values.borrow_mut().insert(expr, cardinality);
+    let mut expression = expr;
+    let mut aliases = Vec::new();
+    let cardinality = loop {
+        if let Some(cardinality) = cache.values.borrow().get(&expression).copied() { break cardinality; }
+        cache.values.borrow_mut().insert(expression, StreamCardinality::Maybe);
+        aliases.push(expression);
+        if let Some(value) = facts.bindings.and_then(|bindings| bindings.immutable_value_source(arena, expression)) {
+            expression = value;
+            continue;
+        }
+        break expression_cardinality_uncached(arena, expression, facts);
+    };
+    for expression in aliases { cache.values.borrow_mut().insert(expression, cardinality); }
     cardinality
 }
 
@@ -2284,6 +2297,48 @@ fn block_has_exit_point_ast(arena: &ArenaProgram, block_id: BlockId) -> bool {
 }
 
 impl Checker {
+    pub(super) fn stream_pipeline_callback_is_required_arena(
+        &self,
+        arena: &ArenaProgram,
+        input: ExprId,
+        stages: ArenaRange,
+        stage_index: usize,
+    ) -> bool {
+        let facts = self.checked_flow_facts();
+        let pipeline_stages = pipeline_flow_stages(arena, stages, true);
+        let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages, &facts);
+        let mut cardinality = expression_cardinality(arena, input, &facts);
+        for (index, stage) in pipeline_stages.iter().copied().enumerate() {
+            match stage {
+                PipelineFlowStage::Expression(_) => {
+                    cardinality = StreamCardinality::Maybe;
+                }
+                PipelineFlowStage::Stream {
+                    kind,
+                    args,
+                    block,
+                    ..
+                } => {
+                    let required = block.is_some()
+                        && callback_demand(downstream_pulls[index + 1], cardinality, kind)
+                            == CallbackDemand::Required;
+                    if index == stage_index {
+                        return required;
+                    }
+                    cardinality = stage_output_cardinality(
+                        arena,
+                        cardinality,
+                        kind,
+                        args,
+                        block,
+                        &facts,
+                    );
+                }
+            }
+        }
+        false
+    }
+
     pub(super) fn stream_loop_body_may_enter(&self, arena: &ArenaProgram, kind: super::stream_origins::StreamLoopKind) -> bool {
         match kind {
             super::stream_origins::StreamLoopKind::For(iter) => expression_cardinality(arena, iter, &self.checked_flow_facts()) != StreamCardinality::Empty,
@@ -2310,6 +2365,7 @@ impl Checker {
 
     fn checked_flow_facts(&self) -> FlowFacts<'_> {
         FlowFacts {
+            bindings: Some(&self.resolved_bindings),
             expression_types: Some(&self.expr_types),
             expression_types_by_id: None,
             tag_variants: Some(&self.tag_variants),
@@ -3392,6 +3448,7 @@ impl Checker {
                 self.check_yield_delegation_arena(arena, source, value, stmt.span);
             }
             ArenaStmtKind::Exit(status) => {
+                self.check_process_effect(stmt.span, "`exit`");
                 let actual = self.check_expr_arena(arena, source, status, Some(&Type::Int));
                 self.expect_type(&Type::Int, &actual, arena.arena.expr(status).span);
             }
@@ -3531,13 +3588,15 @@ impl Checker {
                 if !self.reject_bool_statement(source, &ty, stmt.span) {
                     self.record_statement_error(&ty, stmt.span);
                 }
-                self.reject_discarded_value(
+                if !matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::StructuredPipeline { .. }) || self.stream_expr_may_complete(arena, expr_id) {
+                    self.reject_discarded_value(
                     &ty,
                     stmt.span,
                     arena.arena.expr(expr_id).span,
                     true,
                     copy_update_mistake(arena, expr_id, &ty),
                 );
+                }
             }
             ArenaStmtKind::If {
                 branches,
@@ -5080,9 +5139,7 @@ impl Checker {
             self.define(name, binding, span);
         }
         self.check_value_block_arena(arena, source, def.body, &Type::Unit);
-        if self.boundary.current_effects.as_ref().is_none_or(|effects| effects.contains(&super::Effect::Error)) {
-            self.record_stream_producer_error(stream_owner);
-        }
+        self.record_stream_producer_effects(stream_owner);
         self.finish_local_body_constraints(arena, body_span, local_constraints);
         self.finish_stream_producer_summary(arena, def, &return_ty);
         if let Some(signature) = self.declaration_inference.pending_mut(declaration) { signature.mark_body_checked(); }
@@ -5271,7 +5328,7 @@ impl Checker {
         } else {
             None
         };
-        let actual = if self.stream_origin_owner.is_some() && !mutable && ty.is_none()
+        let actual = if !mutable && ty.is_none()
             && matches!(actual, Type::Function(_))
             && callable_alias.as_ref().is_some_and(|alias| !alias.signature.scheme().callable().is_quantified())
             && let ArenaExprOrRun::Expr(expression) = initializer
@@ -6886,13 +6943,15 @@ impl Checker {
                 return;
             }
             self.record_statement_error(&ty, stmt.span);
-            self.reject_discarded_value(
+            if !matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::StructuredPipeline { .. }) || self.stream_expr_may_complete(arena, expr_id) {
+                self.reject_discarded_value(
                 &ty,
                 stmt.span,
                 arena.arena.expr(expr_id).span,
                 true,
                 copy_update_mistake(arena, expr_id, &ty),
             );
+            }
             return;
         }
         self.check_stmt_arena(arena, source, id);
@@ -8549,6 +8608,55 @@ mod capture_stream_pull_tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn safe_stream_reassignment_preserves_inferred_producer_effects() {
+        for effects in ["[]", ""] {
+            let source = format!("stream ready() {effects} -> Stream[Int] {{ yield 1 }}\nproc spin() [] {{ var rows = ready(); rows = ready(); loop {{ for item in rows {{}} }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(), vec![Some(DiagnosticCode::CheckLoopNoBreak)], "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn stream_reassignment_preserves_safe_and_fallible_writer_boundaries() {
+        let declarations = "stream ready() -> Stream[Int] { yield 1 }\nstream fallible() -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nstream permitted() [error] -> Stream[Int] { yield 1 }\ntype Action = proc() -> Int\nstream unresolved(action: Action) -> Stream[Int] { yield action() }\n";
+        for (body, rejected) in [
+            ("proc read() [] { var rows = ready(); rows = ready(); for item in rows { let _ = item } }", false),
+            ("proc read(flag: Bool) [] { var rows = ready(); if flag { rows = ready() } else { rows = ready() }; for item in rows { let _ = item } }", false),
+            ("proc read() [error] { var rows = ready(); rows = fallible(); for item in rows { let _ = item } }", false),
+            ("proc read() [] { var rows = ready(); rows = fallible(); for item in rows { let _ = item } }", true),
+            ("proc read() [] { var rows = ready(); rows = permitted(); for item in rows { let _ = item } }", true),
+            ("proc read(flag: Bool) [] { var rows = ready(); if flag { rows = fallible() }; for item in rows { let _ = item } }", true),
+            ("proc read(incoming: Stream[Int]) [] { var rows = ready(); rows = incoming; for item in rows { let _ = item } }", true),
+            ("proc read(action: Action) [] { var rows = ready(); rows = unresolved(action); for item in rows { let _ = item } }", true),
+        ] {
+            let source = format!("{declarations}{body}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if rejected {
+                assert!(!errors.is_empty(), "{body}");
+                assert!(errors.iter().all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{body}\n{errors:?}");
+            } else { assert!(errors.is_empty(), "{body}\n{errors:?}"); }
+        }
+        for body in [
+            "let rows = ready(); loop { for item in rows {} }",
+            "loop { for item in ready() {} }",
+            "var rows = ready(); loop { rows = ready(); for item in rows {} }",
+        ] {
+            let source = format!("stream ready() -> Stream[Int] {{ yield 1 }}\nproc spin() [] {{ {body} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(), vec![Some(DiagnosticCode::CheckLoopNoBreak)], "{body}\n{errors:?}");
+        }
+    }
 
     #[test]
     fn solved_iteration_sources_retain_item_types_and_resolution_failures() {

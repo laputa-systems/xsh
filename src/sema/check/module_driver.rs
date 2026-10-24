@@ -13,6 +13,7 @@ use super::infer_effects::{EffectDeclarationId, EffectGraph, EffectScopeFailure}
 
 enum FileInferenceFailure {
     Effects(EffectScopeFailure),
+    RejectedEffectInvocation(Vec<crate::diagnostic::Diagnostic>),
     StreamOrigin(EffectDeclarationId),
 }
 
@@ -474,6 +475,12 @@ impl Checker {
     fn rejected_file_inference(failure: FileInferenceFailure) -> CheckedModuleFacts {
         let failure = match failure {
             FileInferenceFailure::Effects(failure) => failure,
+            FileInferenceFailure::RejectedEffectInvocation(diagnostics) => return CheckedModuleFacts {
+                signature: None,
+                output: CheckOutput { diagnostics, ..CheckOutput::default() },
+                module_diagnostic_position: 0,
+                suppressed_body_transfers: ResourceTransferFacts::default(),
+            },
             FileInferenceFailure::StreamOrigin(owner) => {
                 let diagnostic = crate::diagnostic::Diagnostic::error("stream return provenance exceeds its checked projection boundary")
                     .with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)
@@ -505,6 +512,13 @@ impl Checker {
             module_diagnostic_position: 0,
             suppressed_body_transfers: ResourceTransferFacts::default(),
         }
+    }
+
+    fn failed_effect_scope(&self, failure: EffectScopeFailure) -> FileInferenceFailure {
+        if matches!(failure.cause, crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))
+            && let Some(diagnostics) = self.rejected_effect_invocation_diagnostics(failure.owner)
+        { FileInferenceFailure::RejectedEffectInvocation(diagnostics) }
+        else { FileInferenceFailure::Effects(failure) }
     }
 
     fn session_effect_checker(
@@ -542,7 +556,9 @@ impl Checker {
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
             let (mut checker, output) = probe(provisional.clone(), provisional_origins.clone());
-            checker.bind_effect_graph()?;
+            if let Err(failure) = checker.bind_effect_graph() {
+                return Err(checker.failed_effect_scope(failure));
+            }
             let solved = checker.effect_graph.solve_with_external(external)?;
             checker.normalize_stream_origin_applications()
                 .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
@@ -702,6 +718,83 @@ mod tests {
         sources: Arc<SourceMap>,
         roots: Vec<(ArenaRange, SourceId)>,
         module_source: SourceId,
+    }
+
+    fn check_imported_effect_union(body: &str) -> CheckOutput {
+        let source = format!("use effects\nlet selected = effects.pair\nproc clock(value: Int) [time] -> Int {{ let _ = time.now(); value }}\nproc emit(value: Int) [io] -> Int {{ print \"callback\"; value }}\n{body}\n");
+        let module = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/modules/full-inference-effect-union/effects.xsh"));
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let source_id = sources.add_file("effect-bound.xsh", source.clone());
+        let parsed = Parser::parse_source_into_arena_builder(source_id, &source, &mut builder);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let module_id = sources.add_file("effects.xsh", module);
+        let imported = Parser::parse_source_into_arena_builder(module_id, module, &mut builder);
+        assert!(imported.diagnostics.is_empty(), "{:?}", imported.diagnostics);
+        let name = builder.symbol_owner().intern("effects");
+        builder.push_arena_module("effects".to_owned(), name, imported.statements);
+        for statement in builder.statement_ids(parsed.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("effects")); }
+        }
+        let program = Arc::new(builder.finish_with_statements(parsed.statements));
+        CheckSession::new(program, Arc::new(sources)).check(parsed.statements, source_id, CheckOptions::for_execution())
+    }
+
+    #[test]
+    fn imported_effect_union_missing_bound_reports_the_actual_capability() {
+        let checked = check_imported_effect_union("proc denied() [io, error] { let _ = selected(clock, emit, 7)? }");
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(!errors.is_empty(), "missing Time must reject");
+        assert!(errors.iter().all(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{errors:?}");
+        assert!(errors.iter().any(|diagnostic| diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Secondary && label.message.as_deref().is_some_and(|message| message.contains("time")))), "{errors:?}");
+    }
+
+    #[test]
+    fn imported_effect_union_lexical_bound_reports_the_actual_capability() {
+        let checked = check_imported_effect_union("proc denied() [time, io, error] { without time { let _ = selected(clock, emit, 7)? } }");
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(!errors.is_empty(), "excluded Time must reject");
+        assert!(errors.iter().all(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{errors:?}");
+        assert!(errors.iter().any(|diagnostic| diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Secondary && label.message.as_deref().is_some_and(|message| message.contains("without time")))), "{errors:?}");
+    }
+
+    #[test]
+    fn imported_effect_union_rejection_retains_independent_errors_without_facts() {
+        let checked = check_imported_effect_union("proc denied() [io, error] { let _ = selected(clock, emit, 7)? }\nlet invalid: Int = \"wrong\"");
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
+        assert!(!checked.checked_declarations.functions.values().any(|function| function.name == "denied"));
+    }
+
+    #[test]
+    fn imported_effect_union_preserves_successful_promised_bounds() {
+        let checked = check_imported_effect_union("proc allowed() [time, io, error] { let _ = selected(clock, emit, 7)? }");
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(checked.checked_declarations.functions.values().any(|function| function.name == "allowed"));
+    }
+
+    #[test]
+    fn imported_effect_union_keeps_unknown_dynamic_callbacks_rejected() {
+        let checked = check_imported_effect_union("proc denied(callback: Proc) [] -> Int { let _ = callback.call(); 42 }");
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn imported_effect_union_unrelated_errors_do_not_hide_binding_faults() {
+        use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+        for code in [DiagnosticCode::CheckTypeMismatch, DiagnosticCode::CheckEffectViolation] {
+            let mut checker = Checker::new(CheckOptions::for_execution());
+            let owner = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 0, 20) };
+            checker.diagnostics.push(Diagnostic::error("independent checker failure").with_code(code).with_label(Label::primary(owner.body, "independent")));
+            let failure = EffectScopeFailure { owner, cause: crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects) };
+            let rejected = Checker::rejected_file_inference(checker.failed_effect_scope(failure));
+            assert!(rejected.signature.is_none());
+            assert!(rejected.output.checked_declarations.functions.is_empty());
+            assert_eq!(rejected.output.diagnostics.len(), 1);
+            assert_eq!(rejected.output.diagnostics[0].code, Some(DiagnosticCode::CheckLocalInference));
+        }
     }
 
     fn typing_workspace(root_sources: &[&str]) -> TypingWorkspace {

@@ -19,6 +19,11 @@ pub(super) struct CheckedRecordConstruction<T = Type> {
 }
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    fn canonical_alias_signature(&self, mut signature: crate::sema::types::CallableType, kind: crate::sema::types::CallableKind) -> Type {
+        signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(kind));
+        self.canonicalize_checked_type(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind, sig: signature })))
+    }
+
     pub(super) fn lower_scheme_stage_value_call(
         &mut self, callee: ExprId, argument: CallArgument<super::SchemeType>, slots: &mut SlotScope,
         current_function: Name, facts: &super::SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
@@ -220,9 +225,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             self.validate_generic_rest_splices(id, args, rest_slot)?;
         }
-        let mut expanded_args = match rest_slot {
-            Some(rest_slot) if args.iter().any(|argument| argument.splice) => {
-                self.expand_static_positional_splices(args, rest_slot)?
+        let fixed_slots = rest_slot.or_else(|| scheme.as_ref().map(|scheme| scheme.params().len()))
+            .or_else(|| params.as_ref().map(Vec::len));
+        let mut expanded_args = match fixed_slots {
+            Some(fixed_slots) if args.iter().any(|argument| argument.splice) => {
+                self.expand_static_positional_splices(args, fixed_slots)?
             }
             _ => args.to_vec(),
         };
@@ -389,9 +396,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => callee,
             };
             let callee = self.lower_expr_untyped(callee, slots, current_function, None)?;
-            let mut signature = alias.signature;
-            signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(alias.kind));
-            let signature = self.canonicalize_checked_type(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: alias.kind, sig: signature })));
+            let signature = self.canonical_alias_signature(alias.signature, alias.kind);
             return Some(push_build_row!(
                 self,
                 expr,
@@ -794,6 +799,37 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if !scratch.record_call_instantiation(lowered, instantiation) || !scratch.record_checked_call_result_type(lowered, result_type) || scratch.scheme_callable_calls.insert(lowered.index(), relationship).is_some() { return None; }
             return Some(lowered);
         }
+        if let Some(alias) = self
+            .declarations
+            .static_callable_aliases
+            .get(&self.program.arena.expr(callee).span)
+            .cloned()
+        {
+            let fixed_slots = alias.signature.params.iter().position(|parameter| parameter.rest).unwrap_or(alias.signature.params.len());
+            let expanded = if args_vec.iter().any(|argument| argument.splice) {
+                std::borrow::Cow::Owned(self.expand_static_positional_splices(&args_vec, fixed_slots)?)
+            } else { std::borrow::Cow::Borrowed(args_vec.as_ref()) };
+            let args = self.lower_function_call_args(
+                &expanded,
+                Some(CheckedCallParameters::Ground(&alias.signature.params)),
+                self.call_argument_slots(id),
+                None,
+                slots,
+                current_function,
+                item_slot,
+            )?;
+            let callee = match self.program.arena.expr(callee).kind {
+                ArenaExprKind::Field { base, .. } if alias.method_call => base,
+                _ => callee,
+            };
+            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
+            let signature = self.canonical_alias_signature(alias.signature, alias.kind);
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::TypedCall { callee, kind: alias.kind, signature, args, span }
+            ));
+        }
         if let Some(target) = self.bodies.selected_function_calls.get(&id).copied() {
             return self.lower_checked_function_call(
                 id,
@@ -840,32 +876,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             );
             return Some(typed_call);
-        }
-        if let Some(alias) = self
-            .declarations
-            .static_callable_aliases
-            .get(&self.program.arena.expr(callee).span)
-            .cloned()
-        {
-            let args = self.lower_function_call_args(
-                &args_vec,
-                Some(CheckedCallParameters::Ground(&alias.signature.params)),
-                self.call_argument_slots(id),
-                None,
-                slots,
-                current_function,
-                item_slot,
-            )?;
-            let callee = match self.program.arena.expr(callee).kind {
-                ArenaExprKind::Field { base, .. } if alias.method_call => base,
-                _ => callee,
-            };
-            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
-            return Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::DynamicCall { callee, args, span }
-            ));
         }
         if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr(callee).kind
             && self.checked_expr_type(base)

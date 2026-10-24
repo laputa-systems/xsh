@@ -1753,6 +1753,7 @@ fn verify_scheme_body_facts(
         let facts_range = scheme.body_facts.bounds(store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("scheme body fact range is invalid"))?;
         let mut budget = SchemeInstantiationBudget::new(store);
         let mut types = BTreeMap::new();
+        let mut noncompleting = BTreeSet::new();
         let mut constructors = BTreeMap::new();
         let mut operation_sites = BTreeMap::new();
         let mut method_sites = BTreeMap::new();
@@ -1770,6 +1771,10 @@ fn verify_scheme_body_facts(
             covered[facts_range.start + offset] = true;
             let instruction = fact.instruction as usize;
             if fact.function != function_id || !instruction_range.contains(&instruction) { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
+            if fact.value == super::schemes::FullSchemeBodyFactValue::NoCompletion {
+                if !noncompleting.insert(instruction) { return Err(IrVerifyError::new("generic completion fact is duplicated")); }
+                continue;
+            }
             if matches!(fact.value, super::schemes::FullSchemeBodyFactValue::GuardScope(_)) { continue; }
             let active_scope = scope.at_instruction(instruction)?;
             let scope = &active_scope;
@@ -1897,10 +1902,13 @@ fn verify_scheme_body_facts(
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
         let statements = store.payload(block.instructions)?;
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
+        if noncompleting.iter().any(|instruction| types.contains_key(instruction) || constructors.contains_key(instruction)) {
+            return Err(IrVerifyError::new("generic completion fact overlaps a value fact"));
+        }
         let completion_group = wrappers::verify_completion_groups(store, scheme, scope, &wrapper_sites, &expected_return, &mut budget)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions, callable_projections } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, producer_index, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions, callable_projections } = body::verify_body(store, &decoder, &types, &noncompleting, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, producer_index, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1915,7 +1923,7 @@ fn verify_scheme_body_facts(
         if operation_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body operation has no authenticated expression")); }
         if method_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body method has no authenticated expression")); }
         if wrapper_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body wrapper has no authenticated expression")); }
-        if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() + constructors.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
+        if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() + constructors.len() + noncompleting.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
         let mut encoded_expressions = BTreeSet::new();
         let mut encoded_statements = BTreeSet::new();
         for instruction in instruction_range {
@@ -3569,6 +3577,19 @@ fn caller_scheme_for_instruction<'a>(
     Ok(None)
 }
 
+pub(super) fn scoped_no_completion_fact(store: &FullStore, decoder: &FullDecoder<'_>, instruction: usize) -> Result<bool, IrVerifyError> {
+    if !decoder.instruction_range.contains(&instruction) { return Err(IrVerifyError::new("completion fact query belongs to another owner")); }
+    let function = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("completion fact query has no function owner"))?;
+    let function_contract = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("completion fact owner is invalid"))?.contract;
+    let FullCallableContract::Scheme(id) = function_contract else { return Ok(false) };
+    let scheme = store.scheme(id)?;
+    let facts = bounded(scheme.body_facts, &store.scheme_body_facts, "completion fact range is invalid")?;
+    let key = (instruction as u32, FullSchemeBodyFactKind::NoCompletion as u8);
+    let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(false) };
+    if facts[index].function != function { return Err(IrVerifyError::new("completion fact belongs to another function")); }
+    Ok(true)
+}
+
 fn scheme_body_fact_type(
     store: &FullStore,
     scheme_id: FullSchemeId,
@@ -4523,8 +4544,8 @@ fn verify_instantiated_call_arguments(
             .or_else(|| expected_ground_type.cloned())
             .ok_or_else(|| IrVerifyError::new("generic call argument type is invalid"))?;
         let pipeline_item = if is_splice { None } else { producer_proof.pipeline_item_argument_type(decoder.owner, value.raw() as usize)? };
-        let literal_context = if pipeline_item.is_some() { None } else { producer_proof.literal_argument_context(decoder.owner, value.raw() as usize)? };
-        let actual = if let Some(actual) = literal_context { Some(CheckedArgumentType::Known(actual)) }
+        let literal_context = if pipeline_item.is_some() { None } else { producer_proof.literal_argument_type(decoder.owner, value.raw() as usize)? };
+        let actual = if let Some(actual) = literal_context { Some(actual) }
         else if pipeline_item.is_some() { None } else { checked_argument_type(
             store,
             &decoder,

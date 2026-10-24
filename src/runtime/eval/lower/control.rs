@@ -1,6 +1,6 @@
 use super::{
     ArenaCommand, ArenaExprKind, ArenaStmtKind, AssignOp, BlockId, BuildExprId, BuildExprRow,
-    BuildPatternRow, BuildStmtId, BuildStmtRow, CompactLowerConstructProbe, ExprId, FxHashMap,
+    DeferKind, BuildPatternRow, BuildStmtId, BuildStmtRow, CompactLowerConstructProbe, ExprId, FxHashMap,
     LoweredValue, Name, RuntimeOp, SlotScope, Span, StmtId, Type, cleanup_lowered_pattern_slots,
      lowered_arena_run_capture_type,
 };
@@ -1218,7 +1218,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let scope = (|| {
                     let removal = remove(self, domain);
                     let removal = self.tempdir_expression(BuildExprRow::Try { value: removal, span }, ground(Type::Unit), domain);
-                    let mut body = vec![push_build_row!(self, stmt, BuildStmtRow::Defer { value: removal, on_error: false })];
+                    let mut body = vec![push_build_row!(self, stmt, BuildStmtRow::Defer { value: removal, kind: DeferKind::Always })];
                     let value = at(self, domain);
                     let path_slot = self.tempdir_path_binding(block, slots, domain)?;
                     body.push(self.tempdir_declaration(path_slot, value, ground(Type::Path), slots, domain));
@@ -1250,7 +1250,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     lowerer.tempdir_expression(BuildExprRow::Try { value: call, span }, ground(ty), domain)
                 };
                 let close = root_method(self, RuntimeOp::FsCloseRoot, Type::Unit, domain);
-                let mut body = vec![push_build_row!(self, stmt, BuildStmtRow::Defer { value: close, on_error: false })];
+                let mut body = vec![push_build_row!(self, stmt, BuildStmtRow::Defer { value: close, kind: DeferKind::Always })];
                 let path = root_method(self, RuntimeOp::FsRootPath, Type::Path, domain);
                 let path_slot = self.tempdir_path_binding(block, slots, domain)?;
                 body.push(self.tempdir_declaration(path_slot, path, ground(Type::Path), slots, domain));
@@ -1300,7 +1300,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                            kind: crate::modules::ManagedResource,
                            unless_closing: bool| {
                 let value = push_build_row!(lowerer, expr, BuildExprRow::Param(slot));
-                let call = push_build_row!(
+                let mut release = push_build_row!(
                     lowerer,
                     expr,
                     BuildExprRow::ModuleCall {
@@ -1310,11 +1310,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     }
                 );
-                let mut release =
-                    push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span });
                 if unless_closing {
                     let closing = push_build_row!(lowerer, expr, BuildExprRow::Param(closing_slot));
-                    let nothing = push_build_row!(lowerer, expr, BuildExprRow::Unit);
+                    let unit = push_build_row!(lowerer, expr, BuildExprRow::Unit);
+                    let nothing = push_build_row!(lowerer, expr, BuildExprRow::Ok(unit));
                     release = push_build_row!(
                         lowerer,
                         expr,
@@ -1330,7 +1329,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     stmt,
                     BuildStmtRow::Defer {
                         value: release,
-                        on_error: false,
+                        kind: if unless_closing { DeferKind::ManagedRelease } else { DeferKind::Always },
                     }
                 )
             };

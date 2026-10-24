@@ -44,6 +44,9 @@ impl Checker {
         let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
             return None;
         };
+        if self.is_inferred_variant_expr(program, expression) {
+            return None;
+        }
         if let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind
             && matches!(
                 self.lookup_value_binding_for_expr(program, base),

@@ -403,6 +403,21 @@ impl ProducerPrefixContext<'_> {
         } else { Ok(None) }
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn snapshot_value_initializer(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize) -> Result<Option<usize>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range || !self.evidence.range.contains(&instruction) {
+            return Err(IrVerifyError::new("value snapshot context disagrees with its owner"));
+        }
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, slot)?;
+        let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None) };
+        let mut charge = |amount| self.evidence.work.borrow_mut().charge(amount);
+        charge(1)?;
+        if declared_slot != slot || !self.evidence.binding_path_is_snapshot(decoder, binding, slot, &mut charge)? { return Ok(None); }
+        match decoder.statement_view(declaration)? {
+            schema::StmtView::Let { slot: actual, value, .. } if actual == slot => Ok(Some(value.raw() as usize)),
+            _ => Ok(None),
+        }
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn snapshot_condition_initializer(&self, decoder: &FullDecoder<'_>,
         condition: usize, slot: usize, use_site: usize, target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
@@ -412,16 +427,15 @@ impl ProducerPrefixContext<'_> {
         }
         let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         if !self.evidence.binding_path_is_snapshot(decoder, protected, target.0, charge)? { return Ok(None); }
-        self.immutable_value_initializer(decoder, condition, slot, use_site, target, charge)
+        self.immutable_value_initializer(decoder, condition, slot, use_site, target, protected, charge)
     }
 
     fn immutable_value_initializer(&self, decoder: &FullDecoder<'_>, condition: usize, slot: usize, use_site: usize,
-        target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+        target: &(usize, Vec<Name>), protected: ProducerBinding, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(usize, bool)>, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
             || !self.evidence.range.contains(&condition) || !self.evidence.range.contains(&use_site)
         { return Err(IrVerifyError::new("condition value context disagrees with its owner")); }
-        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         let query = ImmutableInitializerQuery { read: condition, slot, target: target.0, binding: protected };
         charge(1)?;
         if let Some(values) = self.evidence.immutable_initializers.borrow().get(&query) {
@@ -463,14 +477,21 @@ impl ProducerPrefixContext<'_> {
         self.evidence.work.borrow_mut().charge(amount)
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn verify_guard_value_owner(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<(), IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("guard value context disagrees with its owner"));
+        }
+        if !self.evidence.range.contains(&instruction) {
+            return Err(IrVerifyError::new("guard value leaves its owner range"));
+        }
+        Ok(())
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn guard_value_expression(
         &self, decoder: &FullDecoder<'_>, mut instruction: usize, use_site: usize,
         target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<usize>, IrVerifyError> {
-        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
-            return Err(IrVerifyError::new("guard value context disagrees with its owner"));
-        }
-        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
+        self.verify_guard_value_owner(decoder, instruction)?;
         for _ in self.evidence.range.clone() {
             charge(1)?;
             if !self.evidence.range.contains(&instruction) { return Err(IrVerifyError::new("guard value leaves its owner range")); }
@@ -480,8 +501,9 @@ impl ProducerPrefixContext<'_> {
                     instruction = decoder.checked_block_tail_expression(&mut body)?;
                 }
                 schema::ExprView::Param(slot) => {
+                    let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
                     if self.evidence.binding(decoder.store, decoder.owner, instruction, slot)? == protected { return Ok(Some(instruction)); }
-                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, charge)? else { return Ok(None) };
+                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, protected, charge)? else { return Ok(None) };
                     instruction = initializer;
                 }
                 _ => return Ok(Some(instruction)),
@@ -2319,6 +2341,8 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
             if super::super::driver_owner_index(owner).is_none()
                 && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_))
             { continue; }
+            let decoder = proof.owner(owner)?;
+            if proof.verify_noncompleting_retry(&decoder, instruction)? { continue; }
             return Err(IrVerifyError::new("capture or retry has no checked Result contract"));
         };
         let expected = proof.contract_type(type_id)?;
@@ -2693,13 +2717,20 @@ impl<'a> ProducerProof<'a> {
         Ok(Some((*actual).clone()))
     }
 
-    pub(super) fn literal_argument_context(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+    pub(super) fn literal_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<CheckedArgumentType>, IrVerifyError> {
         if !matches!(self.store.tags.get(instruction), Some(FullTag::ExprList | FullTag::ExprListBuild)) { return Ok(None); }
         let decoder = self.owner(owner)?;
-        let Some(actual) = self.producer_context_type(&decoder, instruction, ProducerContextRole::LiteralListData)? else { return Ok(None); };
+        if let Some(actual) = self.producer_context_type(&decoder, instruction, ProducerContextRole::LiteralListData)? {
+            ensure_closed_type(&actual)?;
+            self.budget.charge_clone(&actual)?;
+            return Ok(Some(CheckedArgumentType::Known((*actual).clone())));
+        }
+        let Some(actual) = self.derive_unannotated_type(&decoder, instruction)? else { return Ok(None) };
         ensure_closed_type(&actual)?;
-        self.budget.charge_clone(&actual)?;
-        Ok(Some((*actual).clone()))
+        let Type::List(item) = actual.as_ref() else { return Ok(None) };
+        self.expression(owner, instruction, Arc::clone(&actual), false);
+        self.budget.charge_clone(item)?;
+        Ok(Some(CheckedArgumentType::ListItems(vec![(**item).clone()])))
     }
 
     pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
@@ -3490,6 +3521,25 @@ impl<'a> ProducerProof<'a> {
                     }
                     None => Some(list),
                 }
+            }
+            schema::ExprView::ListBuild(mut values) => {
+                let mut items = Vec::new();
+                for value in &mut values {
+                    self.budget.charge(1)?;
+                    let (splice, value, _) = value?;
+                    let value = value.raw() as usize;
+                    let Some(actual) = self.need_context(decoder, value)? else {
+                        if splice && decoder.is_empty_list_literal_expression(value)? { continue; }
+                        return Ok(None);
+                    };
+                    let item = if splice {
+                        let Type::List(item) = actual.unvalidated() else { return Ok(None) };
+                        item.as_ref()
+                    } else { actual.as_ref() };
+                    self.budget.charge_clone(item)?;
+                    items.push(item.clone());
+                }
+                return merge_list_item_types(&items, &mut self.budget).map(|ty| ty.map(Arc::new));
             }
             schema::ExprView::List(mut values) => {
                 let mut items = Vec::new();
@@ -4794,6 +4844,7 @@ impl<'a> ProducerProof<'a> {
                 && self.store.tags[instruction] == FullTag::ExprPath
                 && matches!(decoder.expression_view(instruction)?, schema::ExprView::Path(path) if crate::sema::validated::is_rel_path(path));
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
+            let imported_callable_contract = !fits && decoder.checked_imported_callable_relationship(instruction, actual, container)?;
             let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
                 && expected_list_item(container, true).is_some();
             let fresh_comprehension = self.store.tags[instruction] == FullTag::ExprListComp
@@ -4819,10 +4870,17 @@ impl<'a> ProducerProof<'a> {
                     _ => false,
                 } }
             } else { false };
+            let noncompleting_result = if !fits && returned
+                && self.store.tags[instruction] == FullTag::ExprValueBlock
+                && matches!((actual.as_ref(), expected.as_ref()), (Type::Result(_, actual_error), Type::Result(_, expected_error)) if actual_error.matches_expected(expected_error))
+            {
+                self.budget.charge(decoder.instruction_range.len())?;
+                !super::super::indexed_expr_can_complete(&decoder, instruction, 0)?
+            } else { false };
             let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
             let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
-            if !fits && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())
@@ -5015,6 +5073,15 @@ impl<'a> ProducerProof<'a> {
                 if matches!(expected.as_ref(), Type::List(_)) => {
                 self.expression(owner, left.raw() as usize, Arc::clone(&expected), false);
                 self.expression(owner, right.raw() as usize, expected, false);
+                Ok(())
+            }
+            schema::ExprView::Binary { op: op @ (crate::syntax::node::BinaryOp::Union | crate::syntax::node::BinaryOp::Intersect), left, right, .. } => {
+                let left_type = self.need_context(&decoder, left.raw() as usize)?.ok_or_else(|| IrVerifyError::new("set operator left operand has no producer contract"))?;
+                let right_type = self.need_context(&decoder, right.raw() as usize)?.ok_or_else(|| IrVerifyError::new("set operator right operand has no producer contract"))?;
+                let result = left_type.set_operator_result(op, &right_type).ok_or_else(|| IrVerifyError::new("set operator operands have incompatible Set domains"))?;
+                if !result.matches_expected(&expected) { return Err(IrVerifyError::new("set operator result disagrees with its producer contract")); }
+                self.expression(owner, left.raw() as usize, left_type, false);
+                self.expression(owner, right.raw() as usize, right_type, false);
                 Ok(())
             }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
@@ -5625,6 +5692,14 @@ impl<'a> ProducerProof<'a> {
                 if !checked.matches_expected(&expected) && !matches!(expected.as_ref(), Type::Result(ok, _) if checked.matches_expected(ok)) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
                 Ok(())
             }
+            schema::ExprView::FmtString(_) | schema::ExprView::PathFmtString { .. }
+                if self.index.scheme_owners.contains_key(&owner) => {
+                    let intrinsic = if self.store.tags[instruction] == FullTag::ExprPathFmtString { Type::Path } else { Type::Str };
+                    match self.scoped_expression_type(&decoder, instruction)? {
+                        Some(super::SchemeType::Ground(actual)) if actual == intrinsic => Ok(()),
+                        _ => Err(IrVerifyError::new("generic interpolation has no intrinsic output proof")),
+                    }
+                }
             _ if actual.is_some() => self.verify_operands(&decoder, instruction),
             _ => Err(IrVerifyError::new(format!("ground producer form has no executable type proof: {:?} at instruction {instruction}, owner {owner}", self.store.tags[instruction]))),
         }
@@ -6026,6 +6101,28 @@ impl<'a> ProducerProof<'a> {
         Ok(events)
     }
 
+    fn verify_noncompleting_retry(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::Retry { delays, mut body, .. } = decoder.expression_view(instruction)? else { return Ok(false); };
+        let Ok(fact) = self.store.checked_expr_types.binary_search_by_key(&(instruction as u32), |fact| fact.instruction) else { return Ok(false); };
+        let fact = self.store.checked_expr_types[fact];
+        if !matches!(fact.purpose, super::super::FullCheckedExprPurpose::CapturedErrorContract(owner) if owner == super::super::ExecutableOwner::from_raw(decoder.owner)?) { return Ok(false); }
+        self.budget.charge(body.len())?;
+        if !matches!(decoder.checked_value_block_result(&mut body)?, super::super::CheckedValueBlockResult::DoesNotComplete) { return Ok(false); }
+        for delay in delays {
+            self.budget.charge(1)?;
+            self.expression(decoder.owner, delay?.raw() as usize, Arc::new(Type::Duration), false);
+        }
+        let errors = self.captured_error_types(decoder, instruction)?;
+        for error in errors.iter() {
+            self.budget.charge_clone(error)?;
+            super::ensure_closed_type(error)?;
+        }
+        let actual = self.join_captured_errors(&errors)?;
+        if self.contract_type(fact.type_id)?.as_ref() != &actual { return Err(IrVerifyError::new("captured error contract disagrees with its actual retry errors")); }
+        self.producer_owner_contract(decoder.owner)?;
+        Ok(true)
+    }
+
     fn verify_block_value<'view>(&mut self, decoder: &FullDecoder<'view>, mut body: super::super::decode::ListView<'view, super::super::BuildStmtId>, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
         let block = body.block_identity();
         if let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? {
@@ -6328,7 +6425,11 @@ impl<'a> ProducerProof<'a> {
                         None => false,
                     };
                     if let (Some(actual), Some(expected)) = (types.get(&value), expected.get(&name))
-                        && !self.checked_record_field_fits(decoder, value, actual, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
+                        && !self.checked_record_field_fits(decoder, value, actual, expected)? {
+                            if !self.contextual_list_argument(decoder, value, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
+                            self.budget.charge_clone(expected)?;
+                            self.expression(decoder.owner, value, Arc::new(expected.clone()), false);
+                        }
                     if unresolved.remove(&value) {
                         let ty = expected.get(&name).ok_or_else(|| IrVerifyError::new("checked record field has no producer contract"))?;
                         if !contextual && !matches!(self.store.tags[value], FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprRecord | FullTag::ExprMethod) {

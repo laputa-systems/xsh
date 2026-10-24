@@ -1148,6 +1148,13 @@ impl PendingFunctionSig {
         }
     }
 
+    pub(super) fn generalized_noncompleting_expressions(&self) -> Option<&std::collections::BTreeSet<ExprId>> {
+        match &self.callable {
+            PendingCallable::Generalized(callable) => Some(&callable.noncompleting_expressions),
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+        }
+    }
+
     pub(super) fn generalized_constructor_producers(&self) -> Option<&BTreeMap<ExprId, super::schemes::NonmaterialConstructor>> {
         match &self.callable {
             PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
@@ -1197,6 +1204,7 @@ impl PendingFunctionSig {
         callable: Arc<super::schemes::CallableScheme>,
         generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+        noncompleting_expressions: std::collections::BTreeSet<ExprId>,
         constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
         constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
@@ -1213,6 +1221,7 @@ impl PendingFunctionSig {
             callable,
             generalization_scope,
             body_types,
+            noncompleting_expressions,
             constructor_producers,
             constructor_instances,
             tail_types,
@@ -1227,6 +1236,7 @@ struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
     generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+    noncompleting_expressions: std::collections::BTreeSet<ExprId>,
     constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
     constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,

@@ -281,6 +281,7 @@ impl TypeConstraints {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn non_null_guard_view(&self, id: WrapperOperationId) -> Result<&Type, ConstraintResolutionError> {
         self.wrappers.guards.get(&id).map(|guard| &guard.view).ok_or(ConstraintResolutionError::ForeignVariable)
     }

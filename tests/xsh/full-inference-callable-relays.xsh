@@ -126,6 +126,6 @@ let selected = if choose_integer {
 let invalid = selected(42)
 """,
     status: 2,
-    stderr: ["[check.callable-mismatch]"],
+    stderr: ["[check.type-mismatch]", "expected pure(value: Int) [] -> Int, found pure(value: Str) [] -> Str"],
   )?
 }

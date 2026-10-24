@@ -209,6 +209,19 @@ substitution. Imported schemes and callable contracts preserve the same bound.
 Cold verification requires it for symbolic Map and Set domains and rejects
 missing or malformed parameter metadata. These rows belong to the in-memory
 Full IR; they do not define a serialized program format.
+Concrete set union and intersection share their result rule between checking
+and Full producer derivation: actual set operands retain the left element domain
+only when the right operand satisfies its existing storage compatibility. Full
+proof derives both operands independently, checks the resulting set against its
+consumer, and verifies both sources before execution. A membership predicate
+cannot supply the type of a set operation used as its container.
+
+Stream producer error origins use the canonical declaration effect contract.
+An inferred producer whose effects are pending retains a pending origin through
+the existing effect probe and stream-origin settlement. Only a settled concrete
+contract without `error` contributes no error origin; unknown, symbolic, and
+fallible contracts stay conservative. Safe mutable reassignment preserves this
+proof while existing writer, loop, and capture invalidation remains in force.
 
 Callable application requirements distinguish invocations from known argument
 relationships. An invocation owns its actual callee, kind, result and effects.
@@ -335,11 +348,22 @@ target, including the error binding inside a terminating handler. The canonical
 completion query proves that handler cannot continue before a ground payload is
 published. Lexical binding, complete writer census, and ordinary argument proofs
 remain mandatory.
-
+When a native consumer needs an intrinsic string or path from a generalized
+interpolation, the ground producer reuses that exact physical expression's
+same-owner body proof. The body checks every actual child against its Display
+requirement before producer verification; symbolic children need no invented
+closed type. This reuse does not apply to other expressions or output types.
 A typed callee retains an actual checked optional-to-callable projection before
 following aliases to its original slot. Only a schema-free callable check whose
 exact payload and nonnull source are independently proved supplies that callee
 type; the call still requires the same complete callable signature identity.
+
+List builders derive their item domain from actual members and list-valued
+splices through the same lexical binding and iterator proof. A physical literal
+without retained context keeps the existing literal-item argument role; the full
+expression proof independently establishes any required nonempty cardinality.
+Ordinary data contexts retain their distinct closed-list role. Neither a selected
+parameter nor an unrelated slot type supplies a comprehension member's type.
 
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor
@@ -784,6 +808,39 @@ instructions and ordered field writers. The cold verifier reconstructs their
 producer shapes; an unresolved empty payload must be discarded or overwritten
 before the shape reaches typed storage, a call, projection, or return. Constructor
 facts carry no semantic type or scheme binder.
+A separate `NoCompletion` body fact carries neither a type payload nor a scheme
+binder. Completion-only expressions remain outside ordinary value lookup and
+require independent physical completion proof before acceptance. Their ownership
+and producer demand remain explicit in the existing body-fact framework.
+The collector records the role only from canonical whole-expression completion
+analysis. Lowering preserves actual callback returns and lowers an initializer
+that cannot complete as an existing discard binding when no named read depends
+on it. An authored named storage contract remains a real declaration; completion
+proof must finish before its declared binding is published to later unreachable
+reads. No type is invented for the initializer. The verifier rechecks physical pipeline demand and callback
+completion, then verifies every input, stage, callback, return, and effect while
+omitting only the nonexistent result-type obligation. The same actual-owner
+completion role settles implicit-discard classification without bypassing the
+remaining effect checks. Cardinality queries can
+borrow the same lexical producer prefix to follow a visible single-writer value
+initializer through ANF temporaries. Header and captured storage do not supply
+initializer evidence, and cycles retain unknown cardinality. Source cardinality
+uses the existing lexical resolver's exact read binding to follow same-callable
+immutable local initializers and aliases at their original expression sites.
+Shadowed names retain distinct bindings; mutable, header, and captured sources
+supply no initializer relationship. Ground callables retain concrete expression
+facts even when completion analysis proves that no result is produced. A callback that cannot
+complete does not by itself make the entire pipeline noncompleting: a possibly
+empty input followed by `count` retains its ordinary `Int` result. Required
+callback demand is necessary for the whole-pipeline completion claim, not for
+that independent terminal result.
+
+A ground returned value block may carry a coarse `Result` summary without a
+success value. Its consumer omits the success comparison only after proving that
+the actual physical block cannot complete normally and that its actual error
+component fits the required error contract. The existing structural body, return,
+error, effect, and resource obligations still run. A normally completing captured
+`Err` does not obtain this permission merely from an unconstrained success summary.
 
 Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
@@ -819,6 +876,10 @@ Application requirements refer to the actual callable type variable and use
 the canonical argument binder, preserving authored labels, defaults, and rest
 layout through aliases and returned values.
 `CallableScheme` owns the bound effect scope and application requirements.
+An already-rejected callable application retains its source effect diagnostic
+when that same invocation prevents its owner's effect scope from publishing.
+The invalid file publishes diagnostics only, with no partial signature or facts;
+independent diagnostics and unrelated scope failures remain distinct.
 Generalization includes obligation-only result binders before freezing the body
 scope. Instantiation allocates one type, row, and effect substitution and retains
 the selected argument layouts. An unresolved nested invocation instead retains
@@ -1027,6 +1088,11 @@ Generalized captured runs, retry attempts, error contexts, and restored context
 scopes use the existing command and scoped-block executor. Retry preserves an
 actual Result body and wraps other completing values; its delays remain outside
 the attempt's error boundary. Error contexts preserve the body's value type.
+An imperative retry that cannot complete normally retains only its actual closed
+error contract in the existing checked-expression table. This purpose is not an
+expression type or producer context. Full verifies the physical retry, complete
+noncompletion proof, delays, error provenance, and owner; runtime reads that
+error domain only to normalize captured errors. No success type is published.
 Context scopes wrap the body in Result without flattening nested Results. They
 retain the ordinary static escape rule and check symbolic values before resource
 transfer and context restoration.
@@ -1105,6 +1171,10 @@ The public Rust module export contract uses
 Stream declarations. This replaces the separate `Pure` and `Proc` export
 variants. `GenericCallable` identifies contracts with type, row, or effect
 binders. Callable-valued exports retain their actual lexical binding proof.
+Calls through imported callable aliases publish their actual static module
+receiver contract before lowering. Typed-callee projection derives the export's
+canonical invocation signature from that registered module contract; producer
+verification retains the physical receiver and its defining import proof.
 The compact export codec records the canonical kind and rejects retired tags,
 reserved bits, foreign owners, and missing signatures. Runtime module contracts
 use retained executable signatures or checked load-time signatures. A callable
@@ -1266,6 +1336,14 @@ scope. Scope exit stops owned activities before user defers; handles remain
 usable during defers and are released afterward. Explicit `close` and `unlock`
 results flow to the script. Automatic cleanup does not replace the script
 result with a release error.
+Resource scopes register their release operations as deferred `Result[Unit]`
+values. The existing defer consumer handles those results without synthetic `?`
+operations adding caller error requirements. Their outer cleanup defer has a
+verified managed-release purpose: its failure is secondary to an abrupt body
+exit. Normal completion transfers release into the scope's capture, where the
+first failed release determines its Result. Ordinary user defers retain their
+existing failure priority. The defer purpose shares the packed registration
+word with its bounded instruction index.
 
 Network workers receive plain Rust requests. They do not own evaluator values,
 source spans, or trace buffers. The evaluator owns job lifetimes and trace

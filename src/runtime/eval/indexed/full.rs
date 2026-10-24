@@ -31,7 +31,7 @@ use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
     BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, CheckedCallTarget,
     BuildPatternIdSlots, BuildScratch, BuildStmtId, BuildTopKind,
-    BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
+    BuildTopStmtId, BuildTopStmtRow, DeferKind, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
     CheckedPatternField, LoweredBindingIdentity, RuntimeBindingIdentity, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionUnit, LoweredModuleExport,
@@ -414,6 +414,7 @@ enum FullCheckedExprPurpose {
         with_error_source: bool,
     },
     ProducerContext(ExecutableOwner),
+    CapturedErrorContract(ExecutableOwner),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -436,7 +437,7 @@ impl FullCheckedExprType {
     fn function_ref(self) -> Option<(FunctionName, CallableKind)> {
         match self.purpose {
             FullCheckedExprPurpose::CheckedContract { function_ref, .. } => function_ref,
-            FullCheckedExprPurpose::ProducerContext(_) => None,
+            FullCheckedExprPurpose::ProducerContext(_) | FullCheckedExprPurpose::CapturedErrorContract(_) => None,
         }
     }
 
@@ -1960,10 +1961,10 @@ impl FullProgram {
             .map_err(|_| IrVerifyError::new("checked expression contract is missing"))?;
         let fact = self.store.checked_expr_types[index];
         match fact.purpose {
-            FullCheckedExprPurpose::CheckedContract { .. } => {}
-            _ => return Err(IrVerifyError::new("checked expression fact has no authenticated owner")),
+            FullCheckedExprPurpose::CheckedContract { .. } => self.store.semantic.is_generic_error_result(fact.type_id),
+            FullCheckedExprPurpose::CapturedErrorContract(candidate) if candidate == owner => Ok(self.store.semantic.type_tag(fact.type_id)? == super::semantic::TypeTag::Error),
+            _ => Err(IrVerifyError::new("checked expression fact has no authenticated owner")),
         }
-        self.store.semantic.is_generic_error_result(fact.type_id)
     }
 
     pub(in crate::runtime::eval) fn stream_origin_item_type(
@@ -7682,7 +7683,7 @@ impl<'a> FullDecoder<'a> {
                 let Some(field_type) = self
                     .store
                     .semantic
-                    .field_type(ty, field)?
+                    .typed_callee_field_type(ty, field)?
                 else {
                     return Err(IrVerifyError::new(format!(
                         "typed callee field `{field}` is absent from checked receiver type {:?}",
@@ -9455,6 +9456,15 @@ impl<'a> FullDecoder<'a> {
         temporaries: &BTreeSet<usize>,
         charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<BTreeMap<usize, TemporarySlotWriters>, IrVerifyError> {
+        self.temporary_slot_writers_except(temporaries, &BTreeSet::new(), charge)
+    }
+
+    fn temporary_slot_writers_except(
+        &self,
+        temporaries: &BTreeSet<usize>,
+        excluded: &BTreeSet<usize>,
+        charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<BTreeMap<usize, TemporarySlotWriters>, IrVerifyError> {
         let mut writers: BTreeMap<usize, TemporarySlotWriters> = BTreeMap::new();
         let mut written = Vec::new();
         let mut condition_roots = BTreeSet::new();
@@ -9462,6 +9472,7 @@ impl<'a> FullDecoder<'a> {
         let mut direct_binds = Vec::new();
         for instruction in self.instruction_range.clone() {
             charge(1)?;
+            if excluded.contains(&instruction) { continue; }
             let tag = self.store.tags[instruction];
             written.clear();
             if tag.kind() == schema::InstructionKind::Stmt {
@@ -12035,6 +12046,7 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_binary_result_type(op: BinaryOp, left_type: &Type, right_type: &Type) -> Option<Type> {
+        if matches!(op, BinaryOp::Union | BinaryOp::Intersect) { return left_type.set_operator_result(op, right_type); }
         let operator = crate::sema::sealed_operation::arithmetic_operator(op)?;
         crate::sema::sealed_operation::arithmetic_selection(operator, left_type, right_type).map(|(_, result)| result)
     }
@@ -14399,12 +14411,14 @@ impl<'a> FullDecoder<'a> {
         let path = match prefix { Some(prefix) => prefix.guard_value_binding_path(self, value, use_site, target, charge)?, None => self.checked_binding_path(value, charge)? };
         if path.as_ref() != Some(target) { return Ok(false); }
         let GuardedReadContract::OptionalPayload(expected_payload) = expected_payload else { return Ok(true); };
+        if let Some(subject_type) = source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten() {
+            return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload));
+        }
         let subject_type = match self.checked_physical_field_type(value, charge)? {
             Some(ty) => Some(ty),
             None => self.checked_binding_path_type(use_site, target, charge)?,
         };
-        if let Some(subject_type) = subject_type { return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload)); }
-        Ok(matches!(source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten(), Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
+        Ok(matches!(subject_type, Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
     }
 
     fn checked_condition_proves_nonnull_with_prefix(
@@ -14415,9 +14429,23 @@ impl<'a> FullDecoder<'a> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
-        let condition = if !is_boolean && let Some(prefix) = prefix {
-            let Some(condition) = prefix.guard_value_expression(self, condition, use_site, target, charge)? else { return Ok(false) };
-            condition
+        let condition = if !is_boolean {
+            if let Some(prefix) = prefix { prefix.verify_guard_value_owner(self, condition)?; }
+            match self.expression_view(condition)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(active_prefix) = prefix else { return Ok(false) };
+                    let Some((initializer, boolean)) = active_prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+                    return self.checked_condition_proves_nonnull_with_prefix(initializer, when_true, boolean, use_site, target, expected_payload, stability, Some(active_prefix), source, charge);
+                }
+                schema::ExprView::ValueBlock { .. } => match prefix {
+                    Some(prefix) => {
+                        let Some(condition) = prefix.guard_value_expression(self, condition, use_site, target, charge)? else { return Ok(false) };
+                        condition
+                    }
+                    None => condition,
+                },
+                _ => condition,
+            }
         } else { condition };
         if !is_boolean && let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(condition)? {
             charge(6)?;
@@ -14522,11 +14550,6 @@ impl<'a> FullDecoder<'a> {
             if yes == no { return Ok(false); }
             return self.checked_condition_proves_nonnull_with_prefix(nested.raw() as usize, when_true == yes, false,
                 use_site, target, expected_payload, stability, prefix, source, charge);
-        }
-        if let schema::ExprView::Param(slot) = self.expression_view(condition)? {
-            let Some(active_prefix) = prefix else { return Ok(false) };
-            let Some((initializer, boolean)) = active_prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
-            return self.checked_condition_proves_nonnull_with_prefix(initializer, when_true, boolean, use_site, target, expected_payload, stability, Some(active_prefix), source, charge);
         }
         let schema::ExprView::Binary {
             op,
@@ -16649,7 +16672,7 @@ impl<'a> FullDecoder<'a> {
             .as_ref()
             .is_none_or(|proof| proof.borrow().complete());
         if instructions_complete && blocks_complete && proof_complete {
-            Ok(())
+            verify_effects::verify_defer_purposes(self)
         } else {
             Err(IrVerifyError::new(
                 "full IR contains an instruction or block not owned by the function body",
@@ -17021,6 +17044,7 @@ impl IndexedReturnAnalysis {
 /// metadata that is absent from raw programs.
 struct IndexedCardinalityQuery<'d, 'a> {
     decoder: &'d FullDecoder<'a>,
+    prefix: Option<verify_schemes::ProducerPrefixContext<'d>>,
     memo: FxHashMap<usize, Option<IndexedCardinality>>,
 }
 
@@ -17028,8 +17052,13 @@ impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
     fn new(decoder: &'d FullDecoder<'a>) -> Self {
         Self {
             decoder,
+            prefix: None,
             memo: FxHashMap::default(),
         }
+    }
+
+    fn with_prefix(decoder: &'d FullDecoder<'a>, prefix: Option<verify_schemes::ProducerPrefixContext<'d>>) -> Self {
+        Self { decoder, prefix, memo: FxHashMap::default() }
     }
 
     fn expression(&mut self, instruction: usize) -> Result<IndexedCardinality, IrVerifyError> {
@@ -17051,6 +17080,18 @@ impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
         use IndexedCardinality::{Empty, Maybe, NonEmpty};
 
         match self.decoder.expression_view(instruction)? {
+            schema::ExprView::Param(slot) if self.prefix.is_some() => {
+                match self.prefix.as_ref().unwrap().snapshot_value_initializer(self.decoder, instruction, slot)? {
+                    Some(initializer) => self.expression(initializer),
+                    None => Ok(Maybe),
+                }
+            }
+            schema::ExprView::ValueBlock { mut body, .. } if self.prefix.is_some() => {
+                match self.decoder.derive_checked_block_tail_expression(&mut body)? {
+                    Some(value) => self.expression(value),
+                    None => Ok(Maybe),
+                }
+            }
             schema::ExprView::Str(value) => Ok(if value.is_empty() { Empty } else { NonEmpty }),
             schema::ExprView::Bytes(value) => {
                 Ok(if value.is_empty() { Empty } else { NonEmpty })
@@ -17890,19 +17931,27 @@ impl IndexedPullSummary {
     };
 }
 
-fn indexed_pipeline_can_complete(
-    decoder: &FullDecoder<'_>,
+fn indexed_pipeline_can_complete<'a>(
+    decoder: &FullDecoder<'a>,
     input: u32,
-    stages: &mut decode::ListView<'_, LoweredPipelineStage>,
+    stages: &mut decode::ListView<'a, LoweredPipelineStage>,
+) -> Result<bool, IrVerifyError> {
+    let mut cardinality_query = IndexedCardinalityQuery::new(decoder);
+    indexed_pipeline_can_complete_with_query(decoder, input, stages, &mut cardinality_query)
+}
+
+fn indexed_pipeline_can_complete_with_query<'d, 'a>(
+    decoder: &'d FullDecoder<'a>, input: u32,
+    stages: &mut decode::ListView<'a, LoweredPipelineStage>,
+    cardinality_query: &mut IndexedCardinalityQuery<'d, 'a>,
 ) -> Result<bool, IrVerifyError> {
     let mut stage_ids = Vec::with_capacity(stages.len());
     while let Some(stage) = stages.next_with_id() {
         stage_ids.push(stage?.id.raw());
     }
 
-    let mut cardinality_query = IndexedCardinalityQuery::new(decoder);
     let suffix_pulls =
-        indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality_query)?;
+        indexed_pipeline_downstream_pulls(decoder, &stage_ids, cardinality_query)?;
     let input_completes = indexed_expr_can_complete(decoder, input as usize, 0)?;
     if !input_completes {
         return Ok(false);
@@ -19233,6 +19282,24 @@ impl FullVerifier {
                 previous_checked_expression = Some(instruction);
                 continue;
             }
+            if let FullCheckedExprPurpose::CapturedErrorContract(owner) = fact.purpose {
+                if store.tags[instruction] != FullTag::ExprRetry {
+                    return Err(IrVerifyError::new("captured error contract has no physical retry"));
+                }
+                let range = match owner {
+                    ExecutableOwner::Function(function) => {
+                        if !matches!(store.functions.get(function.index()).map(|function| function.contract), Some(FullCallableContract::Ground(_))) {
+                            return Err(IrVerifyError::new("captured error contract has no ground owner"));
+                        }
+                        store.function_instruction_range(function.index())?
+                    }
+                    ExecutableOwner::Driver(driver) => store.driver_instruction_range(driver)?,
+                };
+                if !range.contains(&instruction) { return Err(IrVerifyError::new("captured error contract belongs to another owner")); }
+                verify_schemes::ensure_closed_type(&ty)?;
+                previous_checked_expression = Some(instruction);
+                continue;
+            }
             let structured_error = matches!(ty, Type::ErrorVariant { .. });
             let generic_call_result = store
                 .checked_call_targets
@@ -20021,6 +20088,9 @@ macro_rules! impl_word_codec {
 }
 
 impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
+impl_word_codec!(DeferKind, |kind: &DeferKind| Ok(*kind as u32),
+    |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| DeferKind::from_encoded(raw)
+        .ok_or_else(|| IrVerifyError::new("defer kind is invalid"))));
 impl_word_codec!(CallableKind, |kind: &CallableKind| Ok(*kind as u32),
     |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| CallableKind::from_encoded(raw)
         .ok_or_else(|| IrVerifyError::new("callable kind is invalid"))));
@@ -21576,6 +21646,7 @@ macro_rules! impl_build_id_codec {
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
+                let noncompleting = $checked_expr_type && scratch.scheme_noncompleting.contains(&self.index());
                 let constructor = if $checked_expr_type {
                     scratch.scheme_constructors.get(&self.index()).copied()
                 } else { None };
@@ -21634,6 +21705,7 @@ macro_rules! impl_build_id_codec {
                     || checked_call_result.is_some()
                     || registered_call.is_some()
                     || constructor.is_some()
+                    || noncompleting
                     || scheme_body_type.is_some()
                     || scheme_tail_type.is_some()
                     || scheme_local_declaration.is_some()
@@ -21693,6 +21765,11 @@ macro_rules! impl_build_id_codec {
                     }
                     let purpose = match ty.purpose {
                         crate::runtime::eval::CheckedExprPurpose::CheckedContract { function_ref, with_error_source } => Some(FullCheckedExprPurpose::CheckedContract { function_ref, with_error_source }),
+                        crate::runtime::eval::CheckedExprPurpose::CapturedErrorContract => {
+                            let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("captured_error_owner", None, 0, instruction))?;
+                            let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("captured_error_owner", None, 0, instruction).with_detail(Some(error.message)))?;
+                            Some(FullCheckedExprPurpose::CapturedErrorContract(owner))
+                        }
                         crate::runtime::eval::CheckedExprPurpose::ProducerContext => {
                             let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("producer_context_owner", None, 0, instruction))?;
                             let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("producer_context_owner", None, 0, instruction).with_detail(Some(error.message)))?;
@@ -21856,6 +21933,12 @@ macro_rules! impl_build_id_codec {
                             builder.store.tags.len(),
                         ));
                     }
+                }
+                if noncompleting {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_completion_instruction", None, 0, self.index()))?;
+                    if scheme_body_type.is_some() || constructor.is_some() || builder.active_scheme.is_none() { return Err(IrBuildError::format("scheme_completion_contract", None, 0, instruction)); }
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("scheme_completion_owner", None, 0, instruction))?;
+                    builder.record_scheme_noncompletion_fact(function, instruction)?;
                 }
                 if let Some(kind) = constructor {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_constructor_instruction", None, 0, self.index()))?;
@@ -23920,14 +24003,18 @@ assert result.links[0].driver == null
             FullVerifier::verify(&with_source_fact).unwrap();
             let payload = with_source_fact.store.data[read].range().bounds(with_source_fact.store.extra.len()).unwrap();
             let mut lying_source_fact = with_source_fact.clone();
+            lying_source_fact.store.in_place.take();
+            assert!(lying_source_fact.store.in_place.get().is_none());
             lying_source_fact.store.extra[payload.start] = 1;
             lying_source_fact.store.slot_type_facts[facts.start + 1] = state.raw();
             let error = FullVerifier::verify(&lying_source_fact).unwrap_err();
-            assert_eq!(error.message, "checked record field disagrees with its contract");
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
             let mut wrong_nominal = with_source_fact;
+            wrong_nominal.store.in_place.take();
+            assert!(wrong_nominal.store.in_place.get().is_none());
             wrong_nominal.store.extra[payload.start] = 1;
             let error = FullVerifier::verify(&wrong_nominal).unwrap_err();
-            assert_eq!(error.message, "checked record field disagrees with its contract");
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
         });
     }
 
@@ -23963,6 +24050,8 @@ assert result.resources[0].count == 7
             let (_, wrong, _) = program.store.semantic.signature_param(signature, 1).unwrap();
             assert_eq!(program.store.semantic.to_type(wrong).unwrap(), Type::Str);
             let mut incompatible = (*program).clone();
+            incompatible.store.in_place.take();
+            assert!(incompatible.store.in_place.get().is_none());
             let payload = incompatible.store.data[number].range().bounds(incompatible.store.extra.len()).unwrap();
             incompatible.store.extra[payload.start] = 1;
             let count = program.symbol_owner().intern("count");
@@ -23987,8 +24076,10 @@ assert result.resources[0].count == 7
                 let ty = replace_count(program.store.semantic.to_type(id).unwrap(), count);
                 incompatible.store.slot_type_facts[slot] = SemanticPoolBuilder::default().intern_type(&mut incompatible.store.semantic, &ty).unwrap().raw();
             }
+            program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&incompatible.store)).unwrap();
+            assert!(incompatible.store.in_place.get().is_none());
             let failure = FullVerifier::verify(&incompatible).expect_err("a checked record still proves the actual nested field domain");
-            assert!(failure.message.contains("checked record field disagrees") || failure.message.contains("checked value input disagrees"), "{failure:?}");
+            assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
             let checked = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
                 Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. }) if check.schema.is_none() => Some((instruction, check.ty.id, check.ty.materialize().unwrap())),
                 _ => None,
@@ -23998,11 +24089,15 @@ assert result.resources[0].count == 7
             let Type::Record(row) = item.as_mut() else { panic!("resources retains its record item contract"); };
             assert_eq!(Arc::make_mut(row).insert(count, Type::Int), Some(Type::Optional(Box::new(Type::Int))));
             let mut weakened = (*program).clone();
+            weakened.store.in_place.take();
+            assert!(weakened.store.in_place.get().is_none());
             let target = SemanticPoolBuilder::default().intern_type(&mut weakened.store.semantic, &Type::Record(fields)).unwrap();
             let payload = weakened.store.data[checked.0].range().bounds(weakened.store.extra.len()).unwrap();
             assert_eq!(weakened.store.extra[payload.start + 1], 0);
             assert_eq!(weakened.store.extra[payload.start + 2], checked.1.raw());
             weakened.store.extra[payload.start + 2] = target.raw();
+            program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&weakened.store)).unwrap();
+            assert!(weakened.store.in_place.get().is_none());
             let failure = FullVerifier::verify(&weakened).expect_err("the actual constructor gate must retain the declared optional item contract");
             assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
         });
@@ -29108,7 +29203,7 @@ assert genuine_tail_runs == 0
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
                 schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_)
                 | schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_) | schemes::FullSchemeBodyFactValue::CompletionReturnedResult(_)
-                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) | schemes::FullSchemeBodyFactValue::GuardScope(_) => {},
+                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) | schemes::FullSchemeBodyFactValue::NoCompletion | schemes::FullSchemeBodyFactValue::GuardScope(_) => {},
             }
         }
         for node in &mut program.store.scheme_types {
@@ -29843,6 +29938,8 @@ assert genuine_tail_runs == 0
             .unwrap();
 
         let mut out_of_scope_type = program.clone();
+        out_of_scope_type.store.in_place.take();
+        assert!(out_of_scope_type.store.in_place.get().is_none());
         let argument = out_of_scope_type.store.call_instantiations[identity_instantiation]
             .arguments.type_arguments
             .start as usize;
@@ -29859,12 +29956,14 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == name_of_call)
             .unwrap();
         let mut out_of_scope_row = program.clone();
+        out_of_scope_row.store.in_place.take();
+        assert!(out_of_scope_row.store.in_place.get().is_none());
         let row = out_of_scope_row.store.call_instantiations[name_of_instantiation]
             .arguments.row_arguments
             .start as usize;
         out_of_scope_row.store.call_row_arguments[row].tail = IR_NONE - 1;
         let error = FullVerifier::verify(&out_of_scope_row).unwrap_err();
-        assert_eq!(error.message, "generic call row tail is out of scope");
+        assert_eq!(error.message, "scheme row parameter is out of scope");
 
         let nested_program = fixture(
             "generic-symbolic-row-lacks.xsh",
@@ -29903,6 +30002,8 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == name_of_call)
             .unwrap();
         let mut wrong_row_lacks = nested_program.clone();
+        wrong_row_lacks.store.in_place.take();
+        assert!(wrong_row_lacks.store.in_place.get().is_none());
         let row = wrong_row_lacks.store.call_instantiations[name_of_instantiation]
             .arguments.row_arguments
             .start as usize;
@@ -29943,6 +30044,8 @@ assert genuine_tail_runs == 0
         let second_parameter = wrong_argument_program.store.scheme_types[second_parameter_type.index()];
         assert_eq!(second_parameter.tag, FullSchemeTypeTag::Parameter);
         let mut wrong_argument = wrong_argument_program.clone();
+        wrong_argument.store.in_place.take();
+        assert!(wrong_argument.store.in_place.get().is_none());
         let argument = wrong_argument.store.call_instantiations[identity_instantiation]
             .arguments.type_arguments
             .start as usize;
@@ -29970,6 +30073,8 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == root_identity)
             .unwrap();
         let mut symbolic_root_type = root_program.clone();
+        symbolic_root_type.store.in_place.take();
+        assert!(symbolic_root_type.store.in_place.get().is_none());
         let argument = symbolic_root_type.store.call_instantiations[identity_instantiation]
             .arguments.type_arguments
             .start as usize;
@@ -29987,6 +30092,8 @@ assert genuine_tail_runs == 0
             .position(|row| row.instruction == root_name_of)
             .unwrap();
         let mut symbolic_root_row = root_program.clone();
+        symbolic_root_row.store.in_place.take();
+        assert!(symbolic_root_row.store.in_place.get().is_none());
         let row = symbolic_root_row.store.call_instantiations[name_of_instantiation]
             .arguments.row_arguments
             .start as usize;
@@ -31726,30 +31833,6 @@ pure use_bool() -> Bool { let value = false; identity(value) }
             }
             count == expected_count
         };
-        let call_has_empty_list_splice = |instruction: u32| {
-            let Ok(view) = decoder.expression_view(instruction as usize) else {
-                return false;
-            };
-            let arguments = match view {
-                schema::ExprView::Call { args, .. }
-                | schema::ExprView::DirectPureCall { args, .. }
-                | schema::ExprView::SelfCall { args, .. } => args,
-                _ => return false,
-            };
-            for argument in arguments {
-                let Ok(decode::CallArgView::Splice(value)) = argument else {
-                    continue;
-                };
-                let empty_list = match decoder.expression_view(value.raw() as usize) {
-                    Ok(schema::ExprView::List(mut values)) => values.next().is_none(),
-                    _ => false,
-                };
-                if empty_list {
-                    return true;
-                }
-            }
-            false
-        };
         let no_rest = calls
             .iter()
             .position(|instruction| {
@@ -31764,39 +31847,42 @@ pure use_bool() -> Bool { let value = false; identity(value) }
                     && call_has_single_arguments(*instruction, 4)
             })
             .expect("multiple-single rest call exists");
-        assert_eq!(
-            calls
-                .iter()
-                .filter(|instruction| {
-                use_rest_instructions.contains(&(**instruction as usize))
-                    && call_has_empty_list_splice(**instruction)
-                })
-                .count(),
-            1
-        );
+        let empty_splice = calls.iter().position(|instruction| {
+            if !use_rest_instructions.contains(&(*instruction as usize)) { return false; }
+            let span = match decoder.expression_view(*instruction as usize).unwrap() {
+                schema::ExprView::Call { span, .. } | schema::ExprView::DirectPureCall { span, .. } | schema::ExprView::SelfCall { span, .. } => span,
+                _ => return false,
+            };
+            &source[span.range()] == r#"select(7, "label", @[])"#
+        }).expect("the empty literal splice retains its canonical call site");
+        assert!(call_has_single_arguments(calls[empty_splice], 2));
+        assert_ne!(empty_splice, no_rest);
+        assert_eq!(calls.iter().filter(|instruction| use_rest_instructions.contains(&(**instruction as usize)) && call_has_single_arguments(**instruction, 2)).count(), 2);
 
-        let mut empty_splice_with_binder = program.clone();
-        let rest_type = empty_splice_with_binder.store.scheme_params[scheme_params.start + 2].ty;
-        let item_type = empty_splice_with_binder.store.scheme_params[scheme_params.start].ty;
+        let mut generic_rest_binder = program.clone();
+        generic_rest_binder.store.in_place.take();
+        assert!(generic_rest_binder.store.in_place.get().is_none());
+        let rest_type = generic_rest_binder.store.scheme_params[scheme_params.start + 2].ty;
+        let item_type = generic_rest_binder.store.scheme_params[scheme_params.start].ty;
         assert_eq!(
-            empty_splice_with_binder.store.scheme_type(item_type).unwrap().tag,
+            generic_rest_binder.store.scheme_type(item_type).unwrap().tag,
             schema::FullSchemeTypeTag::Parameter
         );
         let rest_item_type = SchemeTypeId::from_raw(
-            empty_splice_with_binder
+            generic_rest_binder
                 .store
                 .scheme_type(rest_type)
                 .unwrap()
                 .first,
         )
         .unwrap();
-        let item_node = *empty_splice_with_binder.store.scheme_type(item_type).unwrap();
+        let item_node = *generic_rest_binder.store.scheme_type(item_type).unwrap();
         assert_eq!(
-            empty_splice_with_binder.store.scheme_type(rest_item_type).unwrap().tag,
+            generic_rest_binder.store.scheme_type(rest_item_type).unwrap().tag,
             schema::FullSchemeTypeTag::Ground
         );
-        empty_splice_with_binder.store.scheme_types[rest_item_type.index()] = item_node;
-        FullVerifier::verify(&empty_splice_with_binder).unwrap();
+        generic_rest_binder.store.scheme_types[rest_item_type.index()] = item_node;
+        FullVerifier::verify(&generic_rest_binder).unwrap();
 
         let use_spliced_tail = program
             .store
@@ -31812,7 +31898,9 @@ pure use_bool() -> Bool { let value = false; identity(value) }
             .iter()
             .position(|instruction| use_spliced_tail_instructions.contains(&(*instruction as usize)))
             .expect("spliced rest call exists");
-        let mut wrong_generic_rest_item = empty_splice_with_binder;
+        let mut wrong_generic_rest_item = generic_rest_binder;
+        wrong_generic_rest_item.store.in_place.take();
+        assert!(wrong_generic_rest_item.store.in_place.get().is_none());
         let uint_type = SemanticPoolBuilder::default()
             .intern_type(&mut wrong_generic_rest_item.store.semantic, &Type::UInt)
             .unwrap();
@@ -34053,10 +34141,12 @@ assert labels([{text: "x"}, {text: "y"}]) == ["x"]
             assert!(!writers.is_empty());
             for writer in writers {
                 let mut forged = program.clone();
+                forged.store.in_place.take();
+                assert!(forged.store.in_place.get().is_none());
                 forged.store.tags[writer] = FullTag::ExprInt;
                 forged.store.data[writer] = program.store.data[integer];
                 let error = FullVerifier::verify(&forged).unwrap_err();
-                assert!(error.message.contains("condition producer has no checked contract"), "{error:?}");
+                assert_eq!(error.message, "managed release has no canonical resource scope");
             }
         });
     }
@@ -37545,7 +37635,8 @@ proc read(token, file: Path, spare: Str) [fs] {
     fn generic_row_host_body_executes_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source = "type Row = {value: Int}\npure item(value: Int) -> Int { value }\npure append(items: List[Int], row) -> List[Int] { items.push(item(row.value)) }\n";
-            let program = Arc::new(fixture("generic-row-host-body.xsh", source));
+            let source = format!("{source}type HostRow = {{value: Int, extra: Bool}}\npure append_entry(items: List[Int], row: HostRow) -> List[Int] {{ append(items, row) }}\n");
+            let program = Arc::new(fixture("generic-row-host-body.xsh", &source));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
@@ -37555,7 +37646,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "append")),
+                    LoweredFunctionKey::Name(program_name(&program, "append_entry")),
                     CallableKind::Pure,
                     &[
                         Value::List(vec![Value::Int(1)]),
@@ -37576,9 +37667,9 @@ proc read(token, file: Path, spare: Str) [fs] {
         run_with_large_stack(|| {
             assert_eq!(std::mem::size_of::<schemes::FullSchemeMethod>(), 28);
             assert_eq!(std::mem::size_of::<schemes::FullMethodBinding>(), 8);
-            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 120);
-            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 60);
-            assert_eq!(std::mem::size_of::<schemes::FullInstantiation>(), 56);
+            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 136);
+            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 76);
+            assert_eq!(std::mem::size_of::<schemes::FullInstantiation>(), 72);
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system time should be after epoch")
@@ -37627,6 +37718,8 @@ proc read(token, file: Path, spare: Str) [fs] {
             let argument_slots = encoded_method.argument_slots.bounds(program.store.scheme_method_slots.len()).unwrap();
             assert_eq!(&program.store.scheme_method_slots[argument_slots.clone()], &[1, 0]);
             let mut forged_slots = (*program).clone();
+            forged_slots.store.in_place.take();
+            assert!(forged_slots.store.in_place.get().is_none());
             forged_slots.store.scheme_method_slots[argument_slots].copy_from_slice(&[0, 1]);
             assert!(FullVerifier::verify(&forged_slots).is_err());
             FullVerifier::verify(&program).unwrap();
@@ -37649,6 +37742,8 @@ proc read(token, file: Path, spare: Str) [fs] {
             let (_, len_fact_index, len_fact) = method_facts.iter().find(|(name, _, _)| *name == "len").copied().unwrap();
             let (_, _, empty_fact) = method_facts.iter().find(|(name, _, _)| *name == "is_empty").copied().unwrap();
             let mut missing_method = (*program).clone();
+            missing_method.store.in_place.take();
+            assert!(missing_method.store.in_place.get().is_none());
             missing_method.store.scheme_body_facts.remove(len_fact_index);
             for scheme in &mut missing_method.store.schemes {
                 let range = scheme.body_facts;
@@ -37660,9 +37755,13 @@ proc read(token, file: Path, spare: Str) [fs] {
             }
             assert_eq!(FullVerifier::verify(&missing_method).unwrap_err().message, "generic intrinsic method has no closed receiver contract");
             let mut foreign_method = (*program).clone();
+            foreign_method.store.in_place.take();
+            assert!(foreign_method.store.in_place.get().is_none());
             foreign_method.store.scheme_body_facts[len_fact_index].function = IrFunctionId::new(scheme_fixture_root_function(&program, "empty")).unwrap();
             assert_eq!(FullVerifier::verify(&foreign_method).unwrap_err().message, "generic body fact has invalid ownership");
             let mut misbound_method = (*program).clone();
+            misbound_method.store.in_place.take();
+            assert!(misbound_method.store.in_place.get().is_none());
             let schemes::FullSchemeBodyFactValue::Method(empty_ordinal) = empty_fact.value else { panic!("is_empty has a retained method ordinal") };
             misbound_method.store.scheme_body_facts[len_fact_index].value = schemes::FullSchemeBodyFactValue::Method(empty_ordinal);
             assert_eq!(FullVerifier::verify(&misbound_method).unwrap_err().message, "generic method site disagrees with its retained family contract");
@@ -37677,6 +37776,8 @@ proc read(token, file: Path, spare: Str) [fs] {
             let other_family_signature = &api.method_overloads(crate::modules::MethodReceiver::List, "is_empty").unwrap()[0];
             let other_family = api.registered_method_id(crate::modules::MethodReceiver::List, "is_empty", other_family_signature).unwrap();
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             forged.store.call_method_bindings[bindings.start + len_ordinal as usize] = schemes::FullMethodBinding::Selected(other_family);
             assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "selected method differs from its canonical input signature");
             let _symbols = program.symbol_owner().enter();
@@ -37816,6 +37917,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                 let mut errors = Vec::new();
                 for annotation in [": Row", ""] {
                     let source = format!("type Row = {{value: Int}}\npure left(value: Int) -> Int {{ 1 / value }}\npure right(value: Int) -> Int {{ 9223372036854775807 + (value + 1) }}\npure pair(left: Int, right: Int) -> Int {{ left + right }}\npure fail(row{annotation}) -> Int {{ pair(right: right(row.value), left: left(row.value)) }}\npure after() -> Int {{ 7 }}\n");
+                    let source = format!("{source}pure checked_fail_entry(row: Row) -> Int {{ fail(row) }}\n");
                     let program = Arc::new(fixture("generic-pure-failure-order.xsh", &source));
                     FullVerifier::verify(&program).unwrap();
                     let _symbols = program.symbol_owner().enter();
@@ -37823,7 +37925,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     evaluator.force_frames = force_frames;
                     let error = evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(Name::intern("fail")), CallableKind::Pure,
+                        LoweredFunctionKey::Name(Name::intern("checked_fail_entry")), CallableKind::Pure,
                         &[Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(0))]).into())],
                         Span::new(program.store.source_id, 0, 0),
                     ).unwrap().unwrap_err();
@@ -37909,13 +38011,14 @@ proc read(token, file: Path, spare: Str) [fs] {
                         let mut failures = Vec::new();
                         for annotation in [": Row", ""] {
                             let source = format!("type Row = {{key: Int}}\npure minus(value: Int) -> Int {{ value - 1 }}\n{helper}pure read(row{annotation}) -> {return_type} {{ {body} }}\n");
+                            let source = format!("{source}pure checked_read_entry(row: Row) -> {return_type} {{ read(row) }}\n");
                             let program = Arc::new(fixture("generic-pure-unsigned-boundaries.xsh", &source));
                             FullVerifier::verify(&program).unwrap();
                             let _symbols = program.symbol_owner().enter();
                             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                             evaluator.indexed_program = Some(Arc::clone(&program));
                             evaluator.force_frames = force_frames;
-                            let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("key"), Value::Int(input))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap();
+                            let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("key"), Value::Int(input))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap();
                             if input > 0 {
                                 let expected = match return_type {
                                     "Int" => Value::Int(1),
@@ -37982,21 +38085,36 @@ proc read(token, file: Path, spare: Str) [fs] {
         });
     }
 
+    fn ground_read_entry_fixture(name: &str, source: &str, returned: &str) -> FullProgram {
+        fixture(name, &format!("{source}\ntype GroundEntryRow = {{anchor: Bool}}\npure checked_read_entry(row: GroundEntryRow) -> {returned} {{ read(row) }}\n"))
+    }
+
+    fn ordinary_ground_fixture(name: &str, source: &str) -> FullProgram {
+        ground_read_entry_fixture(name, source, "Int")
+    }
+
     fn assert_ordinary_ground_helper(source: &str) {
-        assert_ordinary_ground_program(Arc::new(fixture("ordinary-ground-helper.xsh", source)));
+        assert_ordinary_ground_program(Arc::new(ordinary_ground_fixture("ordinary-ground-helper.xsh", source)));
     }
 
     fn assert_ordinary_ground_program(program: Arc<FullProgram>) {
         FullVerifier::verify(&program).unwrap();
         let _symbols = program.symbol_owner().enter();
+        let read = scheme_fixture_root_function(&program, "read");
+        let FullCallableContract::Scheme(read_scheme) = program.store.functions[read].contract else { panic!("the original read body remains generic") };
+        let read_scheme = program.store.scheme(read_scheme).unwrap();
+        assert!(read_scheme.type_parameters.len != 0 || read_scheme.row_parameters.len != 0);
+        let entry = scheme_fixture_root_function(&program, "checked_read_entry");
+        assert!(matches!(program.store.functions[entry].contract, FullCallableContract::Ground(_)));
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             evaluator.force_frames = force_frames;
             for step in 0..program.driver_step_count().unwrap() {
-                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let flow = evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{flow:?}");
             }
-            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
             assert_eq!(result, Value::Int(7));
         }
     }
@@ -38291,7 +38409,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         run_with_large_stack(|| {
             for stage in ["map", "par-map(jobs: 1)"] {
                 let source = format!("pure helper() -> Int {{ let marker = \"value\"; let values = [1] |> {stage} {{ |item| return 7 }}; values.len() + 9 }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-                let program = fixture("producer-callback-return-boundary.xsh", &source);
+                let program = ordinary_ground_fixture("producer-callback-return-boundary.xsh", &source);
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let helper = scheme_fixture_root_function(&program, "helper");
                 let decoder = function_view_decoder(&program.store, helper);
@@ -38302,6 +38420,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                     (program.store.tags[value.raw() as usize] == FullTag::ExprInt).then_some(value.raw() as usize)
                 }).unwrap();
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 bad.store.tags[returned] = FullTag::ExprStr;
                 bad.store.data[returned] = program.store.data[text];
                 FullVerifier::verify(&bad).expect_err("inline callback returns must satisfy the enclosing function header");
@@ -38331,7 +38451,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         run_with_large_stack(|| {
             let scanner = include_str!("../../../../tests/xsh/lowered-scanners.xsh").split("\ntest ").next().unwrap();
             let source = format!("{scanner}\npure helper() -> Int {{ if scan_slash_text(b\"/* note */ \\\"//\\\" // note\") {{ 7 }} else {{ 0 }} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-            let program = fixture("producer-scan-bytes.xsh", &source);
+            let program = ordinary_ground_fixture("producer-scan-bytes.xsh", &source);
             assert!(program.store.tags.contains(&FullTag::StmtScanBytes));
             assert_ordinary_ground_program(Arc::new(program));
         });
@@ -38445,12 +38565,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 ("pure apply(...actions: List[Action]) -> Int { actions[0](1) }", "let actions: List[Action] = [target]; apply(@actions)"),
             ] {
                 let source = format!("type Action = pure(value: Int) -> Int\n{declaration}\npure target(value: Int) -> Int {{ 7 }}\npure helper() -> Int {{ let marker = \"invalid\"; {body} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-                let program = fixture("producer-callable-return-origin.xsh", &source);
+                let program = ordinary_ground_fixture("producer-callable-return-origin.xsh", &source);
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let target = scheme_fixture_root_function(&program, "target");
                 let integer = program.store.function_instruction_range(target).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
                 let text = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 bad.store.tags[integer] = FullTag::ExprStr;
                 bad.store.data[integer] = program.store.data[text];
                 FullVerifier::verify(&bad).expect_err("callable projections must close the actual selected function return");
@@ -38462,7 +38584,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_callback_binders_reject_active_parameter_slot_clobber() {
         run_with_large_stack(|| {
             let source = "pure helper(value: Int) -> Int { let values = [7] |> map { |item| item }; values[0] }\npure read(row) -> Int { let ignored = row.anchor; helper(9).bit_or(0) }\n";
-            let program = fixture("producer-callback-active-slot.xsh", source);
+            let program = ordinary_ground_fixture("producer-callback-active-slot.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "helper");
             let decoder = function_view_decoder(&program.store, helper);
@@ -38472,6 +38594,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let slot = match stage.view { StageView::Map { slot, .. } | StageView::MapBlock { slot, .. } => slot, _ => panic!("callback is an ordinary map") };
             assert_ne!(slot, 0);
             let mut bad = program.clone();
+            bad.store.in_place.take();
+            assert!(bad.store.in_place.get().is_none());
             let payload = bad.store.stage_data[stage.id.raw() as usize].range().start as usize;
             assert_eq!(bad.store.extra[payload], slot as u32);
             bad.store.extra[payload] = 0;
@@ -38640,7 +38764,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_callable_header_writes_close_the_actual_target() {
         run_with_large_stack(|| {
             let source = "type Action = pure(value: Int) -> Int\npure initial(value: Int) -> Int { 7 }\npure replacement(value: Int) -> Int { 7 }\npure invoke(action: Action) -> Int { let marker = \"invalid\"; var selected: Action = action; selected = replacement; selected(1) }\npure helper() -> Int { invoke(initial) }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-callable-header-write.xsh", source);
+            let program = ordinary_ground_fixture("producer-callable-header-write.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "invoke");
             let decoder = function_view_decoder(&program.store, helper);
@@ -38648,6 +38772,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let schema::StmtView::Assign { slot, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
             assert_ne!(slot, 0);
             let mut header = program.clone();
+            header.store.in_place.take();
+            assert!(header.store.in_place.get().is_none());
             header.store.extra[header.store.data[assignment].range().start as usize] = 0;
             for instruction in decoder.instruction_range.clone() {
                 if program.store.tags[instruction] == FullTag::ExprParam && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(actual) if actual == slot) {
@@ -38661,6 +38787,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let text = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
             header.store.tags[integer] = FullTag::ExprStr;
             header.store.data[integer] = program.store.data[text];
+            header.store.in_place.take();
+            assert!(header.store.in_place.get().is_none());
             FullVerifier::verify(&header).expect_err("a header assignment must close its actual replacement target return");
         });
     }
@@ -38669,18 +38797,22 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_loop_values_preserve_owner_reachability() {
         run_with_large_stack(|| {
             let source = "pure helper() -> Int { let marker = \"invalid\"; let value = loop { let ignored = loop { break \"inner\" }; break 7; break 8 }; value }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-loop-value-ownership.xsh", source);
+            let program = ordinary_ground_fixture("producer-loop-value-ownership.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "helper");
             let range = program.store.function_instruction_range(helper).unwrap();
             let integer = |number| range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [number, 0]).unwrap();
             let text = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
             let mut unreachable = program.clone();
+            unreachable.store.in_place.take();
+            assert!(unreachable.store.in_place.get().is_none());
             unreachable.store.tags[integer(8)] = FullTag::ExprStr;
             unreachable.store.data[integer(8)] = program.store.data[text];
             FullVerifier::verify(&unreachable).expect("an unreachable break cannot supply an enclosing loop value");
             assert_ordinary_ground_program(Arc::new(unreachable));
             let mut reached = program.clone();
+            reached.store.in_place.take();
+            assert!(reached.store.in_place.get().is_none());
             reached.store.tags[integer(7)] = FullTag::ExprStr;
             reached.store.data[integer(7)] = program.store.data[text];
             FullVerifier::verify(&reached).expect_err("the actual outer-loop break must retain its Int contract");
@@ -38691,13 +38823,15 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_with_fallthrough_preserves_later_return_obligations() {
         run_with_large_stack(|| {
             let source = "pure helper() -> Int { with held = 1 { let marker = \"value\"; let ignored = held } else {}; 7 }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-with-fallthrough.xsh", source);
+            let program = ordinary_ground_fixture("producer-with-fallthrough.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let helper = scheme_fixture_root_function(&program, "helper");
             let decoder = function_view_decoder(&program.store, helper);
             let returned = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [7, 0]).unwrap();
             let text = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
             let mut bad = program.clone();
+            bad.store.in_place.take();
+            assert!(bad.store.in_place.get().is_none());
             bad.store.tags[returned] = FullTag::ExprStr;
             bad.store.data[returned] = program.store.data[text];
             FullVerifier::verify(&bad).expect_err("a falling-through with body cannot erase a later return obligation");
@@ -38712,13 +38846,15 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 ("enum Level { Info, Fault(Str) }\npure make(values: List[Level] = [Fault(\"good\")]) -> List[Level] { values }", true),
             ] {
                 let source = format!("{declaration}\npure helper() -> Int {{ make().len() + 6 }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n");
-                let program = fixture("producer-default-payload.xsh", &source);
+                let program = ordinary_ground_fixture("producer-default-payload.xsh", &source);
                 let _symbols = program.symbol_owner().enter();
                 let make = scheme_fixture_root_function(&program, "make");
                 let parameter = program.store.functions[make].params.start;
                 let cold = program.store.param_cold.binary_search_by_key(&parameter, |row| row.param).unwrap();
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 let default = program.store.param_cold[cold].default;
                 if default != IR_NONE {
                     eprintln!("source-emitted cold default: {declaration}");
@@ -38752,7 +38888,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_record_default_rejects_a_later_duplicate_writer() {
         run_with_large_stack(|| {
             let source = "type Item = {value: Int}\npure make(row: Item = {value: 7}) -> Int { row.value }\npure helper() -> Int { make() }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = fixture("producer-record-default-writers.xsh", source);
+            let program = ordinary_ground_fixture("producer-record-default-writers.xsh", source);
             assert_ordinary_ground_program(Arc::new(program.clone()));
             let _symbols = program.symbol_owner().enter();
             let make = scheme_fixture_root_function(&program, "make");
@@ -38764,6 +38900,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let default = builder.encode_value_id(&LoweredValue::RecordVec(Arc::new(vec![(Name::intern("value"), LoweredValue::Int(7))]))).unwrap();
             builder.store.param_cold[cold].default = default;
             let mut valid = program.clone();
+            valid.store.in_place.take();
+            assert!(valid.store.in_place.get().is_none());
             valid.store = builder.store;
             FullVerifier::verify(&valid).unwrap();
             assert_ordinary_ground_program(Arc::new(valid.clone()));
@@ -38787,12 +38925,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 "[1] |> fold(init: 7) { |total, item| total }",
             ] {
                 let source = format!("pure helper() -> Int {{ {body} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\nlet alternate = false\n");
-                let program = fixture("producer-callback-writers.xsh", &source);
+                let program = ordinary_ground_fixture("producer-callback-writers.xsh", &source);
                 assert_ordinary_ground_program(Arc::new(program.clone()));
                 let helper = scheme_fixture_root_function(&program, "helper");
                 let integer = program.store.function_instruction_range(helper).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [7, 0]).unwrap();
                 let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
                 let mut bad = program.clone();
+                bad.store.in_place.take();
+                assert!(bad.store.in_place.get().is_none());
                 bad.store.tags[integer] = FullTag::ExprBool;
                 bad.store.data[integer] = program.store.data[boolean];
                 FullVerifier::verify(&bad).expect_err("actual callback input and repeated local writes must close independently of context rows");
@@ -38899,7 +39039,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_producer_contexts_close_conditional_collection_inputs() {
         run_with_large_stack(|| {
             let source = "pure helper(flag: Bool) -> List[Int] { let values = if flag { [7] } else { [] }; values.push(9) }\npure read(row) -> Int { let ignored = row.anchor; helper(true).len() }\n";
-            let derivable = Arc::new(fixture("generic-ground-derivable-input.xsh", source));
+            let derivable = Arc::new(ground_read_entry_fixture("generic-ground-derivable-input.xsh", source, "Int"));
             FullVerifier::verify(&derivable).unwrap();
             {
                 let _symbols = derivable.symbol_owner().enter();
@@ -38907,12 +39047,12 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*derivable.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&derivable));
                     evaluator.force_frames = force_frames;
-                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
                     assert_eq!(result, Value::Int(2));
                 }
             }
             let source = "pure helper(flag: Bool) -> List[Int] { collect { for case in [{args: []}, {args: [\"-z\"]}] { yield case.args.len() } } }\npure read(row) -> Int { let ignored = row.anchor; helper(true).len() }\n";
-            let program = Arc::new(fixture("generic-ground-context-input.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-ground-context-input.xsh", source, "Int"));
             FullVerifier::verify(&program).unwrap();
             assert!(program.store.checked_expr_types.iter().any(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_))), "an underivable collection receiver needs an independently closed context");
             let _symbols = program.symbol_owner().enter();
@@ -38920,27 +39060,39 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(2));
             }
             let context = program.store.checked_expr_types.iter().position(|fact| !fact.is_contract()).unwrap();
             let mut missing = (*program).clone();
+            missing.store.in_place.take();
+            assert!(missing.store.in_place.get().is_none());
             missing.store.checked_expr_types.remove(context);
             assert!(FullVerifier::verify(&missing).is_err());
             let mut wrong_owner = (*program).clone();
+            wrong_owner.store.in_place.take();
+            assert!(wrong_owner.store.in_place.get().is_none());
             wrong_owner.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Driver(usize::MAX));
             assert!(FullVerifier::verify(&wrong_owner).is_err());
             let mut duplicate = (*program).clone();
+            duplicate.store.in_place.take();
+            assert!(duplicate.store.in_place.get().is_none());
             duplicate.store.checked_expr_types.insert(context, duplicate.store.checked_expr_types[context]);
             assert!(FullVerifier::verify(&duplicate).is_err());
             let mut wrong_purpose = (*program).clone();
+            wrong_purpose.store.in_place.take();
+            assert!(wrong_purpose.store.in_place.get().is_none());
             wrong_purpose.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false };
             assert!(FullVerifier::verify(&wrong_purpose).is_err());
             let mut changed_type = (*program).clone();
+            changed_type.store.in_place.take();
+            assert!(changed_type.store.in_place.get().is_none());
             let boolean = SemanticPoolBuilder::default().intern_type(&mut changed_type.store.semantic, &Type::Bool).unwrap();
             changed_type.store.checked_expr_types[context].type_id = boolean;
             assert!(FullVerifier::verify(&changed_type).is_err());
             let mut capacity = (*program).clone();
+            capacity.store.in_place.take();
+            assert!(capacity.store.in_place.get().is_none());
             let before = capacity.store.retained_bytes();
             let old_capacity = capacity.store.checked_expr_types.capacity();
             capacity.store.checked_expr_types.reserve_exact(old_capacity + 17);
@@ -38949,6 +39101,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             assert_eq!(capacity.store.retained_bytes() - before, row_bytes);
             eprintln!("producer context row bytes: {}; reserved capacity delta: {row_bytes}", size_of::<FullCheckedExprType>());
             let mut unused = (*program).clone();
+            unused.store.in_place.take();
+            assert!(unused.store.in_place.get().is_none());
             let original = unused.store.checked_expr_types[context];
             let literal = unused.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
             unused.store.checked_expr_types.push(FullCheckedExprType { instruction: literal as u32, ..original });
@@ -39024,7 +39178,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_producers_keep_disjoint_reused_slots_independent() {
         run_with_large_stack(|| {
             let source = "pure helper(flag: Bool) -> Int { if flag { let scoped = \"text\"; let length = scoped.byte_len() }; let scoped = 7; scoped }\npure read(row) -> Int { let ignored = row.anchor; helper(true).bit_or(0) }\n";
-            let mut program = fixture("generic-ground-slot-lifetimes.xsh", source);
+            let mut program = ground_read_entry_fixture("generic-ground-slot-lifetimes.xsh", source, "Int");
             FullVerifier::verify(&program).unwrap();
             let helper = scheme_fixture_root_function(&program, "helper");
             let range = program.store.function_instruction_range(helper).unwrap();
@@ -39060,7 +39214,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(7));
             }
         });
@@ -39158,7 +39312,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_pure_host_capture_requires_its_lexical_writer_field_type() {
         run_with_large_stack(|| {
             let source = "let marker = {value: 1}\nlet alternate = false\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n";
-            let program = Arc::new(fixture("generic-pure-capture-field-proof.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-pure-capture-field-proof.xsh", source, "Int"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
@@ -39168,12 +39322,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Int(1));
             }
             let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
             let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             forged.store.tags[integer] = FullTag::ExprBool;
             forged.store.data[integer] = forged.store.data[boolean];
             assert!(FullVerifier::verify(&forged).is_err());
@@ -39184,7 +39340,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_literal_record_capture_preserves_pure_data_expressions() {
         run_with_large_stack(|| {
             let source = "let marker = {negative: -1, arithmetic: (2 + 3) * 4, selected: {value: 7}.value}\npure read(row) -> List[Int] { let ignored = row.anchor; [marker.negative, marker.arithmetic.bit_or(0), marker.selected.bit_or(0)] }\n";
-            let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-capture-literal-expressions.xsh", source, "List[Int]"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for tag in [FullTag::ExprBinary, FullTag::ExprField] {
@@ -39197,7 +39353,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::List(vec![Value::Int(-1), Value::Int(20), Value::Int(7)]));
             }
         });
@@ -39207,7 +39363,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_literal_record_capture_preserves_boolean_and_float_unary_values() {
         run_with_large_stack(|| {
             let source = "type Marker = {negative: Float, flag: Bool}\nlet marker = {negative: -1.25, flag: !false}\npure read(row) -> Marker { let ignored = row.anchor; marker }\n";
-            let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-capture-literal-expressions.xsh", source, "Marker"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             assert!((0..program.store.driver_steps.len()).any(|step| program.store.tags[program.store.driver_instruction_range(step).unwrap()].contains(&FullTag::ExprIf)));
@@ -39218,7 +39374,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Record(BTreeMap::from([(Arc::from("negative"), Value::Float(crate::runtime::value::FloatValue::new(-1.25))), (Arc::from("flag"), Value::Bool(true))]).into()));
             }
         });
@@ -39234,19 +39390,23 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             assert_eq!(verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
+            let execution = Arc::new(ground_read_entry_fixture("generic-capture-only-demand-entry.xsh", source, "Marker"));
+            let _execution_symbols = execution.symbol_owner().enter();
             for force_frames in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*execution.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&execution));
                 evaluator.force_frames = force_frames;
-                for step in 0..program.driver_step_count().unwrap() {
-                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                for step in 0..execution.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(execution.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(execution.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(1))]).into()));
             }
             let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
             let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             forged.store.tags[integer] = FullTag::ExprBool;
             forged.store.data[integer] = forged.store.data[boolean];
             assert!(FullVerifier::verify(&forged).is_err());
@@ -39257,7 +39417,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_record_capture_checks_nested_and_unread_literal_payloads() {
         run_with_large_stack(|| {
             let source = "pure factory(lower: Int, upper: Int) -> Stream[Int] { range(lower, upper) }\nlet marker = {value: 1, hidden: [0, 2]}\nlet spare = factory(0, 2)\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n";
-            let program = Arc::new(fixture("generic-capture-whole-literal.xsh", source));
+            let program = Arc::new(ground_read_entry_fixture("generic-capture-whole-literal.xsh", source, "Int"));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
@@ -39267,7 +39427,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Int(1));
             }
             let read = scheme_fixture_named_function(&program, "read");
@@ -39277,6 +39437,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let mut fields = (*fields).clone();
             assert_eq!(fields.insert(Name::intern("hidden"), Type::Stream(Box::new(Type::Int))), Some(Type::List(Box::new(Type::Int))));
             let mut forged = (*program).clone();
+            forged.store.in_place.take();
+            assert!(forged.store.in_place.get().is_none());
             let mut semantic = SemanticPoolBuilder::default();
             let actual = semantic.intern_type(&mut forged.store.semantic, &Type::Record(fields.into())).unwrap();
             for capture in &mut forged.store.captures { if capture.type_id == wide { capture.type_id = actual; } }
@@ -39293,8 +39455,15 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let schema::ExprView::List(values) = decoder.expression_view(list).unwrap() else { unreachable!() };
             let values = values.map(|value| value.unwrap().raw()).collect::<Vec<_>>();
             assert_eq!(values.len(), 2);
-            let call = program.store.tags.iter().position(|tag| *tag == FullTag::ExprDirectPureCall).unwrap();
-            let call_step = (0..program.store.driver_steps.len()).find(|step| program.store.driver_instruction_range(*step).unwrap().contains(&call)).unwrap();
+            let factory = scheme_fixture_root_function(&program, "factory");
+            let calls = (0..program.store.driver_steps.len()).flat_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                decoder.instruction_range.clone().filter_map(move |instruction| {
+                    matches!(decoder.expression_view(instruction), Ok(schema::ExprView::DirectPureCall { function, span, .. }) if function.id.index() == factory && &source[span.range()] == "factory(0, 2)").then_some((step, instruction))
+                })
+            }).collect::<Vec<_>>();
+            assert_eq!(calls.len(), 1);
+            let (call_step, call) = calls[0];
             let call_decoder = verify_schemes::decoder_for_driver_step(&program.store, call_step).unwrap();
             let schema::ExprView::DirectPureCall { args, .. } = call_decoder.expression_view(call).unwrap() else { unreachable!() };
             assert_eq!(args.count(), 2);
@@ -40661,13 +40830,13 @@ pure foreign(payload, count: Int) {
         run_with_large_stack(|| {
             let values = (0..4096).map(|value| value.to_string()).collect::<Vec<_>>().join(",");
             let source = format!("const data: List[Int] = [{values}]\npure helper() -> List[Int] {{ data }}\npure read(row) -> List[Int] {{ let ignored = row.anchor; helper().push(4096) }}\n");
-            let program = Arc::new(fixture("prepared-constant-producer-work.xsh", &source));
+            let program = Arc::new(ground_read_entry_fixture("prepared-constant-producer-work.xsh", &source, "List[Int]"));
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "checked_read_entry")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::List((0..4097).map(Value::Int).collect()));
             }
         });
@@ -41968,18 +42137,17 @@ pure foreign(payload, count: Int) {
         );
     }
 
-    /// A deferred action carries whether it is an `errdefer` as one boolean
-    /// word, in a function body and at the top level alike. Any other value
-    /// would be read as one of the two, so the verifier rejects it.
     #[test]
-    fn verifier_rejects_a_deferred_action_whose_trigger_is_not_a_boolean() {
-        let program = fixture(
+    fn verifier_rejects_invalid_statement_and_driver_defer_kinds() {
+        let mut program = fixture(
             "indexed-errdefer.xsh",
             "proc step() -> Int {\n  errdefer { print \"undo\" }\n  defer { print \"done\" }\n  1\n}\n\nerrdefer { print \"undo\" }\ndefer { print \"done\" }\nprint $step()\n",
         );
+        program.store.in_place.take();
         FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
 
-        // In a function body the payload is the action and the trigger.
         let statement_triggers = program
             .store
             .tags
@@ -42002,7 +42170,6 @@ pure foreign(payload, count: Int) {
         written.sort_unstable();
         assert_eq!(written, [0, 1], "one `defer` and one `errdefer`");
 
-        // At the top level it is the action, the trigger, and the span.
         let driver_triggers = program
             .store
             .driver_steps
@@ -42022,12 +42189,16 @@ pure foreign(payload, count: Int) {
         assert_eq!(program.driver_step_defers_on_error(1).ok(), Some(true));
         assert_eq!(program.driver_step_defers_on_error(2).ok(), Some(false));
 
-        for word in statement_triggers.into_iter().chain(driver_triggers) {
+        for (word, invalid, expected) in statement_triggers.into_iter()
+            .map(|word| (word, 3, "defer kind is invalid"))
+            .chain(driver_triggers.into_iter().map(|word| (word, 2, "boolean payload")))
+        {
             let mut corrupt = program.clone();
-            corrupt.store.extra[word] = 2;
+            assert!(corrupt.store.in_place.get().is_none());
+            corrupt.store.extra[word] = invalid;
             let error = FullVerifier::verify(&corrupt).unwrap_err();
             assert!(
-                error.message.contains("boolean payload"),
+                error.message.contains(expected),
                 "{}",
                 error.message
             );
@@ -46879,17 +47050,18 @@ assert held.other("demo") == "demo"
 assert held.marker
 "#);
             FullVerifier::verify(&program).unwrap();
-            assert_eq!(size_of::<schemes::FullCallInstantiation>(), 60);
-            assert_eq!(size_of::<schemes::FullInstantiation>(), 56);
+            assert_eq!(size_of::<schemes::FullCallInstantiation>(), 76);
+            assert_eq!(size_of::<schemes::FullInstantiation>(), 72);
             assert_eq!(size_of::<value_materialization::FullValueMaterialization>(), 16);
             assert_eq!(size_of::<value_materialization::FullMaterializationNode>(), 16);
             assert_eq!(size_of::<value_materialization::FullMaterializationEdge>(), 8);
-            assert_eq!(size_of::<value_materialization::FullMaterializationLeaf>(), 60);
+            assert_eq!(size_of::<value_materialization::FullMaterializationLeaf>(), 76);
             let retained = program.store.value_materializations.capacity() * size_of::<value_materialization::FullValueMaterialization>()
                 + program.store.materialization_nodes.capacity() * size_of::<value_materialization::FullMaterializationNode>()
                 + program.store.materialization_edges.capacity() * size_of::<value_materialization::FullMaterializationEdge>()
                 + program.store.materialization_leaves.capacity() * size_of::<value_materialization::FullMaterializationLeaf>();
-            assert_eq!(retained, 224);
+            assert_eq!(program.store.materialization_leaves.capacity(), 2);
+            assert_eq!(retained, 224 + 2 * 2 * size_of::<IrRange>());
             let header = program.store.value_materializations[0];
             let root = program.store.materialization_nodes[header.root as usize];
             let children = root.children.bounds(program.store.materialization_edges.len()).unwrap();
@@ -46899,18 +47071,28 @@ assert held.marker
             let first = program.store.materialization_nodes[callable_nodes[0]].leaf as usize;
             let second = program.store.materialization_nodes[callable_nodes[1]].leaf as usize;
             let mut foreign = program.clone();
+            foreign.store.in_place.take();
+            assert!(foreign.store.in_place.get().is_none());
             foreign.store.materialization_leaves[first].relationship = program.store.materialization_leaves[second].relationship;
             assert!(FullVerifier::verify(&foreign).is_err(), "compatible but unrelated targets cannot replace the actual source leaf");
             let mut shared = program.clone();
+            shared.store.in_place.take();
+            assert!(shared.store.in_place.get().is_none());
             shared.store.materialization_leaves[first].instance.type_arguments = program.store.materialization_leaves[second].instance.type_arguments;
             assert!(FullVerifier::verify(&shared).is_err(), "leaf substitutions are exclusively owned");
             let mut duplicate = program.clone();
+            duplicate.store.in_place.take();
+            assert!(duplicate.store.in_place.get().is_none());
             duplicate.store.materialization_edges[children.start + 1].name = program.store.materialization_edges[children.start].name;
             assert!(FullVerifier::verify(&duplicate).is_err(), "each structural field path is authenticated once");
             let mut orphan = program.clone();
+            orphan.store.in_place.take();
+            assert!(orphan.store.in_place.get().is_none());
             orphan.store.value_materializations.push(header);
             assert!(FullVerifier::verify(&orphan).is_err(), "every retained plan has one actual CheckedValue owner");
             let mut missing = program.clone();
+            missing.store.in_place.take();
+            assert!(missing.store.in_place.get().is_none());
             missing.store.materialization_nodes[callable_nodes[0]].kind = value_materialization::FullMaterializationKind::Keep;
             missing.store.materialization_nodes[callable_nodes[0]].leaf = IR_NONE;
             assert!(FullVerifier::verify(&missing).is_err(), "a missing conversion cannot establish a monomorphic destination");
@@ -47094,22 +47276,57 @@ assert unrelated("kept") == "kept"
                     let function = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "increment").unwrap();
                     let text = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "text").unwrap();
                     let mut wrong_signature = (*program).clone();
+                    wrong_signature.store.in_place.take();
+                    assert!(wrong_signature.store.in_place.get().is_none());
                     wrong_signature.store.functions[function].contract = program.store.functions[text].contract;
                     assert!(FullVerifier::verify(&wrong_signature).is_err());
                     let mut wrong_target = (*program).clone();
+                    wrong_target.store.in_place.take();
+                    assert!(wrong_target.store.in_place.get().is_none());
                     for reference in references { wrong_target.store.data[reference] = program.store.data[unrelated.instruction as usize]; }
                     assert!(FullVerifier::verify(&wrong_target).is_err());
                     let candidate = program.store.tags.iter().position(|tag| *tag == FullTag::StmtLet).unwrap();
                     let slot = program.store.extra[program.store.data[candidate].range().start as usize];
                     let assignment = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssign).unwrap();
                     let mut mutable_source = (*program).clone();
+                    mutable_source.store.in_place.take();
+                    assert!(mutable_source.store.in_place.get().is_none());
                     mutable_source.store.extra[program.store.data[assignment].range().start as usize] = slot;
-                    assert!(FullVerifier::verify(&mutable_source).is_err());
-                    for force_frames in [false, true] {
-                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                        evaluator.force_frames = force_frames;
-                        evaluator.indexed_program = Some(Arc::clone(&program));
-                        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+                    let step = (0..program.store.driver_steps.len()).find(|&step| program.store.driver_instruction_range(step).unwrap().contains(&assignment)).unwrap();
+                    let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                    let schema::StmtView::Assign { slot: original_slot, value: assigned, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+                    assert_ne!(original_slot, slot as usize);
+                    assert!(matches!(decoder.expression_view(assigned.raw() as usize).unwrap(), schema::ExprView::FunctionRef { .. }));
+                    let assigned = assigned.raw() as usize;
+                    let mut incompatible_writer = mutable_source.clone();
+                    incompatible_writer.store.in_place.take();
+                    assert!(incompatible_writer.store.in_place.get().is_none());
+                    incompatible_writer.store.data[assigned] = program.store.data[unrelated.instruction as usize];
+                    assert!(!program.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == assigned), "the assignment derives its source from the actual function reference");
+                    for target in &mut incompatible_writer.store.checked_call_targets {
+                        if target.instruction as usize == assigned { target.function = IrFunctionId::new(text).unwrap(); }
+                    }
+                    let error = FullVerifier::verify(&incompatible_writer).expect_err("an actual incompatible assignment cannot replace the callable slot contract");
+                    assert_eq!(error.message, "local slot type fact disagrees with its initializer IR representation");
+                    let expected_instruction = program.store.tags.iter().enumerate().filter_map(|(instruction, tag)| {
+                        (*tag == FullTag::ExprInt && matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(value)) if value == i64::from(expected))).then_some(instruction)
+                    }).collect::<Vec<_>>();
+                    assert_eq!(expected_instruction.len(), 1);
+                    let replacement = if second == "increment" { 4 } else { 2 };
+                    let expected_payload = program.store.data[expected_instruction[0]].range().bounds(program.store.extra.len()).unwrap();
+                    assert_eq!(&program.store.extra[expected_payload.clone()], &[expected as u32, 0]);
+                    mutable_source.store.extra[expected_payload.start] = replacement;
+                    FullVerifier::verify(&mutable_source).unwrap();
+                    for executed in [Arc::clone(&program), Arc::new(mutable_source)] {
+                        for force_frames in [false, true] {
+                            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*executed.sources).clone());
+                            evaluator.force_frames = force_frames;
+                            evaluator.indexed_program = Some(Arc::clone(&executed));
+                            for step in 0..executed.driver_step_count().unwrap() {
+                                let completion = evaluator.eval_indexed_driver_step(step, Span::at(executed.store.source_id, 0)).unwrap().unwrap();
+                                assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {completion:?}");
+                            }
+                        }
                     }
                 }
             }
@@ -48910,9 +49127,87 @@ pure apply(container: Outer, fallback: RequiredInner) -> Int {
   select(container, fallback).holder.callback(1)
 }
 "#] {
-            let program = fixture("optional-record-field-value-transfer.xsh", source);
+            let mut program = fixture("optional-record-field-value-transfer.xsh", source);
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
             FullVerifier::verify(&program).unwrap();
+            let cold = || {
+                let mut program = program.clone();
+                program.store.in_place.take();
+                assert!(program.store.in_place.get().is_none());
+                program
+            };
+            let _symbols = program.symbol_owner().enter();
+            let owner = scheme_fixture_root_function(&program, "select");
+            let decoder = function_view_decoder(&program.store, owner);
+            let comparisons = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| {
+                let schema::ExprView::Binary { op: BinaryOp::Ne, left, right, .. } = decoder.expression_view(instruction).ok()? else { return None };
+                let subject = if matches!(decoder.expression_view(left.raw() as usize).unwrap(), schema::ExprView::Null) { right }
+                    else if matches!(decoder.expression_view(right.raw() as usize).unwrap(), schema::ExprView::Null) { left }
+                    else { return None };
+                Some((instruction, subject.raw() as usize))
+            }).collect::<Vec<_>>();
+            assert!(!comparisons.is_empty());
+            for (comparison, subject) in comparisons {
+                let mut wrong_guard = cold();
+                let operation = wrong_guard.store.extra[wrong_guard.store.data[comparison].range().start as usize] as usize;
+                wrong_guard.store.binary_ops[operation] = BinaryOp::Eq;
+                let error = FullVerifier::verify(&wrong_guard).expect_err("each optional value transfer requires its actual null guard");
+                assert!(!error.message.contains("work bound"), "{error:?}");
+
+                let fact = program.store.checked_expr_types.binary_search_by_key(&(subject as u32), |fact| fact.instruction)
+                    .expect("the callable-bearing guard field retains its physical contract");
+                let Type::Optional(payload) = program.store.semantic.to_type(program.store.checked_expr_types[fact].type_id).unwrap() else {
+                    panic!("the guard subject retains its optional contract")
+                };
+                let Type::Record(fields) = payload.as_ref() else { panic!("the guard subject contains a record") };
+                let mut fields = fields.as_ref().clone();
+                fields.insert(Name::intern("missing"), Type::Int);
+                let mut wrong_field = cold();
+                let mut semantic = SemanticPoolBuilder::default();
+                wrong_field.store.checked_expr_types[fact].type_id = semantic.intern_type(
+                    &mut wrong_field.store.semantic, &Type::Optional(Box::new(Type::Record(Arc::new(fields)))),
+                ).unwrap();
+                let error = FullVerifier::verify(&wrong_field).expect_err("a source contract cannot replace the guard field's structural producer");
+                assert!(error.message.contains("checked field fact disagrees"), "{error:?}");
+            }
         }
+    }
+
+    #[test]
+    fn typed_callable_optional_record_value_transfer_rejects_preceding_write() {
+        let mut program = fixture("optional-record-value-transfer-write.xsh", r#"type Holder = {callback: pure(n: Int) -> Int}
+type Container = {holder: Holder?}
+pure select(container: Container, fallback: Holder) -> Holder {
+  var current = container
+  if current.holder != null {
+    let selected = current.holder
+    current.holder = null
+    return selected
+  }
+  fallback
+}
+"#);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        let body = first_if_body_block(&program, "select");
+        let range = block_statement_range(&program, body);
+        let statements = &program.store.extra[range.clone()];
+        assert_eq!(statements.len(), 3);
+        let transfer = statements[0] as usize;
+        let write = statements[1] as usize;
+        let owner = scheme_fixture_root_function(&program, "select");
+        let decoder = function_view_decoder(&program.store, owner);
+        let schema::StmtView::Let { value, .. } = decoder.statement_view(transfer).unwrap() else { panic!("the first statement binds the narrowed record") };
+        assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Field { name: "holder", .. }));
+        assert_eq!(program.store.tags[write], FullTag::StmtAssignField);
+        let mut reordered = program.clone();
+        reordered.store.in_place.take();
+        assert!(reordered.store.in_place.get().is_none());
+        reordered.store.extra[range].swap(0, 1);
+        let error = FullVerifier::verify(&reordered).expect_err("an overlapping write invalidates source-backed optional record presence");
+        assert!(!error.message.contains("work bound"), "{error:?}");
     }
 
     #[test]
@@ -49364,6 +49659,143 @@ pure apply(holder: Holder?, n: Int, flag: Bool) -> Int {
                 assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
             }
         });
+    }
+
+    #[test]
+    fn optional_fallback_guard_aliases_authenticate_snapshots_and_writers() {
+        let mut program = fixture("optional-fallback-guard-authority.xsh", r#"pure aliased(value: Int?) -> Bool {
+  let present = value != null
+  present and (value ?? -1) > 0
+}
+pure shadowed(value: Int?, other: Int?) -> Bool {
+  let present = value != null
+  let _ = present
+  if true {
+    let value = other
+    let present = value != null
+    return present and (value ?? -1) > 0
+  }
+  false
+}
+pure written(value: Int?) -> Bool {
+  var current = value
+  let present = current != null
+  if current != null {
+    let answer = present and current > 0
+    current = null
+    return answer
+  }
+  false
+}
+pure absent(value: Int?) -> Bool { value == null }
+"#);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        let cold = || {
+            let mut program = program.clone();
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            program
+        };
+        let proves_alias = |program: &FullProgram, function: &str, condition, target_slot| {
+            let decoder = return_analysis_decoder(program, function);
+            let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+            index.record(&decoder).unwrap();
+            let prefix = index.prefix_context(decoder.owner, &decoder.instruction_range).unwrap().unwrap();
+            let declared = program.store.semantic.to_type(decoder.checked_slot_type(target_slot).unwrap().unwrap()).unwrap();
+            let Type::Optional(payload) = declared else { panic!("the protected physical binding is optional") };
+            decoder.checked_condition_proves_nonnull_with_prefix(condition, true, false, condition, &(target_slot, Vec::new()),
+                GuardedReadContract::OptionalPayload(&payload), GuardPathStability::ImmutableSnapshot, Some(&prefix), None, &mut |_| Ok(())).unwrap()
+        };
+        let comparison = function_instruction_indices(&program, "aliased", FullTag::BoolLiteralCompareSlot)[0];
+        let owner = scheme_fixture_root_function(&program, "aliased");
+        let decoder = function_view_decoder(&program.store, owner);
+        let binding = function_instruction_indices(&program, "aliased", FullTag::StmtLetBool)[0];
+        let schema::StmtView::LetBool { slot: alias_slot, .. } = decoder.statement_view(binding).unwrap() else { unreachable!() };
+        let alias_condition = function_instruction_indices(&program, "aliased", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == alias_slot)
+        }).unwrap();
+        assert!(proves_alias(&cold(), "aliased", alias_condition, 0));
+        let equal = program.store.binary_ops.iter().position(|op| *op == BinaryOp::Eq).unwrap();
+        let mut initializer = cold();
+        initializer.store.extra[program.store.data[comparison].range().start as usize] = equal as u32;
+        assert!(!proves_alias(&initializer, "aliased", alias_condition, 0));
+
+        let owner = scheme_fixture_root_function(&program, "shadowed");
+        let decoder = function_view_decoder(&program.store, owner);
+        let bindings = function_instruction_indices(&program, "shadowed", FullTag::StmtLetBool).into_iter().filter_map(|instruction| {
+            let schema::StmtView::LetBool { slot, .. } = decoder.statement_view(instruction).unwrap() else { return None };
+            Some(slot)
+        }).collect::<Vec<_>>();
+        assert_eq!(bindings.len(), 2);
+        let alias = function_instruction_indices(&program, "shadowed", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == bindings[1])
+        }).unwrap();
+        let comparison = function_instruction_indices(&program, "shadowed", FullTag::BoolLiteralCompareSlot).into_iter().find(|&instruction| {
+            program.store.extra[program.store.data[instruction].range().start as usize + 1] != 0
+        }).unwrap();
+        let target_slot = program.store.extra[program.store.data[comparison].range().start as usize + 1] as usize;
+        assert!(proves_alias(&cold(), "shadowed", alias, target_slot));
+        let mut shadow = cold();
+        shadow.store.extra[program.store.data[alias].range().start as usize] = bindings[0] as u32;
+        assert!(!proves_alias(&shadow, "shadowed", alias, target_slot));
+
+        let owner = scheme_fixture_root_function(&program, "written");
+        let decoder = function_view_decoder(&program.store, owner);
+        let declaration = function_instruction_indices(&program, "written", FullTag::StmtLet)[0];
+        let schema::StmtView::Let { slot: target_slot, .. } = decoder.statement_view(declaration).unwrap() else { unreachable!() };
+        let read = function_instruction_indices(&program, "written", FullTag::ExprParam).into_iter().find(|&instruction| {
+            matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == target_slot)
+        }).unwrap();
+        let proves_read = |program: &FullProgram| {
+            let decoder = return_analysis_decoder(program, "written");
+            let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+            index.record(&decoder).unwrap();
+            let prefix = index.prefix_context(decoder.owner, &decoder.instruction_range).unwrap().unwrap();
+            let declared = program.store.semantic.to_type(decoder.checked_slot_type(target_slot).unwrap().unwrap()).unwrap();
+            let Type::Optional(payload) = declared else { panic!("the mutable physical binding retains optional storage") };
+            prefix.optional_path_is_narrowed(&decoder, read, &(target_slot, Vec::new()), &payload, &mut |_| Ok(())).unwrap()
+        };
+        assert!(proves_read(&cold()));
+        let body = first_if_body_block(&program, "written");
+        let range = block_statement_range(&program, body);
+        let statements = &program.store.extra[range.clone()];
+        assert_eq!(statements.len(), 3);
+        assert_eq!(program.store.tags[statements[1] as usize], FullTag::StmtAssign);
+        let mut written = cold();
+        written.store.extra[range].swap(0, 1);
+        assert!(!proves_read(&written));
+    }
+
+    #[test]
+    fn optional_guard_identity_conditions_reject_foreign_contexts() {
+        let mut program = fixture("optional-guard-condition-owner.xsh", "pure guarded(value: Int?) -> Bool { let present = value != null; present and (value ?? -1) > 0 }\n");
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let mut decoder = return_analysis_decoder(&program, "guarded");
+        let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+        index.record(&decoder).unwrap();
+        let prefix = index.prefix_context(decoder.owner, &decoder.instruction_range).unwrap().unwrap();
+        let condition = decoder.instruction_range.clone().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: BinaryOp::Gt, .. }))
+        }).unwrap();
+        let declared = program.store.semantic.to_type(decoder.checked_slot_type(0).unwrap().unwrap()).unwrap();
+        let Type::Optional(payload) = declared else { panic!("the physical parameter retains its optional contract") };
+        let prove = |decoder: &FullDecoder<'_>, condition| decoder.checked_condition_proves_nonnull_with_prefix(
+            condition, true, false, condition, &(0, Vec::new()), GuardedReadContract::OptionalPayload(&payload),
+            GuardPathStability::ImmutableSnapshot, Some(&prefix), None, &mut |_| Ok(()),
+        );
+        assert!(!prove(&decoder, condition).unwrap());
+        let owner = decoder.owner;
+        decoder.owner = owner + 1;
+        assert_eq!(prove(&decoder, condition).unwrap_err().message, "guard value context disagrees with its owner");
+        decoder.owner = owner;
+        let range = decoder.instruction_range.clone();
+        decoder.instruction_range = range.start..range.end - 1;
+        assert_eq!(prove(&decoder, condition).unwrap_err().message, "guard value context disagrees with its owner");
+        decoder.instruction_range = range.clone();
+        assert_eq!(prove(&decoder, range.end).unwrap_err().message, "guard value leaves its owner range");
     }
 
     #[test]
@@ -52415,13 +52847,13 @@ pure apply() -> Int {
 
     #[test]
     fn signal_hook_errors_restore_live_bindings_and_root_slots() {
-        for failure in ["let _ = 1 / divisor", "exit 23"] {
+        for (failure, effects) in [("let _ = 1 / divisor", "[]"), ("exit 23", "[process]")] {
             let source = r#"var label = "before"
     var divisor = 0
     pure current() -> Str { label }
     on USR1 [] { label = "hook"; let _ = 1 / divisor }
     label = "after"
-    "#.replace("let _ = 1 / divisor", failure);
+    "#.replace("let _ = 1 / divisor", failure).replace("on USR1 []", &format!("on USR1 {effects}"));
             let program = Arc::new(fixture("signal-hook-restore.xsh", &source));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
@@ -52818,7 +53250,19 @@ pure apply() -> Int {
             source_id,
         )
         .unwrap();
+        drop(parsed);
+        drop(declarations);
         FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::new(program.clone()));
+            for step in 0..program.driver_step_count().unwrap() {
+                let completion = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+                assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {completion:?}");
+            }
+            assert_eq!(evaluator.stdout, b"2\na\n", "frames={force_frames}");
+        }
 
         let import_step = |suffix: &str| {
             program
@@ -52839,19 +53283,29 @@ pure apply() -> Int {
         };
         let first = import_step("first.xsh");
         let second = import_step("second.xsh");
-        // Both modules export `format` as a pure alias, so only the signature
-        // of the aliased callable tells the two registered types apart.
+        let registered_callable = |step: usize| {
+            let ty = TypeId::from_raw(program.store.driver_steps[step].registered_module_type).unwrap();
+            let Type::Module(module) = program.store.semantic.to_type(ty).unwrap() else { panic!("the import retains its exact module contract") };
+            assert_eq!(module.exports.len(), 1);
+            let Type::Callable(callable) = module.exports.values().next().unwrap().static_callable_value_type().unwrap() else { panic!("the export retains its actual callable signature") };
+            assert_eq!(callable.kind, CallableKind::Pure);
+            assert_eq!(callable.sig.params.len(), 1);
+            assert!(!callable.sig.params[0].defaulted && !callable.sig.params[0].rest);
+            callable
+        };
+        let integer = registered_callable(first);
+        let text = registered_callable(second);
+        assert_eq!(integer.sig.params[0].ty, Type::Int);
+        assert_eq!(integer.sig.return_ty.as_ref(), &Type::Int);
+        assert_eq!(text.sig.params[0].ty, Type::Str);
+        assert_eq!(text.sig.return_ty.as_ref(), &Type::Str);
         let mut forged = program.clone();
+        forged.store.in_place.take();
+        assert!(forged.store.in_place.get().is_none());
         forged.store.driver_steps[first].registered_module_type =
             program.store.driver_steps[second].registered_module_type;
         let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error
-                .message
-                .contains("checked module callable export disagrees with its expected type"),
-            "{}",
-            error.message
-        );
+        assert_eq!(error.message, "checked expression child type disagrees with its producer");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -53022,17 +53476,13 @@ pure apply() -> Int {
             })
             .expect("imported callable field receiver is a parameter");
         let mut wrong_receiver = program.clone();
+        wrong_receiver.store.in_place.take();
+        assert!(wrong_receiver.store.in_place.get().is_none());
         wrong_receiver.store.extra
             [wrong_receiver.store.data[receiver].range().start as usize] = other_module_slot;
+        program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_receiver.store)).unwrap();
         let error = FullVerifier::verify(&wrong_receiver).unwrap_err();
-        assert!(
-            error.message == "checked field fact disagrees with its structural receiver"
-                || error
-                    .message
-                    .contains("typed call signature differs from its callee field's callable type"),
-            "{}",
-            error.message
-        );
+        assert_eq!(error.message, "checked field fact disagrees with its structural receiver");
 
         let driver_step = program
             .store
@@ -53083,18 +53533,14 @@ pure apply() -> Int {
             })
             .expect("top-level field receiver is a parameter");
         let mut wrong_driver_receiver = program.clone();
+        wrong_driver_receiver.store.in_place.take();
+        assert!(wrong_driver_receiver.store.in_place.get().is_none());
         wrong_driver_receiver.store.extra
             [wrong_driver_receiver.store.data[driver_receiver].range().start as usize] =
             other_driver_slot;
+        program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_driver_receiver.store)).unwrap();
         let error = FullVerifier::verify(&wrong_driver_receiver).unwrap_err();
-        assert!(
-            error.message == "checked field fact disagrees with its structural receiver"
-                || error
-                    .message
-                    .contains("typed call signature differs from its callee field's callable type"),
-            "{}",
-            error.message
-        );
+        assert_eq!(error.message, "checked field fact disagrees with its structural receiver");
 
         let _ = fs::remove_dir_all(root);
     }

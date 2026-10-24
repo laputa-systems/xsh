@@ -23,6 +23,7 @@ impl Checker {
         input: ExprId,
         stages: crate::syntax::arena::ArenaRange,
     ) -> Type {
+        let pipeline_input = input;
         let input_ty = self.check_expr_arena(arena, source, input, None);
         let Some((first, rest)) = arena.arena.stream_stages(stages).split_first() else {
             return input_ty;
@@ -44,7 +45,7 @@ impl Checker {
                     Type::Stream(Box::new(Type::Unknown))
                 }
                 Ok(ty) => {
-                    let output = self.check_stream_stage_arena(arena, source, first, ty.clone());
+                    let output = self.check_stream_stage_arena(arena, source, first, ty.clone(), false);
                     self.stream_stage_types.insert(
                         (self.current_namespace, arena.arena.span(first.span)),
                         super::CheckedStreamStage {
@@ -65,9 +66,30 @@ impl Checker {
             }
         };
 
-        for stage in rest {
+        let mut previous_stage = first;
+
+        for (index, stage) in rest.iter().enumerate() {
             let input = current;
-            current = self.check_stream_stage_arena(arena, source, stage, input.clone());
+            let sort_input_has_no_items = stage.kind == StreamStageKind::Sort
+                && matches!(&input, Type::Stream(item) if item.as_ref() == &Type::Unknown)
+                && previous_stage.kind == StreamStageKind::Map
+                && previous_stage.block.is_some_and(|block| {
+                    !self.stream_block_may_complete(arena, block)
+                        && self.stream_pipeline_callback_is_required_arena(
+                            arena,
+                            pipeline_input,
+                            stages,
+                            index,
+                        )
+                });
+            current = self.check_stream_stage_arena(
+                arena,
+                source,
+                stage,
+                input.clone(),
+                sort_input_has_no_items,
+            );
+            previous_stage = stage;
             self.stream_stage_types.insert(
                 (self.current_namespace, arena.arena.span(stage.span)),
                 super::CheckedStreamStage {
@@ -113,6 +135,7 @@ impl Checker {
         source: &str,
         stage: &ArenaStreamStage,
         current: Type,
+        input_cannot_emit_items: bool,
     ) -> Type {
         let stage_span = arena.arena.span(stage.span);
         let Type::Stream(item_ty) = current else {
@@ -325,7 +348,9 @@ impl Checker {
                         DiagnosticCode::CheckStreamStageBlock,
                     );
                 }
-                self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::SortKey, &item_ty, stage_span);
+                if !input_cannot_emit_items {
+                    self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::SortKey, &item_ty, stage_span);
+                }
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::SortBy => {
@@ -1282,6 +1307,69 @@ mod inferred_sort_key_tests {
             assert!(errors.is_empty(), "{source}\n{errors:?}");
             let start = source.find("sort-by .name").unwrap() + 8;
             assert_eq!(checked.expr_types.get(&crate::source::Span::new(SourceId::new(0), start, start + 5)), Some(&super::Type::Str));
+        }
+    }
+
+    #[test]
+    fn sort_accepts_unknown_only_after_a_noncompleting_map_block() {
+        let positive = "pure sort_materializes() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }\npure typed_sort(items: List[Int]) -> List[Int] { items |> sort }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), positive);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, positive);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+
+        for source in [
+            "pure unsupported() { [1] |> map { |item| 1.5 } |> sort }\n",
+            "pure unresolved() { [] |> sort }\n",
+            "pure empty_source() -> Int { let ignored = [] |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+            "pure maybe_source(items: List[Int]) -> Int { let ignored = items |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+            "pure dynamic(key: Any) -> List[Any] { [key] |> sort }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            let expected_code = if source.contains("Any") { DiagnosticCode::CheckDynamicBoundary } else { DiagnosticCode::CheckStreamSort };
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(expected_code)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn noncompleting_map_sort_prepares_and_runs_in_both_evaluator_routes() {
+        let source = r#"pure sort_materializes() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }
+pure captured_sort(value: Int) -> Int { let ignored = [value] |> map { |item| if item == value { return value } else { return value } } |> sort |> take(0) }
+pure typed_sort(items: List[Int]) -> List[Int] { items |> sort }
+test noncompleting_map_sort_preserves_pipeline_demand {
+  assert sort_materializes() == 1
+  assert captured_sort(7) == 7
+  assert typed_sort([2, 1]) == [1, 2]
+}
+"#;
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "noncompleting-map-sort.xsh",
+            crate::loader::entry_source_from_text("noncompleting-map-sort.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test(
+                "noncompleting_map_sort_preserves_pipeline_demand",
+                crate::runtime::value::Value::Unit,
+                false,
+                force_frames,
+                Vec::new(),
+                crate::runtime::eval::TestCancellation::default(),
+            );
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
         }
     }
 

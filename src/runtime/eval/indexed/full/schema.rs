@@ -3,7 +3,7 @@ use super::{
     BuildPatternIdSlots, BuildStmtId, DecodeContext, DurationValue,
     EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
-    CallableKind, FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
+    CallableKind, DeferKind, FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
     FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
@@ -1482,9 +1482,7 @@ instruction_schema! {
         Continue => StmtContinue = 155 [0; Scheduled; FrameControl];
         Defer {
             value: BuildExprId,
-            /// Whether this is an `errdefer`: the action runs only when its scope
-            /// leaves with an error.
-            on_error: bool,
+            kind: DeferKind,
         } => StmtDefer = 156 [EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameControl];
         DefaultParameter {
             slot: usize,

@@ -88,6 +88,7 @@ pub(super) enum FullSchemeBodyFactKind {
     EmptyList,
     EmptyMap,
     RecordProducer,
+    NoCompletion,
     GuardScope,
 }
 
@@ -668,6 +669,7 @@ pub(super) enum FullSchemeBodyFactValue {
     EmptyList,
     EmptyMap,
     RecordProducer,
+    NoCompletion,
     GuardScope(u32),
 }
 
@@ -694,6 +696,7 @@ impl FullSchemeBodyFact {
             FullSchemeBodyFactValue::EmptyList => FullSchemeBodyFactKind::EmptyList,
             FullSchemeBodyFactValue::EmptyMap => FullSchemeBodyFactKind::EmptyMap,
             FullSchemeBodyFactValue::RecordProducer => FullSchemeBodyFactKind::RecordProducer,
+            FullSchemeBodyFactValue::NoCompletion => FullSchemeBodyFactKind::NoCompletion,
             FullSchemeBodyFactValue::GuardScope(_) => FullSchemeBodyFactKind::GuardScope,
         }
     }
@@ -702,7 +705,7 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
             | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
-            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::NoCompletion
             | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_)
             | FullSchemeBodyFactValue::CompletionLiftedValue(_) | FullSchemeBodyFactValue::CompletionReturnedResult(_)
             | FullSchemeBodyFactValue::CompletionAuthoredOk(_) | FullSchemeBodyFactValue::CompletionAuthoredErr(_) | FullSchemeBodyFactValue::GuardScope(_) => None,
@@ -1236,7 +1239,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource | FullSchemeBodyFactKind::GuardScope => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::NoCompletion | FullSchemeBodyFactKind::GuardScope | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
@@ -1250,6 +1253,14 @@ impl FullBuilder {
         };
         self.store.scheme_body_facts.push(FullSchemeBodyFact {
             instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("constructor_fact_instruction", None, 0, instruction))?, function, value,
+        });
+        Ok(())
+    }
+
+    pub(super) fn record_scheme_noncompletion_fact(&mut self, function: IrFunctionId, instruction: usize) -> Result<(), IrBuildError> {
+        self.store.scheme_body_facts.push(FullSchemeBodyFact {
+            instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("completion_fact_instruction", None, 0, instruction))?,
+            function, value: FullSchemeBodyFactValue::NoCompletion,
         });
         Ok(())
     }
@@ -1913,6 +1924,18 @@ mod tests {
     use crate::syntax::node::Effect;
     use std::collections::{BTreeMap, BTreeSet};
     use std::{cell::RefCell, rc::Rc};
+
+    #[test]
+    fn no_completion_body_fact_has_no_type_payload_or_row_growth() {
+        let fact = super::FullSchemeBodyFact {
+            instruction: 3,
+            function: super::IrFunctionId::new(0).unwrap(),
+            value: super::FullSchemeBodyFactValue::NoCompletion,
+        };
+        assert_eq!(fact.kind(), FullSchemeBodyFactKind::NoCompletion);
+        assert_eq!(fact.ty(), None);
+        assert_eq!(std::mem::size_of::<super::FullSchemeBodyFact>(), 16);
+    }
 
     #[test]
     fn factless_pattern_id_encodes_without_an_instruction_tag() {

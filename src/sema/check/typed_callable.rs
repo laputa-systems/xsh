@@ -361,6 +361,7 @@ impl Checker {
         let ArenaExprKind::Ident(_) = arena.arena.expr(callee).kind else {
             return None;
         };
+        if self.resolve_callable_alias_call(arena, callee).is_some() { return None; }
         let binding = match self.lookup_value_binding_for_expr(arena, callee) {
             super::ValueBindingLookup::Found(binding) => binding,
             super::ValueBindingLookup::Missing | super::ValueBindingLookup::NoSite => {
@@ -424,6 +425,20 @@ impl Checker {
         span: Span,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
+        if !callable.sig.params.iter().any(|parameter| parameter.rest)
+            && self.resolve_callable_alias_call(arena, callee).is_none()
+            && args.iter().any(|argument| matches!(argument.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }))
+        {
+            for argument in args {
+                if let ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } = argument.kind {
+                    self.error(super::args::call_arg_span_arena(arena, &argument.kind), "a call through a fixed-arity callable type requires explicit arguments, without splices or field spreads", DiagnosticCode::CheckCallableMismatch);
+                    self.check_expr_arena(arena, source, value, None);
+                } else {
+                    self.check_call_arg_arena(arena, source, &argument.kind, None);
+                }
+            }
+            return Type::Invalid;
+        }
         let return_ty = callable.sig.return_ty.as_ref().clone();
         let kind = callable.kind;
         let effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(kind));
@@ -491,6 +506,72 @@ mod inferred_callable_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
         Checker::check_arena(&parsed.arena, source)
+    }
+
+    #[test]
+    fn known_alias_splices_keep_arity_types_and_effect_boundaries() {
+        for (source, code) in [
+            ("pure target(value: Int) -> Int { value }\npure wrong() -> Int { let action = target; action(@[]) }\n", DiagnosticCode::CheckArity),
+            ("pure target(value: Int) -> Int { value }\npure wrong() -> Int { let action = target; action(@[1, 2]) }\n", DiagnosticCode::CheckArity),
+            ("pure count(...values: List[Int]) -> Int { values.len() }\npure wrong(values: List[Str]) -> Int { let action = count; action(@values) }\n", DiagnosticCode::CheckTypeMismatch),
+            ("proc emit(value: Int) [io] -> Int { print $value; value }\npure wrong() -> Int { let action = emit; action(@[7]) }\n", DiagnosticCode::CheckPureEffect),
+        ] {
+            let output = checked(source);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
+    fn authored_callable_contracts_reject_splices_and_field_spreads() {
+        for source in [
+            "type Action = pure(root: Path) -> Path\npure identity(root: Path) -> Path { root }\npure invoke(roots: List[Path]) -> Path { let action: Action = identity; action(@roots) }\n",
+            "type Action = pure(root: Path) -> Path\npure invoke(action: Action, roots: List[Path]) -> Path { action(@roots) }\n",
+            "type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path { action(@[p\".\"]) }\n",
+            "type Action = pure(root: Path) -> Path\ntype Fields = {root: Path}\npure invoke(action: Action, fields: Fields) -> Path { action(...fields) }\n",
+            "type Action = pure(root: Path) -> Path\ntype Holder = {action: Action}\npure invoke(holder: Holder, roots: List[Path]) -> Path { holder.action(@roots) }\n",
+            "type Action = pure() -> Int\npure target() -> Int { 7 }\npure wrong() -> Int { let action: Action = target; action(@[]) }\n",
+        ] {
+            let output = checked(source);
+            let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(DiagnosticCode::CheckCallableMismatch), "{source}\n{errors:?}");
+            assert!(errors[0].message.contains("requires explicit arguments"), "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn fixed_arity_spread_recovery_retains_operand_errors() {
+        for (argument, operand) in [("@missing", "missing"), ("...missing", "missing")] {
+            let source = format!("type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path {{ action({argument}) }}\n");
+            let output = checked(&source);
+            let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 2, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(DiagnosticCode::CheckCallableMismatch), "{errors:?}");
+            assert_eq!(errors[1].code, Some(DiagnosticCode::CheckUnresolvedName), "{errors:?}");
+            for (diagnostic, text) in [(errors[0], argument), (errors[1], operand)] {
+                let span = diagnostic.labels.iter().find(|label| label.style == crate::diagnostic::LabelStyle::Primary).unwrap().span;
+                assert_eq!(&source[span.start()..span.end()], text);
+            }
+        }
+        let output = checked("reveal_type(@[1])\n");
+        let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(DiagnosticCode::CheckCallSplice), "{errors:?}");
+    }
+
+    #[test]
+    fn documented_callable_rejections_have_one_diagnostic_per_cause() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/snippets/spec/rejected/28-callable-mismatch.xsh"));
+        let output = checked(source);
+        let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 6, "{errors:?}");
+        assert_eq!(errors.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)).count(), 4, "{errors:?}");
+        assert_eq!(errors.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableType)).count(), 2, "{errors:?}");
+    }
+
+    #[test]
+    fn callable_contracts_preserve_explicit_and_known_alias_arguments() {
+        accepts("type Action = pure(root: Path) -> Path\npure identity(root: Path) -> Path { root }\npure explicit(action: Action) -> Path { action(root: p\".\") }\npure named() -> Path { let action = identity; action(@[p\".\"]) }\npure count(...roots: List[Path]) -> Int { roots.len() }\npure rest(roots: List[Path]) -> Int { let action = count; action(@roots) }\n");
     }
 
     #[test]
@@ -600,7 +681,10 @@ proc call_rest(raw: Any) [error] -> Int {
                 let (first, second) = if reverse { ("right", "left") } else { ("left", "right") };
                 let source = format!("{left}\n{right}\nlet selected = if true {{ let candidate = {first}; candidate }} else {{ let candidate = {second}; candidate }}\nlet invalid = selected(42)\n");
                 let output = checked(&source);
-                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)), "{source}\n{:?}", output.diagnostics);
+                let candidate = source.rfind("candidate").unwrap();
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)
+                    && diagnostic.labels.iter().any(|label| label.span.range() == (candidate..candidate + "candidate".len())
+                        && label.message.as_ref().is_some_and(|message| message.starts_with("expected ") && message.contains(", found ")))), "{source}\n{:?}", output.diagnostics);
                 assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedCall)), "{source}\n{:?}", output.diagnostics);
             }
         }
@@ -780,27 +864,33 @@ proc call_rest(raw: Any) [error] -> Int {
     #[test]
     fn stream_producer_alias_keeps_its_lazy_call_contract() {
         let source = "stream values(value: Int) -> Stream[Int] { yield value }\nproc make() -> Result[Stream[Int]] { let create = values; Ok(create(42)) }\n";
-        let checked = checked(source);
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena(&parsed.arena, source);
         assert!(
             !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
             "{source}\n{:?}", checked.diagnostics
         );
-        let (span, callable) = checked.typed_callable_calls.iter().find(|(span, _)| &source[span.range()] == "create(42)")
-            .expect("the alias call retains its actual typed callable contract");
-        assert_eq!(callable.kind, crate::sema::types::CallableKind::Stream);
-        assert_eq!(callable.sig.params.len(), 1);
-        assert_eq!(callable.sig.params[0].name.as_str(), "value");
-        assert_eq!(callable.sig.params[0].ty, crate::sema::types::Type::Int);
-        assert!(!callable.sig.params[0].defaulted);
-        assert!(!callable.sig.params[0].rest);
+        let (_, alias) = checked.static_callable_aliases.iter().find(|(span, _)| &source[span.range()] == "create")
+            .expect("the call retains its canonical stream alias contract");
+        let (span, target) = checked.selected_function_calls.iter().find(|(span, _)| &source[span.range()] == "create(42)")
+            .expect("the call retains its actual producer declaration");
+        assert_eq!(alias.kind, crate::sema::types::CallableKind::Stream);
+        assert_eq!(alias.signature.params.len(), 1);
+        assert_eq!(alias.signature.params[0].name.as_str(), "value");
+        assert_eq!(alias.signature.params[0].ty, crate::sema::types::Type::Int);
+        assert!(!alias.signature.params[0].defaulted);
+        assert!(!alias.signature.params[0].rest);
+        assert!(alias.signature.effects.concrete().unwrap().expect("the closed stream alias retains a known effect contract").is_empty());
         let result = crate::sema::types::Type::Stream(Box::new(crate::sema::types::Type::Int));
-        assert_eq!(callable.sig.return_ty.as_ref(), &result);
+        assert_eq!(alias.signature.return_ty.as_ref(), &result);
         assert_eq!(checked.expr_types.get(span), Some(&result));
         let reference = checked.selected_function_calls.iter().find(|(span, target)|
             checked.selected_function_value_references.contains(span)
                 && &source[span.range()] == "values"
                 && target.name.as_str() == "values");
-        assert!(reference.is_some(), "the typed alias retains its actual producer value selection");
+        assert_eq!(Some(target), reference.map(|(_, target)| target), "the alias calls its actual producer value selection");
     }
 
     #[test]

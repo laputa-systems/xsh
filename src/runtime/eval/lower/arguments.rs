@@ -100,15 +100,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn expand_static_positional_splices<T: Clone>(
         &self,
         args: &[CallArgument<T>],
-        rest_slot: usize,
+        fixed_slots: usize,
     ) -> Option<Vec<CallArgument<T>>> {
         if args.iter().any(|argument| argument.name.is_some()) {
             return Some(args.to_vec());
         }
+        let empty_literal_splice = |argument: &CallArgument<T>| {
+            argument.splice && matches!(argument.source, crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression)
+                if self.static_positional_list_items(expression).is_some_and(|items| items.is_empty()))
+        };
         let mut slot = 0usize;
         let mut has_static_prefix_splice = false;
         for argument in args {
-            if slot >= rest_slot {
+            if slot >= fixed_slots && !empty_literal_splice(argument) {
                 break;
             }
             if argument.splice {
@@ -121,9 +125,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(args.to_vec());
                 };
                 has_static_prefix_splice = true;
-                slot = slot.saturating_add(items.len()).min(rest_slot);
+                slot = slot.saturating_add(items.len()).min(fixed_slots);
             } else {
-                slot = slot.saturating_add(1).min(rest_slot);
+                slot = slot.saturating_add(1).min(fixed_slots);
             }
         }
         if !has_static_prefix_splice {
@@ -132,7 +136,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut expanded = Vec::with_capacity(args.len());
         let mut slot = 0usize;
         for argument in args {
-            if argument.splice && slot < rest_slot {
+            if argument.splice && (slot < fixed_slots || empty_literal_splice(argument)) {
                 let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
                     argument.source
                 else {
@@ -163,12 +167,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span: self.program.arena.expr(item).span,
                         lowered: lowered_items.as_ref().map(|items| items[index]),
                     });
-                    slot = slot.saturating_add(1).min(rest_slot);
+                    slot = slot.saturating_add(1).min(fixed_slots);
                 }
             } else {
                 expanded.push(argument.clone());
                 if !argument.splice {
-                    slot = slot.saturating_add(1).min(rest_slot);
+                    slot = slot.saturating_add(1).min(fixed_slots);
                 }
             }
         }

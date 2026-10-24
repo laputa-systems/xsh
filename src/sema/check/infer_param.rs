@@ -389,28 +389,32 @@ mod host_anchor_tests {
 
     #[test]
     fn generic_method_families_reject_unselected_domains_and_contract_forgery() {
-        for (source, expected) in [
+        for (source, expected, requirement) in [
             (
                 "pure item_count(value) -> Int { value.len() }\nlet invalid = item_count(\"text\")\n",
-                DiagnosticCode::CheckTypeMismatch,
+                DiagnosticCode::CheckCallableMismatch,
+                Some("Length has no canonical result for Str"),
             ),
             (
                 "pure wrong_result(value) -> Bool { value.len() }\n",
                 DiagnosticCode::CheckTypeMismatch,
+                None,
             ),
             (
                 "proc write_field(file: Path, row) -> Result[Unit] { file.write(row.text) }\nlet invalid = write_field(p\"out\", {text: false})\n",
-                DiagnosticCode::CheckTypeMismatch,
+                DiagnosticCode::CheckCallableMismatch,
+                Some("PathWrite has no canonical result for Path"),
             ),
             (
                 "pure write_field(file: Path, row) -> Result[Unit] { file.write(row.text) }\n",
                 DiagnosticCode::CheckPureEffect,
+                None,
             ),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
-            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}: {:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected) && requirement.is_none_or(|requirement| diagnostic.message.contains(requirement))), "{source}: {:?}", checked.diagnostics);
         }
     }
 

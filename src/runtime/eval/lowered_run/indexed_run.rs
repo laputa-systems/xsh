@@ -1,7 +1,7 @@
 use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
-    Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
+    DeferKind, Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
     LoweredFunctionKey, CallableKind, LoweredMapCursor,
     LoweredProjectedReduceState, LoweredReduceProjection,
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
@@ -132,37 +132,22 @@ fn indexed_range_values<T>(start: i64, end: i64, span: Span, integer: impl FnMut
 /// The `RunArg::mode` of an explicit `@` splice.
 const RUN_ARG_SPLICE: u32 = 2;
 
-/// A deferred action a scope registered: the expression to run, and whether
-/// it is an `errdefer`.
-///
-/// Both are packed into the one word a frame's defer list already stored per
-/// action, so registering a `defer` costs what it did.
 #[derive(Clone, Copy)]
 pub(super) struct RegisteredDefer(u32);
 
 impl RegisteredDefer {
-    const ON_ERROR: u32 = 1 << 31;
-
-    fn new(value: u32, on_error: bool) -> Self {
-        // An expression is an index into a program's instructions, which a
-        // verified program keeps far below this bit.
-        assert!(
-            value & Self::ON_ERROR == 0,
-            "deferred expression index overflows its word"
-        );
-        Self(if on_error {
-            value | Self::ON_ERROR
-        } else {
-            value
-        })
+    fn new(value: u32, kind: DeferKind) -> Self {
+        assert!(value < DeferKind::INDEX_LIMIT, "deferred expression index overflows its word");
+        Self(value | ((kind as u32) << DeferKind::INDEX_BITS))
     }
 
     fn value(self) -> u32 {
-        self.0 & !Self::ON_ERROR
+        self.0 & (DeferKind::INDEX_LIMIT - 1)
     }
 
-    fn on_error(self) -> bool {
-        self.0 & Self::ON_ERROR != 0
+    fn kind(self) -> DeferKind {
+        DeferKind::from_encoded(self.0 >> DeferKind::INDEX_BITS)
+            .expect("registered defer kind is verified")
     }
 }
 

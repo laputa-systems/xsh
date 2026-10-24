@@ -7,7 +7,7 @@ use super::serial_pipeline::{
 use super::super::LoweredRetryDelays;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, BindingNamespaceLease, CommandPlan, ControlFlow,
-    Evaluator,
+    DeferKind, Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
     IndexedFmt, LoweredFunctionKey, CallableKind,
@@ -589,7 +589,7 @@ proc parent() {
                 };
                 frames.calls[0]
                     .defers
-                    .push(RegisteredDefer::new(value.raw(), false));
+                    .push(RegisteredDefer::new(value.raw(), DeferKind::Always));
 
                 frames
                     .push_call(
@@ -6374,10 +6374,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     transfers_resource,
                 )
             }
-            StmtView::Defer { value, on_error } => {
+            StmtView::Defer { value, kind } => {
                 self.calls[index]
                     .defers
-                    .push(RegisteredDefer::new(value.raw(), on_error));
+                    .push(RegisteredDefer::new(value.raw(), kind));
                 Ok(())
             }
             StmtView::Value { value } => {
@@ -11276,16 +11276,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         error: RuntimeError,
         traceback: Option<Traceback>,
     ) {
-        group.leaves_with_error = true;
-        if group.first_error.is_none() {
-            group.first_error = Some(error);
-            group.first_traceback = traceback;
+        let managed = group.defers[group.next_defer].kind() == DeferKind::ManagedRelease;
+        if managed && !error.abort.as_ref().is_some_and(|signal| signal.force) {
+            self.report_cleanup_error_with_contexts(&error, group.call_span, &group.cleanup_contexts);
         } else {
-            self.report_cleanup_error_with_contexts(
-                &error,
-                group.call_span,
-                &group.cleanup_contexts,
-            );
+            group.leaves_with_error = true;
+            if group.first_error.is_none() {
+                group.first_error = Some(error);
+                group.first_traceback = traceback;
+            } else {
+                self.report_cleanup_error_with_contexts(&error, group.call_span, &group.cleanup_contexts);
+            }
         }
         self.evaluator.pending_traceback = None;
         self.calls
@@ -11302,7 +11303,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         while group.next_defer > 0 {
             group.next_defer -= 1;
             let deferred = group.defers[group.next_defer];
-            if deferred.on_error() && !group.leaves_with_error {
+            if deferred.kind() == DeferKind::OnError && !group.leaves_with_error {
                 continue;
             }
             let guard = CleanupActionGuard {

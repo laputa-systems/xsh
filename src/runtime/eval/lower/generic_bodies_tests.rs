@@ -8,6 +8,90 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_optional_fallback_guard(alias: bool) {
+    let condition = if alias { "let present = value != null; present" } else { "value != null" };
+    let source = format!("pure guarded(value: Int?) -> Bool {{ {condition} and (value ?? -1) > 0 }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
+    let name = program.symbol_owner().with_current(|| Name::intern("guarded"));
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        evaluator.force_frames = force_frames;
+        for (input, expected) in [(Value::Null, false), (Value::Int(7), true), (Value::Int(-1), false)] {
+            assert_eq!(evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), CallableKind::Pure, &[input], Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(expected));
+        }
+    }
+}
+
+#[test]
+fn optional_fallback_guard_alias_preserves_checked_payload() {
+    verify_optional_fallback_guard(true);
+}
+
+#[test]
+fn optional_fallback_direct_guard_preserves_checked_payload() {
+    verify_optional_fallback_guard(false);
+}
+
+#[test]
+fn optional_fallback_conjunction_guard_preserves_checked_payload() {
+    let source = r#"pure guarded(total: Int?, used: Int?, available: Int?) -> Bool {
+  let all_unavailable = total == null and used == null and available == null
+  let all_observed = total != null and used != null and available != null
+  if (! all_unavailable and ! all_observed) or (all_observed and ((total ?? -1) < 0 or (used ?? -1) < 0 or (available ?? -1) < 0 or (total ?? -1) > 9007199254740991 or (used ?? -1) > (total ?? -1) or (available ?? -1) > (total ?? -1))) {
+    return false
+  }
+  true
+}
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    let name = program.symbol_owner().with_current(|| Name::intern("guarded"));
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        evaluator.force_frames = force_frames;
+        for (input, expected) in [([Value::Null, Value::Null, Value::Null], true), ([Value::Int(10), Value::Int(4), Value::Int(6)], true), ([Value::Int(10), Value::Int(4), Value::Int(20)], false), ([Value::Null, Value::Int(4), Value::Null], false)] {
+            assert_eq!(evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), CallableKind::Pure, &input, Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(expected));
+        }
+    }
+}
+
+fn verify_captured_import_call(alias: bool) {
+    on_scoped_body_test_stack(move || {
+        let directory = tempfile::Builder::new().prefix("captured-import-call-").tempdir_in(".work/tmp").unwrap();
+        std::fs::write(directory.path().join("provider.xsh"), "##! Closed callable exports.\npure identity(value: Int) -> Int { value + 1 }\n## Provides the selected callable.\nexport let forwarded = identity\n## Provides the declaration control.\nexport pure direct(value: Int) -> Int { value + 1 }\n").unwrap();
+        let member = if alias { "forwarded" } else { "direct" };
+        let source = format!("use provider\nuse provider as duplicate\ntype Handler = pure(value: Int) -> Int\ntype Handlers = {{forwarded: Handler}}\npure local(value: Int) -> Int {{ value + 100 }}\npure shadow(provider: Handlers, value: Int) -> Int {{ provider.forwarded(value) }}\npure invoke(value: Int) -> Int {{ provider.{member}(value) }}\npure invoke_duplicate(value: Int) -> Int {{ duplicate.{member}(value) }}\ntest imported_call {{ assert invoke(7) == 8; assert invoke_duplicate(9) == 10; assert shadow({{forwarded: local}}, 7) == 107 }}\n");
+        let path = directory.path().canonicalize().unwrap().join("entry.xsh");
+        std::fs::write(&path, &source).unwrap();
+        let file = path.to_str().unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        drop(directory);
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("imported_call", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(*value, Value::Unit)));
+        }
+    });
+}
+
+#[test]
+fn captured_import_alias_calls_publish_module_receiver_contracts() {
+    verify_captured_import_call(true);
+}
+
+#[test]
+fn captured_import_declaration_calls_keep_static_contracts() {
+    verify_captured_import_call(false);
+}
+
 #[test]
 fn closed_optional_callbacks_execute_imports_after_frontend_disposal() {
     let provider = include_str!("../../../../tests/fixtures/runtime/closed-callback-provider.xsh");
@@ -62,6 +146,132 @@ fn closed_required_callbacks_preserve_their_checked_signature() {
 #[test]
 fn closed_optional_callbacks_preserve_their_checked_signature() {
     verify_closed_callback_call(true);
+}
+
+fn verify_formatted_path_native_consumer(typed: bool) {
+    let definitions = if typed {
+        r#"proc selected(value: Int, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }
+proc selected_word(value: Str, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }
+proc number(base: Path) [fs, error] -> Result[Str] { selected(7, base) }
+proc word(base: Path) [fs, error] -> Result[Str] { selected_word("entry", base) }
+proc missing(base: Path) [fs, error] -> Result[Str] { selected(9, base) }
+"#
+    } else {
+        r#"proc selected(value, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }
+proc number(base: Path) [fs, error] -> Result[Str] { selected(7, base) }
+proc word(base: Path) [fs, error] -> Result[Str] { selected("entry", base) }
+proc missing(base: Path) [fs, error] -> Result[Str] { selected(9, base) }
+"#
+    };
+    let directory = tempfile::Builder::new().prefix("formatted-native-consumer-").tempdir_in(".work/tmp").unwrap();
+    std::fs::write(directory.path().join("7"), b"number\n").unwrap();
+    std::fs::write(directory.path().join("entry"), b"word\n").unwrap();
+    let base = Value::Path(crate::runtime::value::PathValue::from_text(directory.path().canonicalize().unwrap().to_str().unwrap()).unwrap());
+    let (program, sources, source_id) = record_form_program(definitions);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, expected) in [("number", "number\n"), ("word", "word\n")] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[base.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from(expected))))), "typed={typed} {name} frames={force_frames}");
+        }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("missing")));
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[base.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Result(ResultValue::Err(error)) = actual else { panic!("the native missing-file error remains a Result") };
+        let Value::Error(error) = *error else { panic!("the native error keeps its nominal family") };
+        assert!(error.facets.iter().any(|facet| facet == "NotFound"), "{error:?}");
+    }
+}
+
+#[test]
+fn typed_formatted_paths_preserve_native_consumer_contracts() {
+    verify_formatted_path_native_consumer(true);
+}
+
+#[test]
+fn inferred_formatted_paths_preserve_native_consumer_contracts() {
+    verify_formatted_path_native_consumer(false);
+}
+
+#[test]
+fn inferred_formatted_strings_preserve_native_parser_domains() {
+    let source = "pure parse(value) -> Result[Int] { f\"{value}\".parse_int() }\npure number() -> Result[Int] { parse(7) }\npure word() -> Result[Int] { parse(\"word\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for name in ["number", "word"] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            if name == "number" {
+                assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))));
+            } else {
+                let Value::Result(ResultValue::Err(error)) = actual else { panic!("the parser preserves its failure Result") };
+                let Value::Error(error) = *error else { panic!("the parse error retains its nominal domain") };
+                assert_eq!(error.kind, "parse-int");
+                assert_eq!(error.message, "invalid integer `word`");
+            }
+        }
+    }
+}
+
+#[test]
+fn formatted_native_consumers_preserve_order_failure_and_defer() {
+    let source = r#"proc observe(value) [io] { defer { print "item-close" }; print "item"; value }
+proc suffix(fail: Bool) [io, error] -> Str { print "suffix"; let _ = [0][if fail { 9 } else { 0 }]; "" }
+proc typed(value: Int, base: Path, fail: Bool, skip: Bool) [io, fs, error] -> Result[Str] {
+    defer { print "close" }
+    if skip { return Ok("skipped") }
+    fp"{base}/{observe(value)?}{suffix(fail)}".read_text()
+}
+proc generic(value, base: Path, fail: Bool, skip: Bool) [io, fs, error] -> Result[Str] {
+    defer { print "close" }
+    if skip { return Ok("skipped") }
+    fp"{base}/{observe(value)?}{suffix(fail)}".read_text()
+}
+proc selected(value: Int, base: Path, fail: Bool, skip: Bool) [io, fs, error] -> Result[Str] { generic(value, base, fail, skip) }
+"#;
+    let directory = tempfile::Builder::new().prefix("formatted-order-").tempdir_in(".work/tmp").unwrap();
+    std::fs::write(directory.path().join("7"), b"number\n").unwrap();
+    let base = Value::Path(crate::runtime::value::PathValue::from_text(directory.path().canonicalize().unwrap().to_str().unwrap()).unwrap());
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        for (value, fail, skip) in [(7, false, false), (7, true, false), (7, true, true), (9, false, false)] {
+            let arguments = [Value::Int(value), base.clone(), Value::Bool(fail), Value::Bool(skip)];
+            evaluator.stdout.clear();
+            let expected = evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &arguments, Span::at(source_id, 0)).unwrap();
+            let stdout = evaluator.stdout.clone();
+            evaluator.stdout.clear();
+            let actual = evaluator.call_indexed_direct(key("selected"), CallableKind::Proc, &arguments, Span::at(source_id, 0)).unwrap();
+            assert_eq!(evaluator.stdout, stdout, "value={value} fail={fail} skip={skip} frames={force_frames}");
+            assert_eq!(stdout.as_slice(), if skip { b"close\n".as_slice() } else { b"item\nitem-close\nsuffix\nclose\n".as_slice() });
+            match (expected, actual) {
+                (Ok(Value::Result(ResultValue::Err(expected))), Ok(Value::Result(ResultValue::Err(actual)))) => {
+                    assert_eq!(value, 9);
+                    let (Value::Error(expected), Value::Error(actual)) = (*expected, *actual) else { panic!("native failures retain nominal error values") };
+                    assert_eq!(actual.kind, expected.kind); assert_eq!(actual.family, expected.family); assert_eq!(actual.variant, expected.variant); assert_eq!(actual.message, expected.message); assert_eq!(actual.facets, expected.facets); assert_eq!(actual.errno(), expected.errno());
+                }
+                (Ok(expected), Ok(actual)) => {
+                    assert!(skip || (!fail && value == 7));
+                    assert_eq!(actual, expected);
+                    assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from(if skip { "skipped" } else { "number\n" }))))));
+                }
+                (Err(expected), Err(actual)) => {
+                    assert!(fail && !skip);
+                    assert_eq!(actual.kind, "index-out-of-range"); assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family);
+                    assert_eq!(&source[actual.span.unwrap().range()], "[0][if fail { 9 } else { 0 }]");
+                }
+                (expected, actual) => panic!("value={value} fail={fail} skip={skip} frames={force_frames}: {expected:?} vs {actual:?}"),
+            }
+        }
+    }
 }
 
 fn verify_guard_argument_call(typed: bool) {
@@ -2122,6 +2332,27 @@ fn callable_kind_stream_aliases_preserve_lazy_defaults_and_cleanup() {
         }
         for (name, expected) in [("defaults", 1), ("pulls", 2), ("closed", 2), ("integer", 7)] { assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} frames={force_frames}"); }
         assert_eq!(fields.get("text"), Some(&Value::Str(Arc::from("row"))));
+    }
+}
+
+#[test]
+fn monomorphic_stream_aliases_preserve_lazy_defaults_and_cleanup() {
+    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value: Int, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; repeat count times { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let second = create(8, count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var other = 0; for item in second { other = item; break }; {before, after_first, defaults, pulls, closed, integer, other} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("exercise")));
+        let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("stream aliases preserve the lazy producer lifecycle") };
+        let Value::Record(fields) = *fields else { panic!("the caller returns lifecycle observations") };
+        for (stage, expected) in [("before", 0), ("after_first", 1)] {
+            let Some(Value::Record(counters)) = fields.get(stage) else { panic!("each stage retains its own counter snapshot") };
+            for name in ["defaults", "pulls", "closed"] { assert_eq!(counters.get(name), Some(&Value::Int(expected)), "{stage}.{name} frames={force_frames}"); }
+        }
+        for (name, expected) in [("defaults", 1), ("pulls", 2), ("closed", 2), ("integer", 7)] { assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} frames={force_frames}"); }
+        assert_eq!(fields.get("other"), Some(&Value::Int(8)));
     }
 }
 
@@ -4538,7 +4769,12 @@ proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; ro
     let path = |text: &str| Value::Path(crate::runtime::value::PathValue::from_text(text).unwrap());
     let success = |value| match value { Value::Result(ResultValue::Ok(value)) => *value, value => panic!("expected success, found {value:?}") };
     for source in [typed.as_str(), source] {
-        let (program, sources, source_id) = record_form_program(source);
+        let mut source = source.to_owned();
+        for (entry, marker_type) in [("integer", "Int"), ("text", "Str"), ("boolean", "Bool")] {
+            source.push_str(&format!("\nproc entry_written_{entry}(marker: {marker_type}, root: FsRoot, location: Path, text: Str) [fs, error] {{ written(marker, root, location, text) }}\nproc entry_read_{entry}(marker: {marker_type}, root: FsRoot, location: Path) [fs, error] {{ read(marker, root, location) }}\n"));
+        }
+        source.push_str("\nproc entry_listed(marker: Bool, root: FsRoot, location: Path) [fs, error] { listed(marker, root, location) }\n");
+        let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
             evaluator.force_frames = force_frames;
@@ -4547,31 +4783,31 @@ proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; ro
             for step in 0..program.driver_step_count().unwrap() {
                 evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap();
             }
-            let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let key = |name: &str| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
             let rooted = crate::modules::fs::open_root(directory.path().to_path_buf(), span).unwrap();
             let id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(Box::new(crate::runtime::eval::FsRootHandle::Dir(rooted))));
             let root = Value::FsRoot(crate::runtime::value::FsRootValue { id, owner: Arc::clone(&evaluator.resource_owner) });
-            for (marker, name, text) in [(Value::Int(7), "a", "first"), (Value::Str(Arc::from("independent")), "b", "second")] {
-                let output = evaluator.call_indexed_direct(key("written"), CallableKind::Proc, &[marker, root.clone(), path(name), Value::Str(Arc::from(text))], span).unwrap().unwrap();
+            for (entry, marker, name, text) in [("integer", Value::Int(7), "a", "first"), ("text", Value::Str(Arc::from("independent")), "b", "second")] {
+                let output = evaluator.call_indexed_direct(key(&format!("entry_written_{entry}")), CallableKind::Proc, &[marker, root.clone(), path(name), Value::Str(Arc::from(text))], span).unwrap().unwrap();
                 assert_eq!(success(output), Value::Unit);
             }
             let expected = success(evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &[root.clone(), path(".")], span).unwrap().unwrap());
-            let actual = success(evaluator.call_indexed_direct(key("listed"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path(".")], span).unwrap().unwrap());
+            let actual = success(evaluator.call_indexed_direct(key("entry_listed"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path(".")], span).unwrap().unwrap());
             let (Value::Record(actual), Value::Record(expected)) = (actual, expected) else { panic!("children retains its registered record result") };
             assert_eq!(actual.get("children"), expected.get("children"));
             let Some(Value::List(children)) = actual.get("children") else { panic!("children is a list of paths") };
             assert_eq!(children.len(), 2);
             let order = evaluator.call_indexed_direct(key("observed_order"), CallableKind::Proc, &[], span).unwrap().unwrap();
             assert_eq!(order, Value::Str(Arc::from("opop")));
-            for (marker, name, text) in [(Value::Int(7), "a", "first"), (Value::Str(Arc::from("independent")), "b", "second")] {
-                let output = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[marker, root.clone(), path(name)], span).unwrap().unwrap();
+            for (entry, marker, name, text) in [("integer", Value::Int(7), "a", "first"), ("text", Value::Str(Arc::from("independent")), "b", "second")] {
+                let output = evaluator.call_indexed_direct(key(&format!("entry_read_{entry}")), CallableKind::Proc, &[marker, root.clone(), path(name)], span).unwrap().unwrap();
                 assert_eq!(success(output), Value::Str(Arc::from(text)));
             }
-            let missing = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path("missing")], span).unwrap().unwrap();
+            let missing = evaluator.call_indexed_direct(key("entry_read_boolean"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path("missing")], span).unwrap().unwrap();
             let Value::Result(ResultValue::Err(error)) = missing else { panic!("missing rooted input must retain Err") };
             assert!(error.error_message().is_some_and(|message| !message.is_empty()));
             assert_eq!(success(evaluator.call_indexed_direct(key("closed"), CallableKind::Proc, std::slice::from_ref(&root), span).unwrap().unwrap()), Value::Unit);
-            let closed = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root, path("a")], span).unwrap().unwrap();
+            let closed = evaluator.call_indexed_direct(key("entry_read_boolean"), CallableKind::Proc, &[Value::Bool(true), root, path("a")], span).unwrap().unwrap();
             assert!(matches!(closed, Value::Result(ResultValue::Err(_))));
         }
     }
@@ -4668,27 +4904,40 @@ pure ignored_json(marker, input: Str) -> List[Any] { let _ = marker; input |> js
 }
 
 fn verify_pipeline_adapter_results(source: &str, markers: &[Value]) {
-    let (program, sources, source_id) = record_form_program(source);
+    assert!((1..=2).contains(&markers.len()));
+    let mut source = source.to_owned();
+    for ((entry, marker_type), _) in [("integer", "Int"), ("text", "Str")].into_iter().zip(markers) {
+        for (name, parameters, arguments, returned) in [
+            ("lines", "input: Str", "input", "List[Str]"),
+            ("chunks", "input: Bytes, size: Int", "input, size", "List[Bytes]"),
+            ("json_lines", "input: Str", "input", "List[Any]"),
+            ("json_stream", "input: Str", "input", "List[Any]"),
+            ("ignored_json", "input: Str", "input", "List[Any]"),
+        ] {
+            source.push_str(&format!("\npure entry_{name}_{entry}(marker: {marker_type}, {parameters}) -> {returned} {{ {name}(marker, {arguments}) }}\n"));
+        }
+    }
+    let (program, sources, source_id) = record_form_program(&source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
         let span = Span::at(source_id, 0);
-        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-        for marker in markers {
-            let lines = evaluator.call_indexed_direct(key("lines"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("one\r\n\ntwo\n"))], span).unwrap().unwrap();
+        let key = |name: &str| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        for (entry, marker) in ["integer", "text"].into_iter().zip(markers) {
+            let lines = evaluator.call_indexed_direct(key(&format!("entry_lines_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("one\r\n\ntwo\n"))], span).unwrap().unwrap();
             assert_eq!(lines, Value::List(vec![Value::Str(Arc::from("one")), Value::Str(Arc::from("")), Value::Str(Arc::from("two"))]));
             let bytes = |text: &[u8]| Value::Bytes(text.to_vec());
-            let chunks = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abcde"), Value::Int(2)], span).unwrap().unwrap();
+            let chunks = evaluator.call_indexed_direct(key(&format!("entry_chunks_{entry}")), CallableKind::Pure, &[marker.clone(), bytes(b"abcde"), Value::Int(2)], span).unwrap().unwrap();
             assert_eq!(chunks, Value::List(vec![bytes(b"ab"), bytes(b"cd"), bytes(b"e")]));
             for name in ["json_lines", "json_stream"] {
-                let values = evaluator.call_indexed_direct(key(name), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ntrue\n\"word\"\n"))], span).unwrap().unwrap();
+                let values = evaluator.call_indexed_direct(key(&format!("entry_{name}_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ntrue\n\"word\"\n"))], span).unwrap().unwrap();
                 assert_eq!(values, Value::List(vec![Value::Int(1), Value::Bool(true), Value::Str(Arc::from("word"))]));
             }
-            let invalid = evaluator.call_indexed_direct(key("ignored_json"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
+            let invalid = evaluator.call_indexed_direct(key(&format!("entry_ignored_json_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
             assert_eq!(invalid.kind, "json-lines");
             assert!(!invalid.message.is_empty());
-            let invalid = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abc"), Value::Int(0)], span).unwrap().expect_err("a dynamic chunk size must be positive");
+            let invalid = evaluator.call_indexed_direct(key(&format!("entry_chunks_{entry}")), CallableKind::Pure, &[marker.clone(), bytes(b"abc"), Value::Int(0)], span).unwrap().expect_err("a dynamic chunk size must be positive");
             assert_eq!(invalid.kind, "bytes-chunks");
             assert_eq!(invalid.message, "chunk size must be positive");
         }
@@ -4768,6 +5017,7 @@ proc parsed(marker, input: Str) [] -> List[Any] { let _ = marker; text_input(inp
 proc observed() [] -> Str { events }
 "#;
     for source in [source.to_owned(), source.replace("marker,", "marker: Int,")] {
+        let source = format!("{source}\nproc entry_chunked(marker: Int, input: Bytes, size: Int) [] -> List[Bytes] {{ chunked(marker, input, size) }}\nproc entry_parsed(marker: Int, input: Str) [] -> List[Any] {{ parsed(marker, input) }}\n");
         let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
@@ -4779,13 +5029,13 @@ proc observed() [] -> Str { events }
                 assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {flow:?}");
             }
             let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let output = evaluator.call_indexed_direct(key("chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(2)], span).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key("entry_chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(2)], span).unwrap().unwrap();
             assert_eq!(output, Value::List(vec![Value::Bytes(b"ab".to_vec()), Value::Bytes(b"c".to_vec())]));
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdc")));
-            let output = evaluator.call_indexed_direct(key("chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(0)], span).unwrap();
+            let output = evaluator.call_indexed_direct(key("entry_chunked"), CallableKind::Proc, &[Value::Int(7), Value::Bytes(b"abc".to_vec()), Value::Int(0)], span).unwrap();
             assert!(output.is_err());
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdc")));
-            let error = evaluator.call_indexed_direct(key("parsed"), CallableKind::Proc, &[Value::Int(7), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("the adapter parses before take(0)");
+            let error = evaluator.call_indexed_direct(key("entry_parsed"), CallableKind::Proc, &[Value::Int(7), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("the adapter parses before take(0)");
             assert_eq!(&*error.kind, "json-lines");
             assert!(!error.message.is_empty());
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdcsd")));
@@ -4817,24 +5067,29 @@ fn pipeline_table_program_source() -> &'static str {
 }
 
 fn verify_pipeline_table_output(source: &str, markers: &[Value]) {
-    let (program, sources, source_id) = record_form_program(source);
+    assert!((1..=2).contains(&markers.len()));
+    let mut source = source.to_owned();
+    for ((entry, marker_type), _) in [("integer", "Int"), ("text", "Str")].into_iter().zip(markers) {
+        source.push_str(&format!("\nproc entry_render_{entry}(marker: {marker_type}, row: Row, columns: List[Str]) [] -> Unit {{ render(marker, row, columns) }}\nproc entry_defaults_{entry}(marker: {marker_type}, row: Row) [] -> Unit {{ defaults(marker, row) }}\n"));
+    }
+    let (program, sources, source_id) = record_form_program(&source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
-        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        let key = |name: &str| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
         let row = program.symbol_owner().with_current(|| Value::Record([(Arc::from("name"), Value::Str(Arc::from("alpha"))), (Arc::from("size"), Value::Int(2)), (Arc::from("opaque"), Value::List(vec![Value::Int(9)]))].into_iter().collect()));
-        for marker in markers {
+        for (entry, marker) in ["integer", "text"].into_iter().zip(markers) {
             evaluator.stdout.clear();
-            let output = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key(&format!("entry_render_{entry}")), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(output, Value::Unit);
             assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌───────┐\n│ name  │\n├───────┤\n│ alpha │\n└───────┘\n");
             evaluator.stdout.clear();
-            let output = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("absent"))])], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key(&format!("entry_render_{entry}")), CallableKind::Proc, &[marker.clone(), row.clone(), Value::List(vec![Value::Str(Arc::from("absent"))])], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(output, Value::Unit);
             assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "┌────────┐\n│ absent │\n├────────┤\n│        │\n└────────┘\n");
             evaluator.stdout.clear();
-            let output = evaluator.call_indexed_direct(key("defaults"), CallableKind::Proc, &[marker.clone(), row.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(key(&format!("entry_defaults_{entry}")), CallableKind::Proc, &[marker.clone(), row.clone()], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(output, Value::Unit);
             let output = String::from_utf8(evaluator.stdout.clone()).unwrap();
             for cell in ["name", "alpha", "size", "2", "opaque", "<List>"] { assert!(output.contains(cell), "{cell}: {output}"); }
@@ -4863,12 +5118,13 @@ fn inferred_pipeline_table_requires_only_the_record_head() {
 #[test]
 fn inferred_pipeline_table_source_retains_the_record_iteration_relationship() {
     let source = "proc render(rows, columns: List[Str]) [] -> Unit { rows |> table.print(columns: columns) }\n";
-    let (program, sources, source_id) = record_form_program(source);
+    let source = format!("{source}type EntryRow = {{name: Str}}\nproc entry_render(rows: List[EntryRow], columns: List[Str]) [] -> Unit {{ render(rows, columns) }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
-        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("render")));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("entry_render")));
         let row = program.symbol_owner().with_current(|| Value::Record([(Arc::from("name"), Value::Str(Arc::from("alpha")))].into_iter().collect()));
         let output = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::List(vec![row]), Value::List(vec![Value::Str(Arc::from("name"))])], Span::at(source_id, 0)).unwrap().unwrap();
         assert_eq!(output, Value::Unit);
@@ -4895,6 +5151,7 @@ proc rejected(marker) [error] -> Unit { let _ = marker; rows(false) |> table.pri
 proc observed() [] -> Str { events }
 "#;
     for source in [source.to_owned(), source.replace("marker,", "marker: Int,").replace("marker)", "marker: Int)")] {
+        let source = format!("{source}\nproc entry_render(marker: Int, failed: Bool) [error] -> Unit {{ render(marker, failed) }}\nproc entry_rejected(marker: Int) [error] -> Unit {{ rejected(marker) }}\n");
         let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
@@ -4906,17 +5163,17 @@ proc observed() [] -> Str { events }
                 assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "{flow:?}");
             }
             let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            assert_eq!(evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(false)], span).unwrap().unwrap(), Value::Unit);
+            assert_eq!(evaluator.call_indexed_direct(key("entry_render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(false)], span).unwrap().unwrap(), Value::Unit);
             assert_eq!(String::from_utf8(evaluator.stdout.clone()).unwrap(), "closed\n┌──────┐\n│ name │\n├──────┤\n│ row  │\n└──────┘\n");
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpd")));
             evaluator.stdout.clear();
-            let error = evaluator.call_indexed_direct(key("render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(true)], span).unwrap().expect_err("failed materialization does not render a partial table");
+            let error = evaluator.call_indexed_direct(key("entry_render"), CallableKind::Proc, &[Value::Int(7), Value::Bool(true)], span).unwrap().expect_err("failed materialization does not render a partial table");
             assert_eq!((&*error.family, &*error.variant, &*error.message), ("TableFailure", "Stopped", "late"));
             assert!(error.propagated);
             assert_eq!(evaluator.stdout, b"closed\n");
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cpdcpd")));
             evaluator.stdout.clear();
-            let error = evaluator.call_indexed_direct(key("rejected"), CallableKind::Proc, &[Value::Int(7)], span).unwrap().expect_err("configuration fails before the source is pulled");
+            let error = evaluator.call_indexed_direct(key("entry_rejected"), CallableKind::Proc, &[Value::Int(7)], span).unwrap().expect_err("configuration fails before the source is pulled");
             assert_eq!((&*error.family, &*error.variant, &*error.message), ("TableFailure", "Stopped", "configuration"));
             assert!(error.propagated);
             assert!(evaluator.stdout.is_empty());
@@ -5473,4 +5730,437 @@ test imported_path_method_results {
     });
 }
 
+#[test]
+fn generic_list_splices_preserve_comprehension_binding_sources() {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": List[Path]" };
+        let source = format!("type Entry = {{name: Str, outputs: List[Path]}}\npure retain(value{annotation}) {{ value }}\npure nested(rows: List[Entry]) -> List[List[Path]] {{ [retain([p\"/head\", @row.outputs]) for row in rows] }}\n");
+        let _ = record_form_program(&source);
+    }
+}
+
+#[test]
+fn generic_record_arguments_preserve_comprehension_splice_sources() {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-comprehension-list-builds.xsh");
+    for generic in [false, true] {
+        let source = if generic { source.to_owned() } else { source.replace("pure retain_build_rows(value)", "pure retain_build_rows(value: List[BuildEntry])") };
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-comprehension-list-builds.xsh", crate::loader::entry_source_from_text("generic-comprehension-list-builds.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_generic_comprehension_list_builds", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "generic={generic} frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "generic={generic} frames={force_frames}: {:?}", result.result);
+        }
+    }
+}
+
+#[test]
+fn typed_set_operator_results_preserve_membership_producer_domains() {
+    let source = "const KINDS = {\"file\", \"dir\"}\npure allowed(kind: Str, extra: Set[Str]) -> Bool { kind in KINDS | extra }\nassert allowed(\"file\", {\"link\",})\n";
+    let _ = record_form_program(source);
+}
+
+#[test]
+fn typed_set_spec_example_preserves_membership_producer_domains() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../docs/snippets/spec/69-sets.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("69-sets.xsh", crate::loader::entry_source_from_text("69-sets.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(crate::runtime::eval::ProducerDemand::for_declarations(&parsed.arena, &checked), crate::runtime::eval::ProducerDemand::Needed);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let words = Value::List(["the", "one", "three", "one"].map(|word| Value::Str(Arc::from(word))).into());
+            let result = prepared.eval_test("report", words, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+            assert_eq!(result.output.stdout, b"[\"one\",\"three\"] [3,5]\n");
+        }
+    });
+}
+
+#[test]
+fn typed_set_producers_preserve_domains_and_eager_cleanup_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/fixtures/runtime/typed-set-producers.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("typed-set-producers.xsh", crate::loader::entry_source_from_text("typed-set-producers.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(crate::runtime::eval::ProducerDemand::for_declarations(&parsed.arena, &checked), crate::runtime::eval::ProducerDemand::Needed);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_typed_set_producers", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn typed_set_producers_reject_incompatible_domains_and_results() {
+    for operator in ["|", "&"] {
+        for source in [
+            format!("pure rejected(left: Set[Str], right: Set[Int]) -> Set[Str] {{ left {operator} right }}"),
+            format!("pure rejected(left: Any, right: Set[Str]) -> Set[Str] {{ left {operator} right }}"),
+            format!("pure rejected(left: List[Str], right: Set[Str]) -> Set[Str] {{ left {operator} right }}"),
+            format!("pure rejected(left: Set[Float], right: Set[Float]) -> Set[Float] {{ left {operator} right }}"),
+            format!("pure rejected(left: Set[Str], right: Set[Str]) -> Set[Int] {{ left {operator} right }}"),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(errors.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckSetOperator | crate::diagnostic::DiagnosticCode::CheckSetElementType | crate::diagnostic::DiagnosticCode::CheckTypeMismatch))), "{source}\n{errors:?}");
+        }
+    }
+}
+
+#[test]
+fn inferred_stream_reassignment_preserves_pull_and_cleanup_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = include_str!("../../../../tests/fixtures/runtime/inferred-stream-reassignment.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("inferred-stream-reassignment.xsh", crate::loader::entry_source_from_text("inferred-stream-reassignment.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_inferred_stream_reassignment", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+fn verify_known_alias_splice_program(source: &'static str, test: &'static str) {
+    on_scoped_body_test_stack(move || {
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("known-alias-splice.xsh", crate::loader::entry_source_from_text("known-alias-splice.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test(test, Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.stdout.is_empty(), "frames={force_frames}: {:?}", result.output.stdout);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn inferred_known_alias_literal_splices_execute_on_both_routes() {
+    verify_known_alias_splice_program(r#"pure identity(value: Int) -> Int { value }
+pure through_alias(value: Int) -> Int {
+    let action = identity
+    action(@[value])
+}
+pure through_name(value: Int) -> Int { identity(@[value]) }
+pure target() -> Int { 7 }
+pure empty_alias() -> Int { let action = target; action(@[]) }
+pure empty_name() -> Int { target(@[]) }
+pure suffix_alias() -> Int { let action = identity; action(7, @[]) }
+pure suffix_name() -> Int { identity(8, @[]) }
+pure combined_alias() -> Int { let action = identity; action(@[9], @[]) }
+pure combined_name() -> Int { identity(@[10], @[]) }
+test known_alias_splice {
+    assert through_alias(7) == 7
+    assert through_name(8) == 8
+    assert empty_alias() == 7
+    assert empty_name() == 7
+    assert suffix_alias() == 7
+    assert suffix_name() == 8
+    assert combined_alias() == 9
+    assert combined_name() == 10
+}
+"#, "known_alias_splice");
+}
+
+#[test]
+fn inferred_known_alias_splices_preserve_capture_defaults_order_and_cleanup() {
+    verify_known_alias_splice_program(r#"let prefix = "capture:"
+var trace = 0
+var defaults = 0
+var closed = 0
+proc digit(value: Int) [] -> Str { trace = trace * 10 + value; f"{value}" }
+proc suffix() [] -> Str { defaults = defaults + 1; digit(3) }
+proc close() [] { closed = closed + 1 }
+proc render(value: Str, ending: Str = suffix()) [error] -> Str {
+  defer close()
+  assert value != "bad"
+  prefix + value + ending
+}
+proc relay(value: Str) [error] -> Str {
+  let selected = render
+  let again = selected
+  again(@[{ let _ = digit(1); value }])
+}
+proc relay_method(value: Str) [error] -> Str {
+  let selected = render
+  selected.call(@[{ let _ = digit(1); value }])
+}
+proc generic_relay(payload, value: Str) [error] {
+  let selected = render
+  let result = selected(@[{ let _ = digit(1); value }])
+  {payload, result}
+}
+pure count(...values: List[Int]) -> Int { values.len() }
+pure relay_count(values: List[Int]) -> Int { let selected = count; selected(@values) }
+test known_alias_lifecycle {
+  trace = 0
+  defaults = 0
+  closed = 0
+  assert relay("value") == "capture:value3"
+  assert trace == 13
+  assert defaults == 1
+  assert closed == 1
+  let failed = try { relay("bad") }
+  match failed {
+    Err(AssertionError.Failed {message}) => assert !message.is_empty()
+    _ => assert false
+  }
+  assert trace == 1313
+  assert defaults == 2
+  assert closed == 2
+  assert relay_method("method") == "capture:method3"
+  let generic = generic_relay(7, "generic")?
+  assert generic.payload == 7
+  assert generic.result == "capture:generic3"
+  assert trace == 13131313
+  assert defaults == 4
+  assert closed == 4
+  assert relay_count([]) == 0
+  assert relay_count([1, 2, 3]) == 3
+}
+"#, "known_alias_lifecycle");
+}
+
+#[test]
+fn nonproducing_generic_pipelines_preserve_nonlocal_returns() {
+    for stages in ["", " |> sort |> take(0)"] {
+        let source = format!(r#"
+pure identity(value) {{ let ignored = [value] |> map {{ |item| return value }}{stages}; value }}
+pure fixed(value) -> Int {{ let ignored = [value] |> map {{ |item| return 11 }}{stages}; 0 }}
+pure number() -> Int {{ identity(7) + fixed("text") }}
+pure text() -> Str {{ identity("retained") }}
+"#);
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (name, expected) in [("number", Value::Int(18)), ("text", Value::Str(Arc::from("retained")))] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected, "{source} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_pipeline_completion_fixture_runs_on_both_routes() {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-pipeline-completion.xsh");
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-completion.xsh", crate::loader::entry_source_from_text("generic-pipeline-completion.xsh", source.to_owned()), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("generic_pipeline_completion", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+    }
+}
+
+#[test]
+fn completion_roles_do_not_default_ordinary_recovery_or_optional_demand() {
+    for source in [
+        "pure pending(value) -> Int { let ignored = [value] |> map { |item| return 1 } |> take(0); 0 }\n",
+        "pure pending(value, items: List[Int]) -> Int { let ignored = items |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+        "pure pending(value) { let ignored = []; value }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error && diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn noncompletion_preserves_authored_bindings_and_bare_statement_effects() {
+    for binding in ["let x: Any =", ""] {
+        let reference = if binding.is_empty() { "" } else { "let _ = x;" };
+        let source = format!(r#"
+pure preserve(value) {{ {binding} [value] |> map {{ |item| return item }}; {reference} value }}
+proc observed(value) -> Result[Int] {{ {binding} [value] |> map {{ |item| return 13 }}; {reference} 0 }}
+pure number() -> Int {{ preserve(7) }}
+pure text() -> Str {{ preserve("retained") }}
+proc observed_number() -> Result[Int] {{ observed(1) }}
+proc observed_text() -> Result[Int] {{ observed("marker") }}
+"#);
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("retained")))] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected);
+            }
+            for name in ["observed_number", "observed_text"] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Int(13)))));
+            }
+        }
+    }
+}
+
+#[test]
+fn completing_pipeline_statements_and_effectful_callbacks_keep_their_checks() {
+    for (source, code) in [
+        ("pure pending(items: List[Int]) -> Int { items |> map { |item| item }; 0 }\n", crate::diagnostic::DiagnosticCode::CheckIgnoredResult),
+        ("pure pending(value, items: List[Int]) -> Int { items |> map { |item| return 1 }; 0 }\n", crate::diagnostic::DiagnosticCode::CheckIgnoredResult),
+        ("proc pending(value) [] -> Result[Int] { [value] |> map { |item| error.fail(\"failed\")?; return 13 }; 0 }\n", crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error && diagnostic.code == Some(code)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn nonproducing_callbacks_preserve_known_terminal_results_for_empty_sources() {
+    let source = r#"
+pure counted(marker, items: List[Int]) -> Int {
+  let ignored = items |> map { |item| return 23 } |> count
+  let _ = marker
+  0
+}
+pure empty_count() -> Int { counted("empty", []) }
+pure present_count() -> Int { counted(7, [1]) }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, expected) in [("empty_count", Value::Int(0)), ("present_count", Value::Int(23))] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected, "frames={force_frames}");
+        }
+    }
+}
+
 mod guarded_requirements_tests;
+
+#[test]
+fn named_immutable_pipeline_inputs_preserve_required_nonlocal_returns() {
+    let mut failures = Vec::new();
+    for (label, definitions, stages, typed) in [
+        ("immutable", "let rows = [value];", "rows", false),
+        ("immutable-alias", "let rows = [value]; let alias = rows;", "alias", false),
+        ("typed-immutable", "let rows = [value];", "rows", true),
+    ] {
+        for suffix in ["", " |> sort |> take(0)"] {
+            let signature = if typed { "value: Int) -> Int" } else { "value)" };
+            let text = if typed { "" } else { "pure text() -> Str { chosen(\"retained\") }\n" };
+            let source = format!("pure chosen({signature} {{ {definitions} let ignored = {stages} |> map {{ |item| return item }}{suffix}; value }}\npure number() -> Int {{ chosen(7) }}\n{text}");
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("named-pipeline-input.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            if !checked.diagnostics.is_empty() {
+                failures.push(format!("{label} suffix={suffix:?}\n{source}\n{:?}", checked.diagnostics));
+                continue;
+            }
+            let program = match FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources.clone()), source_id) {
+                Ok(program) => Arc::new(program),
+                Err(error) => { failures.push(format!("{label} suffix={suffix:?}: {error:?}")); continue; }
+            };
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut entries = vec![("number", Value::Int(7))];
+                if !typed { entries.push(("text", Value::Str(Arc::from("retained")))); }
+                for (name, expected) in entries {
+                    let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                    assert_eq!(actual, expected, "{label} suffix={suffix:?} frames={force_frames}");
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+#[test]
+fn named_pipeline_cardinality_preserves_unknown_sources_and_initializer_effects() {
+    use crate::diagnostic::DiagnosticCode;
+    for (source, expected) in [
+        ("pure pending(value) -> Int { let rows: List[Int] = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure pending(value) -> Int { var rows = [value]; rows = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure pending(value) -> Int { let rows = [value]; { let rows: List[Int] = []; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }; 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure pending(value, values: List[Int]) -> Int { let rows = values; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n", DiagnosticCode::CheckStreamSort),
+        ("pure outer(values: List[Int]) -> Int { pure inner() -> Int { let rows = values; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); 0 }; inner() }\n", DiagnosticCode::CheckStreamSort),
+        ("proc pending(value) [] -> Result[Int] { let rows = [error.fail(\"failed\")?]; let ignored = rows |> map { |item| return 1 } |> sort |> take(0); let _ = value; 0 }\n", DiagnosticCode::CheckEffectViolation),
+    ] {
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("named-pipeline-negative.xsh", source.to_string());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn resource_failure_value_tails_have_no_success_value_obligation() {
+    let source = include_str!("../../../../tests/fixtures/runtime/resource-scope-failure-tail.xsh");
+    let _ = record_form_program(source);
+}
+
+#[test]
+fn resource_failure_value_tails_preserve_errors_and_cleanup_after_frontend_disposal() {
+    let source = format!("{}\n{}", include_str!("../../../../tests/fixtures/runtime/resource-scope-failure-tail.xsh"), include_str!("../../../../tests/fixtures/runtime/resource-scope-failure-tail-runtime.xsh"));
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("resource-failure-tail.xsh", crate::loader::entry_source_from_text("resource-failure-tail.xsh", source), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("verify_resource_failure_tail", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(result.output.stdout.is_empty(), "{:?}", result.output.stdout);
+        assert!(result.output.stderr.is_empty(), "{:?}", result.output.stderr);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+    }
+}

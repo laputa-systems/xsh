@@ -426,6 +426,28 @@ impl SemanticPools {
         Ok((fields, types))
     }
 
+    pub(super) fn typed_callee_field_type(&self, id: TypeId, field: Name) -> Result<Option<TypeId>, IrVerifyError> {
+        let Type::Module(module) = self.to_type(id)?.into_unvalidated() else {
+            return self.field_type(id, field);
+        };
+        let Some(export @ ModuleExportType::Callable { .. }) = module.exports.get(&field) else {
+            return self.field_type(id, field);
+        };
+        let Some(Type::Callable(callable)) = export.static_callable_value_type() else {
+            return Ok(None);
+        };
+        for (index, tag) in self.type_tags.iter().enumerate() {
+            if *tag != TypeTag::Callable { continue; }
+            let data = self.type_data[index];
+            if data.rhs != callable.kind as u32 { continue; }
+            let signature = SignatureId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("module callable type signature is invalid"))?;
+            if self.signature_matches_callable(signature, &callable.sig)? {
+                return TypeId::new(index).map(Some).map_err(|_| IrVerifyError::new("module callable type id overflows"));
+            }
+        }
+        Ok(None)
+    }
+
     /// Resolves checked fields on records and statically typed module exports.
     /// Optional module exports cannot prove a direct field read is callable.
     pub(super) fn field_type(
@@ -2107,6 +2129,44 @@ mod tests {
                 let mut invalid = pools.clone();
                 invalid.type_data[typed_id.index()].rhs = 3;
                 assert!(invalid.verify().unwrap_err().message.contains("callable kind"));
+            }
+        });
+    }
+
+    #[test]
+    fn module_callee_projection_uses_exact_invocation_contracts() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for kind in [crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc] {
+                let name = Name::intern("forwarded");
+                let invocation = CallableType {
+                    params: vec![CallableParamType { name: Name::intern("value"), ty: Type::Int, defaulted: false, rest: false }],
+                    return_ty: Box::new(Type::Int),
+                    effects: if kind == crate::sema::types::CallableKind::Pure { crate::sema::types::CallableEffects::finite([]) } else { crate::sema::types::CallableEffects::finite([Effect::Io, Effect::Error]) },
+                };
+                let mut declaration = invocation.clone();
+                if kind == crate::sema::types::CallableKind::Pure { declaration.effects = crate::sema::types::CallableEffects::unknown(); }
+                let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(BTreeMap::from([(name, ModuleExportType::Callable { kind, sig: declaration, optional: false })]))));
+                let mut pools = SemanticPools::default();
+                let mut builder = SemanticPoolBuilder::default();
+                let module_id = builder.intern_type(&mut pools, &module).unwrap();
+                for mutation in 0..7 {
+                    let mut wrong = crate::sema::types::TypedCallable { kind, sig: invocation.clone() };
+                    match mutation {
+                        0 => wrong.kind = if kind == crate::sema::types::CallableKind::Pure { crate::sema::types::CallableKind::Proc } else { crate::sema::types::CallableKind::Pure },
+                        1 => wrong.sig.params[0].name = Name::intern("other"),
+                        2 => wrong.sig.params[0].ty = Type::Str,
+                        3 => wrong.sig.params[0].defaulted = true,
+                        4 => { wrong.sig.params[0].rest = true; wrong.sig.params[0].ty = Type::List(Box::new(Type::Int)); },
+                        5 => wrong.sig.return_ty = Box::new(Type::Str),
+                        6 => wrong.sig.effects = if kind == crate::sema::types::CallableKind::Pure { crate::sema::types::CallableEffects::finite([Effect::Io]) } else { crate::sema::types::CallableEffects::finite([]) },
+                        _ => unreachable!(),
+                    }
+                    builder.intern_type(&mut pools, &Type::Callable(std::sync::Arc::new(wrong))).unwrap();
+                    assert_eq!(pools.typed_callee_field_type(module_id, name).unwrap(), None, "{kind:?} mutation={mutation}");
+                }
+                let expected = builder.intern_type(&mut pools, &Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable { kind, sig: invocation }))).unwrap();
+                pools.verify().unwrap();
+                assert_eq!(pools.typed_callee_field_type(module_id, name).unwrap(), Some(expected));
             }
         });
     }

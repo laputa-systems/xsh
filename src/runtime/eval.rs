@@ -809,6 +809,7 @@ struct BuildScratch {
     scheme_application_calls: Vec<Option<u32>>,
     scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
     scheme_completion_sources: BTreeMap<usize, SchemeCompletionSource>,
+    scheme_noncompleting: std::collections::BTreeSet<usize>,
     scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
     scheme_operations: BTreeMap<usize, u32>,
     scheme_methods: BTreeMap<usize, u32>,
@@ -861,6 +862,7 @@ enum CheckedExprPurpose {
         with_error_source: bool,
     },
     ProducerContext,
+    CapturedErrorContract,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -872,7 +874,7 @@ enum ProducerDemand {
 
 impl ProducerDemand {
     fn for_scheme_body(facts: &crate::sema::schemes::SchemeBodyFacts) -> Self {
-        if facts.scheme().kind() == CallableKind::Stream || !facts.registered_calls().is_empty() {
+        if facts.scheme().kind() == CallableKind::Stream || !facts.registered_calls().is_empty() || !facts.noncompleting_expressions().is_empty() {
             Self::Needed
         } else { Self::Absent }
     }
@@ -1141,6 +1143,15 @@ impl BuildScratch {
                 *fact = Some(CheckedExprType { ty, purpose: CheckedExprPurpose::ProducerContext });
                 true
             }
+        }
+    }
+
+    fn record_captured_error_contract(&mut self, id: BuildExprId, ty: Type) -> bool {
+        let Some(fact) = self.checked_expr_types.get_mut(id.index()) else { return false };
+        let checked = CheckedExprType { ty, purpose: CheckedExprPurpose::CapturedErrorContract };
+        match fact {
+            Some(existing) => *existing == checked,
+            None => { *fact = Some(checked); true }
         }
     }
 
@@ -1651,6 +1662,32 @@ enum LoweredValueCheck {
         crate::sema::schemes::SchemeType,
         crate::sema::schemes::CallInstantiation,
     >>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum DeferKind {
+    Always,
+    OnError,
+    ManagedRelease,
+}
+
+impl DeferKind {
+    const INDEX_BITS: u32 = 30;
+    const INDEX_LIMIT: u32 = 1 << Self::INDEX_BITS;
+
+    fn from_encoded(raw: u32) -> Option<Self> {
+        match raw {
+            0 => Some(Self::Always),
+            1 => Some(Self::OnError),
+            2 => Some(Self::ManagedRelease),
+            _ => None,
+        }
+    }
+
+    fn for_error(on_error: bool) -> Self {
+        if on_error { Self::OnError } else { Self::Always }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

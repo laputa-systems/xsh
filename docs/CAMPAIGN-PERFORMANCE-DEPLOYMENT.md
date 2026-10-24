@@ -30,21 +30,63 @@ repairs continue on their own branches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration includes all 35 pipeline stages, membership,
-record `if let` and guard continuations, bare Proc completion, canonical fixed
-fields, conditional List data and intrinsic arithmetic results. The integrated
-UInt and guard source at `9df3bf21e` passes the combined full-library run:
-2,547 passes, zero failures and three ignored tests, including all fourteen
-independent solver controls. Its immutable checkout and terminal log remain in
-`.work/wt/full-inference-guard-uint-qualification/` and
-`.work/tmp/guard-uint-full-library.log`. Later changes need matching evidence.
-Fresh comprehension argument evidence and direct Env conversion bounds are now
-integrated provisionally. The Env slice passes eleven focused checks and
-independent review; guarded nullable values remain a separate open relationship.
-Remaining corpus causes include guard argument evidence, correlated Path method
-results and a fresh `Err.context` consumer proof. Complete
-interface/migration qualification and inherited performance/deployment gates
-remain required. No mandatory item is waived.
+The latest combined inference source is `65629e7cf`, tree
+`199a430cf1af76d573878eb4a27b4c7ec3ff1c33`. All 48 selected integration
+controls pass after reconciling the four reviewed guard checkpoints with
+pipeline noncompletion, imported aliases and managed resource cleanup. The
+source is frozen in `.work/wt/full-inference-guarded-wave-qualification/` for
+matching tool products and the full library boundary. Focused evidence is in
+`.work/tmp/guard-integrated-reconciled-focus.log`; it does not qualify the
+complete campaign or a master merge.
+
+Guard requirements now execute imported rendering, Env preload, arithmetic,
+Path methods and closed records with opaque fields. Generic relays, repeated
+relays, and calls using local or ancestor guard binders execute on both routes
+after frontend disposal. Cold controls cover source, polarity, stale reads,
+post-guard writes, row data, sibling scopes and same-numbered foreign callable
+packets. Root binder requirements remain total. Conditional callback effects,
+error propagation relationships, output joins, captures and complete exported
+signature rendering remain open. Those implementation classes are mandatory.
+
+The latest completed full library run is the earlier `dd32a29d6`: 2,623 passes,
+five failures and three ignored tests. All five now have reviewed focused
+repairs or corrected test protocols on the combined source. Compatible typed
+callable replacement is tested by executing its actual target; incompatible
+writers still fail. Generic host-entry tests now use authored checked wrappers
+rather than inventing runtime generic bindings. The full run remains failed;
+matching combined qualification must replace it. The last fully green library
+source remains `9df3bf21e` with 2,547 passes and three ignored tests.
+
+Matching early Pyramid source `c7b9b7b29` passes 64 focused Python controls,
+five exact event/selection CLI tests, and verification product builds. Strict
+native replay runs 234 selectors on each route: 232 pass, with the same two
+failures in both modes; API replay passes all six selectors. All nineteen added
+cases pass. The remaining diagnostic-oracle and resource-return causes are
+repaired on `65629e7cf`, but native credit does not transfer to that source.
+
+The public Pyramid PM adapter passes its schema-1 fresh/reuse/root case with
+those matching products and clean Laputa source `6830500`: selected one,
+passed one, complete coverage, child status zero, no unresolved result. Actual
+package builds, dependency reuse, root inventory, ownership, links, payloads and
+cleanup are checked. Laputa's four prepared kernel-discovery cases also pass
+on both routes against earlier `abb1c8b82` products and are integrated into its
+isolated Pyramid branch at `9fa862c`. Neither result establishes world, VM,
+performance, P0 or deployment acceptance.
+
+The current 926-retainer corpus proposal still has no new removal credit.
+The last replay on `c7b9b7b29` stops in the original annotated view before
+runtime or interface comparison. Captured imported callable publication is
+repaired and original `dev/internal.xsh` prepares; original `dev/main.xsh`
+exposes a separate compound Boolean guard relationship. Its diagnosed ordering
+fix closes the full entry, while the faithful small witness still exhausts the
+unchanged proof-work bound. An expert owns that remaining common proof cost.
+No annotation restoration or classification excludes the defect.
+
+Independent Pyramid qualification remains provisional until accepted inference
+is integrated. Scaling preparation has identified repeated generalization map
+copies; implementation waits for settled guard contracts. Final canonical
+warnings, documentation, corpus/interface parity, performance and inherited
+Laputa world/Asterinas acceptance remain required. No mandatory item is waived.
 
 Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
 verification products. With the precise native-input correction `1c9694a3c`,
@@ -91,11 +133,8 @@ Null arguments and public-name controls. All 163 primary-family declarations
 are discovered. Its six API selectors also pass. These products predate the
 membership and subsequent corpus repairs; no native credit transfers to them.
 
-Laputa's unchanged Kbuild module now prepares on `4c8d0d323`. Its four isolated
-kernel-discovery controls still stop before execution at a fresh
-`Err(...).context(...)` consumer boundary. A separate expert owns that proof;
-the reviewed Laputa source remains uncommitted until its behavior qualifies.
-Pyramid closure still follows inference
+The earlier `4c8d0d323` Laputa discovery failure is superseded by the matching
+`abb1c8b82` four-control result above. Pyramid closure still follows inference
 acceptance, local master integration and completed-worktree cleanup.
 
 The 2026-10-24 acceleration changes ordinary Cargo capacity from two to three
@@ -120,7 +159,11 @@ normal and forced execution, alongside unused-binder and resource negatives.
 Complete F6 scaling and timing qualification remain pending. Raw binder-clone
 counts are 8,704, 33,792, 133,120 and 528,384 at sizes 64, 128, 256 and 512.
 These counts are not timing results or F6 acceptance; the substitution repair
-does not establish a bound on the separate cloning cost.
+does not establish a bound on the separate cloning cost. Nine canonical
+counter inputs on `cc79637f3` have zero diagnostics. A valid scalar-output size-512
+control retains the same 528,384 binder clones with only 16,008 output/evidence
+nodes, separating whole-scope copying from aggregate result size. This is a
+source-bound work diagnosis, not a timing result or F6 acceptance.
 
 The previous `50f4552aa` product boundary passes six API selectors. Each native
 route runs 161 cases: 159 pass and two fixture defects fail. The corrected

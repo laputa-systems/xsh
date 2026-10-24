@@ -195,6 +195,10 @@ fn application_return_origin(
     Ok(memo[&instruction])
 }
 
+fn pipeline_item_value(item: &Option<SchemeType>) -> Result<&SchemeType, IrVerifyError> {
+    item.as_ref().ok_or_else(|| IrVerifyError::new("generic pipeline stage requires a produced item"))
+}
+
 fn expression_type(types: &BTreeMap<usize, SchemeType>, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
     let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic expression has no checked body fact"))?;
     budget.charge_scheme_clone(ty)?;
@@ -954,6 +958,7 @@ fn scoped_block_value(store: &FullStore, statements: &[usize], payload: SchemeTy
 
 pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
+    noncompleting: &BTreeSet<usize>,
     constructors: &super::constructors::ConstructorFacts,
     operation_sites: &BTreeMap<usize, u32>,
     method_sites: &BTreeMap<usize, u32>,
@@ -1026,8 +1031,302 @@ pub(super) fn verify_body(
                 let scheme_scope = &active_scheme_scope;
                 budget.charge(1)?;
                 expression_scopes.insert(instruction, scope);
-                let claimed = expression_type(types, instruction, budget)?;
+                let completion_only = noncompleting.contains(&instruction);
+                let claimed = if completion_only {
+                    budget.charge(decoder.instruction_range.len())?;
+                    let can_complete = match decoder.expression_view(instruction)? {
+                        schema::ExprView::ListPipeline { input, mut stages, .. } => {
+                            let prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
+                            let mut query = super::super::IndexedCardinalityQuery::with_prefix(decoder, prefix);
+                            let completes = super::super::indexed_pipeline_can_complete_with_query(decoder, input.raw(), &mut stages, &mut query)?;
+                            budget.charge(query.memo.len())?;
+                            completes
+                        }
+                        _ => super::super::indexed_expr_can_complete(decoder, instruction, 0)?,
+                    };
+                    if can_complete { return Err(IrVerifyError::new("generic completion fact can produce a value")); }
+                    None
+                } else { Some(expression_type(types, instruction, budget)?) };
                 match decoder.expression_view(instruction)? {
+                    schema::ExprView::ValueBlock { body, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: claimed });
+                    }
+                    schema::ExprView::ListPipeline { input, mut stages, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let source = expression_type(types, input.raw() as usize, budget)?;
+                        let position = super::super::decode::ListView::position(&stages);
+                        let first = stages.next_with_id().transpose()?;
+                        stages.resume(position)?;
+                        let adapter = first.is_some_and(|stage| matches!(stage.view, super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines));
+                        let (item, stream) = if adapter {
+                            budget.charge_scheme_clone(&source)?;
+                            (source.clone(), None)
+                        } else { pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)? };
+                        let mut item = Some(item);
+                        let mut terminal = None;
+                        let mut stage_ids = Vec::new();
+                        while let Some(stage) = stages.next_with_id() {
+                            budget.charge(1)?;
+                            if terminal.is_some() { return Err(IrVerifyError::new("generic pipeline continues after a terminal stage")); }
+                            let stage = stage?;
+                            stage_ids.push(stage.id.raw());
+                            let each = matches!(&stage.view, super::super::StageView::Each { .. });
+                            match stage.view {
+                                super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines => {
+                                    if stage_ids.len() != 1 { return Err(IrVerifyError::new("generic pipeline adapter is not the first stage")); }
+                                    let input_type = if matches!(stage.view, super::super::StageView::BytesChunks { .. }) { Type::Bytes } else { Type::Str };
+                                    if !body_type_matches(&source, &SchemeType::Ground(input_type), budget)? { return Err(IrVerifyError::new("generic pipeline adapter has the wrong source type")); }
+                                    if let super::super::StageView::BytesChunks { size } = stage.view {
+                                        if !body_type_matches(&expression_type(types, size.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic byte chunk size is not Int")); }
+                                        pending.push(Obligation::Expression(size.raw() as usize, scope));
+                                    }
+                                    item = Some(SchemeType::Ground(match stage.view { super::super::StageView::TextLines => Type::Str, super::super::StageView::BytesChunks { .. } => Type::Bytes, _ => Type::Any }));
+                                }
+                                super::super::StageView::Map { slot, value }
+                                | super::super::StageView::ParMap { slot, value, .. } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    if let super::super::StageView::ParMap { jobs: Some(jobs), .. } = stage.view {
+                                        if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic parallel pipeline jobs is not Int")); }
+                                        pending.push(Obligation::Expression(jobs.raw() as usize, scope));
+                                    }
+                                    item = if noncompleting.contains(&(value.raw() as usize)) {
+                                        None
+                                    } else { Some(expression_type(types, value.raw() as usize, budget)?) };
+                                    if item.as_ref().is_some_and(|item| matches!(BodyTypeRef::Scheme(item).unvalidated(), BodyTypeRef::Ground(Type::Unit))) { return Err(IrVerifyError::new("generic map callback has no value result")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::GroupBy { slot, key }
+                                | super::super::StageView::UniqueBy { slot, key }
+                                | super::super::StageView::SortBy { slot, key, .. }
+                                | super::super::StageView::CountBy { slot, key } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let key_type = expression_type(types, key.raw() as usize, budget)?;
+                                    match stage.view {
+                                        super::super::StageView::SortBy { descending, .. } => {
+                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &key_type, budget)?;
+                                            if let Some(descending) = descending {
+                                                if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
+                                                pending.push(Obligation::Expression(descending.raw() as usize, scope));
+                                            }
+                                        }
+                                        super::super::StageView::GroupBy { .. } => {
+                                            budget.charge_scheme_clone(pipeline_item_value(&item)?)?;
+                                            budget.charge(4)?;
+                                            item = Some(SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), key_type), (Name::intern("items"), SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())))]), tail: crate::sema::schemes::SchemeRowTail::Closed });
+                                        }
+                                        super::super::StageView::CountBy { .. } => {
+                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::CountKey, &key_type, budget)?;
+                                            budget.charge(3)?;
+                                            terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Int))));
+                                        }
+                                        _ => {}
+                                    }
+                                    pending.push(Obligation::Expression(key.raw() as usize, inner));
+                                }
+                                super::super::StageView::Each { slot, body }
+                                | super::super::StageView::Tee { slot, body } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                                    budget.charge(statements.len())?;
+                                    pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
+                                    if each { terminal = Some(SchemeType::Ground(Type::Unit)); }
+                                }
+                                super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
+                                    let accumulator = expression_type(types, initial.raw() as usize, budget)?;
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, acc_slot, &accumulator, slot_count, &mut writers, budget)?;
+                                    let inner = pipeline_callback_scope(&inner, &mut scopes, item_slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &accumulator, budget)? { return Err(IrVerifyError::new("generic fold callback disagrees with its accumulator")); }
+                                    pending.push(Obligation::Expression(initial.raw() as usize, scope));
+                                    if body.len() != 0 { return Err(IrVerifyError::new("generic fold callback has detached statements")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                    terminal = Some(accumulator);
+                                }
+                                super::super::StageView::ReduceBy { item_slot, ref body, value, .. }
+                                | super::super::StageView::ReduceByConfigured { item_slot, ref body, value, .. } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, item_slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let row = expression_type(types, value.raw() as usize, budget)?;
+                                    let row = BodyTypeRef::Scheme(&row).unvalidated();
+                                    if row.record_shape().is_none() || row.field(Name::intern("key")).is_none() { return Err(IrVerifyError::new("generic reduce-by callback has no key record")); }
+                                    let value_type = row.field(Name::intern("value")).ok_or_else(|| IrVerifyError::new("generic reduce-by callback has no value field"))?.materialize(budget)?;
+                                    match stage.view {
+                                        super::super::StageView::ReduceBy { jobs: Some(jobs), .. } => {
+                                            if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic reduce-by jobs is not Int")); }
+                                            pending.push(Obligation::Expression(jobs.raw() as usize, scope));
+                                        }
+                                        super::super::StageView::ReduceByConfigured { configuration, .. } => {
+                                            let ty = expression_type(types, configuration.raw() as usize, budget)?;
+                                            let configuration_type = BodyTypeRef::Scheme(&ty).unvalidated();
+                                            let Some((size, SchemeRowTail::Closed)) = configuration_type.record_shape() else { return Err(IrVerifyError::new("generic reduce-by configuration has no closed record")); };
+                                            let mut fields = 0;
+                                            for (name, expected) in [("sum", Type::Bool), ("min", Type::Bool), ("max", Type::Bool), ("jobs", Type::Int)] {
+                                                if let Some(field) = configuration_type.field(Name::intern(name)) {
+                                                    fields += 1;
+                                                    if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic reduce-by configuration field has the wrong type")); }
+                                                }
+                                            }
+                                            if fields != size { return Err(IrVerifyError::new("generic reduce-by configuration has an unknown field")); }
+                                            pending.push(Obligation::Expression(configuration.raw() as usize, scope));
+                                        }
+                                        _ => {}
+                                    }
+                                    if body.len() != 0 { return Err(IrVerifyError::new("generic reduce-by callback has detached statements")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                    terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(value_type)));
+                                }
+                                super::super::StageView::FlatMap { slot, value } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let source = expression_type(types, value.raw() as usize, budget)?;
+                                    if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
+                                        return Err(IrVerifyError::new("generic flat-map callback has no list or stream contract"));
+                                    }
+                                    let (mapped, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(value.raw() as usize), budget)?;
+                                    item = Some(mapped);
+                                    if let Some(stream) = stream { stream_iterations.push((stream, propagation_boundary(&inner, &scopes).clone())); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::Where { slot, predicate }
+                                | super::super::StageView::Any { slot, predicate }
+                                | super::super::StageView::All { slot, predicate } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    condition(types, predicate.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
+                                    if !matches!(stage.view, super::super::StageView::Where { .. }) { terminal = Some(SchemeType::Ground(Type::Bool)); }
+                                    pending.push(Obligation::Expression(predicate.raw() as usize, inner));
+                                }
+                                super::super::StageView::Enumerate => {
+                                    budget.charge(3)?;
+                                    item = Some(SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), pipeline_item_value(&item)?.clone())]), tail: crate::sema::schemes::SchemeRowTail::Closed });
+                                }
+                                super::super::StageView::Sort { descending } => {
+                                    if let Some(item) = &item { super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, item, budget)?; }
+                                    if let Some(descending) = descending {
+                                        if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
+                                        pending.push(Obligation::Expression(descending.raw() as usize, scope));
+                                    }
+                                }
+                                super::super::StageView::BatchCount { count }
+                                | super::super::StageView::BatchMaxBytes { max_bytes: count } => {
+                                    if !body_type_matches(&expression_type(types, count.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch limit is not Int")); }
+                                    if matches!(stage.view, super::super::StageView::BatchMaxBytes { .. }) && !scheme_conversion(pipeline_item_value(&item)?, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
+                                    pending.push(Obligation::Expression(count.raw() as usize, scope));
+                                    budget.charge(1)?;
+                                    item = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::BatchMaxArgv { max_argv } => {
+                                    if !scheme_conversion(pipeline_item_value(&item)?, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic argv-bounded batch item has no argv conversion")); }
+                                    if let Some(limit) = max_argv {
+                                        if !body_type_matches(&expression_type(types, limit.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch argv limit is not Int")); }
+                                        pending.push(Obligation::Expression(limit.raw() as usize, scope));
+                                    }
+                                    budget.charge(1)?;
+                                    item = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::BatchLimits { configuration } => {
+                                    let ty = expression_type(types, configuration.raw() as usize, budget)?;
+                                    let actual = BodyTypeRef::Scheme(&ty).unvalidated();
+                                    let Some((size, SchemeRowTail::Closed)) = actual.record_shape() else { return Err(IrVerifyError::new("generic batch configuration has no closed record")); };
+                                    let mut fields = 0;
+                                    let mut bytes = false;
+                                    let mut argv = false;
+                                    for (name, expected) in [("count", Type::Int), ("max_bytes", Type::Int), ("max_argv", Type::Bool)] {
+                                        if let Some(field) = actual.field(Name::intern(name)) {
+                                            fields += 1;
+                                            if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic batch configuration field has the wrong type")); }
+                                            bytes |= name == "max_bytes";
+                                            argv |= name == "max_argv";
+                                        }
+                                    }
+                                    if fields != size { return Err(IrVerifyError::new("generic batch configuration contains an unknown field")); }
+                                    if bytes && !scheme_conversion(pipeline_item_value(&item)?, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
+                                    if argv && !bytes { budget.charge_scheme_clone(pipeline_item_value(&item)?)?; batch_argv_checks.push((configuration.raw() as usize, pipeline_item_value(&item)?.clone())); }
+                                    pending.push(Obligation::Expression(configuration.raw() as usize, scope));
+                                    budget.charge(1)?;
+                                    item = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::Zip { other } => {
+                                    let source = expression_type(types, other.raw() as usize, budget)?;
+                                    let (right, stream) = pipeline_iteration_item(store, scheme_scope, &source, other.raw() as usize, budget)?;
+                                    if let Some(stream) = stream { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
+                                    budget.charge(3)?;
+                                    item = Some(SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), pipeline_item_value(&item)?.clone()), (Name::intern("right"), right)]), tail: SchemeRowTail::Closed });
+                                    pending.push(Obligation::Expression(other.raw() as usize, scope));
+                                }
+                                super::super::StageView::Range { start, end } => {
+                                    let start_type = expression_type(types, start.raw() as usize, budget)?;
+                                    for ty in [&start_type, &expression_type(types, end.raw() as usize, budget)?] {
+                                        if !body_type_matches(ty, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic range bound is not Int")); }
+                                    }
+                                    if let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(start.raw() as usize)? {
+                                        if !visited.insert(start.raw() as usize) { return Err(IrVerifyError::new("generic range configuration is shared or cyclic")); }
+                                        expression_scopes.insert(start.raw() as usize, scope);
+                                        let inner = branch_scope(&scope, &mut scopes, budget)?;
+                                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                                        budget.charge(statements.len())?;
+                                        pending.push(Obligation::Expression(end.raw() as usize, inner));
+                                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: Some(start_type) });
+                                    } else {
+                                        pending.push(Obligation::Expression(start.raw() as usize, scope));
+                                        pending.push(Obligation::Expression(end.raw() as usize, scope));
+                                    }
+                                    item = Some(SchemeType::Ground(Type::Int));
+                                }
+                                super::super::StageView::Shuffle { seed } => {
+                                    if let Some(seed) = seed {
+                                        if !body_type_matches(&expression_type(types, seed.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic shuffle seed is not Int")); }
+                                        pending.push(Obligation::Expression(seed.raw() as usize, scope));
+                                    }
+                                }
+                                super::super::StageView::Drop(value) | super::super::StageView::Take(value)
+                                | super::super::StageView::Repeat { count: value } => {
+                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
+                                        return Err(IrVerifyError::new("generic pipeline count is not Int"));
+                                    }
+                                    pending.push(Obligation::Expression(value.raw() as usize, scope));
+                                }
+                                super::super::StageView::TablePrint { .. } | super::super::StageView::TablePrintConfigured { .. } => {
+                                    if !BodyTypeRef::Scheme(pipeline_item_value(&item)?).is_record() { return Err(IrVerifyError::new("generic table print item is not a record")); }
+                                    if let super::super::StageView::TablePrintConfigured { columns } = stage.view {
+                                        if !body_type_matches(&expression_type(types, columns.raw() as usize, budget)?, &SchemeType::Ground(Type::List(Box::new(Type::Str))), budget)? { return Err(IrVerifyError::new("generic table columns are not List[Str]")); }
+                                        pending.push(Obligation::Expression(columns.raw() as usize, scope));
+                                    }
+                                    terminal = Some(SchemeType::Ground(Type::Unit));
+                                }
+                                super::super::StageView::Collect => {
+                                    budget.charge_scheme_clone(pipeline_item_value(&item)?)?;
+                                    terminal = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::Count => terminal = Some(SchemeType::Ground(Type::Int)),
+                                super::super::StageView::Sum => {
+                                    if !body_type_matches(pipeline_item_value(&item)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic pipeline sum item is not Int")); }
+                                    terminal = Some(SchemeType::Ground(Type::Int));
+                                }
+                                super::super::StageView::First | super::super::StageView::Last | super::super::StageView::Min | super::super::StageView::Max => {
+                                    if matches!(stage.view, super::super::StageView::Min | super::super::StageView::Max) {
+                                        super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::MinMaxItem, pipeline_item_value(&item)?, budget)?;
+                                    }
+                                    budget.charge_scheme_clone(pipeline_item_value(&item)?)?;
+                                    terminal = Some(SchemeType::Result(Box::new(pipeline_item_value(&item)?.clone()), Box::new(SchemeType::Ground(Type::Error))));
+                                }
+                                _ => return Err(IrVerifyError::new("generic pipeline contains an unsupported stage contract")),
+                            }
+                        }
+                        if let Some(claimed) = claimed {
+                            let expected = match terminal { Some(terminal) => terminal, None => SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())) };
+                            if !body_type_matches(&expected, &claimed, budget)? { return Err(IrVerifyError::new("generic pipeline result disagrees with its stage contract")); }
+                        }
+                        if let Some(stream) = stream {
+                            let mut cardinality = super::super::IndexedCardinalityQuery::new(decoder);
+                            let pulls = super::super::indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality)?;
+                            budget.charge(cardinality.memo.len() + stage_ids.len())?;
+                            if !pulls[0].never { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
+                        }
+                        pending.push(Obligation::Expression(input.raw() as usize, scope));
+                    }
+                    view => {
+                        let claimed = claimed.ok_or_else(|| IrVerifyError::new("generic completion fact has an unsupported physical expression"))?;
+                        match view {
                     schema::ExprView::Field { base, name, .. }
                         if types.get(&(base.raw() as usize)).and_then(SchemeType::closed_ground_type).is_some_and(|ty| matches!(ty, Type::Module(_))) =>
                     {
@@ -1159,277 +1458,6 @@ pub(super) fn verify_body(
                         scopes.error_boundaries.push(wrappers::capture_boundary(store, scheme_scope, wrapper_sites.get(&instruction).copied(), instruction, if retry { captures.len().checked_sub(1) } else { None }, &error, budget)?);
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value });
                     }
-                    schema::ExprView::ValueBlock { body, .. } => {
-                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
-                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(statements.len())?;
-                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: Some(claimed) });
-                    }
-                    schema::ExprView::ListPipeline { input, mut stages, .. } => {
-                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
-                        let source = expression_type(types, input.raw() as usize, budget)?;
-                        let position = super::super::decode::ListView::position(&stages);
-                        let first = stages.next_with_id().transpose()?;
-                        stages.resume(position)?;
-                        let adapter = first.is_some_and(|stage| matches!(stage.view, super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines));
-                        let (mut item, stream) = if adapter {
-                            budget.charge_scheme_clone(&source)?;
-                            (source.clone(), None)
-                        } else { pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)? };
-                        let mut terminal = None;
-                        let mut stage_ids = Vec::new();
-                        while let Some(stage) = stages.next_with_id() {
-                            budget.charge(1)?;
-                            if terminal.is_some() { return Err(IrVerifyError::new("generic pipeline continues after a terminal stage")); }
-                            let stage = stage?;
-                            stage_ids.push(stage.id.raw());
-                            let each = matches!(&stage.view, super::super::StageView::Each { .. });
-                            match stage.view {
-                                super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines => {
-                                    if stage_ids.len() != 1 { return Err(IrVerifyError::new("generic pipeline adapter is not the first stage")); }
-                                    let input_type = if matches!(stage.view, super::super::StageView::BytesChunks { .. }) { Type::Bytes } else { Type::Str };
-                                    if !body_type_matches(&source, &SchemeType::Ground(input_type), budget)? { return Err(IrVerifyError::new("generic pipeline adapter has the wrong source type")); }
-                                    if let super::super::StageView::BytesChunks { size } = stage.view {
-                                        if !body_type_matches(&expression_type(types, size.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic byte chunk size is not Int")); }
-                                        pending.push(Obligation::Expression(size.raw() as usize, scope));
-                                    }
-                                    item = SchemeType::Ground(match stage.view { super::super::StageView::TextLines => Type::Str, super::super::StageView::BytesChunks { .. } => Type::Bytes, _ => Type::Any });
-                                }
-                                super::super::StageView::Map { slot, value }
-                                | super::super::StageView::ParMap { slot, value, .. } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    if let super::super::StageView::ParMap { jobs: Some(jobs), .. } = stage.view {
-                                        if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic parallel pipeline jobs is not Int")); }
-                                        pending.push(Obligation::Expression(jobs.raw() as usize, scope));
-                                    }
-                                    item = expression_type(types, value.raw() as usize, budget)?;
-                                    if matches!(BodyTypeRef::Scheme(&item).unvalidated(), BodyTypeRef::Ground(Type::Unit)) { return Err(IrVerifyError::new("generic map callback has no value result")); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                }
-                                super::super::StageView::GroupBy { slot, key }
-                                | super::super::StageView::UniqueBy { slot, key }
-                                | super::super::StageView::SortBy { slot, key, .. }
-                                | super::super::StageView::CountBy { slot, key } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    let key_type = expression_type(types, key.raw() as usize, budget)?;
-                                    match stage.view {
-                                        super::super::StageView::SortBy { descending, .. } => {
-                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &key_type, budget)?;
-                                            if let Some(descending) = descending {
-                                                if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
-                                                pending.push(Obligation::Expression(descending.raw() as usize, scope));
-                                            }
-                                        }
-                                        super::super::StageView::GroupBy { .. } => {
-                                            budget.charge_scheme_clone(&item)?;
-                                            budget.charge(4)?;
-                                            item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), key_type), (Name::intern("items"), SchemeType::List(Box::new(item.clone())))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
-                                        }
-                                        super::super::StageView::CountBy { .. } => {
-                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::CountKey, &key_type, budget)?;
-                                            budget.charge(3)?;
-                                            terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Int))));
-                                        }
-                                        _ => {}
-                                    }
-                                    pending.push(Obligation::Expression(key.raw() as usize, inner));
-                                }
-                                super::super::StageView::Each { slot, body }
-                                | super::super::StageView::Tee { slot, body } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                                    budget.charge(statements.len())?;
-                                    pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
-                                    if each { terminal = Some(SchemeType::Ground(Type::Unit)); }
-                                }
-                                super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
-                                    let accumulator = expression_type(types, initial.raw() as usize, budget)?;
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, acc_slot, &accumulator, slot_count, &mut writers, budget)?;
-                                    let inner = pipeline_callback_scope(&inner, &mut scopes, item_slot, &item, slot_count, &mut writers, budget)?;
-                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &accumulator, budget)? { return Err(IrVerifyError::new("generic fold callback disagrees with its accumulator")); }
-                                    pending.push(Obligation::Expression(initial.raw() as usize, scope));
-                                    if body.len() != 0 { return Err(IrVerifyError::new("generic fold callback has detached statements")); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                    terminal = Some(accumulator);
-                                }
-                                super::super::StageView::ReduceBy { item_slot, ref body, value, .. }
-                                | super::super::StageView::ReduceByConfigured { item_slot, ref body, value, .. } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, item_slot, &item, slot_count, &mut writers, budget)?;
-                                    let row = expression_type(types, value.raw() as usize, budget)?;
-                                    let row = BodyTypeRef::Scheme(&row).unvalidated();
-                                    if row.record_shape().is_none() || row.field(Name::intern("key")).is_none() { return Err(IrVerifyError::new("generic reduce-by callback has no key record")); }
-                                    let value_type = row.field(Name::intern("value")).ok_or_else(|| IrVerifyError::new("generic reduce-by callback has no value field"))?.materialize(budget)?;
-                                    match stage.view {
-                                        super::super::StageView::ReduceBy { jobs: Some(jobs), .. } => {
-                                            if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic reduce-by jobs is not Int")); }
-                                            pending.push(Obligation::Expression(jobs.raw() as usize, scope));
-                                        }
-                                        super::super::StageView::ReduceByConfigured { configuration, .. } => {
-                                            let ty = expression_type(types, configuration.raw() as usize, budget)?;
-                                            let configuration_type = BodyTypeRef::Scheme(&ty).unvalidated();
-                                            let Some((size, SchemeRowTail::Closed)) = configuration_type.record_shape() else { return Err(IrVerifyError::new("generic reduce-by configuration has no closed record")); };
-                                            let mut fields = 0;
-                                            for (name, expected) in [("sum", Type::Bool), ("min", Type::Bool), ("max", Type::Bool), ("jobs", Type::Int)] {
-                                                if let Some(field) = configuration_type.field(Name::intern(name)) {
-                                                    fields += 1;
-                                                    if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic reduce-by configuration field has the wrong type")); }
-                                                }
-                                            }
-                                            if fields != size { return Err(IrVerifyError::new("generic reduce-by configuration has an unknown field")); }
-                                            pending.push(Obligation::Expression(configuration.raw() as usize, scope));
-                                        }
-                                        _ => {}
-                                    }
-                                    if body.len() != 0 { return Err(IrVerifyError::new("generic reduce-by callback has detached statements")); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                    terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(value_type)));
-                                }
-                                super::super::StageView::FlatMap { slot, value } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    let source = expression_type(types, value.raw() as usize, budget)?;
-                                    if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
-                                        return Err(IrVerifyError::new("generic flat-map callback has no list or stream contract"));
-                                    }
-                                    let (mapped, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(value.raw() as usize), budget)?;
-                                    item = mapped;
-                                    if let Some(stream) = stream { stream_iterations.push((stream, propagation_boundary(&inner, &scopes).clone())); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                }
-                                super::super::StageView::Where { slot, predicate }
-                                | super::super::StageView::Any { slot, predicate }
-                                | super::super::StageView::All { slot, predicate } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    condition(types, predicate.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
-                                    if !matches!(stage.view, super::super::StageView::Where { .. }) { terminal = Some(SchemeType::Ground(Type::Bool)); }
-                                    pending.push(Obligation::Expression(predicate.raw() as usize, inner));
-                                }
-                                super::super::StageView::Enumerate => {
-                                    budget.charge(3)?;
-                                    item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
-                                }
-                                super::super::StageView::Sort { descending } => {
-                                    super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &item, budget)?;
-                                    if let Some(descending) = descending {
-                                        if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
-                                        pending.push(Obligation::Expression(descending.raw() as usize, scope));
-                                    }
-                                }
-                                super::super::StageView::BatchCount { count }
-                                | super::super::StageView::BatchMaxBytes { max_bytes: count } => {
-                                    if !body_type_matches(&expression_type(types, count.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch limit is not Int")); }
-                                    if matches!(stage.view, super::super::StageView::BatchMaxBytes { .. }) && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
-                                    pending.push(Obligation::Expression(count.raw() as usize, scope));
-                                    budget.charge(1)?;
-                                    item = SchemeType::List(Box::new(item));
-                                }
-                                super::super::StageView::BatchMaxArgv { max_argv } => {
-                                    if !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic argv-bounded batch item has no argv conversion")); }
-                                    if let Some(limit) = max_argv {
-                                        if !body_type_matches(&expression_type(types, limit.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch argv limit is not Int")); }
-                                        pending.push(Obligation::Expression(limit.raw() as usize, scope));
-                                    }
-                                    budget.charge(1)?;
-                                    item = SchemeType::List(Box::new(item));
-                                }
-                                super::super::StageView::BatchLimits { configuration } => {
-                                    let ty = expression_type(types, configuration.raw() as usize, budget)?;
-                                    let actual = BodyTypeRef::Scheme(&ty).unvalidated();
-                                    let Some((size, SchemeRowTail::Closed)) = actual.record_shape() else { return Err(IrVerifyError::new("generic batch configuration has no closed record")); };
-                                    let mut fields = 0;
-                                    let mut bytes = false;
-                                    let mut argv = false;
-                                    for (name, expected) in [("count", Type::Int), ("max_bytes", Type::Int), ("max_argv", Type::Bool)] {
-                                        if let Some(field) = actual.field(Name::intern(name)) {
-                                            fields += 1;
-                                            if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic batch configuration field has the wrong type")); }
-                                            bytes |= name == "max_bytes";
-                                            argv |= name == "max_argv";
-                                        }
-                                    }
-                                    if fields != size { return Err(IrVerifyError::new("generic batch configuration contains an unknown field")); }
-                                    if bytes && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
-                                    if argv && !bytes { budget.charge_scheme_clone(&item)?; batch_argv_checks.push((configuration.raw() as usize, item.clone())); }
-                                    pending.push(Obligation::Expression(configuration.raw() as usize, scope));
-                                    budget.charge(1)?;
-                                    item = SchemeType::List(Box::new(item));
-                                }
-                                super::super::StageView::Zip { other } => {
-                                    let source = expression_type(types, other.raw() as usize, budget)?;
-                                    let (right, stream) = pipeline_iteration_item(store, scheme_scope, &source, other.raw() as usize, budget)?;
-                                    if let Some(stream) = stream { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
-                                    budget.charge(3)?;
-                                    item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), item), (Name::intern("right"), right)]), tail: SchemeRowTail::Closed };
-                                    pending.push(Obligation::Expression(other.raw() as usize, scope));
-                                }
-                                super::super::StageView::Range { start, end } => {
-                                    let start_type = expression_type(types, start.raw() as usize, budget)?;
-                                    for ty in [&start_type, &expression_type(types, end.raw() as usize, budget)?] {
-                                        if !body_type_matches(ty, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic range bound is not Int")); }
-                                    }
-                                    if let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(start.raw() as usize)? {
-                                        if !visited.insert(start.raw() as usize) { return Err(IrVerifyError::new("generic range configuration is shared or cyclic")); }
-                                        expression_scopes.insert(start.raw() as usize, scope);
-                                        let inner = branch_scope(&scope, &mut scopes, budget)?;
-                                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                                        budget.charge(statements.len())?;
-                                        pending.push(Obligation::Expression(end.raw() as usize, inner));
-                                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: Some(start_type) });
-                                    } else {
-                                        pending.push(Obligation::Expression(start.raw() as usize, scope));
-                                        pending.push(Obligation::Expression(end.raw() as usize, scope));
-                                    }
-                                    item = SchemeType::Ground(Type::Int);
-                                }
-                                super::super::StageView::Shuffle { seed } => {
-                                    if let Some(seed) = seed {
-                                        if !body_type_matches(&expression_type(types, seed.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic shuffle seed is not Int")); }
-                                        pending.push(Obligation::Expression(seed.raw() as usize, scope));
-                                    }
-                                }
-                                super::super::StageView::Drop(value) | super::super::StageView::Take(value)
-                                | super::super::StageView::Repeat { count: value } => {
-                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
-                                        return Err(IrVerifyError::new("generic pipeline count is not Int"));
-                                    }
-                                    pending.push(Obligation::Expression(value.raw() as usize, scope));
-                                }
-                                super::super::StageView::TablePrint { .. } | super::super::StageView::TablePrintConfigured { .. } => {
-                                    if !BodyTypeRef::Scheme(&item).is_record() { return Err(IrVerifyError::new("generic table print item is not a record")); }
-                                    if let super::super::StageView::TablePrintConfigured { columns } = stage.view {
-                                        if !body_type_matches(&expression_type(types, columns.raw() as usize, budget)?, &SchemeType::Ground(Type::List(Box::new(Type::Str))), budget)? { return Err(IrVerifyError::new("generic table columns are not List[Str]")); }
-                                        pending.push(Obligation::Expression(columns.raw() as usize, scope));
-                                    }
-                                    terminal = Some(SchemeType::Ground(Type::Unit));
-                                }
-                                super::super::StageView::Collect => {
-                                    budget.charge_scheme_clone(&item)?;
-                                    terminal = Some(SchemeType::List(Box::new(item.clone())));
-                                }
-                                super::super::StageView::Count => terminal = Some(SchemeType::Ground(Type::Int)),
-                                super::super::StageView::Sum => {
-                                    if !body_type_matches(&item, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic pipeline sum item is not Int")); }
-                                    terminal = Some(SchemeType::Ground(Type::Int));
-                                }
-                                super::super::StageView::First | super::super::StageView::Last | super::super::StageView::Min | super::super::StageView::Max => {
-                                    if matches!(stage.view, super::super::StageView::Min | super::super::StageView::Max) {
-                                        super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::MinMaxItem, &item, budget)?;
-                                    }
-                                    budget.charge_scheme_clone(&item)?;
-                                    terminal = Some(SchemeType::Result(Box::new(item.clone()), Box::new(SchemeType::Ground(Type::Error))));
-                                }
-                                _ => return Err(IrVerifyError::new("generic pipeline contains an unsupported stage contract")),
-                            }
-                        }
-                        let expected = terminal.unwrap_or_else(|| SchemeType::List(Box::new(item)));
-                        if !body_type_matches(&expected, &claimed, budget)? { return Err(IrVerifyError::new("generic pipeline result disagrees with its stage contract")); }
-                        if let Some(stream) = stream {
-                            let mut cardinality = super::super::IndexedCardinalityQuery::new(decoder);
-                            let pulls = super::super::indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality)?;
-                            budget.charge(cardinality.memo.len() + stage_ids.len())?;
-                            if !pulls[0].never { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
-                        }
-                        pending.push(Obligation::Expression(input.raw() as usize, scope));
-                    }
                     schema::ExprView::ListComp { value, qualifiers, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
@@ -1503,6 +1531,8 @@ pub(super) fn verify_body(
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
+                    }
+                }
             }
             Obligation::Block { statements, position, scope, value: value_contract } => {
                 let Some(&instruction) = statements.get(position) else {
@@ -1516,6 +1546,16 @@ pub(super) fn verify_body(
                 let mut nested = Vec::new();
                 match decoder.statement_view(instruction)? {
                     schema::StmtView::Let { slot, value, annotation } => {
+                        if noncompleting.contains(&(value.raw() as usize)) {
+                            let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic noncompleting declaration has no permission fact"))?;
+                            let authored = annotation.ok_or_else(|| IrVerifyError::new("generic noncompleting declaration has no authored storage contract"))?.materialize()?;
+                            if !body_types_equal(&declared, &SchemeType::Ground(authored)) { return Err(IrVerifyError::new("generic noncompleting declaration changes its authored storage contract")); }
+                            if slot >= slot_count || writers.insert(slot, declared.clone()).is_some() { return Err(IrVerifyError::new("generic declaration slot is duplicated or out of bounds")); }
+                            let initializer = value.raw() as usize;
+                            pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, bindings: vec![(slot, declared, mutable, Some(initializer))] });
+                            pending.push(Obligation::Expression(initializer, scope));
+                            continue;
+                        }
                         let actual = expression_type(types, value.raw() as usize, budget)?;
                         let stored = scheme_stored_type(actual, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
                         let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic local declaration has no permission fact"))?;
@@ -1666,7 +1706,7 @@ pub(super) fn verify_body(
                         expressions.push(value.raw() as usize);
                     }
                     schema::StmtView::Expr { value, .. } => {
-                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                        if completion_group.is_some() && scope.error_boundary.is_none() && !noncompleting.contains(&(value.raw() as usize)) {
                             let actual = expression_type(types, value.raw() as usize, budget)?;
                             if let Some(error) = completion_result_error(&actual, budget)? {
                                 push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
@@ -1785,7 +1825,7 @@ pub(super) fn verify_body(
                         if !store.function_metadata.get(owner.index()).is_some_and(|metadata| matches!(metadata.callable_kind, crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)) {
                             return Err(IrVerifyError::new("generic defer has no cleanup-capable owner"));
                         }
-                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                        if completion_group.is_some() && scope.error_boundary.is_none() && !noncompleting.contains(&(value.raw() as usize)) {
                             let actual = expression_type(types, value.raw() as usize, budget)?;
                             if let Some(error) = completion_result_error(&actual, budget)? {
                                 push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
@@ -2021,6 +2061,118 @@ mod tests {
     }
 
     #[test]
+    fn resource_scope_return_retains_the_ground_owner_effect_contract() {
+        prepare("proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
+    }
+
+    #[test]
+    fn resource_scope_return_authenticates_cold_release_arguments() {
+        let mut program = prepare("proc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let resource = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::FsCloseRootIfOpen, mut args, .. } = decoder.expression_view(instruction).ok()? else { return None; };
+            Some(args.next().unwrap().unwrap().unwrap().raw() as usize)
+        }).unwrap();
+        let schema::ExprView::Param(original_slot) = decoder.expression_view(resource).unwrap() else { panic!("release reads its bound resource") };
+        assert_ne!(original_slot, 1);
+        assert!(!program.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == resource));
+        let mut changed = program.clone();
+        let words = changed.store.data[resource].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(&changed.store.extra[words.clone()], &[original_slot as u32]);
+        changed.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
+    }
+
+    #[test]
+    fn managed_release_authenticates_cold_purpose_and_handover() {
+        let mut program = prepare("var saved = false\nproc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let observed = saved; defer { let kept = 1 }; let ignored = with held = root { return 1 } }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let managed = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Defer { kind: crate::runtime::eval::DeferKind::ManagedRelease, .. }))).unwrap();
+        let ordinary = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Defer { kind: crate::runtime::eval::DeferKind::Always, .. }))).unwrap();
+        let condition = match decoder.statement_view(managed).unwrap() {
+            schema::StmtView::Defer { value, .. } => match decoder.expression_view(value.raw() as usize).unwrap() {
+                schema::ExprView::IfExpr { mut branches, .. } => branches.next().unwrap().unwrap().0.raw() as usize,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+        let handover = decoder.instruction_range.clone().find_map(|instruction| match decoder.statement_view(instruction).ok()? {
+            schema::StmtView::Assign { value, .. } => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let opening = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(instruction).ok()? else { return None; };
+            let rows = body.map(|row| row.unwrap().raw() as usize).collect::<Vec<_>>();
+            rows.contains(&managed).then_some(rows[0])
+        }).unwrap();
+        let assignment = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Assign { value, .. }) if value.raw() as usize == handover)).unwrap();
+        let captures = program.store.functions[0].captures.bounds(program.store.captures.len()).unwrap();
+        let capture_slot = (program.store.captures[captures.start].slot_and_flags & !(1 << 31)) as usize;
+        for slot in [1, capture_slot] {
+            let mut changed = program.clone();
+            for instruction in [opening, condition, assignment] {
+                let words = changed.store.data[instruction].range().bounds(changed.store.extra.len()).unwrap();
+                changed.store.extra[words.start] = slot as u32;
+            }
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("managed release closing slot aliases external storage"), "{slot}: {error:?}");
+        }
+        for (instruction, offset, word, expected) in [
+            (managed, 1, 3, "defer kind is invalid"),
+            (ordinary, 1, 2, "managed release has no"),
+            (condition, 0, 1, "managed release has no canonical resource scope"),
+            (handover, 0, 0, "managed release has no canonical resource scope"),
+        ] {
+            let mut changed = program.clone();
+            assert!(changed.store.in_place.get().is_none());
+            let words = changed.store.data[instruction].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[words.start + offset] = word;
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains(expected), "{instruction}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn managed_release_authenticates_driver_statement_purposes() {
+        let mut program = prepare("tempdir site { let result = with root = fs.open_root(site)? { defer { let kept = 1 }; 3 }?; assert result == 3 }?\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let ordinary = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+            if *tag != super::super::super::FullTag::StmtDefer { return None; }
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            (program.store.extra[words.start + 1] == crate::runtime::eval::DeferKind::Always as u32).then_some(words.start + 1)
+        }).unwrap();
+        let mut changed = program.clone();
+        changed.store.extra[ordinary] = crate::runtime::eval::DeferKind::ManagedRelease as u32;
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
+    }
+
+    #[test]
+    fn resource_scope_return_keeps_explicit_propagation_effect_requirements() {
+        let source = "proc rejected(root: FsRoot) [fs] -> Int { defer root.close()?; 1 }\n";
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("resource-explicit-propagation.xsh", source.to_owned());
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation) && diagnostic.message.contains("error")), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
     fn guard_effect_exports_authenticate_live_and_absent_prepared_contributions() {
         let mut program = prepare(r#"
 proc observe(value: Int) [env, error] -> Result[Int, Error] {
@@ -2119,6 +2271,206 @@ driver()?
 
     #[cfg(feature = "native-tests")]
     #[test]
+    fn resource_scope_return_preserves_primary_flow_after_frontend_disposal() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/resource-scope-return.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("resource-scope-return.xsh", crate::loader::entry_source_from_text("resource-scope-return.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_resource_scope_return", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(result.output.stdout.is_empty(), "{:?}", result.output.stdout);
+            let stderr = std::str::from_utf8(&result.output.stderr).unwrap();
+            assert!(stderr.contains("cleanup error [fs-lock]") && stderr.contains("lock handle is not active"), "{stderr}");
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn resource_failure_tails_require_physical_completion_and_owned_error_resource_proofs() {
+        let source = include_str!("../../../../../../tests/fixtures/runtime/resource-scope-failure-tail.xsh");
+        let source = source.replace("lock: FsLock", "lock: FsLock, decoy: Bool");
+        let mut program = prepare(&format!("{source}\nproc foreign_failure(lock: FsLock) [fs, error] -> Result[Unit] {{ with held = lock {{ fail \"foreign\" }} }}\n"));
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let mut range = decoder.instruction_range.clone();
+        let returned = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprValueBlock => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert_eq!(program.store.tags[returned.1], super::super::super::FullTag::ExprValueBlock);
+        assert!(!super::super::super::indexed_expr_can_complete(&decoder, returned.1, 0).unwrap());
+        let failure = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprErr => Some(instruction),
+            _ => None,
+        }).unwrap();
+        let message = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::ErrorFailure, mut args, .. }) => Some(args.next().unwrap().unwrap().unwrap().raw() as usize),
+            _ => None,
+        }).unwrap();
+        let resource = range.find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ModuleCall { op, mut args, .. }) if op != super::super::super::RuntimeOp::ErrorFailure => Some(args.next().unwrap().unwrap().unwrap().raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(resource), Ok(schema::ExprView::Param(_))));
+
+        let mut completing = program.clone();
+        completing.store.in_place.take();
+        assert!(completing.store.in_place.get().is_none());
+        completing.store.tags[failure] = super::super::super::FullTag::StmtValue;
+        let changed = decoder_for_function(&completing.store, 0).unwrap();
+        assert!(matches!(changed.statement_view(failure), Ok(schema::StmtView::Value { .. })));
+        assert!(super::super::super::indexed_expr_can_complete(&changed, returned.1, 0).unwrap());
+        let error = FullVerifier::verify(&completing).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+
+        let mut wrong_message = program.clone();
+        wrong_message.store.in_place.take();
+        assert!(wrong_message.store.in_place.get().is_none());
+        assert!(matches!(decoder.expression_view(message), Ok(schema::ExprView::Str(_))));
+        wrong_message.store.tags[message] = super::super::super::FullTag::ExprParam;
+        wrong_message.store.data[message] = program.store.data[resource];
+        let error = FullVerifier::verify(&wrong_message).unwrap_err();
+        assert_eq!(error.message, "ground native operation arguments have no matching contract");
+
+        let mut wrong_resource = program.clone();
+        wrong_resource.store.in_place.take();
+        assert!(wrong_resource.store.in_place.get().is_none());
+        let payload = wrong_resource.store.data[resource].range().bounds(wrong_resource.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_ne!(wrong_resource.store.extra[payload.start], 1);
+        wrong_resource.store.extra[payload.start] = 1;
+        let error = FullVerifier::verify(&wrong_resource).unwrap_err();
+        assert_eq!(error.message, "managed release has no canonical resource scope");
+
+        let foreign = decoder_for_function(&program.store, 1).unwrap();
+        let foreign_value = foreign.instruction_range.clone().find_map(|instruction| match foreign.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprValueBlock => Some(value.raw()),
+            _ => None,
+        }).unwrap();
+        let mut foreign_owner = program.clone();
+        foreign_owner.store.in_place.take();
+        assert!(foreign_owner.store.in_place.get().is_none());
+        let payload = foreign_owner.store.data[returned.0].range().bounds(foreign_owner.store.extra.len()).unwrap();
+        assert_eq!(foreign_owner.store.extra[payload.start] as usize, returned.1);
+        foreign_owner.store.extra[payload.start] = foreign_value;
+        let error = FullVerifier::verify(&foreign_owner).unwrap_err();
+        assert_eq!(error.message, "full IR instruction belongs to another function");
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn imported_effect_union_executes_after_frontend_disposal_on_both_routes() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let source = std::fs::read_to_string(fixtures.join("runtime/exported-effect-union.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("exported-effect-union.xsh", crate::loader::entry_source_from_text("exported-effect-union.xsh", source), vec![fixtures.join("modules/full-inference-effect-union")]);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_effect_union", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?}", result.output.diagnostics);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert_eq!(result.output.stdout, b"integer callback\ntext callback\nunion preserved\n");
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn retry_no_completion_accepts_the_original_imperative_source() {
+        prepare("proc spin() { loop { let attempt = retry [] { assert false }; break } }\n");
+    }
+
+    #[test]
+    fn retry_no_completion_requires_cold_termination_and_delay_contracts() {
+        use super::super::super::{ExecutableOwner, FullCallableContract, FullCheckedExprPurpose, IrFunctionId};
+        let mut program = prepare("proc spin() { let spare: Any = true; loop { let attempt = retry [0ms] { assert false }; break } }\nproc empty() [] {}\npure broad_error() -> Error { error.failure(\"spare\") }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let fact = program.store.checked_expr_types.iter().position(|fact| matches!(fact.purpose, FullCheckedExprPurpose::CapturedErrorContract(_))).unwrap();
+        let retry = program.store.checked_expr_types[fact].instruction;
+        assert!(super::super::checked_expression_type_id(&program.store, retry).is_none());
+        let mut missing = program.clone();
+        missing.store.checked_expr_types.remove(fact);
+        assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "capture or retry has no checked Result contract");
+        let mut wrong_role = program.clone();
+        wrong_role.store.checked_expr_types[fact].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false };
+        let error = FullVerifier::verify(&wrong_role).unwrap_err();
+        assert_eq!(error.message, "checked expression type row is neither callable, a structured error, nor a With error source");
+        let broad = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == "broad_error").unwrap();
+        let FullCallableContract::Ground(signature) = broad.contract else { panic!("broad error is ground") };
+        let mut wrong_error = program.clone();
+        wrong_error.store.checked_expr_types[fact].type_id = program.store.semantic.signature_return_type(signature).unwrap();
+        assert_eq!(FullVerifier::verify(&wrong_error).unwrap_err().message, "captured error contract disagrees with its actual retry errors");
+        let condition = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| (matches!(tag, super::super::super::FullTag::BoolBool | super::super::super::FullTag::ExprBool) && program.store.payload(program.store.data[instruction].range()).unwrap() == [0]).then_some(instruction)).unwrap();
+        let mut completing = program.clone();
+        let words = completing.store.data[condition].range().bounds(completing.store.extra.len()).unwrap();
+        assert_eq!(&completing.store.extra[words.clone()], &[0]);
+        completing.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&completing).unwrap_err();
+        assert_eq!(error.message, "capture or retry has no checked Result contract");
+        let delay = program.store.tags.iter().position(|tag| *tag == super::super::super::FullTag::ExprDuration).unwrap();
+        let boolean = program.store.tags.iter().position(|tag| *tag == super::super::super::FullTag::ExprBool).unwrap();
+        assert!(!program.store.checked_expr_types.iter().any(|fact| [delay, boolean].contains(&(fact.instruction as usize))));
+        let mut wrong_delay = program.clone();
+        wrong_delay.store.tags.swap(delay, boolean);
+        wrong_delay.store.data.swap(delay, boolean);
+        let error = FullVerifier::verify(&wrong_delay).unwrap_err();
+        assert!(error.message.contains("producer") && error.message.contains("contract"), "{error:?}");
+        let function = (0..program.store.functions.len()).find(|index| program.store.function_instruction_range(*index).unwrap().contains(&delay)).unwrap();
+        let empty = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "empty").unwrap();
+        let mut foreign = program.clone();
+        foreign.store.checked_expr_types[fact].purpose = FullCheckedExprPurpose::CapturedErrorContract(ExecutableOwner::Function(IrFunctionId::new(empty).unwrap()));
+        assert_eq!(FullVerifier::verify(&foreign).unwrap_err().message, "captured error contract belongs to another owner");
+        let mut wrong_source = program.clone();
+        wrong_source.store.checked_expr_types[fact].instruction = boolean as u32;
+        wrong_source.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        assert_eq!(FullVerifier::verify(&wrong_source).unwrap_err().message, "captured error contract has no physical retry");
+        let mut duplicate = program.clone();
+        duplicate.store.checked_expr_types.push(program.store.checked_expr_types[fact]);
+        duplicate.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        assert_eq!(FullVerifier::verify(&duplicate).unwrap_err().message, "checked expression type rows are not strictly ordered expression facts");
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.functions[function].contract = program.store.functions[empty].contract;
+        let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+        assert!(error.message.contains("effect") && error.message.contains("owner"), "{error:?}");
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn retry_no_completion_preserves_error_cleanup_and_frames_after_disposal() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/retry-no-completion.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("retry-no-completion.xsh", crate::loader::entry_source_from_text("retry-no-completion.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("retry_no_completion", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?}", result.output.diagnostics);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
     fn fresh_result_context_accepts_written_return_consumers() {
         prepare("error Failure = Rejected(message: Str)\npure expected_failure() -> Result[Int, Error] { Err(Failure.Rejected(message: \"closed callback failed\"), cause: error.failure(\"closed cause\")).context(\"closed-observer\", \"closed callback\") }\n");
     }
@@ -2144,6 +2496,35 @@ driver()?
         assert!(error.message.starts_with("ground method has no receiver contract") || error.message.starts_with("ground method has no registered parameter contract"), "{error:?}");
     }
 
+    #[test]
+    fn exit_effects_infer_and_reach_compact_owner_contracts() {
+        prepare(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/snippets/spec/49-exit.xsh")));
+        for source in [
+            "proc leave(code: Int) { exit code }\nproc relay() [process] { leave(77) }\n",
+            "proc leave(code: Int) [process] { exit code }\n",
+            "exit 77\n",
+        ] { prepare(source); }
+    }
+
+    #[test]
+    fn exit_effects_reject_empty_pure_and_excluded_contracts() {
+        use crate::diagnostic::{DiagnosticCode, Severity};
+        for (source, code) in [
+            ("proc leave() [] { exit 77 }\n", DiagnosticCode::CheckEffectViolation),
+            ("pure leave() { exit 77 }\n", DiagnosticCode::CheckPureRun),
+            ("proc leave() [process] { without process { exit 77 } }\n", DiagnosticCode::CheckEffectViolation),
+            ("proc leave() { exit 77 }\nproc relay() [] { leave() }\n", DiagnosticCode::CheckEffectViolation),
+        ] {
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("exit-effects.xsh", source.to_owned());
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(code)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
     #[test]
     fn record_list_conditionals_execute_after_disposal_on_both_routes() {
         let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/record-list-conditionals.xsh")).unwrap();
@@ -2997,6 +3378,62 @@ test namespace_borrow {
                 scheme.body_facts.start += 1;
             }
         }
+    }
+
+    #[test]
+    fn record_constructors_preserve_union_list_field_producers() {
+        prepare("type Word = Union[Str, Path]\n\ntype Task = {tool: Str, args: List[Word]}\n\n\nproc build(root: Path) [process, error] {\n  let task = Task(tool: \"make\", args: [\"-C\", root, \"all\"])\n\n  for word in task.args {\n    if word is Path {\n      print f\"in {word}\"\n      continue\n    }\n\n    print f\"word {word}\"\n  }\n}\n\n\nbuild(p\".\")\n");
+    }
+
+    #[test]
+    fn union_record_literal_fields_require_actual_children_sources_and_owners() {
+        let program = prepare("type Word = Union[Str, Path]\ntype Task = {tool: Str, args: List[Word]}\nproc foreign(root: Path) [] { let _ = root }\nproc build(root: Path, raw: List[Any], bad: Int, words: List[Word]) [process, error] {\n  let _ = raw\n  let _ = bad\n  let task = Task(tool: \"make\", args: [\"-C\", root, @words])\n  for word in task.args {\n    if word is Path { print f\"in {word}\"; continue }\n    print f\"word {word}\"\n  }\n}\nbuild(p\".\", [\"spare\"], 7, [\"all\"])\n");
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "build").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (list, root, splice) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListBuild(entries)) => {
+                let entries = entries.collect::<Result<Vec<_>, _>>().unwrap();
+                let root = entries.iter().find_map(|(splice, value, _)| (!splice && matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(0))).then_some(value.raw() as usize)).unwrap();
+                let splice = entries.iter().find_map(|(splice, value, _)| splice.then_some(value.raw() as usize)).unwrap();
+                Some((instruction, root, splice))
+            }
+            _ => None,
+        }).unwrap();
+        let field = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut fields)) => decoder.checked_record_entries(&mut fields).unwrap().into_iter().find_map(|entry| match entry {
+                super::super::super::CheckedRecordEntry::Field(name, value) if name == "args" => Some(value),
+                _ => None,
+            }),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(field).unwrap(), schema::ExprView::Param(_)));
+        assert!(matches!(decoder.expression_view(splice).unwrap(), schema::ExprView::Param(3)));
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); assert!(changed.store.in_place.get().is_none()); changed };
+        FullVerifier::verify(&cold()).unwrap();
+        for (label, instruction, slot) in [("literal member", root, 1), ("nonlist splice", splice, 2), ("written Any list", field, 1)] {
+            let mut changed = cold();
+            let words = changed.store.data[instruction].range().bounds(changed.store.extra.len()).unwrap();
+            assert_eq!(words.len(), 1);
+            changed.store.extra[words.start] = slot;
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+            assert!(error.message.starts_with("ground producer value disagrees with its checked contract")
+                || error.message == "checked record field disagrees with its contract"
+                || error.message.contains("list splice"), "{label}: {error:?}");
+        }
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_value = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut wrong_owner = cold();
+        let schema::ExprView::ListBuild(entries) = decoder.expression_view(list).unwrap() else { unreachable!() };
+        let block = entries.block_identity_for_test();
+        let words = wrong_owner.store.blocks[block.index()].instructions.bounds(wrong_owner.store.extra.len()).unwrap();
+        let references = words.filter(|word| wrong_owner.store.extra[*word] == root as u32).collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        wrong_owner.store.extra[references[0]] = foreign_value as u32;
+        assert_eq!(FullVerifier::verify(&wrong_owner).unwrap_err().message, "full IR instruction belongs to another function");
     }
 
     #[test]
@@ -4460,6 +4897,76 @@ test verify_completion_cleanup {
             }
         }
         changed
+    }
+
+    #[test]
+    fn formatted_native_consumers_require_owned_body_and_display_proofs() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare(r#"pure foreign(value: Bytes) -> Bytes { value }
+proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
+    let spare: Any = wrong
+    let text = f"{value}"
+    let file_path = fp"{value}"
+    file_path.read_text()
+}
+"#);
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (formatted, operand) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::PathFmtString { mut parts, .. }) => match parts.next().unwrap().unwrap() {
+                super::super::super::decode::FmtPartView::Expr(value, _, _) => Some((instruction, value.raw() as usize)),
+                _ => None,
+            },
+            _ => None,
+        }).unwrap();
+        let expression_fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))).unwrap();
+        let output = expression_fact(formatted);
+        let child = expression_fact(operand);
+        let text = range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprFmtString).unwrap();
+        let text_fact = expression_fact(text);
+        let bytes_read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let bytes_fact = expression_fact(bytes_read);
+        let mut parameters = program.store.schemes[scheme.index()].type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        let conversion = parameters.find(|parameter| program.store.scheme_type_parameters[*parameter].conversions != 0).unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        for (label, first, second) in [("output", output, text_fact), ("child type", child, bytes_fact)] {
+            let mut changed = cold();
+            let first_value = changed.store.scheme_body_facts[first].value;
+            changed.store.scheme_body_facts[first].value = changed.store.scheme_body_facts[second].value;
+            changed.store.scheme_body_facts[second].value = first_value;
+            super::super::prepare_tables(&changed.store).unwrap();
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("disagrees with") || error.message.contains("cannot be displayed"), "{label}: {}", error.message);
+        }
+        let mut missing_child_role = cold();
+        missing_child_role.store.scheme_body_facts[child].value = FullSchemeBodyFactValue::Tail(program.store.scheme_body_facts[child].ty().unwrap());
+        assert_eq!(FullVerifier::verify(&missing_child_role).unwrap_err().message, "generic body fact has an invalid instruction kind");
+        let mut unbounded = cold();
+        assert_eq!(unbounded.store.scheme_type_parameters[conversion].conversions, 1);
+        unbounded.store.scheme_type_parameters[conversion].conversions = 0;
+        assert_eq!(FullVerifier::verify(&unbounded).unwrap_err().message, "generic interpolation producer cannot be displayed");
+        let mut wrong_owner = cold();
+        wrong_owner.store.scheme_body_facts[child].function = IrFunctionId::new(foreign).unwrap();
+        let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+        assert_eq!(error.message, "generic body fact has invalid ownership");
+        let mut foreign_read = cold();
+        let words = foreign_read.store.data[formatted].range().bounds(foreign_read.store.extra.len()).unwrap();
+        let parts = IrBlockId::from_raw(foreign_read.store.extra[words.start]).unwrap();
+        let words = foreign_read.store.blocks[parts.index()].instructions.bounds(foreign_read.store.extra.len()).unwrap();
+        let references = words.filter(|word| foreign_read.store.extra[*word] == operand as u32).collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        foreign_read.store.extra[references[0]] = foreign_source as u32;
+        assert_eq!(FullVerifier::verify(&foreign_read).unwrap_err().message, "full IR instruction belongs to another function");
     }
 
     #[test]
@@ -6998,10 +7505,175 @@ observe()?
         let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && fact.instruction as usize == raw && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
         let mut foreign_owner = program.clone();
         foreign_owner.store.in_place.take();
+        assert!(foreign_owner.store.in_place.get().is_none());
         foreign_owner.store.scheme_body_facts[fact].function = super::super::super::IrFunctionId::new(foreign).unwrap();
         assert!(foreign_owner.store.in_place.get().is_none());
         let failure = FullVerifier::verify(&foreign_owner).expect_err("a foreign function cannot own the overlay producer fact");
         assert!(failure.message.contains("owner"), "{failure:?}");
+    }
+
+
+    #[test]
+    fn comprehension_list_builds_authenticate_members_splices_and_lexical_sources() {
+        let source = r#"type Entry = {name: Str, outputs: List[Path], argv: List[Union[Str, Path]]}
+pure retain(value) { value }
+pure spare() -> Bool { false }
+pure nested(rows: List[Entry]) -> Bool {
+  let items = [{...row, argv: [p"/head", "--", @row.outputs]} for row in rows]
+  retain(items).is_empty()
+}
+"#;
+        let mut program = prepare(source);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "nested").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let build = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListBuild).unwrap();
+        let schema::ExprView::ListBuild(mut entries) = decoder.expression_view(build).unwrap() else { unreachable!() };
+        let block = entries.block_identity_for_test();
+        assert_eq!(entries.len(), 3);
+        let (head_splice, head, _) = entries.next().unwrap().unwrap();
+        let (middle_splice, _, _) = entries.next().unwrap().unwrap();
+        let (tail_splice, tail, _) = entries.next().unwrap().unwrap();
+        assert!(!head_splice && !middle_splice && tail_splice);
+        let head = head.raw() as usize;
+        assert_eq!(program.store.tags[head], FullTag::ExprPath);
+        let schema::ExprView::Field { base, name: "outputs", .. } = decoder.expression_view(tail.raw() as usize).unwrap() else { panic!("splice reads the actual comprehension field") };
+        let base = base.raw() as usize;
+        let schema::ExprView::Param(slot) = decoder.expression_view(base).unwrap() else { panic!("the field belongs to the comprehension target") };
+        assert_ne!(slot, 0);
+        let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+        assert!(!range.contains(&boolean));
+        let mut wrong_member = program.clone();
+        wrong_member.store.tags[head] = FullTag::ExprBool;
+        wrong_member.store.data[head] = wrong_member.store.data[boolean];
+        assert!(wrong_member.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_member).expect_err("Bool cannot replace a Str-or-Path member");
+        assert_eq!(failure.message, "generic call argument has no closed checked type");
+        let mut wrong_splice = program.clone();
+        let words = wrong_splice.store.blocks[block.index()].instructions.bounds(wrong_splice.store.extra.len()).unwrap();
+        assert_eq!(wrong_splice.store.extra[words.start], 3);
+        assert_eq!(wrong_splice.store.extra[words.start + 1], 0);
+        wrong_splice.store.extra[words.start + 1] = 1;
+        assert!(wrong_splice.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_splice).expect_err("a scalar Path cannot supply a list splice");
+        assert_eq!(failure.message, "generic call argument has no closed checked type");
+        let mut wrong_binding = program.clone();
+        let words = wrong_binding.store.data[base].range().bounds(wrong_binding.store.extra.len()).unwrap();
+        assert_eq!(wrong_binding.store.extra[words.start] as usize, slot);
+        wrong_binding.store.extra[words.start] = 0;
+        assert!(wrong_binding.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_binding).expect_err("the header list cannot replace its comprehension item");
+        assert_eq!(failure.message, "generic call argument has no closed checked type");
+        let mut foreign_child = program.clone();
+        let words = foreign_child.store.blocks[block.index()].instructions.bounds(foreign_child.store.extra.len()).unwrap();
+        assert_eq!(foreign_child.store.extra[words.start + 2] as usize, head);
+        foreign_child.store.extra[words.start + 2] = boolean as u32;
+        assert!(foreign_child.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&foreign_child).expect_err("a list cannot borrow an instruction from another function");
+        assert_eq!(failure.message, "full IR instruction belongs to another function");
+    }
+
+
+    #[test]
+    fn comprehension_list_builds_reject_possibly_empty_nonempty_evidence() {
+        let mut program = prepare(r#"pure nonempty(marker, values: NonEmpty[Path]) { let _ = values; marker }
+pure probe(values: List[Path]) -> Int { let spare = values; nonempty(7, [p"/head", @values]) }
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "probe").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let build = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListBuild).unwrap();
+        let schema::ExprView::ListBuild(mut entries) = decoder.expression_view(build).unwrap() else { unreachable!() };
+        let block = entries.block_identity_for_test();
+        assert_eq!(entries.len(), 2);
+        let (splice, head, _) = entries.next().unwrap().unwrap();
+        assert!(!splice);
+        let head = head.raw() as usize;
+        assert_eq!(program.store.tags[head], FullTag::ExprPath);
+        let source = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut changed = program.clone();
+        changed.store.tags[head] = FullTag::ExprParam;
+        changed.store.data[head] = changed.store.data[source];
+        let words = changed.store.blocks[block.index()].instructions.bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(&changed.store.extra[words.start..words.start + 3], &[2, 0, head as u32]);
+        changed.store.extra[words.start + 1] = 1;
+        let changed_decoder = decoder_for_function(&changed.store, owner).unwrap();
+        let schema::ExprView::ListBuild(mut entries) = changed_decoder.expression_view(build).unwrap() else { unreachable!() };
+        assert!(entries.all(|entry| entry.unwrap().0));
+        assert!(changed.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&changed).expect_err("two possibly empty splices cannot establish NonEmpty");
+        assert_eq!(failure.message, "ground list build has no non-empty producer");
+    }
+
+
+    #[test]
+    fn typed_set_operators_authenticate_operand_domains_results_and_owners() {
+        let mut program = prepare(r#"const KINDS = {"file", "dir"}
+pure allowed(kind: Str, extra: Set[Str], numbers: Set[Int], erased: Any) -> Bool { kind in KINDS | extra }
+pure merged(left: Set[Str], right: Set[Str]) -> Set[Str] { left | right }
+pure wrong_result(left: Set[Str], right: Set[Str]) -> Set[Int] { let _ = left; let _ = right; set.empty() }
+pure other(value: Set[Str]) -> Set[Str] { value }
+assert allowed("file", {"link",}, {1, 2}, "erased")
+assert "file" in merged(KINDS, {"link",})
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "allowed").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (binary, right) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Union, right, .. }) => Some((instruction, right.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(right).unwrap(), schema::ExprView::Param(1)));
+        for slot in [2, 3] {
+            let mut changed = program.clone();
+            let words = changed.store.data[right].range().bounds(changed.store.extra.len()).unwrap();
+            assert_eq!(words.len(), 1);
+            changed.store.extra[words.start] = slot;
+            assert!(changed.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&changed).expect_err("a different or erased Set domain cannot supply the operand");
+            assert!(failure.message.contains("membership container has no producer contract"), "{}", failure.message);
+        }
+        let mut wrong_operator = program.clone();
+        let operation = wrong_operator.store.binary_ops.iter_mut().find(|op| **op == crate::syntax::node::BinaryOp::Union).unwrap();
+        *operation = crate::syntax::node::BinaryOp::Add;
+        assert!(matches!(decoder_for_function(&wrong_operator.store, owner).unwrap().expression_view(binary).unwrap(), schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. }));
+        assert!(wrong_operator.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_operator).expect_err("arithmetic addition cannot stand in for set union");
+        assert!(failure.message.contains("ground producer form has no executable type proof: ExprBinary"), "{}", failure.message);
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "other").unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|&instruction| matches!(foreign_decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut wrong_owner = program.clone();
+        let words = wrong_owner.store.data[binary].range().bounds(wrong_owner.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 4);
+        assert_eq!(wrong_owner.store.extra[words.start + 2] as usize, right);
+        wrong_owner.store.extra[words.start + 2] = foreign_source as u32;
+        assert!(wrong_owner.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_owner).expect_err("a set operator cannot borrow an operand from another function");
+        assert_eq!(failure.message, "full IR instruction belongs to another function");
+        let merged = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "merged").unwrap();
+        let wrong = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "wrong_result").unwrap();
+        let mut wrong_result = program.clone();
+        wrong_result.store.functions[merged].contract = wrong_result.store.functions[wrong].contract;
+        wrong_result.store.functions[merged].checked_return_type = wrong_result.store.functions[wrong].checked_return_type;
+        assert!(wrong_result.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_result).expect_err("a Set[Str] operation cannot establish a Set[Int] return contract");
+        assert_eq!(failure.message, "membership operands have no checked domain");
     }
 
 }
@@ -7022,6 +7694,222 @@ mod structured_pipeline_tests {
         let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn generic_noncompletion_requires_actual_callbacks_cardinality_and_owners() {
+        use super::super::super::schemes::FullSchemeBodyFactValue as Fact;
+        for (input, callback_write) in [("[1]", ""), ("[@[1], @other]", ""), ("[1]", "written = other;")] {
+            let declaration = if callback_write.is_empty() { "pure" } else { "proc" };
+            let source = format!(r#"
+{declaration} target(marker, other: List[Int], flag: Bool) -> Int {{
+  var written = [1]
+  let empty: List[Int] = []
+  let ignored = {input} |> map {{ |item| {callback_write} return 1 }} |> sort |> take(0)
+  written = [1]
+  let _ = empty
+  let _ = marker
+  let _ = flag
+  0
+}}
+pure foreign(marker) -> Int {{ let ignored = [1] |> map {{ |item| return 2 }}; let _ = marker; 0 }}
+"#);
+            let mut program = prepare(&source);
+            assert_eq!(super::super::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "target").unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let pipeline = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ListPipeline { .. }))).unwrap();
+            let schema::ExprView::ListPipeline { input: source_input, mut stages, .. } = decoder.expression_view(pipeline).unwrap() else { unreachable!() };
+            let stage_block = stages.block_identity_for_test();
+            let super::super::super::StageView::Map { value: callback, .. } = stages.next().unwrap().unwrap() else { panic!("the actual first stage is the map") };
+            assert_eq!(stages.count(), 2);
+            let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(callback.raw() as usize).unwrap() else { panic!("the callback preserves its physical return block") };
+            let returned = body.by_ref().map(|statement| statement.unwrap().raw() as usize).find(|&instruction| program.store.tags[instruction] == FullTag::StmtReturn).unwrap();
+            let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(source_input.raw() as usize).unwrap() else { panic!("actual input is an ANF value block") };
+            let statements = body.by_ref().map(|statement| statement.unwrap().raw() as usize).collect::<Vec<_>>();
+            let schema::StmtView::Value { value: source_read } = decoder.statement_view(*statements.last().unwrap()).unwrap() else { unreachable!() };
+            let source_read = source_read.raw() as usize;
+            let schema::ExprView::Param(source_slot) = decoder.expression_view(source_read).unwrap() else { unreachable!() };
+            let source_declaration = statements.iter().copied().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Let { slot, .. }) if slot == source_slot)).unwrap();
+            let flag = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let actual_member = statements.iter().copied().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { value, .. }) if program.store.tags[value.raw() as usize] == FullTag::ExprInt => Some(value.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let written = range.clone().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::Assign { slot, .. }) => Some(slot), _ => None }).unwrap();
+            let empty = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot, value, .. }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::List(values)) if values.len() == 0) => Some(slot),
+                _ => None,
+            }).expect("the actual empty initializer is present in the same owner");
+            let declaration_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == source_declaration && matches!(fact.value, Fact::LocalImmutable(_))).unwrap();
+            let mut mutable_snapshot = program.clone();
+            let Fact::LocalImmutable(ty) = mutable_snapshot.store.scheme_body_facts[declaration_fact].value else { unreachable!() };
+            mutable_snapshot.store.scheme_body_facts[declaration_fact].value = Fact::LocalMutable(ty);
+            assert!(mutable_snapshot.store.in_place.get().is_none());
+            FullVerifier::verify(&mutable_snapshot).expect("an actual single writer remains a stable snapshot without later writes");
+            if callback_write.is_empty() {
+            let mut completing_callback = program.clone();
+            completing_callback.store.tags[returned] = FullTag::StmtValue;
+            assert!(completing_callback.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&completing_callback).expect_err("a completing callback cannot claim NoCompletion");
+            assert_eq!(failure.message, "generic completion fact can produce a value");
+            }
+            for slot in [1, written, empty] {
+                let mut changed_input = program.clone();
+                changed_input.store.extra[program.store.data[source_read].range().start as usize] = slot as u32;
+                assert!(changed_input.store.in_place.get().is_none());
+                let failure = FullVerifier::verify(&changed_input).expect_err("header, written, or empty actual sources cannot manufacture required demand");
+                assert_eq!(failure.message, "generic completion fact can produce a value");
+            }
+            let mut wrong_member = program.clone();
+            wrong_member.store.tags[actual_member] = FullTag::ExprParam;
+            wrong_member.store.data[actual_member] = program.store.data[flag];
+            assert!(wrong_member.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&wrong_member).expect_err("completion-only permission does not replace actual member type proof");
+            assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+            let mut skipped_callback = program.clone();
+            let words = program.store.blocks[stage_block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[words.start], 3);
+            skipped_callback.store.extra[words.start + 1..words.start + 4].rotate_right(1);
+            assert!(skipped_callback.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&skipped_callback).expect_err("take zero before the map prevents required callback demand");
+            assert_eq!(failure.message, "generic completion fact can produce a value");
+            let foreign_owner = program.store.scheme_body_facts.iter().find(|fact| matches!(fact.value, Fact::NoCompletion) && !range.contains(&(fact.instruction as usize))).unwrap().function;
+            let mut foreign = program;
+            let fact = foreign.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == pipeline && matches!(fact.value, Fact::NoCompletion)).unwrap();
+            fact.function = foreign_owner;
+            assert!(foreign.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&foreign).expect_err("completion fact must belong to the actual owner");
+            assert_eq!(failure.message, "generic body fact has invalid ownership");
+        }
+    }
+
+    #[test]
+    fn noncompleting_bindings_keep_their_actual_authored_contracts() {
+        use super::super::super::schemes::FullSchemeBodyFactValue as Fact;
+        let source = "pure authored(value, flag: Bool) { let x: Any = [value] |> map { |item| return item }; let spare: Bool = flag; let _ = x; let _ = spare; value }\n";
+        let mut program = prepare(source);
+        assert_eq!(super::super::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "authored").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let mut authored = None;
+        let mut spare = None;
+        for instruction in range.clone() {
+            if let Ok(schema::StmtView::Let { value, annotation: Some(annotation), .. }) = decoder.statement_view(instruction) {
+                match annotation.materialize().unwrap() {
+                    Type::Any if program.store.scheme_body_facts.iter().any(|fact| fact.instruction == value.raw() && matches!(fact.value, Fact::NoCompletion)) => authored = Some(instruction),
+                    Type::Bool => spare = Some(instruction),
+                    _ => {}
+                }
+            }
+        }
+        let authored = authored.unwrap();
+        let spare = spare.unwrap();
+        let authored_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == authored && matches!(fact.value, Fact::LocalImmutable(_))).unwrap();
+        let spare_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == spare && matches!(fact.value, Fact::LocalImmutable(_))).unwrap();
+        let mut wrong_contract = program.clone();
+        let previous = wrong_contract.store.scheme_body_facts[authored_fact].value;
+        wrong_contract.store.scheme_body_facts[authored_fact].value = wrong_contract.store.scheme_body_facts[spare_fact].value;
+        wrong_contract.store.scheme_body_facts[spare_fact].value = previous;
+        assert!(wrong_contract.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_contract).expect_err("no completion does not authorize changing a physical authored contract");
+        assert_eq!(failure.message, "generic noncompleting declaration changes its authored storage contract");
+        let first = program.store.data[authored].range().bounds(program.store.extra.len()).unwrap();
+        let second = program.store.data[spare].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(first.len(), second.len());
+        assert!(first.len() > 2);
+        let mut wrong_annotation = program.clone();
+        for offset in 2..first.len() { wrong_annotation.store.extra.swap(first.start + offset, second.start + offset); }
+        let changed = super::super::decoder_for_function(&wrong_annotation.store, owner).unwrap();
+        let schema::StmtView::Let { annotation: Some(annotation), .. } = changed.statement_view(authored).unwrap() else { panic!("the mutated authored annotation remains physical") };
+        assert_eq!(annotation.materialize().unwrap(), Type::Bool);
+        assert!(wrong_annotation.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_annotation).expect_err("the exact physical annotation must agree with declared storage");
+        assert_eq!(failure.message, "annotated local has no checked slot type");
+    }
+
+    #[test]
+    fn noncompleting_map_sort_requires_its_cold_callback_and_owner() {
+        let source = "pure target() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }\npure foreign() -> Int { let ignored = [2] |> map { |item| return item } |> sort |> take(0) }\n";
+        let mut sources = crate::source::SourceMap::default();
+        let source_id = sources.add_file("noncompleting-map-sort.xsh", source.to_owned());
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let mut program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        super::super::prepare_tables(&program.store).unwrap();
+        let mut ground_functions = program.store.functions.iter().filter(|function| program.store.string(function.name).is_ok_and(|name| name == "target" || name == "foreign"));
+        assert_eq!(ground_functions.clone().count(), 2);
+        assert!(ground_functions.all(|function| matches!(function.contract, super::super::super::FullCallableContract::Ground(_))));
+        FullVerifier::verify(&program).unwrap();
+
+        let map_stage = |program: &super::super::super::FullProgram, name: &str| {
+            let owner = program.store.functions.iter().position(|function| {
+                program.store.string(function.name).is_ok_and(|function_name| function_name == name)
+            }).unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let pipeline = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ListPipeline { .. }))
+            }).unwrap();
+            let schema::ExprView::ListPipeline { mut stages, .. } = decoder.expression_view(pipeline).unwrap() else { unreachable!() };
+            while let Some(stage) = stages.next_with_id() {
+                let stage = stage.unwrap();
+                let decoded = super::super::super::StageView::decode(
+                    super::super::super::DecodeContext::from_decoder(&decoder),
+                    stage.id.raw(),
+                ).unwrap();
+                match decoded {
+                    super::super::super::StageView::Map { value, .. }
+                    | super::super::super::StageView::MapBlock { value, .. } => {
+                        return (stage.id.raw() as usize, value.raw() as usize);
+                    }
+                    _ => {}
+                }
+            }
+            panic!("{name} has a map stage");
+        };
+
+        let (target_stage, _) = map_stage(&program, "target");
+        let (_, foreign_value) = map_stage(&program, "foreign");
+        let stage_range = program.store.stage_data[target_stage]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+
+        let mut value_instead_of_return = program.clone();
+        value_instead_of_return.store.in_place.take();
+        assert!(value_instead_of_return.store.in_place.get().is_none());
+        let target_owner = value_instead_of_return.store.functions.iter().position(|function| {
+            value_instead_of_return.store.string(function.name).is_ok_and(|name| name == "target")
+        }).unwrap();
+        let returned = value_instead_of_return.store.function_instruction_range(target_owner).unwrap()
+            .find(|&instruction| value_instead_of_return.store.tags[instruction] == FullTag::StmtReturn)
+            .unwrap();
+        value_instead_of_return.store.tags[returned] = FullTag::StmtValue;
+        super::super::prepare_tables(&value_instead_of_return.store).unwrap();
+        let value_denial = FullVerifier::verify(&value_instead_of_return).expect_err("a Value statement cannot claim the noncompleting map callback");
+        assert_eq!(value_denial.message, "function 0 body does not terminate with a return");
+
+        let mut foreign_callback = program;
+        foreign_callback.store.in_place.take();
+        assert!(foreign_callback.store.in_place.get().is_none());
+        foreign_callback.store.extra[stage_range.start as usize + 1] = foreign_value as u32;
+        super::super::prepare_tables(&foreign_callback.store).unwrap();
+        let foreign_denial = FullVerifier::verify(&foreign_callback).expect_err("a map stage cannot borrow a callback value from another function");
+        assert_eq!(foreign_denial.message, "full IR instruction belongs to another function");
     }
 
     #[cfg(feature = "native-tests")]

@@ -2054,6 +2054,10 @@ tempdir site { assert publish(site)? == 4 }
         program.store.checked_expr_types.retain(|fact| fact.is_contract());
         FullVerifier::verify(&program).unwrap();
         execute_both(&program);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
         let owner = function(&program, "publish");
         let decoder = function_view_decoder(&program.store, owner);
         let payload = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
@@ -2065,7 +2069,7 @@ tempdir site { assert publish(site)? == 4 }
         wrong_payload.store.tags[payload] = FullTag::ExprInt;
         wrong_payload.store.data[payload] = program.store.data[integer];
         let error = FullVerifier::verify(&wrong_payload).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract"), "{error:?}");
+        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract") || error.message.contains("managed release has no canonical resource scope"), "{error:?}");
         let handover = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
             let schema::StmtView::Assign { value, .. } = decoder.statement_view(instruction).ok()? else { return None };
             (program.store.tags[value.raw() as usize] == FullTag::ExprBool).then_some(value.raw() as usize)
@@ -2074,7 +2078,7 @@ tempdir site { assert publish(site)? == 4 }
         wrong_handover.store.tags[handover] = FullTag::ExprInt;
         wrong_handover.store.data[handover] = program.store.data[integer];
         let error = FullVerifier::verify(&wrong_handover).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract"), "{error:?}");
+        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract") || error.message.contains("managed release has no canonical resource scope"), "{error:?}");
         for (from, to) in [(RuntimeOp::FsCloseRootIfOpen, RuntimeOp::FsUnlockIfHeld), (RuntimeOp::FsUnlockIfHeld, RuntimeOp::FsCloseRootIfOpen)] {
             let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
                 matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op, .. }) if op == from)
@@ -2083,7 +2087,7 @@ tempdir site { assert publish(site)? == 4 }
             let pool = program.store.extra[program.store.data[instruction].range().start as usize] as usize;
             forged.store.runtime_ops[pool] = to;
             let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(error.message.contains("native operation arguments have no matching contract"), "{error:?}");
+            assert!(error.message.contains("native operation arguments have no matching contract") || error.message.contains("managed release has no canonical resource scope"), "{error:?}");
         }
         let error = FullVerifier::verify(&without_effect(&program, owner, Effect::Fs)).unwrap_err();
         assert!(error.message.contains("requires effect fs"), "{error:?}");
@@ -3186,12 +3190,18 @@ assert keep()?.items.is_empty()
         let empty = program.store.function_instruction_range(keep).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprList).unwrap();
         let owner = ExecutableOwner::Function(IrFunctionId::new(keep).unwrap());
         let mut wrong_hint = program.clone();
+        wrong_hint.store.in_place.take();
+        assert!(wrong_hint.store.in_place.get().is_none());
         let ty = SemanticPoolBuilder::default().intern_type(&mut wrong_hint.store.semantic, &Type::List(Box::new(Type::Int))).unwrap();
         wrong_hint.store.checked_expr_types.push(FullCheckedExprType { instruction: empty as u32, type_id: ty, purpose: FullCheckedExprPurpose::ProducerContext(owner) });
         wrong_hint.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_hint.store)).unwrap();
+        assert!(wrong_hint.store.in_place.get().is_none());
         let error = FullVerifier::verify(&wrong_hint).unwrap_err();
-        assert!(error.message.contains("checked record field disagrees with its contract") || error.message.contains("contextual aggregate hint disagrees"), "{error:?}");
+        assert_eq!(error.message, "contextual aggregate read disagrees with its consumer contract");
         let mut coordinated = program.clone();
+        coordinated.store.in_place.take();
+        assert!(coordinated.store.in_place.get().is_none());
         let ty = SemanticPoolBuilder::default().intern_type(&mut coordinated.store.semantic, &Type::List(Box::new(Type::Str))).unwrap();
         coordinated.store.checked_expr_types.push(FullCheckedExprType { instruction: empty as u32, type_id: ty, purpose: FullCheckedExprPurpose::ProducerContext(owner) });
         coordinated.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
@@ -3210,6 +3220,8 @@ assert keep()?.items[0] == "word"
         typed_items.store.checked_expr_types.retain(|fact| fact.is_contract());
         FullVerifier::verify(&typed_items).unwrap();
         execute_both(&typed_items);
+        typed_items.store.in_place.take();
+        assert!(typed_items.store.in_place.get().is_none());
         let item_owner = function(&typed_items, "keep");
         let list = typed_items.store.function_instruction_range(item_owner).unwrap().find(|&instruction| typed_items.store.tags[instruction] == FullTag::ExprList).unwrap();
         let item = typed_items.store.function_instruction_range(item_owner).unwrap().find(|&instruction| typed_items.store.tags[instruction] == FullTag::ExprStr).unwrap();
@@ -3220,15 +3232,23 @@ assert keep()?.items[0] == "word"
         typed_items.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
         typed_items.store.tags[item] = FullTag::ExprBool;
         typed_items.store.data[item] = typed_items.store.data[boolean_item];
+        typed_items.symbol_owner().with_current(|| verify_schemes::prepare_tables(&typed_items.store)).unwrap();
+        assert!(typed_items.store.in_place.get().is_none());
         let error = FullVerifier::verify(&typed_items).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees with its checked contract") || error.message.contains("checked record field disagrees with its contract"), "{error:?}");
+        assert_eq!(error.message, "ground producer value disagrees with its checked contract");
         let mut wrong_owner = wrong_hint.clone();
+        wrong_owner.store.in_place.take();
+        assert!(wrong_owner.store.in_place.get().is_none());
         wrong_owner.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == empty as u32).unwrap().purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(alternate).unwrap()));
-        assert!(FullVerifier::verify(&wrong_owner).is_err());
+        let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+        assert_eq!(error.message, "published producer context is unused or has a wrong owner");
         let mut wrong_instruction = wrong_hint;
+        wrong_instruction.store.in_place.take();
+        assert!(wrong_instruction.store.in_place.get().is_none());
         wrong_instruction.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == empty as u32).unwrap().instruction = boolean as u32;
         wrong_instruction.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
-        assert!(FullVerifier::verify(&wrong_instruction).is_err());
+        let error = FullVerifier::verify(&wrong_instruction).unwrap_err();
+        assert_eq!(error.message, "published producer context is unused or has a wrong owner");
     });
 }
 

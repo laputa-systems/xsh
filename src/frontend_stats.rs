@@ -2038,7 +2038,7 @@ mod tests {
         let original_evidence = super::measure_evidence_nodes(&declarations);
         let original_retained = measure_compact_declarations(&declarations);
         for facts in declarations.scheme_bodies.values_mut() {
-            *facts = facts.clone().with_constructor_producers(BTreeMap::new());
+            *facts = facts.clone().with_constructor_producers(BTreeMap::new()).unwrap();
         }
         assert_eq!(measure_output_type_nodes(&declarations), original_types);
         let remaining_retained = measure_compact_declarations(&declarations);
