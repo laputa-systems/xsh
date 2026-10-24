@@ -4084,3 +4084,137 @@ assert clear(items)[0].name == null
         assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
     });
 }
+
+#[test]
+fn checked_map_factories_preserve_mutable_storage_domains() {
+    let program = fixture(r#"
+pure values() -> Map[Int] {
+    var items: Map[Int] = map.empty()
+    items = items.set("key", 7)
+    items
+}
+assert values().get("key")? == 7
+"#);
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+}
+
+#[test]
+fn erased_records_authenticate_empty_aggregate_fields() {
+    let program = fixture(r#"
+type Row = {items: List[Int]}
+pure values() -> List[Record] { [{items: []}] }
+assert values().len() == 1
+assert values()[0].require(Row)?.items.len() == 0
+"#);
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+}
+
+#[test]
+fn checked_stream_bindings_authenticate_actual_initializers() {
+    for source in [r#"
+let lines = run.stream --text printf "ok\n" ?
+for line in lines { assert line == "ok" }
+"#, r#"
+let result: Result[Stream[Str]] = Ok(run.stream --text printf "ok\n" ?)
+match result {
+    Ok(lines) => { for line in lines { assert line == "ok" } }
+    Err(_) => { assert false }
+}
+"#] {
+        let program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+    }
+}
+
+#[test]
+fn cold_collection_proofs_reject_wrong_factories_members_and_splices() {
+    let program = fixture(r#"
+pure alternate() -> Bool { false }
+pure values() -> Map[Int] {
+    var items: Map[Int] = map.empty()
+    items = items.set("key", 7)
+    items
+}
+assert values().get("key")? == 7
+"#);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function(&program, "values");
+    let decoder = function_view_decoder(&program.store, owner);
+    let empty = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+        matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op: xsh_registry::RuntimeOp::MapEmpty, .. }))
+    }).unwrap();
+    let mut wrong_factory = program.clone();
+    wrong_factory.store.in_place.take();
+    assert!(wrong_factory.store.in_place.get().is_none());
+    wrong_factory.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_factory.store)).unwrap();
+    let pool = wrong_factory.store.extra[wrong_factory.store.data[empty].range().start as usize] as usize;
+    wrong_factory.store.runtime_ops[pool] = xsh_registry::RuntimeOp::SetEmpty;
+    let error = FullVerifier::verify(&wrong_factory).unwrap_err();
+    assert_eq!(error.message, "checked value input has no producer contract");
+    let integer = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+    let alternate = function(&program, "alternate");
+    let boolean = program.store.function_instruction_range(alternate).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    let mut wrong_member = program.clone();
+    wrong_member.store.in_place.take();
+    assert!(wrong_member.store.in_place.get().is_none());
+    wrong_member.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_member.store)).unwrap();
+    wrong_member.store.tags[integer] = FullTag::ExprBool;
+    wrong_member.store.data[integer] = program.store.data[boolean];
+    let error = FullVerifier::verify(&wrong_member).unwrap_err();
+    assert_eq!(error.message, "ground method arguments do not match a registered contract");
+
+    let program = fixture(r#"
+pure rows(items: List[Int], label: Str) -> List[Record] {
+    [{empty: [], values: [@items], label: label}]
+}
+assert rows([7], "label").len() == 1
+"#);
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "rows");
+    let decoder = function_view_decoder(&program.store, owner);
+    let splice = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+        let schema::ExprView::ListBuild(mut items) = decoder.expression_view(instruction).ok()? else { return None };
+        items.find_map(|item| match item.unwrap() { (true, value, _) => Some(value.raw() as usize), _ => None })
+    }).unwrap();
+    let label = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+    let mut wrong_splice = program.clone();
+    wrong_splice.store.in_place.take();
+    assert!(wrong_splice.store.in_place.get().is_none());
+    wrong_splice.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_splice.store)).unwrap();
+    wrong_splice.store.data[splice] = program.store.data[label];
+    let error = FullVerifier::verify(&wrong_splice).unwrap_err();
+    assert_eq!(error.message, "erased record list spread has no list producer contract");
+}
+
+#[test]
+fn cold_stream_bindings_reject_changed_physical_capture_kind() {
+    for (source, rejection) in [(r#"
+let lines = run.stream --text printf "ok\n" ?
+for line in lines { assert line == "ok" }
+"#, "checked stream read disagrees with its actual binding producer"), (r#"
+let result: Result[Stream[Str]] = Ok(run.stream --text printf "ok\n" ?)
+match result {
+    Ok(lines) => { for line in lines { assert line == "ok" } }
+    Err(_) => { assert false }
+}
+"#, "checked stream capture disagrees with its physical run kind")] {
+        let program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let capture = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRunCapture).unwrap();
+        let mut wrong_kind = program.clone();
+        wrong_kind.store.in_place.take();
+        assert!(wrong_kind.store.in_place.get().is_none());
+        wrong_kind.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_kind.store)).unwrap();
+        let words = wrong_kind.store.data[capture].range().bounds(wrong_kind.store.extra.len()).unwrap();
+        let kind = wrong_kind.store.run_kinds.len() as u32;
+        wrong_kind.store.run_kinds.push(crate::syntax::node::RunKind::StreamBytes);
+        wrong_kind.store.extra[words.start] = kind;
+        let error = FullVerifier::verify(&wrong_kind).unwrap_err();
+        assert_eq!(error.message, rejection);
+    }
+}

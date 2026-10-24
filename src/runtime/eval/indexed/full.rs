@@ -12158,6 +12158,7 @@ impl<'a> FullDecoder<'a> {
         instruction: usize,
         fact: FullCheckedExprType,
         constant_budget: &mut Option<verify_schemes::SchemeInstantiationBudget>,
+        stream_read: &mut dyn FnMut(usize, usize, &Type) -> Result<bool, IrVerifyError>,
     ) -> Result<(), IrVerifyError> {
         let constant_budget = RefCell::new(constant_budget);
         let ty = self.store.semantic.to_type(fact.type_id)?;
@@ -12364,12 +12365,16 @@ impl<'a> FullDecoder<'a> {
                 }
                 let actual = match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => actual,
-                    Ok(None) => return self.immutable_local_callable_matches_type(slot, &ty),
+                    Ok(None) => {
+                        if stream_read(instruction, slot, &ty)? { return Ok(()); }
+                        return self.immutable_local_callable_matches_type(slot, &ty);
+                    },
                     Err(error)
                         if error
                             .message
                             .starts_with("typed callee slot has no checked type fact:") =>
                     {
+                        if stream_read(instruction, slot, &ty)? { return Ok(()); }
                         return self.immutable_local_callable_matches_type(slot, &ty);
                     }
                     Err(error) => return Err(error),
@@ -13043,6 +13048,12 @@ impl<'a> FullDecoder<'a> {
                 let output = output.map(|ty| match ty { Type::Stream(item) => Type::List(item), other => other });
                 if output.as_ref() != Some(&ty) { return Err(IrVerifyError::new(format!("checked pipeline result disagrees with its stage producers: expected {ty}, found {output:?}"))); }
             }
+            schema::ExprView::RunCapture(run) => {
+                if crate::runtime::eval::stream_return_item(&ty).is_none() { return reject_producer(); }
+                let actual = Type::run_capture_output(run.kind, run.assert_success)
+                    .ok_or_else(|| IrVerifyError::new("checked stream capture has no intrinsic output contract"))?;
+                require_registered_return(actual, "checked stream capture disagrees with its physical run kind")?;
+            }
             schema::ExprView::Range { .. } => {
                 require_registered_return(Type::Stream(Box::new(Type::Int)), "checked range result disagrees with its intrinsic item contract")?;
             }
@@ -13075,7 +13086,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
             | schema::ExprView::Require { .. }
-            | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
             | schema::ExprView::SpawnCommand { .. }
@@ -13092,6 +13102,12 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn verify_checked_expression_facts(&self) -> Result<(), IrVerifyError> {
+        self.verify_checked_expression_facts_with_stream_reads(&mut |_, _, _| Ok(false))
+    }
+
+    fn verify_checked_expression_facts_with_stream_reads(&self,
+        stream_read: &mut dyn FnMut(usize, usize, &Type) -> Result<bool, IrVerifyError>,
+    ) -> Result<(), IrVerifyError> {
         let facts = &self.store.checked_expr_types;
         let with_error_sources = self.checked_with_error_source_instructions()?;
         let first = facts
@@ -13115,7 +13131,7 @@ impl<'a> FullDecoder<'a> {
                     "checked With error source fact is not a result value",
                 ));
             }
-            self.verify_checked_expression_producer(instruction, *fact, &mut constant_budget)?;
+            self.verify_checked_expression_producer(instruction, *fact, &mut constant_budget, stream_read)?;
         }
         for instruction in self.instruction_range.clone() {
             if self.store.tags[instruction] == FullTag::ExprUInt

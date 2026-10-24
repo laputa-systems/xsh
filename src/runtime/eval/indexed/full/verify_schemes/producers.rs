@@ -1571,6 +1571,8 @@ impl GroundProducerIndex {
 
     pub(in crate::runtime::eval::indexed::full) fn verify_callable_facts(&self, store: &FullStore) -> Result<(), IrVerifyError> {
         if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
+        let mut stream_proof = ProducerProof::new(store, self, ProducerContexts::Published, BTreeSet::new());
+        stream_proof.budget.charge(store.checked_call_targets.len() + self.owners.len())?;
         for (&owner, evidence) in &self.owners {
             let driver = super::super::driver_owner_index(owner);
             let mut decoder = match driver {
@@ -1586,7 +1588,9 @@ impl GroundProducerIndex {
             decoder.function_signature_index.clone_from(&self.function_signatures);
             *decoder.return_analysis.borrow_mut() = Some(super::super::ReturnAnalysisSource::Shared(Rc::clone(&evidence.return_analysis)));
             decoder.prepared_constant_work.set(evidence.prepared_constant_work);
-            decoder.verify_checked_expression_facts()?;
+            decoder.verify_checked_expression_facts_with_stream_reads(&mut |instruction, slot, expected| {
+                stream_proof.stream_read_matches_type(&decoder, instruction, slot, expected)
+            })?;
             for &instruction in &evidence.typed_calls {
                 evidence.work.borrow_mut().charge(1)?;
                 let schema::ExprView::TypedCall { callee, signature, .. } = decoder.expression_view(instruction)? else {
@@ -2718,6 +2722,34 @@ impl<'a> ProducerProof<'a> {
             }
         }
         proof
+    }
+
+    fn stream_read_matches_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize, slot: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if crate::runtime::eval::stream_return_item(expected).is_none() { return Ok(false); }
+        self.budget.charge(1)?;
+        let index = self.index;
+        let evidence = index.owners.get(&decoder.owner)
+            .ok_or_else(|| IrVerifyError::new("stream read has no verified producer owner"))?;
+        if decoder.instruction_range != evidence.range || !evidence.range.contains(&instruction)
+            || !matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(actual) if actual == slot)
+        {
+            return Err(IrVerifyError::new("stream read context disagrees with its actual slot and owner"));
+        }
+        let binding = evidence.binding(decoder.store, decoder.owner, instruction, slot)?;
+        let remaining = self.budget.remaining;
+        let actual = self.slot_context_type_for_binding(decoder, instruction, slot, binding)?;
+        if let Some(actual) = actual {
+            if actual.as_ref() != expected {
+                evidence.work.borrow_mut().charge(remaining - self.budget.remaining + 1)?;
+                return Err(IrVerifyError::new("checked stream read disagrees with its actual binding producer"));
+            }
+            self.binding_slot(decoder.owner, binding, slot, actual)?;
+            self.finish()?;
+            evidence.work.borrow_mut().charge(remaining - self.budget.remaining + 1)?;
+            return Ok(true);
+        }
+        evidence.work.borrow_mut().charge(remaining - self.budget.remaining + 1)?;
+        Ok(false)
     }
 
     pub(super) fn pipeline_item_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
@@ -5243,7 +5275,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Record(_) => {
                 let RecordProducerWriters { writers, mut unresolved, .. } = self.record_field_writers(&decoder, instruction)?;
                 if expected.unvalidated() == &Type::ErasedRecord {
-                    if !unresolved.is_empty() { return Err(IrVerifyError::new("record field has no producer contract")); }
+                    self.verify_erased_record_aggregates(&decoder, unresolved)?;
                     return Ok(());
                 }
                 let Type::Record(expected_fields) = expected.unvalidated() else { return Err(IrVerifyError::new("ground record producer has no record contract")) };
@@ -5656,9 +5688,8 @@ impl<'a> ProducerProof<'a> {
                     {
                         let fresh_set = matches!(checked.as_ref(), Type::Set(_))
                             && self.checked_fresh_list_method_receiver(&decoder, input, &checked)?.is_some();
-                        let empty_set = matches!(checked.as_ref(), Type::Set(_))
-                            && self.checked_empty_set_module_call(&decoder, input, &checked)?;
-                        if fresh_set || empty_set || matches!((self.store.tags[input], checked.as_ref()),
+                        let empty_collection = self.checked_empty_collection_module_call(&decoder, input, &checked)?;
+                        if fresh_set || empty_collection || matches!((self.store.tags[input], checked.as_ref()),
                             (FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprListComp, Type::List(_))
                             | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprMapComp, Type::Map(_, _))
                             | (FullTag::ExprCapture, Type::Result(_, _)))
@@ -6421,6 +6452,44 @@ impl<'a> ProducerProof<'a> {
         Ok(RecordProducerWriters { writers, unresolved, types })
     }
 
+    fn verify_erased_record_aggregates(&mut self, decoder: &FullDecoder<'a>, unresolved: BTreeSet<usize>) -> Result<(), IrVerifyError> {
+        let mut pending = unresolved.into_iter().collect::<Vec<_>>();
+        while let Some(instruction) = pending.pop() {
+            self.budget.charge(1)?;
+            let (actual, fact) = self.operand_context(decoder, instruction)?.into_parts();
+            if let Some(actual) = actual {
+                self.expression_with_fact(decoder.owner, instruction, actual, false, fact);
+                continue;
+            }
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::Record(_) => {
+                    pending.extend(self.record_field_writers(decoder, instruction)?.unresolved);
+                }
+                schema::ExprView::List(mut items) => {
+                    for item in &mut items {
+                        self.budget.charge(1)?;
+                        pending.push(item?.raw() as usize);
+                    }
+                }
+                schema::ExprView::ListBuild(mut items) => {
+                    for item in &mut items {
+                        self.budget.charge(1)?;
+                        let (splice, value, _) = item?;
+                        if splice {
+                            let (actual, fact) = self.operand_context(decoder, value.raw() as usize)?.into_parts();
+                            let actual = actual.filter(|ty| matches!(ty.unvalidated(), Type::List(_)))
+                                .ok_or_else(|| IrVerifyError::new("erased record list spread has no list producer contract"))?;
+                            self.expression_with_fact(decoder.owner, value.raw() as usize, actual, false, fact);
+                        } else { pending.push(value.raw() as usize); }
+                    }
+                }
+                schema::ExprView::EmptyMap => {}
+                _ => return Err(IrVerifyError::new("record field has no producer contract")),
+            }
+        }
+        Ok(())
+    }
+
     fn checked_record_arguments(&mut self, decoder: &FullDecoder<'a>, instruction: usize, checked: &Type) -> Result<bool, IrVerifyError> {
         if self.store.tags[instruction] != FullTag::ExprRecord { return Ok(false); }
         let record = match checked.unvalidated() {
@@ -6848,18 +6917,21 @@ impl<'a> ProducerProof<'a> {
         Ok(None)
     }
 
-    fn checked_empty_set_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
-        if !matches!(expected.unvalidated(), Type::Set(_)) { return Ok(false); }
-        let schema::ExprView::ModuleCall { op: super::super::RuntimeOp::SetEmpty, call_plan: None, args, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+    fn checked_empty_collection_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        if !matches!((op, expected.unvalidated()),
+            (super::super::RuntimeOp::SetEmpty, Type::Set(_))
+            | (super::super::RuntimeOp::MapEmpty, Type::Map(_, _)))
+        { return Ok(false); }
         let arguments = args.map(|argument| argument.map(|value| value.map(|value| value.raw() as usize))).collect::<Result<Vec<_>, _>>()?;
         if !arguments.is_empty() { return Ok(false); }
         let mut matched = false;
-        for signature in crate::modules::signature::native_static_operation_signatures(super::super::RuntimeOp::SetEmpty) {
+        for signature in crate::modules::signature::native_static_operation_signatures(op) {
             self.budget.charge(1 + signature.params.len())?;
             if !signature.params.is_empty() { continue; }
             let Some(specialized) = self.native_signature(decoder, signature, &arguments, Some(expected))? else { continue };
             if !specialized.return_ty.matches_expected(expected) { continue; }
-            if matched { return Err(IrVerifyError::new("empty set producer has ambiguous native contracts")); }
+            if matched { return Err(IrVerifyError::new("empty collection producer has ambiguous native contracts")); }
             matched = true;
         }
         Ok(matched)
@@ -7925,6 +7997,49 @@ fn function_owner(index: usize) -> Result<u32, IrVerifyError> {
 #[cfg(test)]
 mod declared_producer_fact_tests {
     use super::*;
+
+    #[test]
+    fn stream_read_proofs_reuse_the_same_work_budget() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = r#"proc consume() [process, error] -> Result[Unit] { let lines = run.stream --text printf "ok\n" ?; for line in lines { assert line == "ok" } }"#.to_string();
+            let path = "checked-stream-shared-work.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path,
+                crate::loader::entry_source_from_text(path, source.clone()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files()[0].id();
+            let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+            let program = super::super::super::FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources), source_id).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            let store = &program.store;
+            let mut index = GroundProducerIndex::new(store).unwrap();
+            let owned_blocks = super::super::super::owned_block_counts(store);
+            for function in 0..store.functions.len() {
+                let mut decoder = decoder_for_function(store, function).unwrap();
+                decoder.instruction_proof = Some(RefCell::new(super::super::super::in_place::InstructionProof::new(decoder.instruction_range.clone())));
+                decoder.instruction_states = Some(RefCell::new(vec![0; decoder.instruction_range.len()]));
+                decoder.block_states = Some(super::super::super::OwnedBlockStates::new(decoder.owner, &owned_blocks));
+                let body = [store.functions[function].body];
+                let mut cursor = super::super::super::FullCursor::new(&body);
+                <Vec<super::super::super::BuildStmtId> as super::super::super::FullCodec>::verify(&decoder, &mut cursor).unwrap();
+                cursor.finish().unwrap();
+                decoder.finish_function().unwrap();
+                index.record(&decoder).unwrap();
+            }
+            let function = store.functions.iter().position(|function| store.string(function.name).unwrap() == "consume").unwrap();
+            let mut proof = ProducerProof::new(store, &index, ProducerContexts::Published, BTreeSet::new());
+            let decoder = proof.owner(function_owner(function).unwrap()).unwrap();
+            let (instruction, slot) = decoder.instruction_range.clone().find_map(|instruction| {
+                let schema::ExprView::Param(slot) = decoder.expression_view(instruction).ok()? else { return None };
+                Some((instruction, slot))
+            }).unwrap();
+            let expected = Type::Stream(Box::new(Type::Str));
+            assert!(proof.stream_read_matches_type(&decoder, instruction, slot, &expected).unwrap());
+            proof.budget.remaining = 0;
+            assert_eq!(proof.stream_read_matches_type(&decoder, instruction, slot, &expected).unwrap_err().message,
+                "generic call type materialization exceeds its work bound");
+        }).unwrap().join().unwrap();
+    }
 
     #[test]
     fn checked_unsigned_parameter_binding_charges_wide_cached_sources() {
