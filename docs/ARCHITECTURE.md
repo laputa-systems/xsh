@@ -1018,8 +1018,13 @@ contributions; an empty contribution set does not constrain a declared phantom
 error type. Execution normalizes propagated payloads only when the checked outer
 error type is Error, preserving nested Result data and existing error identity.
 
-Finite wrapper requirements retain guarded fields, fallbacks, handlers and
-captures. Calls select a checked Optional or Result mode, or forward the exact
+Finite wrapper requirements retain guarded fields, fallbacks, handlers,
+captures and propagation consumers. A propagation consumer retains the actual
+whole Result source and the authored whole return contract. Its worklist defers
+unresolved sources without constraining their error type from the return bound.
+Each call checks the actual error against that bound. Cold proof authenticates
+the physical `?` child, its success projection and its owner's authored return.
+Calls select a checked Optional or Result mode, or forward the exact
 caller-owned requirement; execution obtains that mode from the existing type
 substitution. Cold proof authenticates actual physical operands and ordered
 capture contributions. Dynamic projected binders require evidence from their

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::records::standard_record_type;
-use crate::sema::wrapper_operation::WrapperErrorContribution;
+use crate::sema::wrapper_operation::{WrapperErrorContribution, WrapperRequirementKind};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{ArenaProgram, ArenaTypeExprTag, TypeExprId};
 use xsh_registry::types::BuiltinTypeName;
@@ -132,10 +132,14 @@ impl Checker {
                 DiagnosticCode::CheckTryContext,
             );
         }
-        if let Some(super::ReturnContext::Function(Type::Result(_, return_err))) =
+        if let Some(super::ReturnContext::Function(returned @ Type::Result(_, return_err))) =
             &self.boundary.current_return
             && !err.matches_expected(return_err)
         {
+            if err.contains_inference() && !return_err.contains_inference() {
+                let returned = returned.clone();
+                return self.check_wrapper_requirement(WrapperRequirementKind::Propagation { source: ty.clone(), returned }, span, DiagnosticCode::CheckTryError, ok);
+            }
             self.diagnostics.push(
                 Diagnostic::error("incompatible propagated error")
                     .with_code(DiagnosticCode::CheckTryError)

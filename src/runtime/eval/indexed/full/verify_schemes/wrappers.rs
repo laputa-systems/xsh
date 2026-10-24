@@ -6,6 +6,7 @@ use crate::sema::wrapper_operation::{WrapperRequirement, WrapperRequirementKind 
 pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrapper, substitution: &ApplicationSubstitution<'_>, budget: &mut SchemeInstantiationBudget) -> Result<WrapperRequirement<SchemeType, SchemeEffectParameterId>, IrVerifyError> {
     budget.charge(1)?;
     let kind = match encoded {
+        FullWrapper::Propagation { source, returned } => K::Propagation { source: substitution.ty(store, scope, source, budget)?, returned: substitution.ty(store, scope, returned, budget)? },
         FullWrapper::Field { source, result, detail } => {
             let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
             let boundary = match field.boundary {
@@ -651,6 +652,7 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
 
 pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<Vec<SchemeTypeId>, IrVerifyError> {
     Ok(match encoded {
+        FullWrapper::Propagation { source, returned } => vec![source, returned],
         FullWrapper::Field { source, result, detail } => {
             let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
             let mut types = vec![source, result];
@@ -742,7 +744,7 @@ impl Coverage {
                     let completion = store.wrapper_completions[detail as usize];
                     mark_range(completion.contributions, &store.wrapper_contributions, &mut self.contributions, "wrapper completion contributions are invalid or overlap")?;
                 }
-                FullWrapper::Fallback { .. } => {},
+                FullWrapper::Propagation { .. } | FullWrapper::Fallback { .. } => {},
             }
         }
         Ok(())
@@ -814,6 +816,7 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
     use crate::sema::wrapper_operation::WrapperProjection as P;
     let actual = decode(store, scope, encoded, substitution, budget)?;
     Ok(match (encoded, actual.kind) {
+        (FullWrapper::Propagation { .. }, K::Propagation { .. }) => Vec::new(),
         (FullWrapper::Field { result, .. }, K::Field { source, name, .. }) => {
             let Some(source) = source_parts(&source, budget)? else { return Ok(Vec::new()) };
             if matches!(&source, P::Result { value, .. } if optional_type(value)) { return Ok(Vec::new()); }
@@ -994,6 +997,7 @@ pub(super) fn binder_projections(store: &FullStore, scheme: &FullScheme, scope: 
 
 pub(super) fn evidence_roots(store: &FullStore, encoded: FullWrapper) -> Result<(Vec<SchemeTypeId>, Vec<SchemeTypeId>), IrVerifyError> {
     Ok(match encoded {
+        FullWrapper::Propagation { source, returned } => (vec![source, returned], Vec::new()),
         FullWrapper::Field { source, result, .. } => (vec![source], vec![result]),
         FullWrapper::Fallback { source, result, backup } => (vec![source], vec![result, backup]),
         FullWrapper::Handler { source, result, detail } => {
@@ -1227,4 +1231,24 @@ fn call_key_validation_transfers(store: &FullStore, decoder: &FullDecoder<'_>, c
     }
     budget.charge(transfers.len())?;
     Ok(transfers)
+}
+
+
+pub(super) fn verify_propagation_site(store: &FullStore, owner: u32, scope: &SchemeScope, ordinal: u32, source: &SchemeType, result: &SchemeType, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "propagation wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("propagation wrapper ordinal is out of scope"))?;
+    let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
+    let K::Propagation { source: expected_source, returned } = requirement.kind else { return Err(IrVerifyError::new("propagation instruction names another wrapper relationship")); };
+    let owner = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("propagation owner is invalid"))?;
+    let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("propagation owner is out of scope"))?;
+    let FullCallableContract::Scheme(id) = function.contract else { return Err(IrVerifyError::new("propagation owner has no checked scheme")); };
+    let scheme = store.scheme(id)?;
+    if !scheme.explicit_return { return Err(IrVerifyError::new("propagation consumer is not an authored return contract")); }
+    let actual_return = decode_scheme_type(store, scope, scheme.return_type, budget, 0)?;
+    let Some(crate::sema::wrapper_operation::WrapperProjection::Result { value, .. }) = source_parts(source, budget)? else { return Err(IrVerifyError::new("propagation relationship source is not a Result")); };
+    let Some(crate::sema::wrapper_operation::WrapperProjection::Result { error, .. }) = source_parts(&returned, budget)? else { return Err(IrVerifyError::new("propagation relationship target is not a Result")); };
+    let PropagationBoundary::ResultError(boundary_error) = boundary else { return Err(IrVerifyError::new("propagation relationship has another error boundary")); };
+    if !body_types_equal(source, &expected_source) || !body_types_equal(result, &value)
+        || !body_types_equal(&returned, &actual_return) || !body_types_equal(&error, boundary_error)
+    { return Err(IrVerifyError::new("propagation relationship disagrees with its physical source or authored return")); }
+    Ok(())
 }

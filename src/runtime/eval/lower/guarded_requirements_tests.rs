@@ -83,3 +83,22 @@ fn typed_guarded_local_forwarding_preserves_each_visible_payload() {
 fn inferred_guarded_local_forwarding_preserves_each_visible_payload() {
     on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-local-forwarding.xsh", "verify_guarded_local_forwarding"));
 }
+
+#[test]
+fn inferred_root_callbacks_propagate_only_their_actual_error_contract() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp/root-callback-propagation.xsh");
+        let source = r#"
+var invoked = 0
+proc observe(value: Int) [error] -> Result[Int, Error] { invoked += 1; Ok(value + 1) }
+proc apply(action, value: Int) [error] -> Result[Unit, Error] { let _ = action(value)?; Ok() }
+proc verify_root_callback() [error] -> Result[Unit, Error] {
+  let observer: proc(value: Int) [error] -> Result[Int, Error] = observe
+  let _ = apply(observer, 5)?
+  assert invoked == 1
+  Ok()
+}
+"#;
+        verify_guarded_source(&path, source.to_owned(), "verify_root_callback");
+    });
+}

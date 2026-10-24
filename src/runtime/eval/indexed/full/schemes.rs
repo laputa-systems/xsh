@@ -503,6 +503,7 @@ pub(super) enum FullWrapper {
     Capture { result: SchemeTypeId, detail: u32 },
     KeyValidation { operation: u32, detail: u32 },
     ProcCompletion { returned: SchemeTypeId, group: u32, detail: u32 },
+    Propagation { source: SchemeTypeId, returned: SchemeTypeId },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1340,6 +1341,7 @@ impl FullBuilder {
         use crate::sema::wrapper_operation::{WrapperRequirementKind as K, WrapperBoundary as B, WrapperErrorContribution as C, WrapperCompletionContribution as PC, WrapperCompletionContributions as CC, WrapperGroupRef};
         let index = |value| u32::try_from(value).map_err(|_| IrBuildError::format("wrapper_detail_overflow", None, 0, value));
         Ok(match &requirement.kind {
+            K::Propagation { source, returned } => FullWrapper::Propagation { source: self.intern_scheme_type(source, types, rows, effects)?, returned: self.intern_scheme_type(returned, types, rows, effects)? },
             K::Field { source, result, name, boundary, effects: contract } => {
                 let source = self.intern_scheme_type(source, types, rows, effects)?;
                 let result = self.intern_scheme_type(result, types, rows, effects)?;

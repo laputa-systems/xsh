@@ -1783,6 +1783,7 @@ fn verify_scheme_body_facts(
                 if ordinal >= scope.wrappers.len || wrapper_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body wrapper has invalid or duplicated ownership")); }
                 let requirement = bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?[ordinal as usize];
                 let tag = match requirement {
+                    super::schemes::FullWrapper::Propagation { .. } => FullTag::ExprTry,
                     super::schemes::FullWrapper::Field { .. } => FullTag::ExprField,
                     super::schemes::FullWrapper::Fallback { .. } => FullTag::ExprResultFallback,
                     super::schemes::FullWrapper::Handler { .. } => FullTag::ExprMatch,
@@ -2939,6 +2940,10 @@ fn verify_body_expression(
         }
         schema::ExprView::Try { value, .. } => {
             let actual = child(value, budget)?;
+            if let Some(&ordinal) = wrapper_sites.get(&instruction) {
+                wrappers::verify_propagation_site(store, decoder.owner, scheme_scope, ordinal, &actual, ty, boundary, budget)?;
+            }
+            let deferred_error = wrapper_sites.contains_key(&instruction);
             let (ok, error) = match actual {
                 SchemeType::Result(ok, error) => (*ok, *error),
                 SchemeType::Ground(Type::Result(ok, error)) => (SchemeType::Ground(*ok), SchemeType::Ground(*error)),
@@ -2954,7 +2959,7 @@ fn verify_body_expression(
                 } else { true }
             } else { true };
             if owner_required {
-                body_propagated_error_matches_owner(store, Some(scheme_scope), &error, boundary, budget)?;
+                if !deferred_error { body_propagated_error_matches_owner(store, Some(scheme_scope), &error, boundary, budget)?; }
                 if let PropagationBoundary::InferredProcError { completion_group: Some(group), .. } = boundary
                     && Some(*group) == completion_group
                 {

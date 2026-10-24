@@ -71,6 +71,7 @@ pub(crate) enum WrapperCompletionContribution<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum WrapperRequirementKind<T, V> {
+    Propagation { source: T, returned: T },
     Field { source: T, name: Name, result: T, boundary: WrapperBoundary<T>, effects: EffectContract<V> },
     Fallback { source: T, fallback: T, result: T },
     Handler { source: T, error: T, handler: T, result: T },
@@ -84,7 +85,7 @@ pub(crate) enum WrapperCompletionContributions<T> { Pending, Ready(Arc<[WrapperC
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(crate) enum WrapperOperationKind { Field, Fallback, Handler, Capture, KeyValidation, ProcCompletion }
+pub(crate) enum WrapperOperationKind { Field, Fallback, Handler, Capture, KeyValidation, ProcCompletion, Propagation }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WrapperRequirement<T, V> {
@@ -95,6 +96,7 @@ pub(crate) struct WrapperRequirement<T, V> {
 impl<T, V> WrapperRequirement<T, V> {
     pub(crate) fn operation_kind(&self) -> WrapperOperationKind {
         match self.kind {
+            WrapperRequirementKind::Propagation { .. } => WrapperOperationKind::Propagation,
             WrapperRequirementKind::Field { .. } => WrapperOperationKind::Field,
             WrapperRequirementKind::Fallback { .. } => WrapperOperationKind::Fallback,
             WrapperRequirementKind::Handler { .. } => WrapperOperationKind::Handler,
@@ -110,6 +112,7 @@ impl<T, V> WrapperRequirement<T, V> {
 
     pub(crate) fn types(&self) -> Vec<&T> {
         match &self.kind {
+            WrapperRequirementKind::Propagation { source, returned } => vec![source, returned],
             WrapperRequirementKind::Field { source, result, boundary, .. } => {
                 let mut types = vec![source, result];
                 if let WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty) = boundary { types.push(ty); }
@@ -145,6 +148,7 @@ impl<T, V> WrapperRequirement<T, V> {
         mut effects: impl FnMut(&mut C, &EffectContract<V>) -> Result<EffectContract<W>, E>,
     ) -> Result<WrapperRequirement<U, W>, E> {
         let kind = match &self.kind {
+            WrapperRequirementKind::Propagation { source, returned } => WrapperRequirementKind::Propagation { source: ty(context, source)?, returned: ty(context, returned)? },
             WrapperRequirementKind::Field { source, name, result, boundary, effects: contract } => {
                 let boundary = match boundary {
                     WrapperBoundary::Captured => WrapperBoundary::Captured,
@@ -297,6 +301,13 @@ pub(crate) fn closed_wrapper_selection<V: Ord>(requirement: &WrapperRequirement<
         else { Err(WrapperProjectionError::IncompatibleValue { expected: expected.clone(), actual: actual.clone() }) }
     };
     let mode = match &requirement.kind {
+        WrapperRequirementKind::Propagation { source, returned } => {
+            let Type::Result(_, error) = source else { return Err(WrapperProjectionError::IncompatibleBoundary); };
+            let Type::Result(_, expected) = returned else { return Err(WrapperProjectionError::IncompatibleBoundary); };
+            if error.contains_recovery() || expected.contains_recovery() { return Err(WrapperProjectionError::IncompatibleBoundary); }
+            fits(error, expected)?;
+            return Ok(Some(WrapperSelection::Result));
+        }
         WrapperRequirementKind::Field { source, name, result, boundary, effects } => {
             let projected = guarded_field_projection(source, *name, wrapper_field_type)?;
             fits(&projected.guarded_result(), result)?;
