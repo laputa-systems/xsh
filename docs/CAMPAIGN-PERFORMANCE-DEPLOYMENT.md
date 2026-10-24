@@ -30,7 +30,7 @@ repairs continue on their own branches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-The latest combined inference source is `853b7c829`, tree
+The latest complete library/native checkpoint is `853b7c829`, tree
 `5583df1d94c4023be35a26d3ab7e3b9f4d436fdf`. Its complete Rust library run
 passes 2,694 tests, with zero failures and three ignored tests. Matching
 verification products build without warnings. Strict native qualification
@@ -38,7 +38,27 @@ passes all 249 selectors in both normal and forced modes, plus six API cases.
 Every previous 246-selector case remains selected; the three added cases cover
 conditional callback effects and inferred declaration effects. Source, product,
 roster and cleanup guards pass. These results qualify those boundaries; the
-canonical workspace boundary and a compiler-prefix merge remain pending.
+canonical workspace boundary fails before a compiler-prefix merge.
+
+The matching canonical bootstrap passes. Its root integration group then stops
+at 197 passes, 35 failures and one filter; later stages and supplemental warnings
+do not run. Source guards and owned cleanup pass. Fifteen failures share mock
+responses whose empty headers lack a material schema. Fixture repair `2c14efd33`
+uses the runtime's actual `NetResponse` contract; all seven native mock/schema
+controls and all fifteen original network/TLS controls pass. Compiler products
+remain unchanged for those fixture-only checks. Other primary causes are two
+Map producer proofs, two Stream callable-slot proofs, one nested record producer
+proof, seven signal fixtures missing the required `process` permission, two obsolete
+Stream-omission assertions, and a lost public-return annotation hint. Five stack failures follow a poisoned test lock;
+they require replay after the primary record proof is repaired. These repairs
+and the next canonical run remain open.
+
+Signature repair `23b2b7281` is integrated after that checkpoint. All fifteen
+focused API controls pass. Guarded signatures now expose their own conditional
+domains and effects, and inherited callee bindings; nonguarded text remains
+unchanged. SPEC documents this diagnostic notation. Guard value-output rendering
+still waits for the corresponding core metadata. These later focused results do
+not qualify a changed compiler for the full canonical boundary.
 
 Guard requirements now execute imported rendering, Env preload, arithmetic,
 Path methods and closed records with opaque fields. Generic relays, repeated
@@ -48,7 +68,8 @@ local contribution through a parent-owned output; Null absence invokes nothing.
 Cold controls cover source, polarity, stale reads, post-guard writes, row data,
 sibling scopes, foreign callable packets and omitted effect contributions.
 Root binder requirements remain total. Conditional error propagation, value
-joins, captures and complete exported signature rendering remain open. Those
+joins, captures, independent guarded callable correspondence and value-output
+signature rendering remain open. Those
 implementation classes are mandatory.
 
 Matching documentation checks pass, including SPEC examples, rejected programs,
@@ -64,7 +85,12 @@ runtime cases pass. The annotation-reduced XSH view then fails before reduced
 runtime or interface comparison. Primary causes are body eligibility in
 `tr.validate_classes` and `tour_html.xsh_html`, target-typed enum relationships
 in `docker.host_link_tools`, and effect publication in `cargo_steps.execute`.
-Separate experts own these classes. The former original-view imported callable
+Separate experts own these classes. Nominal-selection proof `c508a13f6` shows
+that the Docker context annotation supplies otherwise absent enum-family meaning;
+two imported families can share a variant spelling. That annotation is a
+purposeful retention, rather than a missing residual enum-selection feature.
+The frozen denominators remain unchanged; the next joint proposal must retain
+this site and report its adjusted absolute count. The former original-view imported callable
 and compound Boolean guard failures are repaired. No annotation restoration or
 classification excludes a compiler defect.
 
