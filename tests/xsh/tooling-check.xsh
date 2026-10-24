@@ -911,8 +911,8 @@ test test_check_compare_preserves_public_type_names { |ctx|
     let unchanged = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
     assert unchanged.status.exited_with(0), unchanged.stderr
     assert unchanged.stdout == "xsht check interface qualification: 2 callable, 0 CLI\n"
-    p"candidate/model.xsh".write(model.replace("Event", "RenamedEvent"))?
-    p"candidate/main.xsh".write(main.replace("Event", "RenamedEvent"))?
+    p"candidate/model.xsh".write(model.replace("Event", with: "RenamedEvent"))?
+    p"candidate/main.xsh".write(main.replace("Event", with: "RenamedEvent"))?
     let renamed = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
     assert renamed.status.exited_with(2), renamed.stderr
     assert renamed.stdout == ""
