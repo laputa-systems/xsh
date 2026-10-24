@@ -66,3 +66,20 @@ fn inferred_root_record_rows_preserve_opaque_fields_from_actual_closed_sources()
 fn imported_guarded_requirements_forward_through_generic_calls() {
     on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-forwarding.xsh", "verify_guarded_forwarding"));
 }
+
+#[test]
+fn typed_guarded_local_forwarding_preserves_each_visible_payload() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-requirements-local-forwarding.xsh");
+        let source = std::fs::read_to_string(&path).unwrap()
+            .replace("guarded_identity(value)", "guarded_identity(value: Str?)")
+            .replace("guarded_relay(value)", "guarded_relay(value: Str?)")
+            .replace("guarded_nested(value, other)", "guarded_nested(value: Str?, other: Str?)");
+        verify_guarded_source(&path, source, "verify_guarded_local_forwarding");
+    });
+}
+
+#[test]
+fn inferred_guarded_local_forwarding_preserves_each_visible_payload() {
+    on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-local-forwarding.xsh", "verify_guarded_local_forwarding"));
+}

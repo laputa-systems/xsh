@@ -393,15 +393,10 @@ impl Checker {
             }
         }
         let calls = self.pending_call_instantiations.iter().filter(|(site, _)| expression_spans.contains(&site.source)).map(|(&site, evidence)| (site, evidence.clone())).collect::<BTreeMap<_, _>>();
-        let generalized = if component.len() == 1 {
-            self.type_constraints.generalize_callable_body_with_calls(
-                &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(),
-            )
-        } else {
-            self.type_constraints.generalize_callable_body_with_calls_in_component(
-                &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(), component,
-            )
-        };
+        let generalized = self.type_constraints.generalize_callable_body_with_calls_in_component(
+            &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(), component,
+            &|site: crate::sema::schemes::InstantiationSite<Span>| self.constraint_scope_at(declaration.effect_declaration(), site.source),
+        );
         let (generalized, generalized_body_types, generalized_tail_types, generalized_calls) = match generalized
         {
             Ok(generalized) => generalized,

@@ -24,7 +24,8 @@ pub(super) fn verify(
         let header = store.value_materializations.get(id as usize).ok_or_else(invalid)?;
         let covered = headers.get_mut(id as usize).ok_or_else(invalid)?;
         if std::mem::replace(covered, true) || header.instruction as usize != instruction { return Err(invalid()); }
-        let caller = caller_scheme_for_instruction(store, instruction, scopes)?;
+        let active = caller_scheme_for_instruction(store, instruction, scopes)?.map(|(owner, scope)| scope.at_instruction(instruction).map(|scope| (owner, scope))).transpose()?;
+        let caller = active.as_ref().map(|(owner, scope)| (*owner, scope));
         let source = endpoint(store, header.source, caller, &mut budget)?;
         let destination = endpoint(store, header.destination, caller, &mut budget)?;
         let schema::ExprView::CheckedValue { value, .. } = decoder.expression_view(instruction)? else { return Err(invalid()); };

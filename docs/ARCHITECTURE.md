@@ -614,6 +614,18 @@ the caller, lexical scope, call ordinal, and physical source alongside the final
 callee and guard. Forwarding checks both origins before transferring a packet.
 Pending source relationships rediscover canonical type, row, and effect watchers
 through the existing wrapper journal after aliases resolve.
+Call generalization selects its lexical requirement pack from the checker's
+existing guarded-node ledger. It admits only root, ancestor, and own binders and
+restores the root view after each call. Identity reads wait for their actual
+sources before projecting into live packs, so a local view cannot borrow an
+unresolved caller variable's authority. Full composes ancestor read proofs in
+order. Each recorded identity marker normalizes to its exact raw ANF initializer;
+an identity used as a later null-test source must name that physical source.
+Scope membership proves that the positive condition dominates execution. Every
+payload refinement independently proves the actual binding, path, prefix, and
+writers. Positive initializer and scope-condition queries belong to the immutable
+owner census and retain the physical read or condition, protected binding, exact
+field path, and predicate outcome. Reuse never supplies later payload preservation.
 Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the

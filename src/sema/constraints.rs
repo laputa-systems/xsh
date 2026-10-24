@@ -1028,6 +1028,7 @@ impl TypeConstraints {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn generalize_callable_body_with_calls<K: Ord + Copy + Into<super::schemes::InstantiationSite<Span>>>(
         &self,
         callable_types: &[Type],
@@ -1044,7 +1045,7 @@ impl TypeConstraints {
     ), SchemeOperationError> {
         self.generalize_callable_body_with_calls_in_component(
             callable_types, body_types, tail_types, calls, environment_level, owner,
-            &BTreeSet::from([owner]),
+            &BTreeSet::from([owner]), &|_| CallableApplicationScope::Declaration(owner),
         )
     }
 
@@ -1057,6 +1058,7 @@ impl TypeConstraints {
         environment_level: u32,
         owner: crate::sema::check::EffectDeclarationId,
         component: &BTreeSet<crate::sema::check::EffectDeclarationId>,
+        call_scope: &impl Fn(K) -> CallableApplicationScope,
     ) -> Result<(
         GeneralizedTypes,
         BTreeMap<ExprId, SchemeType>,
@@ -1118,10 +1120,16 @@ impl TypeConstraints {
         let call_type_parameter_count = generalization.type_parameters.len();
         let call_row_parameter_count = generalization.row_parameters.len();
         let call_effect_parameter_count = generalization.effect_parameters.len();
-        let ground_caller = call_type_parameter_count == 0 && call_row_parameter_count == 0;
         let mut call_instantiations = BTreeMap::new();
         for (&span, evidence) in calls {
-            let call = evidence.try_map(&mut generalization,
+            let guard = match call_scope(span) {
+                CallableApplicationScope::Declaration(owner) if component.contains(&owner) => None,
+                CallableApplicationScope::Guard(id) => self.generalized_guard_scope_in(id, CallableApplicationScope::Declaration(owner), &generalization.guards)?,
+                _ => return Err(ConstraintResolutionError::ForeignVariable.into()),
+            };
+            let call = self.with_generalized_guard(guard, &requirements, &mut generalization, |generalization, requirements| {
+                let ground_caller = generalization.type_parameters.is_empty() && generalization.row_parameters.is_empty();
+                evidence.try_map(generalization,
                 &mut |generalization, ty| self.generalize_type(ty, environment_level, generalization, 0),
                 &mut |generalization, source, (callable, instantiated)| {
                     Ok((source, self.generalize_call_instantiation(callable, instantiated, generalization, environment_level, ground_caller,
@@ -1129,7 +1137,8 @@ impl TypeConstraints {
                 },
                 &mut |generalization, (callable, instantiated)| self.generalize_call_instantiation(callable, instantiated, generalization, environment_level, ground_caller,
                     &requirements.applications, &requirements.operations, &requirements.methods, &requirements.guard_calls, &requirements.wrappers),
-            ).map_err(materialization_operation_error)?;
+                ).map_err(materialization_operation_error)
+            })?;
             call_instantiations.insert(span, call);
         }
         if generalization.type_parameters.len() != call_type_parameter_count
@@ -1162,6 +1171,56 @@ impl TypeConstraints {
             tail_types,
             call_instantiations,
         ))
+    }
+
+    fn with_generalized_guard<T>(
+        &self, guard: Option<super::guarded_requirements::GuardScopeId>, requirements: &CallableRequirements,
+        generalization: &mut Generalization, apply: impl FnOnce(&mut Generalization, &CallableRequirements) -> Result<T, SchemeOperationError>,
+    ) -> Result<T, SchemeOperationError> {
+        let Some(id) = guard else { return apply(generalization, requirements); };
+        let mut pack = requirements;
+        let mut ancestry = Vec::new();
+        for _ in 0..=MAX_TYPE_DEPTH {
+            let end = pack.guards.partition_point(|guard| guard.scope <= id);
+            let guard = pack.guards.get(end.checked_sub(1).ok_or(ConstraintResolutionError::ForeignVariable)?).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            ancestry.push(guard.as_ref());
+            pack = &guard.requirements;
+            if guard.scope == id { break; }
+        }
+        if ancestry.last().map(|guard| guard.scope) != Some(id) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let ordinals = generalization.guard_ordinals.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        let lengths = [generalization.type_parameters.len(), generalization.row_parameters.len(), generalization.effect_parameters.len()];
+        for guard in ancestry {
+            generalization.type_parameters.extend(&guard.type_parameters);
+            generalization.row_parameters.extend(guard.row_parameters.iter().cloned());
+            generalization.effect_parameters.extend(&guard.requirements.effect_parameters);
+        }
+        self.counters.record_generalization_binding_clones(ordinals.applications.len() + ordinals.operations.len() + ordinals.methods.len() + ordinals.wrappers.len() + ordinals.guard_calls.len()
+            + generalization.type_parameters.len() - lengths[0] + generalization.row_parameters.len() - lengths[1] + generalization.effect_parameters.len() - lengths[2]
+            + generalization.row_parameters[lengths[1]..].iter().map(|row| row.lacks.len()).sum::<usize>());
+        let ordinals = ordinals.clone();
+        let previous = GuardRequirementOrdinals {
+            applications: std::mem::replace(&mut generalization.applications, ordinals.applications),
+            operations: std::mem::replace(&mut generalization.operations, ordinals.operations),
+            methods: std::mem::replace(&mut generalization.methods, ordinals.methods),
+            wrappers: std::mem::replace(&mut generalization.wrappers, ordinals.wrappers),
+            guard_calls: std::mem::replace(&mut generalization.guard_calls, ordinals.guard_calls),
+        };
+        let expected = [generalization.type_parameters.len(), generalization.row_parameters.len(), generalization.effect_parameters.len()];
+        let result = apply(generalization, pack).and_then(|value| {
+            if [generalization.type_parameters.len(), generalization.row_parameters.len(), generalization.effect_parameters.len()] != expected {
+                Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound))
+            } else { Ok(value) }
+        });
+        generalization.applications = previous.applications;
+        generalization.operations = previous.operations;
+        generalization.methods = previous.methods;
+        generalization.wrappers = previous.wrappers;
+        generalization.guard_calls = previous.guard_calls;
+        generalization.type_parameters.truncate(lengths[0]);
+        generalization.row_parameters.truncate(lengths[1]);
+        generalization.effect_parameters.truncate(lengths[2]);
+        result
     }
 
     fn generalize_call_instantiation(

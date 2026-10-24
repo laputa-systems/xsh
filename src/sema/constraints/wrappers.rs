@@ -73,8 +73,8 @@ pub(super) struct GuardRead {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum GuardInstanceState {
     Pending(std::sync::Arc<super::InstantiatedRequirements>),
-    NonNull(Box<super::InstantiatedRequirements>),
-    Optional(Box<super::InstantiatedRequirements>),
+    NonNull(std::sync::Arc<super::InstantiatedRequirements>),
+    Optional(std::sync::Arc<super::InstantiatedRequirements>),
     Null,
 }
 
@@ -124,8 +124,8 @@ impl WrapperOperations {
             + self.guards.values().map(|guard| guard.reads.capacity() * size_of::<GuardRead>() + guard.reads.iter().map(|read| super::type_owned_payload_bytes(&read.source) + super::type_owned_payload_bytes(&read.view)).sum::<usize>()).sum::<usize>()
             + self.guard_instances.len() * size_of::<(WrapperOperationId, GuardInstance)>()
             + self.guard_instances.values().map(|instance| super::type_owned_payload_bytes(&instance.source) + match &instance.state {
-                GuardInstanceState::Pending(bindings) => bindings.retained_bytes(),
-                GuardInstanceState::NonNull(bindings) | GuardInstanceState::Optional(bindings) => bindings.retained_bytes(),
+                GuardInstanceState::Pending(bindings) => bindings.retained_bytes() + 2 * size_of::<usize>(),
+                GuardInstanceState::NonNull(bindings) | GuardInstanceState::Optional(bindings) => bindings.retained_bytes() + 2 * size_of::<usize>(),
                 GuardInstanceState::Null => 0,
             }).sum::<usize>()
             + self.guard_owners.len() * size_of::<(CallableApplicationScope, Vec<WrapperOperationId>)>()
@@ -410,6 +410,10 @@ impl TypeConstraints {
 
     fn solve_guard_instance(&mut self, id: WrapperOperationId) -> Result<(), WrapperConstraintError> {
         let entry = self.wrappers.guard_instances.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        if let GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) = &entry.state {
+            let (template, pack, level, origin) = (std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(pack), entry.level, entry.origin);
+            return self.solve_guard_identity_reads(id, &template, &pack, level, origin);
+        }
         let GuardInstanceState::Pending(inherited) = &entry.state else { return Ok(()); };
         let (source, template, inherited, origin, level) = (entry.source.clone(), std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(inherited), entry.origin, entry.level);
         let dependencies = self.guard_source_dependencies(&source)?;
@@ -431,23 +435,35 @@ impl TypeConstraints {
                 if !this.constrain_closed_record_input(&view, payload, &owned_rows, template.subject, changes)
                     .map_err(|(expected, actual, resolution_error)| WrapperConstraintError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: template.subject, initializer: None, established: None }))?
                 { this.constrain_wrapper_projection(&view, payload, template.subject, changes)?; }
-                for read in &template.reads {
-                    let source = this.instantiate_scheme_type(&read.source, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
-                    let view = this.instantiate_scheme_type(&read.view, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
-                    this.constrain_wrapper_projection(&view, &source, read.subject, changes)?;
-                }
                     Ok::<_, WrapperConstraintError>(())
                 })?;
                 match classification {
-                    crate::sema::guarded_requirements::NonNullSource::NonNull(_) => GuardInstanceState::NonNull(Box::new(instance)),
-                    crate::sema::guarded_requirements::NonNullSource::Optional(_) => GuardInstanceState::Optional(Box::new(instance)),
+                    crate::sema::guarded_requirements::NonNullSource::NonNull(_) => GuardInstanceState::NonNull(std::sync::Arc::new(instance)),
+                    crate::sema::guarded_requirements::NonNullSource::Optional(_) => GuardInstanceState::Optional(std::sync::Arc::new(instance)),
                     crate::sema::guarded_requirements::NonNullSource::Null => unreachable!(),
                 }
             }
         };
+        let live = match &next { GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) => Some(std::sync::Arc::clone(pack)), _ => None };
         self.apply_journaled(|this, changes| {
             let previous = std::mem::replace(&mut this.wrappers.guard_instances.get_mut(&id).unwrap().state, next);
             changes.push(ConstraintChange::Wrapper(WrapperChange::GuardInstanceState(id, previous)));
+            Ok::<_, WrapperConstraintError>(())
+        })?;
+        if let Some(pack) = live { self.solve_guard_identity_reads(id, &template, &pack, level, origin)?; }
+        Ok(())
+    }
+
+    fn solve_guard_identity_reads(&mut self, id: WrapperOperationId, template: &crate::sema::guarded_requirements::GuardRequirements, pack: &super::InstantiatedRequirements, level: u32, origin: Span) -> Result<(), WrapperConstraintError> {
+        self.apply_journaled(|this, changes| {
+            for read in &template.reads {
+                let source = this.instantiate_scheme_type(&read.source, &pack.type_arguments, &pack.row_arguments, &pack.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
+                for dependency in this.guard_source_dependencies(&source)? { this.wrappers.watch(dependency, id, changes); }
+                let source = this.resolve_with_changes(&source, 0, changes)?;
+                if source.contains_inference() { continue; }
+                let view = this.instantiate_scheme_type(&read.view, &pack.type_arguments, &pack.row_arguments, &pack.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
+                this.constrain_wrapper_projection(&view, &source, read.subject, changes)?;
+            }
             Ok(())
         })
     }
@@ -1136,15 +1152,19 @@ impl TypeConstraints {
     }
 
     pub(crate) fn generalized_guard_scope(&self, id: WrapperOperationId, scope: &super::CallableGeneralizationScope) -> Result<Option<crate::sema::guarded_requirements::GuardScopeId>, SchemeOperationError> {
+        self.generalized_guard_scope_in(id, scope.owner, &scope.guards)
+    }
+
+    pub(super) fn generalized_guard_scope_in(&self, id: WrapperOperationId, root: CallableApplicationScope, guards: &BTreeMap<WrapperOperationId, crate::sema::guarded_requirements::GuardScopeId>) -> Result<Option<crate::sema::guarded_requirements::GuardScopeId>, SchemeOperationError> {
         let mut owner = CallableApplicationScope::Guard(id);
         let mut visible = None;
         for _ in 0..=MAX_TYPE_DEPTH {
             match owner {
                 CallableApplicationScope::Guard(id) => {
-                    if visible.is_none() { visible = scope.guards.get(&id).copied(); }
+                    if visible.is_none() { visible = guards.get(&id).copied(); }
                     owner = self.wrappers.guards.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.owner;
                 }
-                root if root == scope.owner => return Ok(visible),
+                actual if actual == root => return Ok(visible),
                 _ => return Err(ConstraintResolutionError::ForeignVariable.into()),
             }
         }

@@ -6419,6 +6419,139 @@ observe()?
     }
 
     #[test]
+    fn local_forwarded_guard_packets_reject_sibling_requirement_scopes() {
+        let mut program = prepare(r#"
+pure render(value) -> Str { if value == null { "" } else { f"{value}" } }
+pure siblings(left, right) -> Str {
+    let first = if left == null { "" } else { render(left) }
+    let second = if right == null { "" } else { render(right) }
+    first + second
+}
+proc observe() -> Result[Unit] {
+    assert siblings("left", "right") == "leftright"
+    Ok()
+}
+observe()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "siblings").unwrap();
+        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("siblings retains its inferred contract") };
+        let guards = program.store.scheme(id).unwrap().guards.bounds(program.store.scheme_guards.len()).unwrap();
+        assert_eq!(guards.len(), 2);
+        let left = program.store.scheme_guards[guards.start];
+        let right = program.store.scheme_guards[guards.start + 1];
+        assert_eq!((left.parent, right.parent), (super::super::super::IR_NONE, super::super::super::IR_NONE));
+        assert_eq!((left.guard_calls.len, right.guard_calls.len), (1, 1));
+        let mut changed = program.clone();
+        assert!(changed.store.in_place.get().is_none());
+        changed.store.scheme_guards[guards.start].guard_calls = right.guard_calls;
+        changed.store.scheme_guards[guards.start + 1].guard_calls = left.guard_calls;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "guard call source belongs to another callable or requirement scope");
+        let sites = program.store.checked_call_targets.iter().filter(|site| site.function.index() == owner).collect::<Vec<_>>();
+        assert_eq!(sites.len(), 1);
+        let packet = program.invocation_applications(sites[0].instruction, owner, &super::super::super::PreparedInvocationBindings::default()).unwrap();
+        let left_scope = crate::sema::guarded_requirements::GuardScopeId::from_index(left.id as usize).unwrap();
+        let right_scope = crate::sema::guarded_requirements::GuardScopeId::from_index(right.id as usize).unwrap();
+        let left_packet = packet.layouts.guards[&left_scope].as_ref().unwrap();
+        let right_packet = packet.layouts.guards[&right_scope].as_ref().unwrap();
+        assert_eq!(left_packet.layouts.guard_calls.len(), 1);
+        assert_eq!(right_packet.layouts.guard_calls.len(), 1);
+        let source = left_packet.layouts.guard_calls[0].origin.source;
+        program.forwarded_guard_call(left_packet, 0, source).unwrap();
+        let mut swapped = left_packet.clone();
+        let mut foreign = right_packet.layouts.guard_calls[0].clone();
+        foreign.origin.source = source;
+        Arc::make_mut(&mut swapped.layouts).guard_calls[0] = foreign;
+        assert_eq!(program.forwarded_guard_call(&swapped, 0, source).unwrap_err().message, "prepared forwarded guard call belongs to another caller, scope, or source");
+    }
+
+    #[test]
+    fn nested_guard_identity_reads_reject_same_type_bindings_and_intervening_writers() {
+        let mut program = prepare(r#"
+pure selected(value, replacement, marker) -> Str {
+    var working = value
+    var unrelated = value
+    let stale = working
+    working = replacement
+    if working == null { "" } else {
+        if marker == null { "" } else {
+            unrelated = value
+            let _ = unrelated
+            let _ = stale
+            f"{working}"
+        }
+    }
+}
+proc observe() -> Result[Unit] {
+    let missing: Str? = null
+    let present: Str? = "present"
+    assert selected(missing, present, true) == "present"
+    Ok()
+}
+observe()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("selected retains its guarded source contract") };
+        let scheme = program.store.scheme(id).unwrap();
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let first = program.store.scheme_types[program.store.scheme_params[parameters.start].ty.index()];
+        let second = program.store.scheme_types[program.store.scheme_params[parameters.start + 1].ty.index()];
+        assert_eq!(first.tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(second, first);
+        let guards = scheme.guards.bounds(program.store.scheme_guards.len()).unwrap();
+        assert_eq!(guards.len(), 2);
+        let outer = program.store.scheme_guards[guards.start];
+        let inner = program.store.scheme_guards[guards.start + 1];
+        assert_eq!(inner.parent, outer.id);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let raw_read = |marker| {
+            let schema::ExprView::Param(slot) = decoder.expression_view(marker as usize).unwrap() else { panic!("the authored read retains an ANF carrier") };
+            let values = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot: declared, value, .. }) if declared == slot => Some(value.raw() as usize),
+                _ => None,
+            }).collect::<Vec<_>>();
+            assert_eq!(values.len(), 1);
+            assert!(matches!(decoder.expression_view(values[0]).unwrap(), schema::ExprView::Param(_)));
+            values[0]
+        };
+        let outer_view = program.store.scheme_types[outer.view.index()];
+        let reads = inner.reads.bounds(program.store.scheme_guard_reads.len()).unwrap();
+        let working = reads.clone().find(|index| program.store.scheme_types[program.store.scheme_guard_reads[*index].source.index()] == outer_view).unwrap();
+        let stale = reads.filter(|index| program.store.scheme_types[program.store.scheme_guard_reads[*index].source.index()] == first).last().unwrap();
+        let working = raw_read(program.store.scheme_guard_reads[working].instruction);
+        let stale = raw_read(program.store.scheme_guard_reads[stale].instruction);
+        let schema::ExprView::Param(working_slot) = decoder.expression_view(working).unwrap() else { unreachable!() };
+        let schema::ExprView::Param(stale_slot) = decoder.expression_view(stale).unwrap() else { unreachable!() };
+        assert_ne!(working_slot, stale_slot);
+        let mut other_binding = program.clone();
+        assert!(other_binding.store.in_place.get().is_none());
+        other_binding.store.data[working] = program.store.data[stale];
+        assert_eq!(FullVerifier::verify(&other_binding).unwrap_err().message, "generic body expression disagrees with its checked type");
+        let assignments = program.store.function_instruction_range(owner).unwrap().filter(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).collect::<Vec<_>>();
+        assert_eq!(assignments.len(), 2);
+        let mut writer = program.clone();
+        assert!(writer.store.in_place.get().is_none());
+        let ranges = assignments.iter().map(|instruction| program.store.data[*instruction].range().bounds(program.store.extra.len()).unwrap()).collect::<Vec<_>>();
+        let schema::StmtView::Assign { slot: left, .. } = decoder.statement_view(assignments[0]).unwrap() else { unreachable!() };
+        let schema::StmtView::Assign { slot: right, .. } = decoder.statement_view(assignments[1]).unwrap() else { unreachable!() };
+        assert_ne!(left, right);
+        assert_eq!(left, working_slot);
+        assert_eq!(program.store.extra[ranges[0].start] as usize, left);
+        assert_eq!(program.store.extra[ranges[1].start] as usize, right);
+        writer.store.extra[ranges[1].start] = left as u32;
+        assert_eq!(FullVerifier::verify(&writer).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
     fn actual_record_row_evidence_rejects_opaque_field_type_forgery() {
         let mut program = prepare(r#"
 type OpaqueRow = {name: Str, opaque: Any}
