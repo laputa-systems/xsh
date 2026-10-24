@@ -5475,6 +5475,14 @@ impl<'a> ProducerProof<'a> {
                 if !checked.matches_expected(&expected) && !matches!(expected.as_ref(), Type::Result(ok, _) if checked.matches_expected(ok)) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
                 Ok(())
             }
+            schema::ExprView::FmtString(_) | schema::ExprView::PathFmtString { .. }
+                if self.index.scheme_owners.contains_key(&owner) => {
+                    let intrinsic = if self.store.tags[instruction] == FullTag::ExprPathFmtString { Type::Path } else { Type::Str };
+                    match self.scoped_expression_type(&decoder, instruction)? {
+                        Some(super::SchemeType::Ground(actual)) if actual == intrinsic => Ok(()),
+                        _ => Err(IrVerifyError::new("generic interpolation has no intrinsic output proof")),
+                    }
+                }
             _ if actual.is_some() => self.verify_operands(&decoder, instruction),
             _ => Err(IrVerifyError::new(format!("ground producer form has no executable type proof: {:?} at instruction {instruction}, owner {owner}", self.store.tags[instruction]))),
         }

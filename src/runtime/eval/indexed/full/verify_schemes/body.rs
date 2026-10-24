@@ -4334,6 +4334,76 @@ test verify_completion_cleanup {
     }
 
     #[test]
+    fn formatted_native_consumers_require_owned_body_and_display_proofs() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare(r#"pure foreign(value: Bytes) -> Bytes { value }
+proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
+    let spare: Any = wrong
+    let text = f"{value}"
+    let file_path = fp"{value}"
+    file_path.read_text()
+}
+"#);
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (formatted, operand) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::PathFmtString { mut parts, .. }) => match parts.next().unwrap().unwrap() {
+                super::super::super::decode::FmtPartView::Expr(value, _, _) => Some((instruction, value.raw() as usize)),
+                _ => None,
+            },
+            _ => None,
+        }).unwrap();
+        let expression_fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))).unwrap();
+        let output = expression_fact(formatted);
+        let child = expression_fact(operand);
+        let text = range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprFmtString).unwrap();
+        let text_fact = expression_fact(text);
+        let bytes_read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let bytes_fact = expression_fact(bytes_read);
+        let mut parameters = program.store.schemes[scheme.index()].type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        let conversion = parameters.find(|parameter| program.store.scheme_type_parameters[*parameter].conversions != 0).unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        for (label, first, second) in [("output", output, text_fact), ("child type", child, bytes_fact)] {
+            let mut changed = cold();
+            let first_value = changed.store.scheme_body_facts[first].value;
+            changed.store.scheme_body_facts[first].value = changed.store.scheme_body_facts[second].value;
+            changed.store.scheme_body_facts[second].value = first_value;
+            super::super::prepare_tables(&changed.store).unwrap();
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("disagrees with") || error.message.contains("cannot be displayed"), "{label}: {}", error.message);
+        }
+        let mut missing_child_role = cold();
+        missing_child_role.store.scheme_body_facts[child].value = FullSchemeBodyFactValue::Tail(program.store.scheme_body_facts[child].ty().unwrap());
+        assert_eq!(FullVerifier::verify(&missing_child_role).unwrap_err().message, "generic body fact has an invalid instruction kind");
+        let mut unbounded = cold();
+        assert_eq!(unbounded.store.scheme_type_parameters[conversion].conversions, 1);
+        unbounded.store.scheme_type_parameters[conversion].conversions = 0;
+        assert_eq!(FullVerifier::verify(&unbounded).unwrap_err().message, "generic interpolation producer cannot be displayed");
+        let mut wrong_owner = cold();
+        wrong_owner.store.scheme_body_facts[child].function = IrFunctionId::new(foreign).unwrap();
+        let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+        assert_eq!(error.message, "generic body fact has invalid ownership");
+        let mut foreign_read = cold();
+        let words = foreign_read.store.data[formatted].range().bounds(foreign_read.store.extra.len()).unwrap();
+        let parts = IrBlockId::from_raw(foreign_read.store.extra[words.start]).unwrap();
+        let words = foreign_read.store.blocks[parts.index()].instructions.bounds(foreign_read.store.extra.len()).unwrap();
+        let references = words.filter(|word| foreign_read.store.extra[*word] == operand as u32).collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        foreign_read.store.extra[references[0]] = foreign_source as u32;
+        assert_eq!(FullVerifier::verify(&foreign_read).unwrap_err().message, "full IR instruction belongs to another function");
+    }
+
+    #[test]
     fn generic_construction_interpolation_requires_the_actual_display_domain() {
         for prefix in ["f", "fp"] {
             let program = prepare(&format!("pure keep(value, text: Str, wrong: Regex) {{ let _ = {prefix}\"{{text}}\"; value }}"));

@@ -8,6 +8,132 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_formatted_path_native_consumer(typed: bool) {
+    let definitions = if typed {
+        r#"proc selected(value: Int, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }
+proc selected_word(value: Str, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }
+proc number(base: Path) [fs, error] -> Result[Str] { selected(7, base) }
+proc word(base: Path) [fs, error] -> Result[Str] { selected_word("entry", base) }
+proc missing(base: Path) [fs, error] -> Result[Str] { selected(9, base) }
+"#
+    } else {
+        r#"proc selected(value, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }
+proc number(base: Path) [fs, error] -> Result[Str] { selected(7, base) }
+proc word(base: Path) [fs, error] -> Result[Str] { selected("entry", base) }
+proc missing(base: Path) [fs, error] -> Result[Str] { selected(9, base) }
+"#
+    };
+    let directory = tempfile::Builder::new().prefix("formatted-native-consumer-").tempdir_in(".work/tmp").unwrap();
+    std::fs::write(directory.path().join("7"), b"number\n").unwrap();
+    std::fs::write(directory.path().join("entry"), b"word\n").unwrap();
+    let base = Value::Path(crate::runtime::value::PathValue::from_text(directory.path().canonicalize().unwrap().to_str().unwrap()).unwrap());
+    let (program, sources, source_id) = record_form_program(definitions);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, expected) in [("number", "number\n"), ("word", "word\n")] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[base.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from(expected))))), "typed={typed} {name} frames={force_frames}");
+        }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("missing")));
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[base.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Result(ResultValue::Err(error)) = actual else { panic!("the native missing-file error remains a Result") };
+        let Value::Error(error) = *error else { panic!("the native error keeps its nominal family") };
+        assert!(error.facets.iter().any(|facet| facet == "NotFound"), "{error:?}");
+    }
+}
+
+#[test]
+fn typed_formatted_paths_preserve_native_consumer_contracts() {
+    verify_formatted_path_native_consumer(true);
+}
+
+#[test]
+fn inferred_formatted_paths_preserve_native_consumer_contracts() {
+    verify_formatted_path_native_consumer(false);
+}
+
+#[test]
+fn inferred_formatted_strings_preserve_native_parser_domains() {
+    let source = "pure parse(value) -> Result[Int] { f\"{value}\".parse_int() }\npure number() -> Result[Int] { parse(7) }\npure word() -> Result[Int] { parse(\"word\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for name in ["number", "word"] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            if name == "number" {
+                assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))));
+            } else {
+                let Value::Result(ResultValue::Err(error)) = actual else { panic!("the parser preserves its failure Result") };
+                let Value::Error(error) = *error else { panic!("the parse error retains its nominal domain") };
+                assert_eq!(error.kind, "parse-int");
+                assert_eq!(error.message, "invalid integer `word`");
+            }
+        }
+    }
+}
+
+#[test]
+fn formatted_native_consumers_preserve_order_failure_and_defer() {
+    let source = r#"proc observe(value) [io] { defer { print "item-close" }; print "item"; value }
+proc suffix(fail: Bool) [io, error] -> Str { print "suffix"; let _ = [0][if fail { 9 } else { 0 }]; "" }
+proc typed(value: Int, base: Path, fail: Bool, skip: Bool) [io, fs, error] -> Result[Str] {
+    defer { print "close" }
+    if skip { return Ok("skipped") }
+    fp"{base}/{observe(value)?}{suffix(fail)}".read_text()
+}
+proc generic(value, base: Path, fail: Bool, skip: Bool) [io, fs, error] -> Result[Str] {
+    defer { print "close" }
+    if skip { return Ok("skipped") }
+    fp"{base}/{observe(value)?}{suffix(fail)}".read_text()
+}
+proc selected(value: Int, base: Path, fail: Bool, skip: Bool) [io, fs, error] -> Result[Str] { generic(value, base, fail, skip) }
+"#;
+    let directory = tempfile::Builder::new().prefix("formatted-order-").tempdir_in(".work/tmp").unwrap();
+    std::fs::write(directory.path().join("7"), b"number\n").unwrap();
+    let base = Value::Path(crate::runtime::value::PathValue::from_text(directory.path().canonicalize().unwrap().to_str().unwrap()).unwrap());
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        for (value, fail, skip) in [(7, false, false), (7, true, false), (7, true, true), (9, false, false)] {
+            let arguments = [Value::Int(value), base.clone(), Value::Bool(fail), Value::Bool(skip)];
+            evaluator.stdout.clear();
+            let expected = evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &arguments, Span::at(source_id, 0)).unwrap();
+            let stdout = evaluator.stdout.clone();
+            evaluator.stdout.clear();
+            let actual = evaluator.call_indexed_direct(key("selected"), CallableKind::Proc, &arguments, Span::at(source_id, 0)).unwrap();
+            assert_eq!(evaluator.stdout, stdout, "value={value} fail={fail} skip={skip} frames={force_frames}");
+            assert_eq!(stdout.as_slice(), if skip { b"close\n".as_slice() } else { b"item\nitem-close\nsuffix\nclose\n".as_slice() });
+            match (expected, actual) {
+                (Ok(Value::Result(ResultValue::Err(expected))), Ok(Value::Result(ResultValue::Err(actual)))) => {
+                    assert_eq!(value, 9);
+                    let (Value::Error(expected), Value::Error(actual)) = (*expected, *actual) else { panic!("native failures retain nominal error values") };
+                    assert_eq!(actual.kind, expected.kind); assert_eq!(actual.family, expected.family); assert_eq!(actual.variant, expected.variant); assert_eq!(actual.message, expected.message); assert_eq!(actual.facets, expected.facets); assert_eq!(actual.errno(), expected.errno());
+                }
+                (Ok(expected), Ok(actual)) => {
+                    assert!(skip || (!fail && value == 7));
+                    assert_eq!(actual, expected);
+                    assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from(if skip { "skipped" } else { "number\n" }))))));
+                }
+                (Err(expected), Err(actual)) => {
+                    assert!(fail && !skip);
+                    assert_eq!(actual.kind, "index-out-of-range"); assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family);
+                    assert_eq!(&source[actual.span.unwrap().range()], "[0][if fail { 9 } else { 0 }]");
+                }
+                (expected, actual) => panic!("value={value} fail={fail} skip={skip} frames={force_frames}: {expected:?} vs {actual:?}"),
+            }
+        }
+    }
+}
+
 fn verify_guard_argument_call(typed: bool) {
     let identity = if typed { "pure same(value: Str) -> Str { value }" } else { "pure same(value) { value }" };
     let source = format!(r#"{identity}

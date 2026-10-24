@@ -335,6 +335,11 @@ target, including the error binding inside a terminating handler. The canonical
 completion query proves that handler cannot continue before a ground payload is
 published. Lexical binding, complete writer census, and ordinary argument proofs
 remain mandatory.
+When a native consumer needs an intrinsic string or path from a generalized
+interpolation, the ground producer reuses that exact physical expression's
+same-owner body proof. The body checks every actual child against its Display
+requirement before producer verification; symbolic children need no invented
+closed type. This reuse does not apply to other expressions or output types.
 
 List builders derive their item domain from actual members and list-valued
 splices through the same lexical binding and iterator proof. A physical literal
