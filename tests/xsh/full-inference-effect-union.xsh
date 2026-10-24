@@ -1,4 +1,6 @@
-proc effect_union_inputs(ctx: TestContext) [fs, error] -> Result[{root: Path, source: Str}] {
+type EffectUnionInputs = {root: Path, source: Str}
+
+proc effect_union_inputs(ctx: TestContext) [fs, error] -> Result[EffectUnionInputs] {
   let root = test.temp_dir(ctx, name: "effect-union")?
   let fixtures = fp"{ctx.file.parent()}/../fixtures"
   fp"{root}/effects.xsh".write(fp"{fixtures}/modules/full-inference-effect-union/effects.xsh".read_text()?)?
