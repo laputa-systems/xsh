@@ -227,3 +227,38 @@ proc verify_benign_output() [error] -> Result[Unit, Error] {
         verify_guarded_source(&path, source.to_owned(), "verify_benign_output");
     });
 }
+
+fn imported_guarded_output_source(replacements: &[(&str, &str)]) -> (std::path::PathBuf, String) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/guarded-requirements-outputs.xsh");
+    let source = std::fs::read_to_string(&path).unwrap();
+    let (_, driver) = source.split_once("proc verify_guarded_outputs()").unwrap();
+    let mut source = format!("use guarded_outputs\ntype GuardedOutputRow = {{name: Str, opaque: Any}}\nproc verify_guarded_outputs(){driver}");
+    for (from, to) in replacements { source = source.replace(from, to); }
+    (path, source)
+}
+
+#[test]
+fn imported_guarded_outputs_preserve_precise_results_after_disposal() {
+    on_scoped_body_test_stack(|| {
+        let (path, source) = imported_guarded_output_source(&[
+            ("guarded_add_output(", "guarded_outputs.add("),
+            ("guarded_parent_output(", "guarded_outputs.parent("),
+            ("guarded_bound_output(", "guarded_outputs.bound("),
+            ("guarded_name_output(", "guarded_outputs.name("),
+        ]);
+        verify_guarded_source(&path, source, "verify_guarded_outputs");
+    });
+}
+
+#[test]
+fn imported_guarded_outputs_forward_their_precise_results() {
+    on_scoped_body_test_stack(|| {
+        let (path, source) = imported_guarded_output_source(&[
+            ("guarded_add_output(", "guarded_outputs.repeated_add("),
+            ("guarded_parent_output(", "guarded_outputs.relay_parent("),
+            ("guarded_bound_output(", "guarded_outputs.relay_bound("),
+            ("guarded_name_output(", "guarded_outputs.relay_name("),
+        ]);
+        verify_guarded_source(&path, source, "verify_guarded_outputs");
+    });
+}
