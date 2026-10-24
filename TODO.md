@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 23
+Next: 24
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
@@ -184,3 +184,12 @@ Next: 23
 - **Recommendation:** Reproduce each test in Laputa, trace the missing diagnostic, and fix the owner only after the failing boundary is known.
 - **Fix with:** root-cause
 - **Effort:** S
+
+### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
+
+- **Area:** Performance
+- **Where:** `src/runtime/value.rs:172`, `src/runtime/value.rs:958`, `src/sema/schemes.rs`, `src/sema/constraints.rs`
+- **Problem:** `laputa-systems/bbtree` claims about 5x faster single-thread lookups than std `BTreeMap` with `unsync::BBTreeMap` as a drop-in. XSH uses `BTreeMap` throughout the checker, verifier and runtime values, but most maps are probably tiny, where the gain may vanish. The measured campaign growth is generalization-map copying, which depends on clone cost. `unproven` that ordered-map operations matter at all.
+- **Recommendation:** After the post-inference performance baseline, profile the 512-unit generalization witness and script startup to rank `BTreeMap` time. Only if it is a meaningful share, swap `unsync::BBTreeMap` in behind one alias at the hottest owner and compare interleaved CPU time. Vet the single maintainer, its `unsafe` and allocation code, `InlinkeKey` on our key types, and the build-time, binary-size and startup gates before widening.
+- **Fix with:** make-it-fast
+- **Effort:** M
