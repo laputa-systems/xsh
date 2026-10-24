@@ -2161,6 +2161,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         if store.tags[instruction] == FullTag::ExprMethod && store.registered_calls.contains_key(&(instruction as u32)) { continue; }
         if store.tags[instruction] == FullTag::ExprMethod {
             proof.budget.charge(1)?;
+            if super::super::driver_owner_index(owner).is_none() { proof.ground_function(function_index(owner)?)?; }
             deferred_method_roots.push((owner, instruction));
             continue;
         }
@@ -4684,6 +4685,7 @@ impl<'a> ProducerProof<'a> {
                 return Err(IrVerifyError::new("ground producer value disagrees with its checked contract"));
             }
         }
+        if returned && self.checked_fresh_result_context(&decoder, instruction, &expected)? { return Ok(()); }
         let preserves_result = matches!(decoder.expression_view(instruction)?, schema::ExprView::Fail { .. } | schema::ExprView::Ok(_) | schema::ExprView::Err { .. } | schema::ExprView::Capture { .. } | schema::ExprView::ContextScope { .. } | schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. } | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } | schema::ExprView::ValueBlock { .. });
         let expected = if returned && !preserves_result && !actual.as_ref().is_some_and(|actual| actual.is_result()) {
             match expected.as_ref() {
