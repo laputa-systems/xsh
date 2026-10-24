@@ -38,6 +38,14 @@ impl BinderNames {
         for application in &scheme.callable().requirements().applications {
             for ty in application.types() { names.visit_scheme_type(ty); }
         }
+        for method in &scheme.callable().requirements().methods {
+            for ty in std::iter::once(&method.receiver).chain(method.arguments.iter()).chain(std::iter::once(&method.result)) {
+                names.visit_scheme_type(ty);
+            }
+        }
+        for parameter in scheme.callable().requirements().conversion_parameters.keys() {
+            names.visit_scheme_type(&SchemeType::Parameter(*parameter));
+        }
         for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
             names.visit_scheme_type(&SchemeType::Parameter(*source));
             for ty in iteration.types() { names.visit_scheme_type(ty); }
@@ -190,6 +198,13 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     if let Some(schema) = scheme.return_schema() {
         parts.push(format!("return-schema={}", render_schema(schema, names, identities, context)));
     }
+    let mut conversions = scheme.callable().requirements().conversion_parameters.iter().collect::<Vec<_>>();
+    conversions.sort_by_key(|(parameter, _)| names.types[*parameter]);
+    for (parameter, conversions) in conversions {
+        let conversions = crate::sema::schemes::ValueConversion::ALL.into_iter().filter(|conversion| conversions.contains(*conversion))
+            .map(|conversion| format!("{conversion:?}")).collect::<Vec<_>>().join(", ");
+        parts.push(format!("convert({}, [{conversions}])", names.type_name(*parameter)));
+    }
     for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
         let item = render_scheme_type(&iteration.item, names, identities, context);
         let failure = match &iteration.policy {
@@ -207,6 +222,14 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     for application in &scheme.callable().requirements().applications {
         parts.push(render_application(application, names, identities, context));
+    }
+    for method in &scheme.callable().requirements().methods {
+        let receiver = render_scheme_type(&method.receiver, names, identities, context);
+        let arguments = method.argument_slots.iter().zip(method.arguments.iter()).map(|(slot, argument)| {
+            format!("{slot}: {}", render_scheme_type(argument, names, identities, context))
+        }).collect::<Vec<_>>().join(", ");
+        let result = render_scheme_type(&method.result, names, identities, context);
+        parts.push(format!("method-family({:?}, receiver={receiver}, args=[{arguments}]) -> {result}", method.family));
     }
     for predicate in &scheme.callable().requirements().effect_predicates {
         use crate::sema::effects::EffectPredicate;

@@ -3406,6 +3406,10 @@ records argument compatibility with an existing parameter layout; it supplies
 no invented callee, return type, or effects. Effect predicates print as
 `effects-equal`, `effects-included`, `effects-covered`, or `effects-excluded`.
 Direct inclusion and permission coverage retain their distinct meanings.
+A `convert(T, [Display, Argv, ...])` clause retains every required conversion;
+all listed conversions must hold. A
+`method-family(Family, receiver=T, args=[slot: A, ...]) -> R` clause retains
+the finite registered method family, receiver, argument layout and result.
 These clauses describe checked relationships and are not source syntax.
 
 Concrete instance comparison specializes schema arguments through the same

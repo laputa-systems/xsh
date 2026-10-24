@@ -1360,13 +1360,43 @@ mod tests {
         let display = constrained(7, Some(ValueConversion::Display));
         let renamed = constrained(91, Some(ValueConversion::Display));
         assert!(display.equivalent_to(&renamed));
+        assert!(display.to_string().contains("convert(T0, [Display])"));
+        assert_eq!(display.to_string(), renamed.to_string());
         let callables = crate::sema::scheme_callable::SchemeCallableTable::default();
         let correspondence = display.binder_correspondence(&renamed, &callables).unwrap();
         assert_eq!(correspondence.types().get(&SchemeTypeParameterId(7)), Some(&SchemeTypeParameterId(91)));
         for changed in [constrained(91, Some(ValueConversion::Argv)), constrained(91, None)] {
             assert!(!display.equivalent_to(&changed));
+            assert_ne!(display.to_string(), changed.to_string());
             assert!(display.binder_correspondence(&changed, &callables).is_none());
         }
+        let rendered = ValueConversion::ALL.into_iter().map(|conversion| constrained(7, Some(conversion)).to_string())
+            .chain(std::iter::once(constrained(7, None).to_string())).collect::<BTreeSet<_>>();
+        assert_eq!(rendered.len(), ValueConversion::ALL.len() + 1);
+    }
+
+    #[test]
+    fn checked_callable_contract_displays_published_method_family_bounds() {
+        use xsh_registry::signature::MethodFamilyId;
+        for (expression, constant, family) in [("values.len()", "0", MethodFamilyId::Length), ("values.is_empty()", "false", MethodFamilyId::Emptiness)] {
+            let source = format!("pure describe(values) {{ {expression} }}\n");
+            let constrained = root_schema_contract(&source);
+            assert_eq!(constrained.scheme().callable().requirements().methods.len(), 1);
+            assert_eq!(constrained.scheme().callable().requirements().methods[0].family, family);
+            let renamed = root_schema_contract(&format!("pure unrelated(value) {{ [value] }}\n{source}"));
+            let unbounded = root_schema_contract(&format!("pure describe(values) {{ let _ = values; {constant} }}\n"));
+            assert!(constrained.equivalent_to(&renamed));
+            assert_eq!(constrained.to_string(), renamed.to_string());
+            assert!(!constrained.equivalent_to(&unbounded));
+            assert_ne!(constrained.to_string(), unbounded.to_string());
+            assert!(constrained.to_string().contains(&format!("method-family({family:?}, receiver=T0, args=[])")));
+        }
+        let write = root_schema_contract(r#"proc describe(value) { p"unused".write(value) }"#);
+        assert_eq!(write.scheme().callable().requirements().methods.len(), 1);
+        let method = &write.scheme().callable().requirements().methods[0];
+        assert_eq!(method.family, MethodFamilyId::PathWrite);
+        assert_eq!(method.argument_slots, vec![0]);
+        assert!(write.to_string().contains("method-family(PathWrite, receiver=Path, args=[0: T0])"));
     }
 
     #[test]
