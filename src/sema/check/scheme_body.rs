@@ -592,7 +592,8 @@ pub(super) fn is_body_expression(
                         | crate::syntax::node::StreamStageKind::Shuffle
                         | crate::syntax::node::StreamStageKind::TextStreamLines | crate::syntax::node::StreamStageKind::BytesChunks
                         | crate::syntax::node::StreamStageKind::JsonLines | crate::syntax::node::StreamStageKind::JsonStream
-                        | crate::syntax::node::StreamStageKind::TablePrint)
+                        | crate::syntax::node::StreamStageKind::TablePrint | crate::syntax::node::StreamStageKind::Sum
+                        | crate::syntax::node::StreamStageKind::Min | crate::syntax::node::StreamStageKind::Max)
                     { return false; }
                     for (entry, argument) in program.arena.call_args(stage.args).iter().enumerate() {
                         if descriptor.is_some_and(|(selected, _)| selected == entry) { continue; }
