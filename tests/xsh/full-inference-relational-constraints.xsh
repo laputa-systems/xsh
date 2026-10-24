@@ -167,3 +167,8 @@ test test_full_inference_optional_guard_preserves_original_immutable_reads { |ct
   let source = p"tests/fixtures/runtime/generic-guard-original-slot.xsh".read_text()?
   test.expect(ctx, source + "\nverify_guard_original_slot()?\n", status: 0)?
 }
+
+test test_full_inference_line_loop_items_remain_valid_generic_arguments { |ctx|
+  let source = p"tests/fixtures/runtime/generic-line-loop-arguments.xsh".read_text()?
+  test.expect(ctx, source + "\nverify_line_loop_arguments()?\n", status: 0)?
+}

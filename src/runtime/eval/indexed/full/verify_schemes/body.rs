@@ -3000,6 +3000,24 @@ test namespace_borrow {
     }
 
     #[test]
+    fn line_loop_generic_arguments_require_the_actual_text_source() {
+        let program = prepare(include_str!("../../../../../../tests/fixtures/runtime/generic-line-loop-arguments.xsh"));
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "collected_lines").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let text = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::ForStrLines { text, .. }) => Some(text.raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(text).unwrap(), schema::ExprView::Param(0)));
+        let mut wrong_source = program.clone();
+        wrong_source.store.in_place.take();
+        let words = wrong_source.store.data[text].range().bounds(wrong_source.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_source.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+    }
+
+    #[test]
     fn optional_guard_refinement_requires_the_actual_immutable_source() {
         let program = prepare("pure keep(marker, source: Int?, other: Int?) -> Int? { let _ = marker; let _ = other; guard let number = source else { return null }; source }");
         let (owner, _) = generic_owner(&program);

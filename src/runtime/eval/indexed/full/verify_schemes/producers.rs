@@ -2421,7 +2421,7 @@ impl<'a> ProducerProof<'a> {
             match binding {
                 ProducerBinding::ScopedDeclaration(declaration, _) => {
                     if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
-                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. })
+                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. } | schema::StmtView::ForStrLines { .. })
                     { return Ok(None); }
                 }
                 ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
