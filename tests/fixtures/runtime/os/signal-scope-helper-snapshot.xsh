@@ -5,7 +5,7 @@ var label = "before"
 pure captured_label() -> Str { label }
 proc set_label(value: Str) { label = value }
 
-on USR1 [fs, error] {
+on USR1 [fs, process, error] {
   var output = f"{label} {captured_label()} {args[2]}"
   label = "hook"
   output += f"\n{label} {captured_label()}"

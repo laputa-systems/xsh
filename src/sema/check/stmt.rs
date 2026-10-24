@@ -4999,7 +4999,7 @@ impl Checker {
             }
         }
         if !pure
-            && self.current_exported
+            && self.declaration_inference.pending(declaration).is_some_and(|signature| signature.exported)
             && def.return_ty_defaulted
             && return_ty == Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
         {

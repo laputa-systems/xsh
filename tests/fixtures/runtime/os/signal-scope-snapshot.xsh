@@ -2,7 +2,7 @@ let marker = fp"{args[0]}"
 let helper = fp"{args[1]}"
 var label = "before"
 
-on USR1 [fs, error] {
+on USR1 [fs, process, error] {
   marker.write(label)?
   exit 0
 }

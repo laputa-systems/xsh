@@ -90,8 +90,24 @@ fn callable_header_parameter_omission_boundaries() {
         ]
     );
 
+    let source = "stream values(value) [] -> Stream[Int] { yield 1 }\nlet integers = values(42)\nlet strings = values(\"demo\")\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(parsed.arena.arena.params[0].annotation.is_none());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let mut calls = Vec::new();
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let expression = parsed.arena.arena.expr(ExprId::from_index(raw));
+        if matches!(expression.kind, ArenaExprKind::Call { .. })
+            && source[expression.span.range()].starts_with("values(")
+        {
+            calls.push(checked.expr_types[&expression.span].clone());
+        }
+    }
+    assert_eq!(calls, vec![Type::Stream(Box::new(Type::Int)); 2]);
+
     for source in [
-        "stream values(value) [] -> Stream[Int] { yield 1 }\n",
         "type Plugin = module { export pure call(value) -> Int }\n",
         "type Callback = pure(value) -> Int\n",
     ] {
@@ -808,6 +824,22 @@ proc local(input = Path(".")) {
 export proc entry(flag = true) {
 }
 
+proc private_entry(flag = true) {
+}
+
+pure identity(value) { value }
+
+export proc alias_entry(flag = true) {
+  let local_identity = identity
+  let local_names = ["inside"]
+  let _ = local_identity(flag)
+  let _ = local_identity("kept")
+  let _ = local_names
+}
+
+export proc explicit_entry() -> Result[Unit, Error] {
+}
+
 reveal_type(names)
 "#;
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -850,6 +882,30 @@ reveal_type(names)
             .iter()
             .any(|fact| matches!(fact.kind, AnnotationFactKind::ExportedProcReturn { .. }))
     );
+    parsed.arena.symbol_owner().with_current(|| {
+        let declaration = |name: &str| output.checked_declarations.functions.values()
+            .find(|declaration| declaration.name == name).unwrap();
+        for name in ["entry", "alias_entry"] {
+            let declaration = declaration(name);
+            assert!(declaration.is_exported());
+            assert_eq!(output.function_return_types[&declaration.body], xsh::frontend::check::Type::Result(
+                Box::new(xsh::frontend::check::Type::Unit), Box::new(xsh::frontend::check::Type::Error)));
+            assert_eq!(output.annotation_facts.iter().filter(|fact|
+                matches!(fact.kind, AnnotationFactKind::ExportedProcReturn { body } if body == declaration.body)
+            ).count(), 1, "{name}");
+        }
+        for name in ["private_entry", "explicit_entry"] {
+            let declaration = declaration(name);
+            assert_eq!(declaration.is_exported(), name == "explicit_entry");
+            assert!(!output.annotation_facts.iter().any(|fact|
+                matches!(fact.kind, AnnotationFactKind::ExportedProcReturn { body } if body == declaration.body)
+            ), "{name}");
+        }
+    });
+    let local_names = output.annotation_facts.iter().find(|fact|
+        matches!(fact.kind, AnnotationFactKind::Binding { span, .. } if source[span.range()].contains("local_names"))
+    ).unwrap();
+    assert!(matches!(local_names.kind, AnnotationFactKind::Binding { exported: false, .. }));
     assert_eq!(output.reveal_types.len(), 1);
     assert_eq!(output.reveal_types[0].message, "revealed type: List[Str]");
 }

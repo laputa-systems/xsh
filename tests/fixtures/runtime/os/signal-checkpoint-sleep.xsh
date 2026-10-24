@@ -1,6 +1,6 @@
 let helper = fp"{args[0]}"
 
-on USR1 [] {
+on USR1 [process] {
   print "hook"
   exit 0
 }

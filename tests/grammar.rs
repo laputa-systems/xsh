@@ -445,6 +445,8 @@ fn callable_parameters_allow_inferred_annotations() {
         "proc identity(value) { value }\n",
         "proc rest(... values) { values }\n",
         "stream defaulted(value = 1) -> Stream[Int] { yield value }\n",
+        "stream identity(value) -> Stream[Int] { yield value }\n",
+        "stream rest(... values) -> Stream[Int] { yield 1 }\n",
         "type Plugin = module { export pure render(value: Str) -> Str }\n",
         "type Plugin = module { export pure render(value = \"x\") -> Str }\n",
         "type Render = pure(value: Str) -> Str\n",
@@ -455,8 +457,6 @@ fn callable_parameters_allow_inferred_annotations() {
     for source in [
         "pure rest(... values = 1) { values }\n",
         "pure rest(... values: List[Int] = []) { values }\n",
-        "stream identity(value) -> Stream[Int] { yield value }\n",
-        "stream rest(... values) -> Stream[Int] { yield 1 }\n",
         "type Plugin = module { export pure render(value) -> Str }\n",
         "type Plugin = module { export pure render(... values) -> Str }\n",
         "type Render = pure(value) -> Str\n",
