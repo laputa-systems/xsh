@@ -577,7 +577,8 @@ impl BoundEquivalence<'_> {
     }
 
     fn requirements(&mut self, left: &crate::sema::schemes::CallableRequirements, right: &crate::sema::schemes::CallableRequirements) -> bool {
-        left.map_key_parameters.len() == right.map_key_parameters.len()
+        left.guard_calls == right.guard_calls
+            && left.map_key_parameters.len() == right.map_key_parameters.len()
             && left.map_key_parameters.iter().all(|parameter| self.types.get(parameter).is_some_and(|mapped| right.map_key_parameters.contains(mapped)))
             && left.conversion_parameters.len() == right.conversion_parameters.len()
             && left.conversion_parameters.iter().all(|(parameter, conversions)| self.types.get(parameter).is_some_and(|mapped| right.conversion_parameters.get(mapped) == Some(conversions)))

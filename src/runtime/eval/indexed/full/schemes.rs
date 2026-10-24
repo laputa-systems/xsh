@@ -106,6 +106,7 @@ pub(super) struct FullScheme {
     pub(super) operations: IrRange,
     pub(super) methods: IrRange,
     pub(super) wrappers: IrRange,
+    pub(super) guard_calls: IrRange,
     pub(super) body_facts: IrRange,
     pub(super) guards: IrRange,
     pub(super) callable_kind: crate::sema::types::CallableKind,
@@ -120,6 +121,7 @@ pub(super) struct FullRequirementRanges {
     pub(super) operations: IrRange,
     pub(super) methods: IrRange,
     pub(super) wrappers: IrRange,
+    pub(super) guard_calls: IrRange,
 }
 
 pub(super) struct FullBinderRanges {
@@ -136,7 +138,7 @@ impl FullScheme {
             .ok_or_else(|| super::IrVerifyError::new("generic callable row binder range is invalid"))?;
         let effects = self.effect_parameters.bounds(store.scheme_effect_parameters.len())
             .ok_or_else(|| super::IrVerifyError::new("generic callable effect binder range is invalid"))?;
-        Ok(!types.is_empty() || !rows.is_empty() || !effects.is_empty() || self.guards.len != 0)
+        Ok(!types.is_empty() || !rows.is_empty() || !effects.is_empty() || self.guards.len != 0 || self.guard_calls.len != 0)
     }
 }
 
@@ -488,6 +490,7 @@ pub(super) struct FullInstantiation {
     pub(super) method_bindings: IrRange,
     pub(super) wrapper_bindings: IrRange,
     pub(super) guard_bindings: IrRange,
+    pub(super) guard_call_bindings: IrRange,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -861,8 +864,8 @@ impl FullBuilder {
             .map(|expectation| self.intern_scheme_schema(expectation, &type_parameters, &row_parameters, &effect_parameters))
             .transpose()?;
         let effects = self.intern_effect_contract(scheme.effects().contract(), &effect_parameters)?;
-        let FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers } = self.intern_requirement_tables(scheme.callable().requirements(), &type_parameters, &row_parameters, &effect_parameters)?;
-        let guards = self.intern_guard_scopes(&scheme.callable().requirements().guards, &type_parameters, &row_parameters, &effect_parameters)?;
+        let FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers, guard_calls } = self.intern_requirement_tables(scheme.callable().requirements(), &type_parameters, &row_parameters, &effect_parameters)?;
+        let guards = self.intern_guard_scopes(&scheme.callable().requirements().guards, &type_parameters, &row_parameters, &effect_parameters, [scheme.type_parameters().len(), scheme.row_parameters().len(), scheme.callable().requirements().effect_parameters.len()])?;
         let callable_kind = scheme.kind();
         let id = FullSchemeId::new(self.store.schemes.len())?;
         self.store.schemes.push(FullScheme {
@@ -874,7 +877,7 @@ impl FullBuilder {
             return_schema,
             effects,
             effect_predicates,
-            applications, operations, methods, wrappers,
+            applications, operations, methods, wrappers, guard_calls,
             body_facts: IrRange::default(), guards,
             callable_kind,
             explicit_return: scheme.explicit_return(),
@@ -1072,13 +1075,24 @@ impl FullBuilder {
             self.store.scheme_wrappers.push(encoded);
         }
         let wrappers = super::table_range(wrappers_start, self.store.scheme_wrappers.len())?;
-        Ok(FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers })
+        let start = self.store.scheme_guard_calls.len();
+        for call in &requirements.guard_calls {
+            call.validate_target().map_err(|_| IrBuildError::format("guard_call_target", None, 0, start))?;
+            let target = match call.target {
+                crate::sema::guarded_requirements::GuardCallTarget::Scope(scope) => super::guard_schemes::FullGuardCallTarget::Scope(scope.raw()),
+                crate::sema::guarded_requirements::GuardCallTarget::Call(call) => super::guard_schemes::FullGuardCallTarget::Call(call.raw()),
+            };
+            self.store.scheme_guard_calls.push(super::guard_schemes::FullGuardCall { instruction: IR_NONE, function: IR_NONE, leaf: IR_NONE, role: call.source.role, target });
+        }
+        let guard_calls = super::table_range(start, self.store.scheme_guard_calls.len())?;
+        Ok(FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers, guard_calls })
     }
 
     pub(in crate::runtime::eval) fn record_call_instantiation(
         &mut self,
         instruction: usize,
         instantiation: &CallInstantiation,
+        scope: Option<crate::sema::guarded_requirements::GuardScopeId>,
     ) -> Result<(), IrBuildError> {
         if self
             .store
@@ -1094,6 +1108,11 @@ impl FullBuilder {
             ));
         }
         let arguments = self.encode_instantiation(instantiation)?;
+        if instantiation.guard_bindings().iter().chain(instantiation.guard_call_bindings()).any(|binding| matches!(binding, crate::sema::guarded_requirements::GuardBinding::Call(_))) {
+            let tag = self.store.tags.get(instruction).ok_or_else(|| IrBuildError::format("guard_call_instruction", None, 0, instruction))?;
+            let role = if matches!(tag, super::FullTag::ExprCall | super::FullTag::ExprDirectPureCall | super::FullTag::ExprSelfCall | super::FullTag::ExprDynamicCall) { crate::sema::schemes::InstantiationRole::Call } else { crate::sema::schemes::InstantiationRole::Value };
+            self.record_guard_call_origins(scope, instruction, IR_NONE, role, arguments)?;
+        }
         self.store.call_instantiations.push(FullCallInstantiation {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
@@ -1188,9 +1207,10 @@ impl FullBuilder {
         self.store.call_wrapper_bindings.extend(instantiation.wrapper_bindings().iter().copied());
         let wrapper_bindings = super::table_range(wrappers_start, self.store.call_wrapper_bindings.len())?;
         let guard_bindings = self.encode_guard_bindings(instantiation.guard_bindings())?;
+        let guard_call_bindings = self.encode_guard_bindings(instantiation.guard_call_bindings())?;
         Ok(FullInstantiation {
             type_arguments, row_arguments, effect_arguments,
-            application_bindings, operation_bindings, method_bindings, wrapper_bindings, guard_bindings,
+            application_bindings, operation_bindings, method_bindings, wrapper_bindings, guard_bindings, guard_call_bindings,
         })
     }
 
@@ -2070,7 +2090,7 @@ mod tests {
             .unwrap();
             let mut builder = super::super::FullBuilder::new(crate::source::SourceId::new(0));
             let scheme_id = builder.intern_scheme(&scheme).unwrap();
-            builder.record_call_instantiation(4, &instantiation).unwrap();
+            builder.record_call_instantiation(4, &instantiation, None).unwrap();
             let encoded = builder.store.scheme(scheme_id).unwrap();
             let type_params = encoded
                 .type_parameters

@@ -767,6 +767,7 @@ struct FullStore {
     call_guard_bindings: Vec<guard_schemes::FullGuardBinding>,
     scheme_guard_reads: Vec<guard_schemes::FullGuardRead>,
     scheme_guards: Vec<guard_schemes::FullGuardScope>,
+    scheme_guard_calls: Vec<guard_schemes::FullGuardCall>,
     scheme_method_slots: Vec<u32>,
     scheme_method_arguments: Vec<SchemeTypeId>,
     call_operation_bindings: Vec<schemes::FullOperationBinding>,
@@ -886,6 +887,7 @@ impl Default for FullStore {
             call_guard_bindings: Vec::new(),
             scheme_guard_reads: Vec::new(),
             scheme_guards: Vec::new(),
+            scheme_guard_calls: Vec::new(),
             scheme_method_slots: Vec::new(),
             scheme_method_arguments: Vec::new(),
             call_operation_bindings: Vec::new(),
@@ -1148,6 +1150,7 @@ impl FullStore {
             + self.call_guard_bindings.capacity() * size_of::<guard_schemes::FullGuardBinding>()
             + self.scheme_guard_reads.capacity() * size_of::<guard_schemes::FullGuardRead>()
             + self.scheme_guards.capacity() * size_of::<guard_schemes::FullGuardScope>()
+            + self.scheme_guard_calls.capacity() * size_of::<guard_schemes::FullGuardCall>()
             + self.scheme_method_slots.capacity() * size_of::<u32>()
             + self.scheme_method_arguments.capacity() * size_of::<SchemeTypeId>()
             + self.call_operation_bindings.capacity() * size_of::<schemes::FullOperationBinding>()
@@ -1287,6 +1290,7 @@ impl FullStore {
         self.call_guard_bindings.shrink_to_fit();
         self.scheme_guard_reads.shrink_to_fit();
         self.scheme_guards.shrink_to_fit();
+        self.scheme_guard_calls.shrink_to_fit();
         self.scheme_method_slots.shrink_to_fit();
         self.scheme_method_arguments.shrink_to_fit();
         self.call_operation_bindings.shrink_to_fit();
@@ -1386,7 +1390,30 @@ pub(in crate::runtime::eval) struct PreparedInvocationBindings {
 struct PreparedInvocationLayouts {
     arguments: Vec<Arc<crate::sema::arguments::StaticArgumentBinding>>,
     guards: BTreeMap<crate::sema::guarded_requirements::GuardScopeId, Option<PreparedInvocationBindings>>,
+    guard_calls: Vec<PreparedGuardCall>,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PreparedGuardCall {
+    origin: PreparedGuardCallOrigin,
+    owner: schemes::FullSchemeId,
+    scope: crate::sema::guarded_requirements::GuardScopeId,
+    binding: PreparedGuardCallBinding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedCallSource { EncodedInstantiation(u32), Materialization { instruction: u32, leaf: u32 } }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PreparedGuardCallOrigin {
+    owner: schemes::FullSchemeId,
+    scope: Option<crate::sema::guarded_requirements::GuardScopeId>,
+    ordinal: crate::sema::guarded_requirements::GuardCallId,
+    source: PreparedCallSource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PreparedGuardCallBinding { Null, NonNull(PreparedInvocationBindings), Optional(PreparedInvocationBindings) }
 
 
 #[derive(Clone, Copy)]
@@ -1438,9 +1465,9 @@ impl FullStore {
             let guard_range = scheme.guards.bounds(self.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared guard range is invalid"))?;
             let guard = self.scheme_guards[guard_range].get(scope as usize).filter(|guard| guard.id == scope).ok_or_else(|| IrVerifyError::new("prepared guard scope is outside its callable"))?;
             let id_scope = crate::sema::guarded_requirements::GuardScopeId::from_index(scope as usize).map_err(|_| IrVerifyError::new("prepared guard id is invalid"))?;
-            return Ok(Some((id, Some(id_scope), schemes::FullRequirementRanges { effect_predicates: guard.effect_predicates, applications: guard.applications, operations: guard.operations, methods: guard.methods, wrappers: guard.wrappers })));
+            return Ok(Some((id, Some(id_scope), schemes::FullRequirementRanges { effect_predicates: guard.effect_predicates, applications: guard.applications, operations: guard.operations, methods: guard.methods, wrappers: guard.wrappers, guard_calls: guard.guard_calls })));
         }
-        Ok(Some((id, None, schemes::FullRequirementRanges { effect_predicates: scheme.effect_predicates, applications: scheme.applications, operations: scheme.operations, methods: scheme.methods, wrappers: scheme.wrappers })))
+        Ok(Some((id, None, schemes::FullRequirementRanges { effect_predicates: scheme.effect_predicates, applications: scheme.applications, operations: scheme.operations, methods: scheme.methods, wrappers: scheme.wrappers, guard_calls: scheme.guard_calls })))
     }
 
     fn sealed_operation_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullSealedOperation>, IrVerifyError> {
@@ -1638,7 +1665,7 @@ impl FullProgram {
         let caller = self.invocation_at_source(instruction, caller)?;
         let relationship = self.store.scheme_callable_calls.binary_search_by_key(&instruction, |call| call.instruction).ok()
             .map(|index| self.store.scheme_callable_calls[index].relationship);
-        self.invocation_payload(&instance.arguments, relationship, target, caller)
+        self.invocation_payload(&instance.arguments, relationship, target, caller, PreparedCallSource::EncodedInstantiation(instruction))
     }
 
     fn invocation_payload(
@@ -1647,6 +1674,7 @@ impl FullProgram {
         relationship: Option<u32>,
         target: usize,
         caller: &PreparedInvocationBindings,
+        source: PreparedCallSource,
     ) -> Result<PreparedInvocationBindings, IrVerifyError> {
         let (contract_target, selected) = if let Some(relationship) = relationship {
             let value = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("value-call relationship is out of bounds"))?;
@@ -1671,46 +1699,137 @@ impl FullProgram {
             substitution.retarget_prepared_root(id)?;
         }
         let substitution = Arc::new(substitution);
-        let mut layouts = self.invocation_layouts(instance.application_bindings, caller, &mut budget)?;
         let scheme = self.store.scheme(id)?;
+        let mut layouts = self.invocation_layouts(instance.application_bindings, caller, &mut budget)?;
+        layouts.guard_calls = self.prepare_guard_calls(scheme.guard_calls, instance.guard_call_bindings, Arc::clone(&substitution), caller, source, &mut budget)?;
         let guards = scheme.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared guard range is invalid"))?;
-        if guards.is_empty() {
-            if instance.guard_bindings.len != 0 { return Err(IrVerifyError::new("unguarded prepared invocation has guard bindings")); }
-            return Ok(PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) });
+        layouts.guards = self.prepare_physical_guards(id, &self.store.scheme_guards[guards], IR_NONE, instance.guard_bindings, Arc::clone(&substitution), caller, source, &mut budget)?;
+        Ok(PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) })
+    }
+
+    fn prepare_guard_calls(&self, requirements: IrRange, bindings: IrRange, parent: Arc<verify_schemes::CallSubstitution>, caller: &PreparedInvocationBindings, source: PreparedCallSource, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<Vec<PreparedGuardCall>, IrVerifyError> {
+        let requirements = requirements.bounds(self.store.scheme_guard_calls.len()).ok_or_else(|| IrVerifyError::new("prepared guard call range is invalid"))?;
+        let bindings = bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared guard call binding range is invalid"))?;
+        if requirements.len() != bindings.len() { return Err(IrVerifyError::new("prepared guard call bindings are incomplete")); }
+        let mut result = Vec::with_capacity(requirements.len());
+        for (ordinal, (requirement, binding)) in self.store.scheme_guard_calls[requirements].iter().zip(&self.store.call_guard_bindings[bindings]).enumerate() {
+            let target = verify_schemes::resolve_guard_call(&self.store, *requirement, u32::try_from(ordinal).map_err(|_| IrVerifyError::new("prepared guard call ordinal is invalid"))?, Arc::clone(&parent), budget)?;
+            let mut prepared = if let guard_schemes::FullGuardBinding::Call(ordinal) = binding {
+                self.forwarded_guard_call(caller, *ordinal, source)?.clone()
+            } else {
+                let packet = self.prepare_guard_scope(target.owner, target.metadata, *binding, Arc::clone(&target.parent), caller, source, budget)?;
+                let binding = match (binding, packet) {
+                    (guard_schemes::FullGuardBinding::Null, None) => PreparedGuardCallBinding::Null,
+                    (guard_schemes::FullGuardBinding::NonNull(_), Some((mut packet, Some(arguments)))) => {
+                        self.prepare_guard_descendants(&target, arguments, caller, &mut packet, source, budget)?;
+                        PreparedGuardCallBinding::NonNull(packet)
+                    }
+                    (guard_schemes::FullGuardBinding::Optional(_), Some((mut packet, Some(arguments)))) => {
+                        self.prepare_guard_descendants(&target, arguments, caller, &mut packet, source, budget)?;
+                        PreparedGuardCallBinding::Optional(packet)
+                    }
+                    _ => return Err(IrVerifyError::new("prepared guard call has another source classification")),
+                };
+                PreparedGuardCall { origin: self.guard_call_origin(&parent, ordinal, *requirement)?, owner: target.owner, scope: target.scope, binding }
+            };
+            self.forwarded_guard_scope(&prepared, target.owner, target.metadata, &target.parent, budget)?;
+            prepared.origin = self.guard_call_origin(&parent, ordinal, *requirement)?;
+            result.push(prepared);
         }
-        let mut frames = vec![(IR_NONE, instance.guard_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared guard bindings are invalid"))?, Some(Arc::clone(&substitution)))];
-        let mut ordinals = (scheme.type_parameters.len as usize, scheme.row_parameters.len as usize, scheme.effect_parameters.len as usize);
-        for guard in &self.store.scheme_guards[guards] {
+        Ok(result)
+    }
+
+    fn prepare_guard_descendants(&self, target: &verify_schemes::ResolvedGuardCall, arguments: schemes::FullInstantiation, caller: &PreparedInvocationBindings, packet: &mut PreparedInvocationBindings, source: PreparedCallSource, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+        let guards = self.store.scheme(target.owner)?.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared target guard range is invalid"))?;
+        let descendants = self.store.scheme_guards[guards].get(target.scope.index() + 1..).ok_or_else(|| IrVerifyError::new("prepared target guard index is invalid"))?;
+        let end = descendants.iter().position(|guard| guard.parent == IR_NONE).unwrap_or(descendants.len());
+        budget.charge(end.saturating_add(usize::from(end < descendants.len())))?;
+        let guards = self.prepare_physical_guards(target.owner, &descendants[..end], target.scope.raw(), arguments.guard_bindings, Arc::clone(&packet.substitution), caller, source, budget)?;
+        Arc::make_mut(&mut packet.layouts).guards = guards;
+        Ok(())
+    }
+
+    fn guard_call_origin(&self, parent: &verify_schemes::CallSubstitution, ordinal: usize, call: guard_schemes::FullGuardCall) -> Result<PreparedGuardCallOrigin, IrVerifyError> {
+        Ok(PreparedGuardCallOrigin {
+            owner: parent.prepared_owner().ok_or_else(|| IrVerifyError::new("prepared guard call has no owner"))?,
+            scope: parent.prepared_guard(),
+            ordinal: crate::sema::guarded_requirements::GuardCallId::from_index(ordinal).map_err(|_| IrVerifyError::new("prepared guard call ordinal is invalid"))?,
+            source: if call.leaf == IR_NONE { PreparedCallSource::EncodedInstantiation(call.instruction) } else { PreparedCallSource::Materialization { instruction: call.instruction, leaf: call.leaf } },
+        })
+    }
+
+    fn forwarded_guard_call<'a>(&self, caller: &'a PreparedInvocationBindings, ordinal: u32, source: PreparedCallSource) -> Result<&'a PreparedGuardCall, IrVerifyError> {
+        let packet = caller.layouts.guard_calls.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("prepared forwarded guard call is absent"))?;
+        if caller.substitution.prepared_owner() != Some(packet.origin.owner) || caller.substitution.prepared_guard() != packet.origin.scope
+            || packet.origin.ordinal.raw() != ordinal || packet.origin.source != source
+        { return Err(IrVerifyError::new("prepared forwarded guard call belongs to another caller, scope, or source")); }
+        Ok(packet)
+    }
+
+    fn forwarded_guard_scope(&self, prepared: &PreparedGuardCall, owner: schemes::FullSchemeId, guard: guard_schemes::FullGuardScope, parent: &verify_schemes::CallSubstitution, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<Option<PreparedInvocationBindings>, IrVerifyError> {
+        use crate::sema::guarded_requirements::{non_null_source, NonNullSource};
+        if prepared.owner != owner || prepared.scope.raw() != guard.id { return Err(IrVerifyError::new("prepared forwarded guard belongs to another callable or scope")); }
+        let source = verify_schemes::instantiate_bound_type(&self.store, guard.source, parent, budget, 0)?;
+        let source = non_null_source(&source).map_err(|_| IrVerifyError::new("prepared forwarded guard has no closed source classification"))?;
+        match (&prepared.binding, source) {
+            (PreparedGuardCallBinding::Null, NonNullSource::Null) => Ok(None),
+            (PreparedGuardCallBinding::NonNull(packet), NonNullSource::NonNull(_)) | (PreparedGuardCallBinding::Optional(packet), NonNullSource::Optional(_)) => {
+                if !packet.substitution.owns_prepared_scope(owner, Some(prepared.scope)) || !packet.substitution.inherits_prepared_parent(parent) { return Err(IrVerifyError::new("prepared forwarded guard inherits another actual parent")); }
+                Ok(Some(packet.clone()))
+            }
+            _ => Err(IrVerifyError::new("prepared forwarded guard disagrees with its actual source classification")),
+        }
+    }
+
+    fn prepare_guard_scope(&self, owner: schemes::FullSchemeId, guard: guard_schemes::FullGuardScope, binding: guard_schemes::FullGuardBinding, parent: Arc<verify_schemes::CallSubstitution>, caller: &PreparedInvocationBindings, source: PreparedCallSource, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<Option<(PreparedInvocationBindings, Option<schemes::FullInstantiation>)>, IrVerifyError> {
+        if let guard_schemes::FullGuardBinding::Call(ordinal) = binding {
+            let prepared = self.forwarded_guard_call(caller, ordinal, source)?;
+            return self.forwarded_guard_scope(prepared, owner, guard, &parent, budget).map(|packet| packet.map(|packet| (packet, None)));
+        }
+        let arguments = match binding {
+            guard_schemes::FullGuardBinding::Null => return Ok(None),
+            guard_schemes::FullGuardBinding::NonNull(arguments) | guard_schemes::FullGuardBinding::Optional(arguments) => arguments,
+            guard_schemes::FullGuardBinding::Call(_) => unreachable!(),
+        };
+        let substitution = Arc::new(verify_schemes::instantiate_guard_invocation(&self.store, owner, &guard, &arguments, &caller.substitution, parent, budget)?);
+        let mut layouts = self.invocation_layouts(arguments.application_bindings, caller, budget)?;
+        layouts.guard_calls = self.prepare_guard_calls(guard.guard_calls, arguments.guard_call_bindings, Arc::clone(&substitution), caller, source, budget)?;
+        let packet = PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) };
+        Ok(Some((packet, Some(arguments))))
+    }
+
+    fn prepare_physical_guards(&self, owner: schemes::FullSchemeId, guards: &[guard_schemes::FullGuardScope], parent_id: u32, bindings: IrRange, parent: Arc<verify_schemes::CallSubstitution>, caller: &PreparedInvocationBindings, source: PreparedCallSource, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<BTreeMap<crate::sema::guarded_requirements::GuardScopeId, Option<PreparedInvocationBindings>>, IrVerifyError> {
+        let mut result = BTreeMap::new();
+        let mut frames = vec![(parent_id, bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared guard bindings are invalid"))?, Some(parent))];
+        for guard in guards {
             budget.charge(1)?;
             while frames.last().is_some_and(|frame| frame.0 != guard.parent) {
                 let (_, remaining, parent) = frames.pop().ok_or_else(|| IrVerifyError::new("prepared guard parent is absent"))?;
                 if parent.is_some() && !remaining.is_empty() { return Err(IrVerifyError::new("prepared guard has extra child bindings")); }
             }
             let (_, remaining, parent) = frames.last_mut().ok_or_else(|| IrVerifyError::new("prepared guard parent is absent"))?;
-            let local_ordinals = ordinals;
-            ordinals = (ordinals.0 + guard.type_parameters.len as usize, ordinals.1 + guard.row_parameters.len as usize, ordinals.2 + guard.effect_parameters.len as usize);
-            let guard_id = crate::sema::guarded_requirements::GuardScopeId::from_index(guard.id as usize).map_err(|_| IrVerifyError::new("prepared guard id is invalid"))?;
+            let id = crate::sema::guarded_requirements::GuardScopeId::from_index(guard.id as usize).map_err(|_| IrVerifyError::new("prepared guard id is invalid"))?;
             let Some(parent) = parent else {
-                layouts.guards.insert(guard_id, None);
+                result.entry(id).or_insert(None);
                 frames.push((guard.id, 0..0, None));
                 continue;
             };
             let binding = remaining.next().and_then(|index| self.store.call_guard_bindings.get(index)).ok_or_else(|| IrVerifyError::new("prepared guard binding is absent"))?;
-            match binding {
-                guard_schemes::FullGuardBinding::Null => {
-                    layouts.guards.insert(guard_id, None);
+            match self.prepare_guard_scope(owner, *guard, *binding, Arc::clone(parent), caller, source, budget)? {
+                None => {
+                    result.insert(id, None);
                     frames.push((guard.id, 0..0, None));
                 }
-                guard_schemes::FullGuardBinding::NonNull(local) | guard_schemes::FullGuardBinding::Optional(local) => {
-                    let local_substitution = Arc::new(verify_schemes::instantiate_guard_invocation(&self.store, id, guard, local, &caller.substitution, Arc::clone(parent), local_ordinals, &mut budget)?);
-                    let local_layouts = self.invocation_layouts(local.application_bindings, caller, &mut budget)?;
-                    layouts.guards.insert(guard_id, Some(PreparedInvocationBindings { substitution: Arc::clone(&local_substitution), layouts: Arc::new(local_layouts) }));
-                    frames.push((guard.id, local.guard_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared child guard bindings are invalid"))?, Some(local_substitution)));
+                Some((packet, arguments)) => {
+                    result.extend(packet.layouts.guards.iter().map(|(&id, packet)| (id, packet.clone())));
+                    let frame = if let Some(arguments) = arguments { (arguments.guard_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared child guard bindings are invalid"))?, Some(Arc::clone(&packet.substitution))) } else { (0..0, None) };
+                    result.insert(id, Some(packet));
+                    frames.push((guard.id, frame.0, frame.1));
                 }
             }
         }
         if frames.into_iter().any(|(_, remaining, parent)| parent.is_some() && !remaining.is_empty()) { return Err(IrVerifyError::new("prepared guard has extra child bindings")); }
-        Ok(PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) })
+        Ok(result)
     }
 
     fn invocation_layouts(&self, bindings: IrRange, caller: &PreparedInvocationBindings, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<PreparedInvocationLayouts, IrVerifyError> {
@@ -1736,7 +1855,7 @@ impl FullProgram {
             };
             layouts.push(layout);
         }
-        Ok(PreparedInvocationLayouts { arguments: layouts, guards: BTreeMap::new() })
+        Ok(PreparedInvocationLayouts { arguments: layouts, guards: BTreeMap::new(), guard_calls: Vec::new() })
     }
 
     pub(in crate::runtime::eval) fn normalizes_result_error_payload(
@@ -3775,6 +3894,7 @@ struct FullCheckpoint {
     call_guard_bindings: usize,
     scheme_guard_reads: usize,
     scheme_guards: usize,
+    scheme_guard_calls: usize,
     scheme_method_slots: usize,
     scheme_method_arguments: usize,
     call_operation_bindings: usize,
@@ -5619,6 +5739,7 @@ impl FullBuilder {
             call_guard_bindings: self.store.call_guard_bindings.len(),
             scheme_guard_reads: self.store.scheme_guard_reads.len(),
             scheme_guards: self.store.scheme_guards.len(),
+            scheme_guard_calls: self.store.scheme_guard_calls.len(),
             scheme_method_slots: self.store.scheme_method_slots.len(),
             scheme_method_arguments: self.store.scheme_method_arguments.len(),
             call_operation_bindings: self.store.call_operation_bindings.len(),
@@ -5736,6 +5857,7 @@ impl FullBuilder {
         self.store.call_guard_bindings.truncate(checkpoint.call_guard_bindings);
         self.store.scheme_guard_reads.truncate(checkpoint.scheme_guard_reads);
         self.store.scheme_guards.truncate(checkpoint.scheme_guards);
+        self.store.scheme_guard_calls.truncate(checkpoint.scheme_guard_calls);
         self.store.scheme_method_slots.truncate(checkpoint.scheme_method_slots);
         self.store.scheme_method_arguments.truncate(checkpoint.scheme_method_arguments);
         self.store.call_operation_bindings.truncate(checkpoint.call_operation_bindings);
@@ -21517,7 +21639,7 @@ macro_rules! impl_build_id_codec {
                     needs_instruction,
                 )?;
                 if let Some(instruction) = instruction {
-                    builder.attach_value_materialization(instruction)?;
+                    builder.attach_value_materialization(instruction, scheme_guard_scope)?;
                     builder.attach_record_constructor(instruction)?;
                     if $checked_expr_type && builder.active_scheme.is_some() {
                         let instruction = u32::try_from(instruction)
@@ -21703,7 +21825,7 @@ macro_rules! impl_build_id_codec {
                                 builder.store.tags.len(),
                             )
                         })?;
-                        builder.record_call_instantiation(instruction, &instantiation)?;
+                        builder.record_call_instantiation(instruction, &instantiation, scheme_guard_scope)?;
                         builder.record_checked_call_result(instruction, &result_type)?;
                     }
                     (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue)) => {
@@ -21715,7 +21837,7 @@ macro_rules! impl_build_id_codec {
                                 builder.store.tags.len(),
                             )
                         })?;
-                        builder.record_call_instantiation(instruction, &instantiation)?;
+                        builder.record_call_instantiation(instruction, &instantiation, scheme_guard_scope)?;
                     }
                     (None, None) => {}
                     _ => {

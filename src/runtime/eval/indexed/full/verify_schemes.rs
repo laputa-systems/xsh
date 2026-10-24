@@ -4,6 +4,8 @@ mod constructors;
 mod body;
 mod effects;
 mod guards;
+mod guard_calls;
+pub(super) use guard_calls::{resolve as resolve_guard_call, ResolvedGuardCall};
 mod applications;
 mod operations;
 mod methods;
@@ -48,6 +50,7 @@ pub(super) struct SchemeScope {
     operations: IrRange,
     methods: IrRange,
     wrappers: IrRange,
+    guard_calls: IrRange,
     bindings: Arc<SchemeBinders>,
     guards: guards::GuardScopes,
     active_guard: Option<crate::sema::guarded_requirements::GuardScopeId>,
@@ -104,10 +107,18 @@ impl CallSubstitution {
 
     pub(super) fn prepared_owner(&self) -> Option<FullSchemeId> { self.owner }
 
+    pub(super) fn prepared_guard(&self) -> Option<crate::sema::guarded_requirements::GuardScopeId> {
+        match self.origin { CallSubstitutionOrigin::Root => None, CallSubstitutionOrigin::Guard { scope, .. } => Some(scope) }
+    }
+
     pub(super) fn retarget_prepared_root(&mut self, owner: FullSchemeId) -> Result<(), IrVerifyError> {
         if !matches!(self.origin, CallSubstitutionOrigin::Root) { return Err(IrVerifyError::new("prepared target mapping has a guard-local substitution")); }
         self.owner = Some(owner);
         Ok(())
+    }
+
+    pub(super) fn inherits_prepared_parent(&self, expected: &CallSubstitution) -> bool {
+        match &self.origin { CallSubstitutionOrigin::Guard { parent, .. } => parent.as_ref() == expected, CallSubstitutionOrigin::Root => false }
     }
 
     fn row_argument(&self, ordinal: usize) -> Option<&BTreeMap<Name, Type>> {
@@ -339,6 +350,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
     let mut wrapper_coverage = wrappers::Coverage::new(store);
     let mut guard_coverage = vec![false; store.scheme_guards.len()];
     let mut guard_read_coverage = vec![false; store.scheme_guard_reads.len()];
+    let mut guard_call_coverage = vec![false; store.scheme_guard_calls.len()];
 
     for (function_index, function) in store.functions.iter().enumerate() {
         let FullCallableContract::Scheme(scheme_id) = function.contract else {
@@ -436,6 +448,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
                 }
             }
             let starts = (type_parameters.len(), row_parameters.len(), effect_parameters.len());
+            if metadata.binding_starts.map(|start| start as usize) != [starts.0, starts.1, starts.2] { return Err(IrVerifyError::new("guard binding starts disagree with its callable census")); }
             type_parameters.extend_from_slice(mark_range(metadata.type_parameters, &store.scheme_type_parameters, &mut type_parameter_coverage, "guard type parameters are invalid or overlap")?);
             let rows = mark_range(metadata.row_parameters, &store.scheme_row_parameters, &mut row_parameter_coverage, "guard row parameters are invalid or overlap")?;
             for row in rows { mark_range(row.lacks, &store.scheme_row_lacks, &mut row_lacks_coverage, "guard row lacks are invalid or overlap")?; }
@@ -444,7 +457,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             guard_packs.push(guards::GuardPack { metadata: *metadata, bindings: guards::BinderPack { types: starts.0..type_parameters.len(), rows: starts.1..row_parameters.len(), effects: starts.2..effect_parameters.len() } });
         }
         let mut scope = make_scope(store, type_parameters, row_parameters, effects::EffectScope::new(effect_parameters)?)?;
-        if !guard_packs.is_empty() {
+        if !guard_packs.is_empty() || scheme.guard_calls.len != 0 {
             let mut memberships = BTreeMap::new();
             for fact in bounded(scheme.body_facts, &store.scheme_body_facts, "guard body facts are invalid")? {
                 if let super::schemes::FullSchemeBodyFactValue::GuardScope(id) = fact.value {
@@ -458,16 +471,27 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             for pack in &guard_packs {
                 let parent = if pack.metadata.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.parent as usize).map_err(|_| IrVerifyError::new("guard parent id is invalid"))?) };
                 let id = crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
-                children.entry(parent).or_default().push(id);
+                let children = children.entry(parent).or_default();
+                if pack.metadata.binding_ordinal as usize != children.len() { return Err(IrVerifyError::new("guard binding ordinal disagrees with its lexical parent")); }
+                children.push(id);
             }
-            scope.guards = guards::GuardScopes::Scoped(Arc::new(guards::GuardCensus { owner: scheme_id, root: root_pack, root_applications: scheme.applications, root_operations: scheme.operations, root_methods: scheme.methods, root_wrappers: scheme.wrappers, scopes: guard_packs, memberships, children }));
+            scope.guards = guards::GuardScopes::Scoped(Arc::new(guards::GuardCensus { owner: scheme_id, root: root_pack, root_applications: scheme.applications, root_operations: scheme.operations, root_methods: scheme.methods, root_wrappers: scheme.wrappers, root_guard_calls: scheme.guard_calls, scopes: guard_packs, memberships, children }));
         }
         scope.applications = scheme.applications;
         scope.operations = scheme.operations;
         scope.methods = scheme.methods;
         scope.wrappers = scheme.wrappers;
+        scope.guard_calls = scheme.guard_calls;
         for active in std::iter::once(None).chain((0..guard_rows.len()).map(|index| Some(crate::sema::guarded_requirements::GuardScopeId::from_index(index).expect("encoded guard index")))) {
             let pack_scope = scope.with_guard(active)?;
+            for (ordinal, call) in mark_range(pack_scope.guard_calls, &store.scheme_guard_calls, &mut guard_call_coverage, "guard call range is invalid or overlaps")?.iter().enumerate() {
+                if call.function != IrFunctionId::new(function_index).map_err(|_| IrVerifyError::new("guard call owner is invalid"))?.raw()
+                    || !instruction_range.contains(&(call.instruction as usize))
+                    || scope.at_instruction(call.instruction as usize)?.active_guard != active
+                { return Err(IrVerifyError::new("guard call source belongs to another callable or requirement scope")); }
+                guard_calls::verify_origin(store, *call, u32::try_from(ordinal).map_err(|_| IrVerifyError::new("guard call ordinal is invalid"))?, &mut SchemeInstantiationBudget::new(store))?;
+            }
+
         mark_range(pack_scope.operations, &store.scheme_operations, &mut operation_coverage, "scheme operation range is invalid or overlaps")?;
         for method in mark_range(pack_scope.methods, &store.scheme_methods, &mut method_coverage, "scheme method range is invalid or overlaps")? {
             if method.reserved != [0; 3] { return Err(IrVerifyError::new("scheme method metadata is invalid")); }
@@ -553,6 +577,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
         || method_argument_coverage.iter().any(|covered| !covered)
         || guard_coverage.iter().any(|covered| !covered)
         || guard_read_coverage.iter().any(|covered| !covered)
+        || guard_call_coverage.iter().any(|covered| !covered)
     {
         return Err(IrVerifyError::new("full scheme tables contain unowned rows"));
     }
@@ -609,6 +634,7 @@ fn make_scope(
         operations: IrRange::default(),
         methods: IrRange::default(),
         wrappers: IrRange::default(),
+        guard_calls: IrRange::default(),
         bindings: std::sync::Arc::new(SchemeBinders {type_parameters,
         row_parameters,
         type_binders,
@@ -869,6 +895,7 @@ fn verify_scheme_tables(
         operations: IrRange::default(),
         methods: IrRange::default(),
         wrappers: IrRange::default(),
+        guard_calls: IrRange::default(),
         bindings: std::sync::Arc::new(SchemeBinders {type_parameters: Vec::new(),
         row_parameters: Vec::new(),
         type_binders: BTreeMap::new(),
@@ -902,11 +929,13 @@ fn verify_scheme_tables(
     let materialization_instances = materializations::owned_instances(store, &mut application_budget)?;
     let mut pending_instantiations = store.call_instantiations.iter().map(|instance| (instance.instruction, instance.arguments)).chain(materialization_instances).collect::<Vec<_>>();
     while let Some((instruction, arguments)) = pending_instantiations.pop() {
-        application_budget.charge(1 + arguments.guard_bindings.len as usize)?;
-        for binding in mark_range(arguments.guard_bindings, &store.call_guard_bindings, &mut guard_binding_coverage, "generic guard binding range is invalid or overlaps")? {
+        application_budget.charge(1 + arguments.guard_bindings.len as usize + arguments.guard_call_bindings.len as usize)?;
+        for binding in mark_range(arguments.guard_bindings, &store.call_guard_bindings, &mut guard_binding_coverage, "generic guard binding range is invalid or overlaps")?.iter()
+            .chain(mark_range(arguments.guard_call_bindings, &store.call_guard_bindings, &mut guard_binding_coverage, "generic guard call binding range is invalid or overlaps")?)
+        {
             match binding {
                 super::guard_schemes::FullGuardBinding::NonNull(local) | super::guard_schemes::FullGuardBinding::Optional(local) => pending_instantiations.push((instruction, *local)),
-                super::guard_schemes::FullGuardBinding::Null => {},
+                super::guard_schemes::FullGuardBinding::Null | super::guard_schemes::FullGuardBinding::Call(_) => {},
             }
         }
         let caller = caller_scheme_for_instruction(
@@ -3163,6 +3192,10 @@ fn verify_call_instantiations(
                 Some(&mut row_field_coverage),
                 &mut budget,
             )?;
+            if !guard_calls::verify_forwarded_bindings(store, scheme, scope, caller_scope, instantiation.instruction, instantiation.arguments, &mut budget)? {
+                let closed = closed_symbolic_substitution(scope, &substitution, &mut budget)?;
+                guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &closed, &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage, &mut budget)?;
+            }
             effects::verify_predicates(store, scheme, scope, &substitution.effects,
                 Some((store.scheme(caller_scheme)?, caller_scope)), &mut budget)?;
             applications::verify_bindings(store, scheme, scope,
@@ -3223,7 +3256,7 @@ fn verify_call_instantiations(
                 &mut row_field_coverage,
             )?;
             let mut materialization = SchemeInstantiationBudget::new(store);
-            guards::verify_ground_bindings(store, scheme, scope, instantiation.arguments, &substitution,
+            guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &substitution,
                 &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage, &mut materialization)?;
             effects::verify_predicates(store, scheme, scope, &substitution.effects, None, &mut materialization)?;
             applications::verify_bindings(store, scheme, scope,
@@ -3472,6 +3505,29 @@ fn ground_call_type_argument_type(
     let ty = store.semantic.to_type_with_budget(type_id, budget)?;
     ensure_closed_type(&ty)?;
     Ok(ty)
+}
+
+fn closed_symbolic_substitution(scope: &SchemeScope, substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<CallSubstitution, IrVerifyError> {
+    let mut result = CallSubstitution { owner: match &scope.guards { guards::GuardScopes::Root => None, guards::GuardScopes::Scoped(census) => Some(census.owner) }, ..CallSubstitution::default() };
+    budget.charge(substitution.types.len() + substitution.rows.len() + substitution.effects.len())?;
+    for ty in &substitution.types {
+        budget.charge_scheme_clone(ty)?;
+        result.types.push(ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("concrete guard call retains a symbolic root type"))?);
+    }
+    for row in &substitution.rows {
+        if row.tail != SchemeRowTail::Closed { return Err(IrVerifyError::new("concrete guard call retains a symbolic root row")); }
+        let mut fields = BTreeMap::new();
+        for (&name, ty) in &row.fields {
+            budget.charge_scheme_clone(ty)?;
+            fields.insert(name, ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("concrete guard call retains a symbolic root field"))?);
+        }
+        result.rows.push(fields);
+    }
+    for contract in &substitution.effects {
+        contract.concrete().map_err(|_| IrVerifyError::new("concrete guard call retains symbolic root effects"))?;
+        result.effects.push(contract.clone());
+    }
+    Ok(result)
 }
 
 fn caller_scheme_for_instruction<'a>(
@@ -6289,13 +6345,14 @@ pub(super) fn instantiate_invocation(
 pub(super) fn instantiate_guard_invocation(
     store: &FullStore, owner: FullSchemeId, guard: &super::guard_schemes::FullGuardScope,
     instance: &super::schemes::FullInstantiation, caller: &CallSubstitution,
-    parent: Arc<CallSubstitution>, ordinals: (usize, usize, usize), budget: &mut SchemeInstantiationBudget,
+    parent: Arc<CallSubstitution>, budget: &mut SchemeInstantiationBudget,
 ) -> Result<CallSubstitution, IrVerifyError> {
     let id = crate::sema::guarded_requirements::GuardScopeId::from_index(guard.id as usize).map_err(|_| IrVerifyError::new("prepared guard scope is invalid"))?;
     let parent_id = match &parent.origin { CallSubstitutionOrigin::Root => IR_NONE, CallSubstitutionOrigin::Guard { scope, .. } => scope.raw() };
     if parent.owner != Some(owner) || parent_id != guard.parent { return Err(IrVerifyError::new("prepared guard has another callable or parent")); }
     let ranges = super::schemes::FullBinderRanges { types: guard.type_parameters, rows: guard.row_parameters, effects: guard.effect_parameters };
-    let pack = guards::BinderPack { types: ordinals.0..ordinals.0 + ranges.types.len as usize, rows: ordinals.1..ordinals.1 + ranges.rows.len as usize, effects: ordinals.2..ordinals.2 + ranges.effects.len as usize };
+    let starts = guard.binding_starts.map(|start| start as usize);
+    let pack = guards::BinderPack { types: starts[0]..starts[0] + ranges.types.len as usize, rows: starts[1]..starts[1] + ranges.rows.len as usize, effects: starts[2]..starts[2] + ranges.effects.len as usize };
     instantiate_invocation_pack(store, owner, ranges, instance, caller, CallSubstitutionOrigin::Guard { scope: id, pack, parent }, budget)
 }
 
@@ -6809,6 +6866,7 @@ mod tests {
         operations: IrRange::default(),
             methods: IrRange::default(),
             wrappers: IrRange::default(),
+        guard_calls: IrRange::default(),
             bindings: std::sync::Arc::new(SchemeBinders {type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, iteration_policy: crate::runtime::eval::indexed::full::schemes::FullIterationPolicy::IterableInfallible as u8 }],
             row_parameters: vec![FullSchemeRowParameter {
                 id: 20,
@@ -6907,6 +6965,7 @@ mod tests {
         operations: IrRange::default(),
             methods: IrRange::default(),
             wrappers: IrRange::default(),
+        guard_calls: IrRange::default(),
             bindings: std::sync::Arc::new(SchemeBinders {type_parameters: vec![
                 FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, iteration_policy: crate::runtime::eval::indexed::full::schemes::FullIterationPolicy::IterableInfallible as u8 },
                 FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, iteration_policy: crate::runtime::eval::indexed::full::schemes::FullIterationPolicy::IterableInfallible as u8 },

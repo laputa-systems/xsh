@@ -1031,6 +1031,7 @@ impl TypeConstraints {
         let operations = self.generalize_sealed_operations(owners, environment_level, generalization)?;
         let methods = self.generalize_method_families(owners, environment_level, generalization)?;
         let wrappers = self.generalize_wrappers(owners, environment_level, generalization)?;
+        let guard_calls = self.generalize_guard_calls(owners, environment_level, generalization)?;
         let iteration_parameters = self.generalized_iterations(environment_level, generalization)?;
         let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
         let mut requirements = crate::sema::schemes::CallableRequirements {
@@ -1038,6 +1039,7 @@ impl TypeConstraints {
             map_key_parameters: self.generalized_map_keys(generalization)?,
             conversion_parameters: self.generalized_conversions(generalization)?, methods,
             guards: Vec::new(),
+            guard_calls,
         };
         requirements.guards = self.generalize_guard_requirements(owners, environment_level, generalization)?;
         Ok(requirements)
