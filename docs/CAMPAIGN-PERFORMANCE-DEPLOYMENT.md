@@ -37,14 +37,15 @@ refinement, inferred Proc body eligibility, Kbuild `List[Record]` verification,
 complete interface/migration qualification, and inherited
 performance/deployment gates. No mandatory item is waived.
 
+Immutable `f5c3baa91` passes the complete Rust library boundary: 2,516 passes,
+zero failures and three ignored tests. This combines membership with the
+Result/context and verifier repairs; all 19 failures from the earlier combined
+run are closed. The source remains clean in
+`.work/wt/full-inference-membership-wave-qualification/`, with the observed
+terminal in `.work/tmp/membership-wave-full-library-r2.log`.
 Immutable `c7617a979` passes the exact canonical workspace warning gate through
-the pinned launcher. Its full Rust library run reports 2,476 passes, 19 failures
-and three ignored tests. The Result/context regressions are repaired with 113
-focused controls; the verifier subgroup passes 18 distinct controls after stale
-assertions are corrected without relaxing production checks. Those repairs
-are in the combined full-library run on immutable `f5c3baa91`; its result is
-pending. The last complete passing
-library checkpoint remains `c0e6e773f` below.
+the pinned launcher. That earlier warning result does not qualify later code;
+the final combined warning and acceptance boundaries remain required.
 
 Immutable `4de7c99e4a518a2bf685860fe110d385aebe17ee` passes six combined
 regression controls and builds matching verification products. With the reviewed
