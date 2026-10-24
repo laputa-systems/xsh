@@ -1199,6 +1199,10 @@ is the enum, `.Variant` names one without a namespace (5.5). A statement `match`
 over an enum covers every variant or ends in a catch-all
 (`check.non-exhaustive-match`, 6.8); a value `match` names the uncovered
 variants in its `check.match-value-exhaustive` error instead.
+A resolved named variant pattern constrains an inferred subject to its declaring
+nominal enum. For an indexed subject, that enum constrains the indexed element
+through the existing indexing relationship; it does not select the container
+kind. A leading-dot pattern still requires an independently known enum domain.
 `type Alias = Level` aliases the same nominal type.
 Diagnostics display an imported enum's declaration name, including inside
 container types. Declarations from different modules remain distinct nominal
