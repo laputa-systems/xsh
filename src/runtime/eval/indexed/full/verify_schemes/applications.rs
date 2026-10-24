@@ -26,7 +26,7 @@ impl ApplicationSubstitution<'_> {
     pub(super) fn contract(&self, store: &FullStore, scope: &SchemeScope, contract: super::super::schemes::FullEffectContract, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
         let contract = effects::decode_contract(store, scope, contract, budget)?;
         match self {
-            Self::Ground(substitution) => effects::substitute_contract(&contract, scope, &substitution.effects, budget),
+            Self::Ground(substitution) => effects::substitute_prepared_contract(&contract, scope, substitution, budget),
             Self::Symbolic(substitution) => effects::substitute_contract(&contract, scope, &substitution.effects, budget),
             Self::Identity => Ok(contract),
         }
@@ -271,7 +271,7 @@ pub(super) fn known_argument_assignment_matches_ground(
 }
 
 pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &SchemeScope, substitution: ApplicationSubstitution<'_>, caller: Option<(&FullScheme, &SchemeScope)>, bindings: &[FullApplicationBinding], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
-    let applications = bounded(callee.applications, &store.scheme_applications, "scheme application range is invalid")?;
+    let applications = bounded(scope.owned_requirements(callee)?.applications, &store.scheme_applications, "scheme application range is invalid")?;
     if applications.len() != bindings.len() { return Err(IrVerifyError::new("generic call application binding is incomplete")); }
     for (encoded, binding) in applications.iter().zip(bindings) {
         let application = decode(store, scope, *encoded, &substitution, budget)?;
@@ -279,7 +279,7 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
             FullApplicationBinding::Selected { argument_slots, omitted_slots } => selected(store, &application, argument_slots, omitted_slots, budget)?,
             FullApplicationBinding::Forwarded(ordinal) => {
                 let Some((caller, caller_scope)) = caller else { return Err(IrVerifyError::new("ground application has no forwarding owner")); };
-                let caller_applications = bounded(caller.applications, &store.scheme_applications, "caller application range is invalid")?;
+                let caller_applications = bounded(caller_scope.owned_requirements(caller)?.applications, &store.scheme_applications, "caller application range is invalid")?;
                 let encoded = caller_applications.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded application ordinal is out of scope"))?;
                 let required = decode(store, caller_scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
                 if !same_application(&application, &required, budget)? {
@@ -297,7 +297,7 @@ pub(super) fn extend_call_binder_evidence(
 ) -> Result<(), IrVerifyError> {
     let projections = super::wrappers::binder_projections(store, scheme, scope, &substitution, budget)?;
     let selected_sources = !matches!(substitution, ApplicationSubstitution::Symbolic(_));
-    let applications = if selected_sources { bounded(scheme.applications, &store.scheme_applications, "scheme application range is invalid")? } else { &[] };
+    let applications = if selected_sources { bounded(scope.owned_requirements(scheme)?.applications, &store.scheme_applications, "scheme application range is invalid")? } else { &[] };
     budget.charge(applications.len())?;
     let mut outputs = Vec::with_capacity(applications.len());
     let mut remaining = Vec::with_capacity(applications.len());
@@ -394,7 +394,7 @@ pub(super) fn extend_call_binder_evidence(
             }
         }
     }
-    for parameter in bounded(scheme.type_parameters, &store.scheme_type_parameters, "scheme type parameter range is invalid")?.iter().filter(|_| selected_sources) {
+    for parameter in scope.type_parameters[scope.binding_pack()?.types].iter().filter(|_| selected_sources) {
         let Some(iteration) = parameter.iteration()? else { continue };
         budget.charge(1)?;
         let ordinal = outputs.len();
@@ -412,7 +412,7 @@ pub(super) fn extend_call_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
-    for method in bounded(scheme.methods, &store.scheme_methods, "scheme method range is invalid")?.iter().filter(|_| selected_sources) {
+    for method in bounded(scope.owned_requirements(scheme)?.methods, &store.scheme_methods, "scheme method range is invalid")?.iter().filter(|_| selected_sources) {
         budget.charge(1)?;
         if !super::methods::authenticates_result_evidence(store, scope, *method, &substitution, budget)? { continue; }
         let ordinal = outputs.len();
@@ -439,7 +439,7 @@ pub(super) fn extend_call_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
-    for operation in bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")?.iter().filter(|operation| selected_sources || !matches!(operation, super::super::schemes::FullSealedOperation::Binary { .. })) {
+    for operation in bounded(scope.owned_requirements(scheme)?.operations, &store.scheme_operations, "scheme operation range is invalid")?.iter().filter(|operation| selected_sources || !matches!(operation, super::super::schemes::FullSealedOperation::Binary { .. })) {
         budget.charge(1)?;
         let ordinal = outputs.len();
         let mut inputs = BTreeSet::new();
@@ -466,7 +466,7 @@ pub(super) fn extend_call_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
-    for (wrapper_ordinal, wrapper) in bounded(scheme.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.iter().enumerate() {
+    for (wrapper_ordinal, wrapper) in bounded(scope.owned_requirements(scheme)?.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.iter().enumerate() {
         budget.charge(1)?;
         let ordinal = outputs.len();
         let mut inputs = BTreeSet::new();
@@ -586,7 +586,7 @@ mod tests {
         }).collect();
         let callable = CallableScheme::new(parameters.clone(), Vec::new(), params,
             SchemeType::Parameter(parameters[2]), None, false,
-            CallableRequirements { iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: effects.into(), effect_predicates: Vec::new(), applications }).unwrap();
+            CallableRequirements { iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: effects.into(), effect_predicates: Vec::new(), guards: Vec::new(), applications }).unwrap();
         TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap()
     }
 
@@ -641,7 +641,7 @@ mod tests {
                 schema_expectation: None, defaulted: false, rest: false,
             }).collect();
             let callable = CallableScheme::new(parameters, Vec::new(), params, SchemeType::Parameter(SchemeTypeParameterId(13)),
-                None, false, CallableRequirements { iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: Vec::new(), effect_predicates: Vec::new(), applications }).unwrap();
+                None, false, CallableRequirements { iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: Vec::new(), effect_predicates: Vec::new(), guards: Vec::new(), applications }).unwrap();
             let scheme = TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap();
             let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
             let id = builder.intern_scheme(&scheme).unwrap();
@@ -681,7 +681,7 @@ mod tests {
                 let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
                 let id = builder.intern_scheme(&scheme).unwrap();
                 let scheme = *builder.store.scheme(id).unwrap();
-                let substitution = CallSubstitution { types, rows: Vec::new(), effects: Vec::new() };
+                let substitution = CallSubstitution { types, rows: Vec::new(), effects: Vec::new(), origin: Default::default() };
                 let mut evidence = SchemeBinderEvidence { types: initial, rows: BTreeSet::new() };
                 extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
                 evidence.types
@@ -715,6 +715,7 @@ mod tests {
                 },
             }));
             let mut substitution = CallSubstitution {
+                origin: Default::default(),
                 types: vec![callback(Type::Int, false, true), callback(Type::Str, true, false), Type::Int, Type::Str],
                 rows: Vec::new(), effects: vec![EffectContract::finite(EffectSet::default()); 2],
             };

@@ -211,13 +211,13 @@ impl TypeConstraints {
 
     pub(super) fn generalize_method_families(
         &self,
-        owners: &BTreeSet<crate::sema::check::EffectDeclarationId>,
+        owners: &BTreeSet<super::CallableApplicationScope>,
         environment_level: u32,
         generalization: &mut Generalization,
     ) -> Result<Vec<MethodFamilyRequirement<SchemeType>>, super::SchemeOperationError> {
         let mut requirements = Vec::new();
         for (&id, entry) in &self.methods.entries {
-            if !matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner)) {
+            if !owners.contains(&entry.owner) {
                 continue;
             }
             let ordinal = u32::try_from(requirements.len()).map_err(|_| ConstraintResolutionError::TypeDepth)?;
@@ -254,7 +254,7 @@ impl TypeConstraints {
 
     pub(super) fn sealed_method_bindings(
         &self,
-        instance: &super::InstantiatedScheme,
+        instance: &super::InstantiatedRequirements,
         generalization: &mut Generalization,
         caller_methods: &[MethodFamilyRequirement<SchemeType>],
     ) -> Result<Vec<crate::sema::schemes::SealedMethodBinding>, super::SchemeOperationError> {

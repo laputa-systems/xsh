@@ -788,6 +788,13 @@ build_id!(BuildBoolId);
 build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
+struct SchemeGuardBuildFacts {
+    expressions: BTreeMap<usize, crate::sema::guarded_requirements::GuardScopeId>,
+    statements: BTreeMap<usize, crate::sema::guarded_requirements::GuardScopeId>,
+    sites: BTreeMap<usize, Vec<crate::sema::guarded_requirements::GuardBodySite>>,
+}
+
+#[derive(Clone, Debug, Default)]
 struct BuildScratch {
     producer_demand: Option<ProducerDemand>,
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
@@ -807,6 +814,7 @@ struct BuildScratch {
     scheme_operations: BTreeMap<usize, u32>,
     scheme_methods: BTreeMap<usize, u32>,
     scheme_wrappers: BTreeMap<usize, u32>,
+    scheme_guards: SchemeGuardBuildFacts,
     checked_call_result_types: Vec<Option<Type>>,
     registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,

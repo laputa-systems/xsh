@@ -15,6 +15,7 @@ pub(crate) struct CallableApplicationId(u64);
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum CallableApplicationScope {
     Declaration(EffectDeclarationId),
+    Guard(super::WrapperOperationId),
     Invocation,
 }
 
@@ -107,7 +108,7 @@ pub(super) enum ApplicationDependency {
 pub(super) struct CallableApplications {
     pub(super) entries: BTreeMap<CallableApplicationId, ScopedCallableApplication>,
     scopes: BTreeMap<CallableApplicationScope, Vec<CallableApplicationId>>,
-    source_sites: BTreeMap<(Option<EffectDeclarationId>, crate::source::Span), CallableApplicationId>,
+    source_sites: BTreeMap<(CallableApplicationScope, crate::source::Span), CallableApplicationId>,
     watchers: BTreeMap<ApplicationDependency, BTreeSet<CallableApplicationId>>,
     pending: VecDeque<CallableApplicationId>,
     queued: BTreeSet<CallableApplicationId>,
@@ -694,7 +695,7 @@ mod tests {
 #[derive(Clone, Debug)]
 pub(super) enum ApplicationChange {
     Fresh(CallableApplicationId),
-    Source((Option<EffectDeclarationId>, crate::source::Span), CallableApplicationId),
+    Source((CallableApplicationScope, crate::source::Span), CallableApplicationId),
     Binding(CallableApplicationId, Option<CallableApplicationBinding>),
     ReturnEnvelopes(CallableApplicationId, std::sync::Arc<[crate::sema::callable_application::ProcReturnEnvelope<Type>]>),
     Watcher(ApplicationDependency, CallableApplicationId),
@@ -831,8 +832,7 @@ impl TypeConstraints {
     }
 
     pub(crate) fn source_callable_application_reference(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Result<Option<CallableApplicationReference>, CallableApplicationError> {
-        let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
-        self.applications.source_sites.get(&(owner, span)).copied()
+        self.applications.source_sites.get(&(scope, span)).copied()
             .filter(|id| self.applications.entries[id].application.invocation().is_some())
             .map(|id| self.callable_application_reference(id)).transpose()
     }
@@ -866,8 +866,7 @@ impl TypeConstraints {
     }
 
     pub(crate) fn source_callable_application(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Option<&CallableInvocation<Type, super::EffectVariableId>> {
-        let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
-        self.applications.source_sites.get(&(owner, span)).and_then(|id| self.applications.entries.get(id)).and_then(|entry| entry.application.invocation())
+        self.applications.source_sites.get(&(scope, span)).and_then(|id| self.applications.entries.get(id)).and_then(|entry| entry.application.invocation())
     }
 
     pub(crate) fn register_source_callable_application(
@@ -875,8 +874,7 @@ impl TypeConstraints {
         scope: CallableApplicationScope,
         application: CallableInvocation<Type, super::EffectVariableId>,
     ) -> Result<CallableApplicationId, CallableApplicationError> {
-        let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
-        let site = (owner, application.span);
+        let site = (scope, application.span);
         self.commit_constraint_transaction(|this| {
             if let Some(&id) = this.applications.source_sites.get(&site) {
                 let previous = this.applications.entries[&id].application.invocation().cloned().ok_or(CallableApplicationError::SourceShape(application.span))?;
@@ -914,8 +912,7 @@ impl TypeConstraints {
         scope: CallableApplicationScope,
         arguments: KnownCallArguments<Type>,
     ) -> Result<CallableApplicationId, CallableApplicationError> {
-        let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
-        let site = (owner, arguments.span);
+        let site = (scope, arguments.span);
         self.commit_constraint_transaction(|this| {
             if let Some(&id) = this.applications.source_sites.get(&site) {
                 let previous = this.applications.entries[&id].application.clone();
@@ -1002,7 +999,7 @@ impl TypeConstraints {
     }
 
 
-    pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedScheme, generalization: Option<&super::Generalization>) -> Result<Vec<crate::sema::schemes::CallableApplicationBinding>, super::SchemeOperationError> {
+    pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedRequirements, generalization: Option<&super::Generalization>) -> Result<Vec<crate::sema::schemes::CallableApplicationBinding>, super::SchemeOperationError> {
         instance.applications.iter().map(|id| {
             if let Some(binding) = self.settled_callable_application_binding(*id).map_err(super::SchemeOperationError::Application)? {
                 return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding));
@@ -1016,12 +1013,12 @@ impl TypeConstraints {
 
     pub(super) fn generalize_callable_requirements(
         &self,
-        owners: &BTreeSet<EffectDeclarationId>,
+        owners: &BTreeSet<CallableApplicationScope>,
         environment_level: u32,
         generalization: &mut super::Generalization,
     ) -> Result<crate::sema::schemes::CallableRequirements, super::SchemeOperationError> {
         let mut applications = Vec::new();
-        for (&id, entry) in self.applications.entries.iter().filter(|(_, entry)| matches!(entry.owner, CallableApplicationScope::Declaration(owner) if owners.contains(&owner))) {
+        for (&id, entry) in self.applications.entries.iter().filter(|(_, entry)| owners.contains(&entry.owner)) {
             if matches!(entry.application, CallableApplication::KnownArguments(_))
                 && matches!(entry.binding, Some(CallableApplicationBinding::Settled(_)))
             {
@@ -1036,11 +1033,14 @@ impl TypeConstraints {
         let wrappers = self.generalize_wrappers(owners, environment_level, generalization)?;
         let iteration_parameters = self.generalized_iterations(environment_level, generalization)?;
         let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
-        Ok(crate::sema::schemes::CallableRequirements {
+        let mut requirements = crate::sema::schemes::CallableRequirements {
             iteration_parameters, applications, operations, wrappers, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
             map_key_parameters: self.generalized_map_keys(generalization)?,
             conversion_parameters: self.generalized_conversions(generalization)?, methods,
-        })
+            guards: Vec::new(),
+        };
+        requirements.guards = self.generalize_guard_requirements(owners, environment_level, generalization)?;
+        Ok(requirements)
     }
 
 

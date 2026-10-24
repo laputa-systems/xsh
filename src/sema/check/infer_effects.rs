@@ -645,6 +645,7 @@ mod joint_effect_tests {
                 effect_parameters: vec![parameter],
                 effect_predicates: vec![crate::sema::effects::EffectPredicate::Equal(EffectContract::variable(parameter), EffectContract::variable(parameter))],
                 applications: Vec::new(),
+                guards: Vec::new(),
             },
         ).unwrap();
         CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), Vec::new(), Vec::new(), &[], &[], caller, &[], &[], &[], &[], &BTreeMap::new()).unwrap()

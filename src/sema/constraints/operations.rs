@@ -756,9 +756,9 @@ impl TypeConstraints {
         operation.try_map(|ty| self.generalize_type(ty, level, generalization, 0))
     }
 
-    pub(super) fn generalize_sealed_operations(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<SealedOperation<crate::sema::schemes::SchemeType>>, super::SchemeOperationError> {
+    pub(super) fn generalize_sealed_operations(&self, owners: &BTreeSet<super::CallableApplicationScope>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<SealedOperation<crate::sema::schemes::SchemeType>>, super::SchemeOperationError> {
         let mut wrapper_operations = BTreeSet::new();
-        for entry in self.wrappers.entries.values().filter(|entry| matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner))) {
+        for entry in self.wrappers.entries.values().filter(|entry| owners.contains(&entry.owner)) {
             let operations = match &entry.requirement.kind {
                 crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(id), .. } => vec![*id],
                 crate::sema::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } => contributions.iter().filter_map(|contribution| match contribution {
@@ -778,7 +778,7 @@ impl TypeConstraints {
         }
         let mut operations = Vec::new();
         for (&id, entry) in &self.operations.entries {
-            if !matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner))
+            if !owners.contains(&entry.owner)
                 || entry.selection.is_some() && !wrapper_operations.contains(&id)
             { continue; }
             let ordinal = u32::try_from(operations.len()).map_err(|_| ConstraintResolutionError::TypeDepth)?;
@@ -809,7 +809,7 @@ impl TypeConstraints {
         Ok(scope.operations.get(&id).copied())
     }
 
-    pub(super) fn sealed_operation_bindings(&self, instance: &super::InstantiatedScheme, generalization: &super::Generalization) -> Result<Vec<crate::sema::schemes::SealedOperationBinding>, super::SchemeOperationError> {
+    pub(super) fn sealed_operation_bindings(&self, instance: &super::InstantiatedRequirements, generalization: &super::Generalization) -> Result<Vec<crate::sema::schemes::SealedOperationBinding>, super::SchemeOperationError> {
         instance.operations.iter().map(|id| {
             let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if let Some(ordinal) = generalization.operations.get(id) {

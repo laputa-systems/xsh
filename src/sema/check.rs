@@ -1185,6 +1185,13 @@ impl PendingFunctionSig {
         }
     }
 
+    pub(super) fn generalized_guard_scopes(&self) -> Option<&super::guarded_requirements::GuardBodyScopes> {
+        match &self.callable {
+            PendingCallable::Generalized(callable) => Some(&callable.guard_scopes),
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+        }
+    }
+
     pub(super) fn generalized_read_bindings(&self) -> Option<&std::collections::BTreeSet<BindingId>> {
         match &self.callable {
             PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
@@ -1203,6 +1210,7 @@ impl PendingFunctionSig {
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
         read_bindings: std::collections::BTreeSet<BindingId>,
+        guard_scopes: super::guarded_requirements::GuardBodyScopes,
     ) {
         assert!(
             matches!(self.callable, PendingCallable::Provisional(_)),
@@ -1218,7 +1226,7 @@ impl PendingFunctionSig {
             constructor_instances,
             tail_types,
             registered_calls,
-            read_bindings,
+            read_bindings, guard_scopes,
         }));
     }
 }
@@ -1234,6 +1242,7 @@ struct GeneralizedCallable {
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<BindingId>,
+    guard_scopes: super::guarded_requirements::GuardBodyScopes,
 }
 
 #[derive(Clone, Debug)]
@@ -1786,6 +1795,33 @@ struct BoundaryContext {
     in_control_position: bool,
 }
 
+#[derive(Clone, Default)]
+struct CheckerScope {
+    bindings: FxHashMap<Name, Binding>,
+    guard: Option<super::constraints::WrapperOperationId>,
+}
+
+impl std::ops::Deref for CheckerScope {
+    type Target = FxHashMap<Name, Binding>;
+    fn deref(&self) -> &Self::Target { &self.bindings }
+}
+
+impl std::ops::DerefMut for CheckerScope {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.bindings }
+}
+
+impl<'a> IntoIterator for &'a CheckerScope {
+    type Item = (&'a Name, &'a Binding);
+    type IntoIter = std::collections::hash_map::Iter<'a, Name, Binding>;
+    fn into_iter(self) -> Self::IntoIter { self.bindings.iter() }
+}
+
+impl<'a> IntoIterator for &'a mut CheckerScope {
+    type Item = (&'a Name, &'a mut Binding);
+    type IntoIter = std::collections::hash_map::IterMut<'a, Name, Binding>;
+    fn into_iter(self) -> Self::IntoIter { self.bindings.iter_mut() }
+}
+
 #[derive(Clone)]
 pub struct Checker {
     checked_declarations: CheckedDeclarations,
@@ -1830,7 +1866,7 @@ pub struct Checker {
     current_namespace: Option<Name>,
     bundle_root_statements: Option<ArenaRange>,
     bundle_module_keys: Option<Arc<[String]>>,
-    scopes: Vec<FxHashMap<Name, Binding>>,
+    scopes: Vec<CheckerScope>,
     declaration_inference: DeclarationInference,
     recursive_function_components: Vec<Vec<crate::syntax::arena::FunctionDefId>>,
     procs: FxHashMap<Name, FunctionDeclarationId>,
@@ -1854,6 +1890,7 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    guarded_nodes: BTreeMap<Span, super::constraints::WrapperOperationId>,
     binary_operators: BTreeMap<ExprId, CheckedBinaryOperator>,
     stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     projections: BTreeMap<Span, CheckedProjection>,
@@ -2234,7 +2271,7 @@ impl Checker {
             provisional_function_calls: BTreeMap::new(),
             call_instantiations: BTreeMap::new(),
             prepared_function_call_contracts: BTreeMap::new(),
-            scopes: vec![FxHashMap::default()],
+            scopes: vec![CheckerScope::default()],
             declaration_inference: DeclarationInference::default(),
             recursive_function_components: Vec::new(),
             procs: FxHashMap::default(),
@@ -2282,6 +2319,7 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            guarded_nodes: BTreeMap::new(),
             binary_operators: BTreeMap::new(),
             stream_stage_types: BTreeMap::new(),
             projections: BTreeMap::new(),
@@ -2845,8 +2883,21 @@ impl Checker {
         self.scopes.last_mut().expect("checker always has a scope")
     }
 
+    fn record_guarded_node(&mut self, span: Span) {
+        if let Some(guard) = self.scopes.last().and_then(|scope| scope.guard) { self.guarded_nodes.insert(span, guard); }
+        else { self.guarded_nodes.remove(&span); }
+    }
+
+    fn constraint_scope(&self) -> super::constraints::CallableApplicationScope {
+        self.scopes.last().and_then(|scope| scope.guard).map_or_else(
+            || self.stream_origin_owner.map_or(super::constraints::CallableApplicationScope::Invocation, super::constraints::CallableApplicationScope::Declaration),
+            super::constraints::CallableApplicationScope::Guard,
+        )
+    }
+
     pub(crate) fn push_scope(&mut self) {
-        self.scopes.push(FxHashMap::default());
+        let guard = self.scopes.last().and_then(|scope| scope.guard);
+        self.scopes.push(CheckerScope { guard, ..CheckerScope::default() });
     }
 
     pub(crate) fn pop_scope(&mut self) {

@@ -533,6 +533,68 @@ impl ProducerPrefixContext<'_> {
         self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, Some(self), None, charge)
     }
 
+    fn guard_source_binding_path(&self, decoder: &FullDecoder<'_>, source: usize, use_site: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
+        let mut at = source;
+        let mut suffix = Vec::new();
+        for _ in self.evidence.range.clone() {
+            charge(1)?;
+            if let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(at)? {
+                charge(body.len())?;
+                at = decoder.checked_block_tail_expression(&mut body)?;
+                continue;
+            }
+            let Some((slot, mut path)) = decoder.checked_binding_path(at, charge)? else { return Ok(None); };
+            path.extend(suffix);
+            if path.len() > 128 { return Ok(None); }
+            let binding = self.evidence.binding(decoder.store, decoder.owner, at, slot)?;
+            if self.evidence.visible_binding(decoder.store, decoder.owner, use_site, slot)? == Some(binding) {
+                let target = (slot, path);
+                return Ok(self.guard_value_binding_path(decoder, source, use_site, &target, charge)?.filter(|actual| actual == &target));
+            }
+            let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None); };
+            if declared_slot != slot || self.evidence.storage_bindings.contains_key(&binding)
+                || self.evidence.writers.get(&binding).map(Vec::as_slice) != Some(&[declaration][..])
+            { return Ok(None); }
+            let schema::StmtView::Let { value, .. } = decoder.statement_view(declaration)? else { return Ok(None); };
+            at = value.raw() as usize;
+            suffix = path;
+        }
+        Err(IrVerifyError::new("guard source has a cyclic initializer path"))
+    }
+
+    pub(super) fn guarded_nonnull_scope(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("guarded read context disagrees with its owner"));
+        }
+        let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        if self.evidence.binding(decoder.store, decoder.owner, source, target.0)? != binding { return Ok(false); }
+        self.evidence.guarded_path_read_is_narrowed(decoder, instruction, &target, super::super::GuardedReadContract::NonNullRead, binding, Some(self), None, charge)
+    }
+
+    pub(super) fn guarded_nonnull_read(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
+        let Some(read) = self.guard_value_binding_path(decoder, instruction, instruction, &target, charge)? else { return Ok(false); };
+        if read != target { return Ok(false); }
+        self.guarded_nonnull_scope(decoder, instruction, source, charge)
+    }
+
+    pub(super) fn actual_null_comparison(&self, decoder: &FullDecoder<'_>, comparison: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(target) = self.guard_source_binding_path(decoder, source, comparison, charge)? else { return Ok(false); };
+        for outcome in [true, false] {
+            if decoder.checked_condition_proves_nonnull_with_prefix(comparison, outcome, false, comparison, &target, super::super::GuardedReadContract::NonNullRead, super::super::GuardPathStability::MayChange, Some(self), None, charge)? { return Ok(true); }
+        }
+        Ok(false)
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn guarded_record_read_matches_type(&self, decoder: &FullDecoder<'_>,
         instruction: usize, actual: &Type, expected: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
@@ -896,6 +958,13 @@ impl ProducerOwner {
         target: &(usize, Vec<Name>), payload: &Type, binding: ProducerBinding, prefix: Option<&ProducerPrefixContext<'_>>, source: Option<&super::super::GuardedRecordSource<'_>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        self.guarded_path_read_is_narrowed(decoder, instruction, target, super::super::GuardedReadContract::OptionalPayload(payload), binding, prefix, source, charge)
+    }
+
+    fn guarded_path_read_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize,
+        target: &(usize, Vec<Name>), payload: super::super::GuardedReadContract<'_>, binding: ProducerBinding, prefix: Option<&ProducerPrefixContext<'_>>, source: Option<&super::super::GuardedRecordSource<'_>>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         let snapshot = self.binding_path_is_snapshot(decoder, binding, target.0, charge)?;
         let stability = if snapshot { super::super::GuardPathStability::ImmutableSnapshot } else { super::super::GuardPathStability::MayChange };
         let mut active = |parent, child, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| {
@@ -918,7 +987,7 @@ impl ProducerOwner {
                     return decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), instruction, target, charge);
                 };
                 let Some((guard, branch_index, anchor, roots)) = preceding else { return Ok(false) };
-                let key = snapshot.then(|| (self.statement_positions[&anchor].0, guard, branch_index, condition, when_true, is_boolean, binding));
+                let key = (snapshot && matches!(payload, super::super::GuardedReadContract::OptionalPayload(_))).then(|| (self.statement_positions[&anchor].0, guard, branch_index, condition, when_true, is_boolean, binding));
                 if let Some(key) = key {
                     charge(1)?;
                     if let Some(paths) = self.snapshot_predicates.borrow().get(&key) {
@@ -4917,9 +4986,8 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
-                let left_type = self.need_context(&decoder, left.raw() as usize)?;
-                let right_type = self.need_context(&decoder, right.raw() as usize)?;
-                if left_type.is_none() && right_type.is_none()
+                if expected.as_ref() == &Type::Bool
+                    && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))
                     && let (Some(left), Some(right)) = (
                         self.scoped_expression_type(&decoder, left.raw() as usize)?,
                         self.scoped_expression_type(&decoder, right.raw() as usize)?,
@@ -4930,6 +4998,8 @@ impl<'a> ProducerProof<'a> {
                     }
                     return Ok(());
                 }
+                let left_type = self.need_context(&decoder, left.raw() as usize)?;
+                let right_type = self.need_context(&decoder, right.raw() as usize)?;
                 let left_type = left_type.or_else(|| right_type.clone()).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
                 let right_type = right_type.unwrap_or_else(|| Arc::clone(&left_type));
                 self.budget.charge_clone(&left_type)?;

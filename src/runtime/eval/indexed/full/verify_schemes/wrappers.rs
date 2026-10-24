@@ -601,13 +601,13 @@ fn completion_error_join(store: &FullStore, scope: &SchemeScope, contributions: 
 }
 
 pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &SchemeScope, substitution: ApplicationSubstitution<'_>, caller: Option<(&FullScheme, &SchemeScope)>, operation_bindings: &[FullOperationBinding], bindings: &[FullWrapperBinding], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
-    let requirements = bounded(callee.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?;
+    let requirements = bounded(scope.owned_requirements(callee)?.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?;
     if requirements.len() != bindings.len() { return Err(IrVerifyError::new("generic call wrapper binding is incomplete")); }
-    if bounded(callee.operations, &store.scheme_operations, "scheme operation range is invalid")?.len() != operation_bindings.len() { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
+    if bounded(scope.owned_requirements(callee)?.operations, &store.scheme_operations, "scheme operation range is invalid")?.len() != operation_bindings.len() { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
     let mut group_forwarding = BTreeMap::new();
     let mut forwarded_groups = BTreeSet::new();
-    if let Some((caller, _)) = caller {
-        let caller_wrappers = bounded(caller.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?;
+    if let Some((caller, caller_scope)) = caller {
+        let caller_wrappers = bounded(caller_scope.owned_requirements(caller)?.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?;
         for (callee_ordinal, (encoded, binding)) in requirements.iter().zip(bindings).enumerate() {
             let FullWrapper::ProcCompletion { group, .. } = encoded else { continue; };
             if *group as usize != callee_ordinal { return Err(IrVerifyError::new("callee proc completion group ordinal is invalid")); }
@@ -630,7 +630,7 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
             }
             FullWrapperBinding::Forwarded(ordinal) => {
                 let Some((caller, caller_scope)) = caller else { return Err(IrVerifyError::new("forwarded wrapper has no caller owner")); };
-                let required = bounded(caller.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded wrapper ordinal is out of scope"))?;
+                let required = bounded(caller_scope.owned_requirements(caller)?.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded wrapper ordinal is out of scope"))?;
                 let required = decode(store, caller_scope, *required, &ApplicationSubstitution::Identity, budget)?;
                 let mut requirement = requirement;
                 map_forwarded_index_references(store, scope, caller_scope, &mut requirement, &substitution, operation_bindings, bindings, budget)?;
@@ -713,8 +713,8 @@ impl Coverage {
         Ok(())
     }
 
-    pub(super) fn owner(&mut self, store: &FullStore, scheme: &FullScheme, scope: &SchemeScope, owner: usize, effects: &mut effects::EffectCoverage) -> Result<(), IrVerifyError> {
-        for (ordinal, requirement) in mark_range(scheme.wrappers, &store.scheme_wrappers, &mut self.requirements, "scheme wrapper range is invalid or overlaps")?.iter().enumerate() {
+    pub(super) fn owner(&mut self, store: &FullStore, range: super::IrRange, scope: &SchemeScope, owner: usize, effects: &mut effects::EffectCoverage) -> Result<(), IrVerifyError> {
+        for (ordinal, requirement) in mark_range(range, &store.scheme_wrappers, &mut self.requirements, "scheme wrapper range is invalid or overlaps")?.iter().enumerate() {
             match *requirement {
                 FullWrapper::Field { detail, .. } => {
                     Self::detail(&mut self.fields, detail)?;
@@ -946,7 +946,7 @@ impl BinderProjections {
 }
 
 pub(super) fn binder_projections(store: &FullStore, scheme: &FullScheme, scope: &SchemeScope, substitution: &ApplicationSubstitution<'_>, budget: &mut SchemeInstantiationBudget) -> Result<BinderProjections, IrVerifyError> {
-    let wrappers = bounded(scheme.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?;
+    let wrappers = bounded(scope.owned_requirements(scheme)?.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?;
     let mut dynamic = BTreeSet::new();
     if wrappers.is_empty() { return Ok(BinderProjections::Static); }
     match substitution {

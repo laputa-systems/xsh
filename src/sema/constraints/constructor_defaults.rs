@@ -123,6 +123,7 @@ impl TypeConstraints {
             let supported = match owner {
                 CallableApplicationScope::Declaration(owner) => constraints.input_bound_variables(owner, component, inputs)?,
                 CallableApplicationScope::Invocation => super::input_support::UnresolvedVariables::default(),
+                CallableApplicationScope::Guard(_) => return Err(ConstraintResolutionError::ForeignVariable.into()),
             };
             for (id, entry) in entries {
                 constraints.counters.occurs_visits.fetch_add(1, Ordering::Relaxed);

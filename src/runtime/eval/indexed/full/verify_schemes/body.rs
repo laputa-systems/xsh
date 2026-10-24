@@ -1025,6 +1025,8 @@ pub(super) fn verify_body(
                 if !application_returns.insert(instruction) { return Err(IrVerifyError::new("application return is duplicated")); }
             }
             Obligation::Expression(instruction, scope) => {
+                let active_scheme_scope = scheme_scope.at_instruction(instruction)?;
+                let scheme_scope = &active_scheme_scope;
                 budget.charge(1)?;
                 expression_scopes.insert(instruction, scope);
                 let completion_only = noncompleting.contains(&instruction);
@@ -1535,6 +1537,8 @@ pub(super) fn verify_body(
                     if value_contract.is_some() { return Err(IrVerifyError::new("generic value block has no terminal value")); }
                     continue;
                 };
+                let active_scheme_scope = scheme_scope.at_instruction(instruction)?;
+                let scheme_scope = &active_scheme_scope;
                 if !visited_statements.insert(instruction) { return Err(IrVerifyError::new("generic statement is shared or cyclic")); }
                 let mut expressions = Vec::new();
                 let mut nested = Vec::new();
@@ -6449,6 +6453,102 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
                 && fact.kind() == if instruction == declaration { FullSchemeBodyFactKind::LocalImmutable } else { FullSchemeBodyFactKind::Expression }
         }).unwrap());
         (facts, source_slot, generated_slot)
+    }
+
+    #[test]
+    fn guarded_requirements_authenticate_sources_polarity_scope_and_absence() {
+        let mut program = prepare(r#"
+pure selected(value, other) -> Str {
+    let _ = other
+    let _ = value != null
+    if value == null { "absent" } else { f"{value}" }
+}
+proc observe() -> Result[Unit] {
+    let present: Str? = "present"
+    assert selected("plain", 7) == "plain"
+    assert selected(present, 7) == "present"
+    assert selected(null, 7) == "absent"
+    Ok()
+}
+observe()?
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { panic!("selected retains its inferred source contract") };
+        let scheme = *program.store.scheme(scheme_id).unwrap();
+        let guards = scheme.guards.bounds(program.store.scheme_guards.len()).unwrap();
+        assert_eq!(guards.len(), 1);
+        let guard = program.store.scheme_guards[guards.start];
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut comparison = guard.comparison_instruction as usize;
+        for _ in program.store.function_instruction_range(owner).unwrap() {
+            match decoder.expression_view(comparison).unwrap() {
+                schema::ExprView::ValueBlock { mut body, .. } => comparison = decoder.checked_block_tail_expression(&mut body).unwrap(),
+                schema::ExprView::Param(slot) => {
+                    let initializers = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.statement_view(instruction) {
+                        Ok(schema::StmtView::Let { slot: declared, value, .. }) if declared == slot => Some(value.raw() as usize),
+                        _ => None,
+                    }).collect::<Vec<_>>();
+                    assert_eq!(initializers.len(), 1);
+                    comparison = initializers[0];
+                },
+                schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq, .. } => break,
+                _ => panic!("the actual condition retains its null equality"),
+            }
+        }
+        assert!(matches!(decoder.expression_view(comparison).unwrap(), schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq, .. }));
+        let comparison_words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let before = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let before_type = program.store.scheme_body_facts.iter().find(|fact| fact.function.index() == owner && fact.instruction as usize == before && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))).unwrap().ty().unwrap();
+        let source_node = program.store.scheme_types[guard.source.index()];
+        let other_node = program.store.scheme_types[before_type.index()];
+        assert_eq!(source_node.tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(other_node.tag, FullSchemeTypeTag::Parameter);
+        assert_ne!(source_node.first, other_node.first);
+        let cold = || { let changed = program.clone(); assert!(changed.store.in_place.get().is_none()); changed };
+        let rejects = |label, changed: FullProgram, expected: &str| {
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert_eq!(error.message, expected, "{label}: {error:?}");
+        };
+        let mut polarity = cold();
+        let unequal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Ne).unwrap();
+        polarity.store.extra[comparison_words.start] = unequal as u32;
+        rejects("the opposite guard branch cannot own the payload", polarity, "guard-local body fact has no dominating non-null source proof");
+        let mut source = cold();
+        source.store.scheme_guards[guards.start].source_instruction = before as u32;
+        source.store.scheme_types[guard.source.index()] = other_node;
+        rejects("another binding cannot supply this guard", source, "guard comparison does not test its actual source for null");
+        let mut before_guard = cold();
+        let mut all_facts = Vec::new();
+        for index in 0..before_guard.store.schemes.len() {
+            let row = before_guard.store.schemes[index];
+            let mut facts = program.store.scheme_body_facts[row.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap()].to_vec();
+            if index == scheme_id.index() {
+                assert!(!facts.iter().any(|fact| fact.instruction as usize == before && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::GuardScope(_))));
+                facts.push(super::super::super::schemes::FullSchemeBodyFact { instruction: before as u32, function: IrFunctionId::new(owner).unwrap(), value: super::super::super::schemes::FullSchemeBodyFactValue::GuardScope(guard.id) });
+                facts.sort_by_key(|fact| (fact.instruction, fact.kind() as u8));
+            }
+            let start = all_facts.len();
+            all_facts.extend(facts);
+            before_guard.store.schemes[index].body_facts = super::super::super::IrRange { start: start as u32, len: (all_facts.len() - start) as u32 };
+        }
+        before_guard.store.scheme_body_facts = all_facts;
+        rejects("a read before the condition cannot claim guarded scope", before_guard, "guard-local body fact has no dominating non-null source proof");
+        let mut absent = cold();
+        let live = absent.store.call_guard_bindings.iter().position(|binding| matches!(binding, super::super::super::guard_schemes::FullGuardBinding::NonNull(_))).unwrap();
+        let null = absent.store.call_guard_bindings.iter().position(|binding| matches!(binding, super::super::super::guard_schemes::FullGuardBinding::Null)).unwrap();
+        absent.store.call_guard_bindings.swap(live, null);
+        rejects("Null absence cannot be a live payload packet", absent, "guard call binding disagrees with its actual source classification");
+        let mut escaped = cold();
+        assert_eq!(escaped.store.scheme_types[guard.view.index()].tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(escaped.store.scheme_types[scheme.return_type.index()].tag, FullSchemeTypeTag::Ground);
+        escaped.store.scheme_types.swap(guard.view.index(), scheme.return_type.index());
+        rejects("a local payload cannot escape as the root return", escaped, "guard-local binder is outside its active scope");
     }
 
     #[test]

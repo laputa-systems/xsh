@@ -47,13 +47,10 @@ impl EffectCoverage {
         }
     }
 
-    pub(super) fn scope(
-        &mut self, store: &FullStore, range: super::IrRange,
-    ) -> Result<EffectScope, IrVerifyError> {
+    pub(super) fn parameter_rows(&mut self, store: &FullStore, range: super::IrRange) -> Result<Vec<FullEffectParameter>, IrVerifyError> {
         self.budget.charge(range.len as usize)?;
-        let parameters = mark_range(range, &store.scheme_effect_parameters, &mut self.parameters,
-            "scheme effect parameter range is invalid or overlaps")?.to_vec();
-        EffectScope::new(parameters)
+        Ok(mark_range(range, &store.scheme_effect_parameters, &mut self.parameters,
+            "scheme effect parameter range is invalid or overlaps")?.to_vec())
     }
 
     pub(super) fn contract(
@@ -131,22 +128,35 @@ pub(super) fn decode_contract(
     store: &FullStore, scope: &SchemeScope, contract: FullEffectContract, budget: &mut SchemeInstantiationBudget,
 ) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
     map_contract(store, contract, budget, |ordinal, _| {
+        scope.check_effect_binder(ordinal)?;
         let parameter = scope.effects.parameters.get(ordinal)
             .ok_or_else(|| IrVerifyError::new("scheme effect parameter is out of scope"))?;
         Ok(EffectContract::variable(SchemeEffectParameterId(parameter.id)))
     })
 }
 
-pub(super) fn instantiate_contract(
-    store: &FullStore, contract: FullEffectContract,
-    substitutions: &[EffectContract<SchemeEffectParameterId>], budget: &mut SchemeInstantiationBudget,
+pub(super) fn instantiate_prepared_contract(
+    store: &FullStore, contract: FullEffectContract, substitution: &super::CallSubstitution,
+    budget: &mut SchemeInstantiationBudget,
 ) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
     map_contract(store, contract, budget, |ordinal, budget| {
-        let replacement = substitutions.get(ordinal)
-            .ok_or_else(|| IrVerifyError::new("generic call effect substitution is incomplete"))?;
-        if let EffectContract::Known(expression) = replacement {
-            budget.charge(expression.variables().count())?;
-        }
+        let replacement = substitution.effect_argument(ordinal).ok_or_else(|| IrVerifyError::new("generic call effect substitution is incomplete"))?;
+        if let EffectContract::Known(expression) = replacement { budget.charge(expression.variables().count())?; }
+        Ok(replacement.clone())
+    })
+}
+
+pub(super) fn substitute_prepared_contract(
+    contract: &EffectContract<SchemeEffectParameterId>, scope: &SchemeScope,
+    substitution: &super::CallSubstitution, budget: &mut SchemeInstantiationBudget,
+) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
+    budget.charge(1)?;
+    contract.substitute(|parameter| {
+        budget.charge(1)?;
+        let &binder = scope.effects.binders.get(&parameter.0).ok_or_else(|| IrVerifyError::new("scheme substitution effect binder is out of scope"))?;
+        scope.check_effect_binder(binder)?;
+        let replacement = substitution.effect_argument(binder).ok_or_else(|| IrVerifyError::new("generic call effect substitution is incomplete"))?;
+        if let EffectContract::Known(expression) = replacement { budget.charge(expression.variables().count())?; }
         Ok(replacement.clone())
     })
 }
@@ -215,17 +225,19 @@ pub(super) fn build_substitution(
     store: &FullStore, callee_scope: &SchemeScope, caller_scope: Option<&SchemeScope>,
     arguments: &[super::super::schemes::FullEffectArgument], budget: &mut SchemeInstantiationBudget,
 ) -> Result<Vec<EffectContract<SchemeEffectParameterId>>, IrVerifyError> {
-    budget.charge(callee_scope.effects.parameters.len())?;
-    let mut substitutions = vec![None; callee_scope.effects.parameters.len()];
+    let pack = callee_scope.binding_pack()?.effects;
+    budget.charge(pack.len())?;
+    let mut substitutions = vec![None; pack.len()];
     for argument in arguments {
         budget.charge(1)?;
         let &binder = callee_scope.effects.binders.get(&argument.binder)
             .ok_or_else(|| IrVerifyError::new("generic call effect binder is out of scope"))?;
+        if !pack.contains(&binder) { return Err(IrVerifyError::new("generic call effect binder belongs to another scope")); }
         if caller_scope.is_none() && argument.expression.terms.len != 0 {
             return Err(IrVerifyError::new("ground generic call carries symbolic effect arguments"));
         }
         let contract = decode_contract(store, caller_scope.unwrap_or(callee_scope), argument.expression, budget)?;
-        if substitutions[binder].replace(contract).is_some() {
+        if substitutions[binder - pack.start].replace(contract).is_some() {
             return Err(IrVerifyError::new("generic call effect binder is duplicated"));
         }
     }
@@ -249,6 +261,23 @@ pub(super) fn substitute_contract(
         }
         Ok(replacement.clone())
     })
+}
+
+pub(super) fn verify_prepared_predicates(
+    store: &FullStore, scope: &SchemeScope, root: &super::FullScheme,
+    substitution: &super::CallSubstitution, budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    for encoded in bounded(scope.owned_requirements(root)?.effect_predicates, &store.scheme_effect_predicates, "guard effect predicate range is invalid")? {
+        budget.charge(1)?;
+        let predicate = decode_predicate(store, scope, *encoded, budget)?
+            .try_map_contracts(|contract| substitute_prepared_contract(contract, scope, substitution, budget))?;
+        match predicate.satisfaction() {
+            Some(true) => {},
+            Some(false) => return Err(IrVerifyError::new("guard call effect predicate is not satisfied")),
+            None => return Err(IrVerifyError::new("live guard call effect predicate remains unresolved")),
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn verify_predicates(
@@ -481,13 +510,15 @@ mod tests {
         let callee = SchemeEffectParameterId(17);
         let caller = SchemeEffectParameterId(29);
         let scope = |id: SchemeEffectParameterId| SchemeScope {
-            operations: IrRange::default(),
+            applications: IrRange::default(),
+        operations: IrRange::default(),
             methods: IrRange::default(),
             wrappers: IrRange::default(),
-            type_parameters: Vec::new(), row_parameters: Vec::new(),
+            bindings: std::sync::Arc::new(super::super::SchemeBinders {type_parameters: Vec::new(), row_parameters: Vec::new(),
             type_binders: BTreeMap::new(), row_binders: BTreeMap::new(), row_lacks: Vec::new(),
             effects: EffectScope::new(vec![FullEffectParameter { id: id.0, binder: 0 }]).unwrap(),
-        };
+        }), guards: Default::default(), active_guard: None,
+};
         let callee_scope = scope(callee);
         let caller_scope = scope(caller);
         let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
@@ -525,13 +556,15 @@ mod tests {
             .union(EffectContract::finite(EffectSet::singleton(Effect::Env)));
         let encoded = builder.intern_effect_contract(&expression, &BTreeMap::from([(parameter, 0)])).unwrap();
         let scope = SchemeScope {
-            operations: IrRange::default(),
+            applications: IrRange::default(),
+        operations: IrRange::default(),
             methods: IrRange::default(),
             wrappers: IrRange::default(),
-            type_parameters: Vec::new(), row_parameters: Vec::new(),
+            bindings: std::sync::Arc::new(super::super::SchemeBinders {type_parameters: Vec::new(), row_parameters: Vec::new(),
             type_binders: BTreeMap::new(), row_binders: BTreeMap::new(), row_lacks: Vec::new(),
             effects: EffectScope::new(vec![FullEffectParameter { id: parameter.0, binder: 0 }]).unwrap(),
-        };
+        }), guards: Default::default(), active_guard: None,
+};
         let decode = |store: &FullStore, contract| decode_contract(store, &scope, contract, &mut SchemeInstantiationBudget::new(store));
         assert_eq!(decode(&builder.store, encoded).unwrap(), expression);
         assert!(encoded.concrete(&builder.store).is_err());

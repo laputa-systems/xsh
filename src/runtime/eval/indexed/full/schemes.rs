@@ -89,6 +89,7 @@ pub(super) enum FullSchemeBodyFactKind {
     EmptyMap,
     RecordProducer,
     NoCompletion,
+    GuardScope,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,10 +108,25 @@ pub(super) struct FullScheme {
     pub(super) methods: IrRange,
     pub(super) wrappers: IrRange,
     pub(super) body_facts: IrRange,
+    pub(super) guards: IrRange,
     pub(super) callable_kind: crate::sema::types::CallableKind,
     pub(super) explicit_return: bool,
     pub(super) inferred_effects: bool,
     pub(super) reserved: [u8; 3],
+}
+
+pub(super) struct FullRequirementRanges {
+    pub(super) effect_predicates: IrRange,
+    pub(super) applications: IrRange,
+    pub(super) operations: IrRange,
+    pub(super) methods: IrRange,
+    pub(super) wrappers: IrRange,
+}
+
+pub(super) struct FullBinderRanges {
+    pub(super) types: IrRange,
+    pub(super) rows: IrRange,
+    pub(super) effects: IrRange,
 }
 
 impl FullScheme {
@@ -121,7 +137,7 @@ impl FullScheme {
             .ok_or_else(|| super::IrVerifyError::new("generic callable row binder range is invalid"))?;
         let effects = self.effect_parameters.bounds(store.scheme_effect_parameters.len())
             .ok_or_else(|| super::IrVerifyError::new("generic callable effect binder range is invalid"))?;
-        Ok(!types.is_empty() || !rows.is_empty() || !effects.is_empty())
+        Ok(!types.is_empty() || !rows.is_empty() || !effects.is_empty() || self.guards.len != 0)
     }
 }
 
@@ -472,6 +488,7 @@ pub(super) struct FullInstantiation {
     pub(super) operation_bindings: IrRange,
     pub(super) method_bindings: IrRange,
     pub(super) wrapper_bindings: IrRange,
+    pub(super) guard_bindings: IrRange,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -649,6 +666,7 @@ pub(super) enum FullSchemeBodyFactValue {
     EmptyMap,
     RecordProducer,
     NoCompletion,
+    GuardScope(u32),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -675,6 +693,7 @@ impl FullSchemeBodyFact {
             FullSchemeBodyFactValue::EmptyMap => FullSchemeBodyFactKind::EmptyMap,
             FullSchemeBodyFactValue::RecordProducer => FullSchemeBodyFactKind::RecordProducer,
             FullSchemeBodyFactValue::NoCompletion => FullSchemeBodyFactKind::NoCompletion,
+            FullSchemeBodyFactValue::GuardScope(_) => FullSchemeBodyFactKind::GuardScope,
         }
     }
 
@@ -685,7 +704,7 @@ impl FullSchemeBodyFact {
             FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::NoCompletion
             | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_)
             | FullSchemeBodyFactValue::CompletionLiftedValue(_) | FullSchemeBodyFactValue::CompletionReturnedResult(_)
-            | FullSchemeBodyFactValue::CompletionAuthoredOk(_) | FullSchemeBodyFactValue::CompletionAuthoredErr(_) => None,
+            | FullSchemeBodyFactValue::CompletionAuthoredOk(_) | FullSchemeBodyFactValue::CompletionAuthoredErr(_) | FullSchemeBodyFactValue::GuardScope(_) => None,
         }
     }
 
@@ -789,7 +808,7 @@ impl FullBuilder {
         &mut self,
         scheme: &TypeScheme,
     ) -> Result<FullSchemeId, IrBuildError> {
-        let type_parameters = scheme
+        let mut type_parameters = scheme
             .type_parameters()
             .iter()
             .copied()
@@ -800,7 +819,7 @@ impl FullBuilder {
                 })?))
             })
             .collect::<Result<BTreeMap<_, _>, IrBuildError>>()?;
-        let row_parameters = scheme
+        let mut row_parameters = scheme
             .row_parameters()
             .iter()
             .enumerate()
@@ -814,64 +833,11 @@ impl FullBuilder {
             })
             .collect::<Result<BTreeMap<_, _>, IrBuildError>>()?;
 
-        let effect_parameters = scheme.callable().requirements().effect_parameters.iter().copied().enumerate()
+        let mut effect_parameters = scheme.callable().requirements().effect_parameters.iter().copied().enumerate()
             .map(|(binder, id)| Ok((id, u32::try_from(binder).map_err(|_| IrBuildError::format("scheme_effect_binder_overflow", None, 0, 0))?)))
             .collect::<Result<BTreeMap<_, _>, IrBuildError>>()?;
-        let effect_parameters_start = self.store.scheme_effect_parameters.len();
-        for &id in &scheme.callable().requirements().effect_parameters {
-            self.store.scheme_effect_parameters.push(FullEffectParameter { id: id.0, binder: effect_parameters[&id] });
-        }
-        let effect_parameters_range = super::table_range(effect_parameters_start, self.store.scheme_effect_parameters.len())?;
-        let type_parameters_start = self.store.scheme_type_parameters.len();
-        for (binder, id) in scheme.type_parameters().iter().copied().enumerate() {
-            let iteration = scheme.callable().requirements().iteration_parameters.get(&id).map(|iteration| {
-                let item = self.intern_scheme_type(&iteration.item, &type_parameters, &row_parameters, &effect_parameters)?;
-                let policy = iteration.policy.try_map(|error| self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters))?;
-                Ok::<_, IrBuildError>(crate::sema::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind })
-            }).transpose()?;
-            self.store.scheme_type_parameters.push(FullSchemeTypeParameter {
-                id: id.0,
-                binder: u32::try_from(binder).map_err(|_| {
-                    IrBuildError::format("scheme_type_binder_overflow", None, 0, 0)
-                })?,
-                iteration_item: iteration.map_or(IR_NONE, |iteration| iteration.item.raw()),
-                iteration_error: iteration.as_ref().and_then(|iteration| iteration.policy.error()).map_or(IR_NONE, |error| error.raw()),
-                iteration_source_kind: iteration.as_ref().map_or(crate::sema::schemes::IterationSourceKind::Direct, |iteration| iteration.source_kind),
-                iteration_policy: iteration.as_ref().map_or(FullIterationPolicy::IterableInfallible, |iteration| FullIterationPolicy::from_policy(&iteration.policy)) as u8,
-                map_key: scheme.callable().requirements().map_key_parameters.contains(&id),
-                conversions: scheme.callable().requirements().conversion_parameters.get(&id).copied().unwrap_or_default().bits(),
-            });
-        }
-        let type_parameters_range = super::table_range(
-            type_parameters_start,
-            self.store.scheme_type_parameters.len(),
-        )?;
-
-        let row_parameters_start = self.store.scheme_row_parameters.len();
-        for (binder, parameter) in scheme.row_parameters().iter().enumerate() {
-            let lacks_start = self.store.scheme_row_lacks.len();
-            let mut lacks = parameter
-                .lacks
-                .iter()
-                .copied()
-                .collect::<Vec<_>>();
-            lacks.sort_by(|left, right| left.as_str().as_str().cmp(right.as_str().as_str()));
-            for name in lacks {
-                let name = self.intern_string(name.as_str().as_str())?.raw();
-                self.store.scheme_row_lacks.push(name);
-            }
-            self.store.scheme_row_parameters.push(FullSchemeRowParameter {
-                id: parameter.id.0,
-                binder: u32::try_from(binder).map_err(|_| {
-                    IrBuildError::format("scheme_row_binder_overflow", None, 0, 0)
-                })?,
-                lacks: super::table_range(lacks_start, self.store.scheme_row_lacks.len())?,
-            });
-        }
-        let row_parameters_range = super::table_range(
-            row_parameters_start,
-            self.store.scheme_row_parameters.len(),
-        )?;
+        self.extend_guard_parameter_maps(&scheme.callable().requirements().guards, &mut type_parameters, &mut row_parameters, &mut effect_parameters)?;
+        let FullBinderRanges { types: type_parameters_range, rows: row_parameters_range, effects: effect_parameters_range } = self.intern_scheme_binders(scheme.type_parameters(), scheme.row_parameters(), scheme.callable().requirements(), &type_parameters, &row_parameters, &effect_parameters)?;
 
         let params_start = self.store.scheme_params.len();
         for parameter in scheme.params() {
@@ -898,14 +864,100 @@ impl FullBuilder {
             .map(|expectation| self.intern_scheme_schema(expectation, &type_parameters, &row_parameters, &effect_parameters))
             .transpose()?;
         let effects = self.intern_effect_contract(scheme.effects().contract(), &effect_parameters)?;
+        let FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers } = self.intern_requirement_tables(scheme.callable().requirements(), &type_parameters, &row_parameters, &effect_parameters)?;
+        let guards = self.intern_guard_scopes(&scheme.callable().requirements().guards, &type_parameters, &row_parameters, &effect_parameters)?;
+        let callable_kind = scheme.kind();
+        let id = FullSchemeId::new(self.store.schemes.len())?;
+        self.store.schemes.push(FullScheme {
+            type_parameters: type_parameters_range,
+            row_parameters: row_parameters_range,
+            effect_parameters: effect_parameters_range,
+            params,
+            return_type,
+            return_schema,
+            effects,
+            effect_predicates,
+            applications, operations, methods, wrappers,
+            body_facts: IrRange::default(), guards,
+            callable_kind,
+            explicit_return: scheme.explicit_return(),
+            inferred_effects: scheme.inferred_effects(),
+            reserved: [0; 3],
+        });
+        Ok(id)
+    }
+
+    pub(super) fn intern_scheme_binders(
+        &mut self, type_ids: &[SchemeTypeParameterId], row_ids: &[crate::sema::schemes::SchemeRowParameter], requirements: &crate::sema::schemes::CallableRequirements,
+        type_parameters: &BTreeMap<SchemeTypeParameterId, u32>, row_parameters: &BTreeMap<SchemeRowParameterId, u32>, effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
+    ) -> Result<FullBinderRanges, IrBuildError> {
+        let effect_parameters_start = self.store.scheme_effect_parameters.len();
+        for &id in &requirements.effect_parameters {
+            self.store.scheme_effect_parameters.push(FullEffectParameter { id: id.0, binder: effect_parameters[&id] });
+        }
+        let effect_parameters_range = super::table_range(effect_parameters_start, self.store.scheme_effect_parameters.len())?;
+        let type_parameters_start = self.store.scheme_type_parameters.len();
+        for id in type_ids.iter().copied() {
+            let iteration = requirements.iteration_parameters.get(&id).map(|iteration| {
+                let item = self.intern_scheme_type(&iteration.item, &type_parameters, &row_parameters, &effect_parameters)?;
+                let policy = iteration.policy.try_map(|error| self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters))?;
+                Ok::<_, IrBuildError>(crate::sema::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind })
+            }).transpose()?;
+            self.store.scheme_type_parameters.push(FullSchemeTypeParameter {
+                id: id.0,
+                binder: type_parameters[&id],
+                iteration_item: iteration.map_or(IR_NONE, |iteration| iteration.item.raw()),
+                iteration_error: iteration.as_ref().and_then(|iteration| iteration.policy.error()).map_or(IR_NONE, |error| error.raw()),
+                iteration_source_kind: iteration.as_ref().map_or(crate::sema::schemes::IterationSourceKind::Direct, |iteration| iteration.source_kind),
+                iteration_policy: iteration.as_ref().map_or(FullIterationPolicy::IterableInfallible, |iteration| FullIterationPolicy::from_policy(&iteration.policy)) as u8,
+                map_key: requirements.map_key_parameters.contains(&id),
+                conversions: requirements.conversion_parameters.get(&id).copied().unwrap_or_default().bits(),
+            });
+        }
+        let type_parameters_range = super::table_range(
+            type_parameters_start,
+            self.store.scheme_type_parameters.len(),
+        )?;
+
+        let row_parameters_start = self.store.scheme_row_parameters.len();
+        for parameter in row_ids {
+            let lacks_start = self.store.scheme_row_lacks.len();
+            let mut lacks = parameter
+                .lacks
+                .iter()
+                .copied()
+                .collect::<Vec<_>>();
+            lacks.sort_by(|left, right| left.as_str().as_str().cmp(right.as_str().as_str()));
+            for name in lacks {
+                let name = self.intern_string(name.as_str().as_str())?.raw();
+                self.store.scheme_row_lacks.push(name);
+            }
+            self.store.scheme_row_parameters.push(FullSchemeRowParameter {
+                id: parameter.id.0,
+                binder: row_parameters[&parameter.id],
+                lacks: super::table_range(lacks_start, self.store.scheme_row_lacks.len())?,
+            });
+        }
+        let row_parameters_range = super::table_range(
+            row_parameters_start,
+            self.store.scheme_row_parameters.len(),
+        )?;
+
+        Ok(FullBinderRanges { types: type_parameters_range, rows: row_parameters_range, effects: effect_parameters_range })
+    }
+
+    pub(super) fn intern_requirement_tables(
+        &mut self, requirements: &crate::sema::schemes::CallableRequirements,
+        type_parameters: &BTreeMap<SchemeTypeParameterId, u32>, row_parameters: &BTreeMap<SchemeRowParameterId, u32>, effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
+    ) -> Result<FullRequirementRanges, IrBuildError> {
         let effect_predicates_start = self.store.scheme_effect_predicates.len();
-        for predicate in &scheme.callable().requirements().effect_predicates {
+        for predicate in &requirements.effect_predicates {
             let predicate = self.intern_effect_predicate(predicate, &effect_parameters)?;
             self.store.scheme_effect_predicates.push(predicate);
         }
         let effect_predicates = super::table_range(effect_predicates_start, self.store.scheme_effect_predicates.len())?;
         let mut applications = Vec::new();
-        for application in &scheme.callable().requirements().applications {
+        for application in &requirements.applications {
             if let crate::sema::callable_application::CallableApplication::KnownArguments(application) = application {
                 let mut parameters = Vec::new();
                 for parameter in application.parameters.iter() {
@@ -974,7 +1026,7 @@ impl FullBuilder {
         self.store.scheme_applications.extend(applications);
         let applications = super::table_range(applications_start, self.store.scheme_applications.len())?;
         let operations_start = self.store.scheme_operations.len();
-        for operation in &scheme.callable().requirements().operations {
+        for operation in &requirements.operations {
             let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
             let encoded = match operation {
                 crate::sema::sealed_operation::SealedOperation::Membership { needle, container, .. } => FullSealedOperation::Membership { needle, container },
@@ -994,7 +1046,7 @@ impl FullBuilder {
         }
         let operations = super::table_range(operations_start, self.store.scheme_operations.len())?;
         let methods_start = self.store.scheme_methods.len();
-        for method in &scheme.callable().requirements().methods {
+        for method in &requirements.methods {
             let receiver = self.intern_scheme_type(&method.receiver, &type_parameters, &row_parameters, &effect_parameters)?;
             let result = self.intern_scheme_type(&method.result, &type_parameters, &row_parameters, &effect_parameters)?;
             let argument_slots_start = self.store.scheme_method_slots.len();
@@ -1017,31 +1069,13 @@ impl FullBuilder {
         }
         let methods = super::table_range(methods_start, self.store.scheme_methods.len())?;
         let wrappers_start = self.store.scheme_wrappers.len();
-        for (ordinal, requirement) in scheme.callable().requirements().wrappers.iter().enumerate() {
+        for (ordinal, requirement) in requirements.wrappers.iter().enumerate() {
             let ordinal = u32::try_from(ordinal).map_err(|_| IrBuildError::format("wrapper_group_overflow", None, 0, ordinal))?;
             let encoded = self.intern_wrapper(requirement, ordinal, &type_parameters, &row_parameters, &effect_parameters)?;
             self.store.scheme_wrappers.push(encoded);
         }
         let wrappers = super::table_range(wrappers_start, self.store.scheme_wrappers.len())?;
-        let callable_kind = scheme.kind();
-        let id = FullSchemeId::new(self.store.schemes.len())?;
-        self.store.schemes.push(FullScheme {
-            type_parameters: type_parameters_range,
-            row_parameters: row_parameters_range,
-            effect_parameters: effect_parameters_range,
-            params,
-            return_type,
-            return_schema,
-            effects,
-            effect_predicates,
-            applications, operations, methods, wrappers,
-            body_facts: IrRange::default(),
-            callable_kind,
-            explicit_return: scheme.explicit_return(),
-            inferred_effects: scheme.inferred_effects(),
-            reserved: [0; 3],
-        });
-        Ok(id)
+        Ok(FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers })
     }
 
     pub(in crate::runtime::eval) fn record_call_instantiation(
@@ -1156,9 +1190,10 @@ impl FullBuilder {
         let wrappers_start = self.store.call_wrapper_bindings.len();
         self.store.call_wrapper_bindings.extend(instantiation.wrapper_bindings().iter().copied());
         let wrapper_bindings = super::table_range(wrappers_start, self.store.call_wrapper_bindings.len())?;
+        let guard_bindings = self.encode_guard_bindings(instantiation.guard_bindings())?;
         Ok(FullInstantiation {
             type_arguments, row_arguments, effect_arguments,
-            application_bindings, operation_bindings, method_bindings, wrapper_bindings,
+            application_bindings, operation_bindings, method_bindings, wrapper_bindings, guard_bindings,
         })
     }
 
@@ -1183,7 +1218,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::NoCompletion | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::NoCompletion | FullSchemeBodyFactKind::GuardScope | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
@@ -1791,10 +1826,17 @@ impl FullBuilder {
             .type_parameters
             .bounds(self.store.scheme_type_parameters.len())
             .ok_or_else(|| IrBuildError::format("scheme_type_parameters", None, 0, 0))?;
-        Ok(self.store.scheme_type_parameters[rows]
+        let mut parameters = self.store.scheme_type_parameters[rows]
             .iter()
             .map(|parameter| (SchemeTypeParameterId(parameter.id), parameter.binder))
-            .collect())
+            .collect::<BTreeMap<_, _>>();
+        for guard in self.store.scheme_guards[record.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrBuildError::format("scheme_guard_range", None, 0, scheme.index()))?].iter() {
+            let range = guard.type_parameters.bounds(self.store.scheme_type_parameters.len()).ok_or_else(|| IrBuildError::format("scheme_guard_binders", None, 0, scheme.index()))?;
+            for parameter in &self.store.scheme_type_parameters[range] {
+                if parameters.insert(SchemeTypeParameterId(parameter.id), parameter.binder).is_some() { return Err(IrBuildError::format("scheme_guard_duplicate_binder", None, 0, scheme.index())); }
+            }
+        }
+        Ok(parameters)
     }
 
     pub(super) fn scheme_row_parameter_map(
@@ -1810,10 +1852,17 @@ impl FullBuilder {
             .row_parameters
             .bounds(self.store.scheme_row_parameters.len())
             .ok_or_else(|| IrBuildError::format("scheme_row_parameters", None, 0, 0))?;
-        Ok(self.store.scheme_row_parameters[rows]
+        let mut parameters = self.store.scheme_row_parameters[rows]
             .iter()
             .map(|parameter| (SchemeRowParameterId(parameter.id), parameter.binder))
-            .collect())
+            .collect::<BTreeMap<_, _>>();
+        for guard in self.store.scheme_guards[record.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrBuildError::format("scheme_guard_range", None, 0, scheme.index()))?].iter() {
+            let range = guard.row_parameters.bounds(self.store.scheme_row_parameters.len()).ok_or_else(|| IrBuildError::format("scheme_guard_binders", None, 0, scheme.index()))?;
+            for parameter in &self.store.scheme_row_parameters[range] {
+                if parameters.insert(SchemeRowParameterId(parameter.id), parameter.binder).is_some() { return Err(IrBuildError::format("scheme_guard_duplicate_binder", None, 0, scheme.index())); }
+            }
+        }
+        Ok(parameters)
     }
 
     fn intern_row_evidence(

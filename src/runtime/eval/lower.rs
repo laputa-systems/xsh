@@ -3661,7 +3661,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(body)
     }
 
+    fn record_scheme_guard_rows(&mut self, scope: Option<crate::sema::guarded_requirements::GuardScopeId>, start: (usize, usize)) {
+        let Some(scope) = scope else { return; };
+        let mut scratch = self.scratch.borrow_mut();
+        for instruction in start.0..scratch.expressions.len() { scratch.scheme_guards.expressions.entry(instruction).or_insert(scope); }
+        for instruction in start.1..scratch.statements.len() { scratch.scheme_guards.statements.entry(instruction).or_insert(scope); }
+    }
+
     fn lower_scheme_statement(
+        &mut self, statement: StmtId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<()> {
+        let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
+        let result = self.lower_scheme_statement_inner(statement, slots, current_function, facts, visited, lowered_types, body);
+        self.record_scheme_guard_rows(facts.guard_scopes().statements.get(&statement).copied(), start);
+        result
+    }
+
+    fn lower_scheme_statement_inner(
         &mut self, statement: StmtId, slots: &mut SlotScope, current_function: Name,
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
@@ -4666,6 +4684,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn lower_scheme_expression(
+        &mut self,
+        expression: ExprId,
+        slots: &mut SlotScope,
+        current_function: Name,
+        facts: &SchemeBodyFacts,
+        visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+        body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
+        let result = self.lower_scheme_expression_inner(expression, slots, current_function, facts, visited, lowered_types, body);
+        self.record_scheme_guard_rows(facts.guard_scopes().expressions.get(&expression).copied(), start);
+        if let Some(lowered) = result
+            && let Some(sites) = facts.guard_scopes().sites.get(&expression) {
+            self.scratch.borrow_mut().scheme_guards.sites.entry(lowered.index()).or_default().extend(sites.iter().copied());
+        }
+        result
+    }
+
+    fn lower_scheme_expression_inner(
         &mut self,
         expression: ExprId,
         slots: &mut SlotScope,

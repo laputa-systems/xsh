@@ -29,3 +29,8 @@ fn imported_guarded_render_accepts_plain_optional_and_null_after_disposal() {
 fn imported_guarded_preload_accepts_plain_optional_and_null_after_disposal() {
     on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-preload.xsh", "verify_guarded_preload"));
 }
+
+#[test]
+fn benign_null_guards_preserve_opaque_values_without_payload_requirements() {
+    on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-benign.xsh", "verify_guarded_benign"));
+}

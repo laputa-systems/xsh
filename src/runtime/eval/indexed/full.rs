@@ -5,6 +5,7 @@ pub(in crate::runtime::eval) mod schema;
 mod verify_schemes;
 mod verify_effects;
 mod schemes;
+mod guard_schemes;
 mod scheme_values;
 mod value_materialization;
 use schemes::{
@@ -764,6 +765,9 @@ struct FullStore {
     scheme_applications: Vec<schemes::FullSchemeApplication>,
     scheme_operations: Vec<schemes::FullSealedOperation>,
     scheme_methods: Vec<schemes::FullSchemeMethod>,
+    call_guard_bindings: Vec<guard_schemes::FullGuardBinding>,
+    scheme_guard_reads: Vec<guard_schemes::FullGuardRead>,
+    scheme_guards: Vec<guard_schemes::FullGuardScope>,
     scheme_method_slots: Vec<u32>,
     scheme_method_arguments: Vec<SchemeTypeId>,
     call_operation_bindings: Vec<schemes::FullOperationBinding>,
@@ -880,6 +884,9 @@ impl Default for FullStore {
             scheme_applications: Vec::new(),
             scheme_operations: Vec::new(),
             scheme_methods: Vec::new(),
+            call_guard_bindings: Vec::new(),
+            scheme_guard_reads: Vec::new(),
+            scheme_guards: Vec::new(),
             scheme_method_slots: Vec::new(),
             scheme_method_arguments: Vec::new(),
             call_operation_bindings: Vec::new(),
@@ -1139,6 +1146,9 @@ impl FullStore {
             + self.scheme_applications.capacity() * size_of::<schemes::FullSchemeApplication>()
             + self.scheme_operations.capacity() * size_of::<schemes::FullSealedOperation>()
             + self.scheme_methods.capacity() * size_of::<schemes::FullSchemeMethod>()
+            + self.call_guard_bindings.capacity() * size_of::<guard_schemes::FullGuardBinding>()
+            + self.scheme_guard_reads.capacity() * size_of::<guard_schemes::FullGuardRead>()
+            + self.scheme_guards.capacity() * size_of::<guard_schemes::FullGuardScope>()
             + self.scheme_method_slots.capacity() * size_of::<u32>()
             + self.scheme_method_arguments.capacity() * size_of::<SchemeTypeId>()
             + self.call_operation_bindings.capacity() * size_of::<schemes::FullOperationBinding>()
@@ -1275,6 +1285,9 @@ impl FullStore {
         self.scheme_applications.shrink_to_fit();
         self.scheme_operations.shrink_to_fit();
         self.scheme_methods.shrink_to_fit();
+        self.call_guard_bindings.shrink_to_fit();
+        self.scheme_guard_reads.shrink_to_fit();
+        self.scheme_guards.shrink_to_fit();
         self.scheme_method_slots.shrink_to_fit();
         self.scheme_method_arguments.shrink_to_fit();
         self.call_operation_bindings.shrink_to_fit();
@@ -3655,6 +3668,9 @@ struct FullCheckpoint {
     scheme_applications: usize,
     scheme_operations: usize,
     scheme_methods: usize,
+    call_guard_bindings: usize,
+    scheme_guard_reads: usize,
+    scheme_guards: usize,
     scheme_method_slots: usize,
     scheme_method_arguments: usize,
     call_operation_bindings: usize,
@@ -5496,6 +5512,9 @@ impl FullBuilder {
             scheme_applications: self.store.scheme_applications.len(),
             scheme_operations: self.store.scheme_operations.len(),
             scheme_methods: self.store.scheme_methods.len(),
+            call_guard_bindings: self.store.call_guard_bindings.len(),
+            scheme_guard_reads: self.store.scheme_guard_reads.len(),
+            scheme_guards: self.store.scheme_guards.len(),
             scheme_method_slots: self.store.scheme_method_slots.len(),
             scheme_method_arguments: self.store.scheme_method_arguments.len(),
             call_operation_bindings: self.store.call_operation_bindings.len(),
@@ -5610,6 +5629,9 @@ impl FullBuilder {
         self.store.scheme_applications.truncate(checkpoint.scheme_applications);
         self.store.scheme_operations.truncate(checkpoint.scheme_operations);
         self.store.scheme_methods.truncate(checkpoint.scheme_methods);
+        self.store.call_guard_bindings.truncate(checkpoint.call_guard_bindings);
+        self.store.scheme_guard_reads.truncate(checkpoint.scheme_guard_reads);
+        self.store.scheme_guards.truncate(checkpoint.scheme_guards);
         self.store.scheme_method_slots.truncate(checkpoint.scheme_method_slots);
         self.store.scheme_method_arguments.truncate(checkpoint.scheme_method_arguments);
         self.store.call_operation_bindings.truncate(checkpoint.call_operation_bindings);
@@ -6761,6 +6783,12 @@ enum CheckedValueBlockResult {
 enum GuardPathStability {
     ImmutableSnapshot,
     MayChange,
+}
+
+#[derive(Clone, Copy)]
+enum GuardedReadContract<'a> {
+    OptionalPayload(&'a Type),
+    NonNullRead,
 }
 
 struct GuardedRecordSource<'a> {
@@ -13982,7 +14010,7 @@ impl<'a> FullDecoder<'a> {
         is_and: bool,
         is_boolean: bool,
         target: &(usize, Vec<Name>),
-        expected_payload: &Type,
+        expected_payload: GuardedReadContract<'_>,
         stability: GuardPathStability,
         prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
         source: Option<&GuardedRecordSource<'_>>,
@@ -14137,12 +14165,13 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_optional_value_matches_path(
-        &self, value: usize, use_site: usize, target: &(usize, Vec<Name>), expected_payload: &Type,
+        &self, value: usize, use_site: usize, target: &(usize, Vec<Name>), expected_payload: GuardedReadContract<'_>,
         prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>, source: Option<&GuardedRecordSource<'_>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         let path = match prefix { Some(prefix) => prefix.guard_value_binding_path(self, value, use_site, target, charge)?, None => self.checked_binding_path(value, charge)? };
         if path.as_ref() != Some(target) { return Ok(false); }
+        let GuardedReadContract::OptionalPayload(expected_payload) = expected_payload else { return Ok(true); };
         let subject_type = match self.checked_physical_field_type(value, charge)? {
             Some(ty) => Some(ty),
             None => self.checked_binding_path_type(use_site, target, charge)?,
@@ -14153,7 +14182,7 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_condition_proves_nonnull_with_prefix(
         &self, condition: usize, when_true: bool, is_boolean: bool, use_site: usize,
-        target: &(usize, Vec<Name>), expected_payload: &Type, stability: GuardPathStability,
+        target: &(usize, Vec<Name>), expected_payload: GuardedReadContract<'_>, stability: GuardPathStability,
         prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
         source: Option<&GuardedRecordSource<'_>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
@@ -14235,6 +14264,10 @@ impl<'a> FullDecoder<'a> {
                         && target.0 == slot
                         && target.1.is_empty() =>
                 {
+                    if matches!(expected_payload, GuardedReadContract::NonNullRead) {
+                        return self.checked_slot_null_condition_proves_nonnull(condition, when_true, slot);
+                    }
+                    let GuardedReadContract::OptionalPayload(expected_payload) = expected_payload else { unreachable!() };
                     let Some(slot_type) = self
                         .checked_slot_type(slot)?
                         .map(|type_id| self.store.semantic.to_type(type_id))
@@ -14481,7 +14514,7 @@ impl<'a> FullDecoder<'a> {
         expected_payload: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, expected_payload, GuardPathStability::MayChange, self.producer_prefix.as_ref(), None,
+        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, GuardedReadContract::OptionalPayload(expected_payload), GuardPathStability::MayChange, self.producer_prefix.as_ref(), None,
             &mut |parent, roots, charge| self.checked_branch_preserves_binding_path(parent, roots, field_instruction, target, charge), charge)
     }
 
@@ -14491,7 +14524,7 @@ impl<'a> FullDecoder<'a> {
         parent: usize,
         child: usize,
         target: &(usize, Vec<Name>),
-        expected_payload: &Type,
+        expected_payload: GuardedReadContract<'_>,
         stability: GuardPathStability,
         prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
         source: Option<&GuardedRecordSource<'_>>,
@@ -21238,11 +21271,16 @@ fn verify_node_metadata(
 
 trait SchemeBodyFactId: Copy {
     fn scheme_expression_type(self, builder: &FullBuilder) -> Option<SchemeType>;
+    fn scheme_guard_scope(self, _: &BuildScratch) -> Option<crate::sema::guarded_requirements::GuardScopeId> { None }
+    fn scheme_guard_sites(self, _: &BuildScratch) -> Vec<crate::sema::guarded_requirements::GuardBodySite> { Vec::new() }
     fn scheme_tail_type(self, builder: &FullBuilder) -> Option<SchemeType>;
     fn scheme_local_declaration(self, _: &FullBuilder) -> Option<crate::runtime::eval::SchemeLocalDeclaration> { None }
 }
 
 impl SchemeBodyFactId for BuildExprId {
+    fn scheme_guard_scope(self, scratch: &BuildScratch) -> Option<crate::sema::guarded_requirements::GuardScopeId> { scratch.scheme_guards.expressions.get(&self.index()).copied() }
+    fn scheme_guard_sites(self, scratch: &BuildScratch) -> Vec<crate::sema::guarded_requirements::GuardBodySite> { scratch.scheme_guards.sites.get(&self.index()).cloned().unwrap_or_default() }
+
     fn scheme_expression_type(self, builder: &FullBuilder) -> Option<SchemeType> {
         builder.active_scheme_body_types.get(&self).cloned()
     }
@@ -21253,6 +21291,8 @@ impl SchemeBodyFactId for BuildExprId {
 }
 
 impl SchemeBodyFactId for BuildStmtId {
+    fn scheme_guard_scope(self, scratch: &BuildScratch) -> Option<crate::sema::guarded_requirements::GuardScopeId> { scratch.scheme_guards.statements.get(&self.index()).copied() }
+
     fn scheme_expression_type(self, _: &FullBuilder) -> Option<SchemeType> {
         None
     }
@@ -21389,6 +21429,8 @@ macro_rules! impl_build_id_codec {
                         ));
                     }
                 }
+                let scheme_guard_scope = (*self).scheme_guard_scope(&scratch);
+                let scheme_guard_sites = (*self).scheme_guard_sites(&scratch);
                 let scheme_body_type = (*self).scheme_expression_type(builder);
                 let scheme_tail_type = (*self).scheme_tail_type(builder);
                 let scheme_local_declaration = (*self).scheme_local_declaration(builder);
@@ -21413,7 +21455,8 @@ macro_rules! impl_build_id_codec {
                     || noncompleting
                     || scheme_body_type.is_some()
                     || scheme_tail_type.is_some()
-                    || scheme_local_declaration.is_some();
+                    || scheme_local_declaration.is_some()
+                    || scheme_guard_scope.is_some() || !scheme_guard_sites.is_empty();
                 let output_start = output.len();
                 row.encode(builder, output)?;
                 let instruction = emitted_build_instruction(
@@ -21430,6 +21473,14 @@ macro_rules! impl_build_id_codec {
                             .map_err(|_| IrBuildError::format("completion_source_producer", None, 0, instruction))?;
                         builder.active_expression_instructions.insert(self.index(), instruction);
                     }
+                }
+                if let Some(scope) = scheme_guard_scope {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("guard_membership_instruction", None, 0, self.index()))?;
+                    builder.record_guard_membership(scope, instruction)?;
+                }
+                for site in scheme_guard_sites {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("guard_source_instruction", None, 0, self.index()))?;
+                    builder.record_guard_site(site, instruction)?;
                 }
                 if let Some(plan) = registered_call {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("registered_call_instruction", None, 0, self.index()))?;
@@ -28899,7 +28950,7 @@ assert genuine_tail_runs == 0
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
                 schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_)
                 | schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_) | schemes::FullSchemeBodyFactValue::CompletionReturnedResult(_)
-                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) | schemes::FullSchemeBodyFactValue::NoCompletion => {},
+                | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) | schemes::FullSchemeBodyFactValue::NoCompletion | schemes::FullSchemeBodyFactValue::GuardScope(_) => {},
             }
         }
         for node in &mut program.store.scheme_types {
