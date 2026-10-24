@@ -27,15 +27,22 @@ focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration is the reviewed all-stage source plus the
-context, verifier-oracle, closed-fallback, public-name, Proc-completion and
-membership repairs integrated through `43574d8aa` on 2026-10-24. All 35 pipeline
-stages have focused proof and runtime controls. Membership passes 13 focused
-controls, including UInt validation order, captured errors and cold ownership
-mutations. Remaining work follows actual corpus failures: guarded record
-refinement, inferred Proc body eligibility, Kbuild `List[Record]` verification,
-complete interface/migration qualification, and inherited
-performance/deployment gates. No mandatory item is waived.
+Current provisional integration includes all 35 pipeline stages, membership,
+record `if let` and guard continuations, bare Proc completion, canonical fixed
+fields, conditional List data and intrinsic arithmetic results. The integrated
+UInt and guard source is frozen at `9df3bf21e` for a combined full-library run.
+Remaining corpus causes are fresh comprehension argument evidence, correlated
+Path method results and a fresh `Err.context` consumer proof. Complete
+interface/migration qualification and inherited performance/deployment gates
+remain required. No mandatory item is waived.
+
+Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
+verification products. With the precise native-input correction `1c9694a3c`,
+normal and forced routes each pass all 197 selectors; six API selectors pass.
+This retains every prior selector and includes membership, record narrowing,
+bare Proc returns and conditional List data. Source, product and discovery
+guards pass. These products predate the UInt and guard-continuation changes;
+no native credit transfers to them.
 
 Immutable `f5c3baa91` passes the complete Rust library boundary: 2,516 passes,
 zero failures and three ignored tests. This combines membership with the
@@ -63,8 +70,8 @@ four verified WC return-meaning selectors. Historical 1,040-site evidence,
 denominators and source views stay unchanged. Matching interface attempts have
 not qualified: normalized original paths may label candidate byte overrides,
 and cascaded reports are not independent causes. A local `List[Str]` comparison
-false rejection is repaired; the WC probe advances through closed fallback and
-Proc completion to a separate guarded-record proof. No new removal credit is
+false rejection is repaired; the WC probe advances through record guards and
+intrinsic UInt arithmetic to fresh comprehension argument evidence. No new removal credit is
 awarded.
 
 Immutable `374872034` builds matching verification products. With the reviewed
@@ -74,10 +81,11 @@ Null arguments and public-name controls. All 163 primary-family declarations
 are discovered. Its six API selectors also pass. These products predate the
 membership and subsequent corpus repairs; no native credit transfers to them.
 
-Laputa's isolated kernel-discovery source is reviewed, but the unchanged Kbuild
-module still fails preparation with these products. A separate expert owns the
-actual producer/type-context cause. Recheck with the repaired matching compiler
-before committing or claiming behavioral, Scenario or P0 acceptance. Pyramid closure still follows inference
+Laputa's unchanged Kbuild module now prepares on `4c8d0d323`. Its four isolated
+kernel-discovery controls still stop before execution at a fresh
+`Err(...).context(...)` consumer boundary. A separate expert owns that proof;
+the reviewed Laputa source remains uncommitted until its behavior qualifies.
+Pyramid closure still follows inference
 acceptance, local master integration and completed-worktree cleanup.
 
 The 2026-10-24 acceleration changes ordinary Cargo capacity from two to three
