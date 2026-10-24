@@ -574,6 +574,33 @@ mod pattern_tests {
         })
     }
 
+    #[test]
+    fn uncontextual_variant_initializer_reports_only_its_variant_span() {
+        let source = "enum Kind { File, Binary }\nlet kind = .Binary\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(crate::diagnostic::DiagnosticCode::CheckInferredVariant));
+        assert_eq!(&source[errors[0].labels[0].span.range()], ".Binary");
+    }
+
+    #[test]
+    fn leading_dots_preserve_item_and_callback_field_diagnostics() {
+        use crate::diagnostic::DiagnosticCode;
+        for (source, expected) in [
+            ("let value = .\n", DiagnosticCode::CheckStreamItem),
+            ("enum Kind { File, Binary }\nlet tools = [{kind: Binary}] |> where .kind == .Binary\n", DiagnosticCode::CheckUnknownField),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}: {:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckInferredVariant)), "{source}: {:?}", checked.diagnostics);
+        }
+    }
+
     const PRELUDE: &str = "enum Level { Info, Fault(Str) }\n\
         error E = Usage | Other(code: Int)\n\
         pure narrow() -> Result[Level, E] { Ok(Info) }\n\
