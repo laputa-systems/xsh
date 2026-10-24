@@ -2535,7 +2535,7 @@ impl<'a> ProducerProof<'a> {
         let decoder = self.owner(owner)?;
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
             op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
-        }) {
+        } | schema::ExprView::ListComp { .. }) {
             let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
             let binding = self.binding(owner, instruction, slot)?;
             self.budget.charge(1)?;

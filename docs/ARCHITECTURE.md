@@ -326,6 +326,10 @@ value blocks. Resource-bearing block results transfer through the existing
 cleanup mechanism before iteration begins. Cold verification proves every
 source and projection, checks propagated error families, and accepts `NonEmpty`
 only for the canonical single-source unfiltered mapping.
+A fresh list comprehension used as a generic argument derives its closed item
+from the actual qualifier bindings and projection. The ordinary argument demand
+then verifies the complete source, targets, filters, and projection; an expected
+parameter type does not supply the comprehension type.
 
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor

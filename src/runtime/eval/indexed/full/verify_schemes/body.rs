@@ -5182,6 +5182,72 @@ test verify_completion_cleanup {
     }
 
     #[test]
+    fn fresh_comprehension_arguments_authenticate_actual_sources_items_and_filters() {
+        let program = prepare(r#"pure same(value) { value }
+pure foreign(rows: List[Int]) -> List[Int] { rows }
+pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wrong_item: Bool) -> List[Int] {
+    let spare_other: Any = other
+    let spare_selected: Any = selected
+    let spare_wrong: Any = wrong
+    same([{ let spare_item: Any = wrong_item; item } for item in rows if selected])
+}
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (comprehension, value, source, filter, target) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListComp { value, mut qualifiers, .. }) => {
+                let super::super::super::decode::CompQualifierView::For { iter, target: super::super::super::decode::CompTargetView::Slot(target), .. } = qualifiers.next().unwrap().unwrap() else { panic!("the first qualifier binds the actual source") };
+                let super::super::super::decode::CompQualifierView::If { condition, .. } = qualifiers.next().unwrap().unwrap() else { panic!("the second qualifier filters the actual items") };
+                Some((instruction, value.raw() as usize, iter.raw() as usize, condition.raw() as usize, target))
+            }
+            _ => None,
+        }).unwrap();
+        let parameter = |slot| range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+        assert!(matches!(decoder.expression_view(source).unwrap(), schema::ExprView::Param(0)));
+        assert!(matches!(decoder.expression_view(filter).unwrap(), schema::ExprView::Param(2)));
+        let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(value).unwrap() else { panic!("the item has a lexical value block") };
+        let mut projection = None;
+        let mut wrong_item = None;
+        for statement in &mut body {
+            match decoder.statement_view(statement.unwrap().raw() as usize).unwrap() {
+                schema::StmtView::Let { value, .. } if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(4))) => wrong_item = Some(value.raw() as usize),
+                schema::StmtView::Value { value } if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(slot)) if slot == target) => projection = Some(value.raw() as usize),
+                _ => {},
+            }
+        }
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        for uncached in [false, true] {
+            let mut original = program.clone();
+            if uncached { original.store.in_place.take(); }
+            FullVerifier::verify(&original).unwrap();
+            for (label, from, to) in [
+                ("source item", source, parameter(1)),
+                ("filter", filter, parameter(3)),
+                ("projection", projection.unwrap(), wrong_item.unwrap()),
+            ] {
+                let mut changed = original.clone();
+                changed.store.tags.swap(from, to);
+                changed.store.data.swap(from, to);
+                let error = FullVerifier::verify(&changed).unwrap_err();
+                assert_eq!(error.message, if label == "filter" { "condition producer disagrees with its control role" } else { "generic call argument does not match its checked parameter slot" }, "{label} uncached={uncached}");
+            }
+            let mut foreign_read = original.clone();
+            let words = foreign_read.store.data[comprehension].range().bounds(foreign_read.store.extra.len()).unwrap();
+            let qualifiers = IrBlockId::from_raw(foreign_read.store.extra[words.start + 1]).unwrap();
+            let words = foreign_read.store.blocks[qualifiers.index()].instructions.bounds(foreign_read.store.extra.len()).unwrap();
+            let references = words.filter(|word| foreign_read.store.extra[*word] == source as u32).collect::<Vec<_>>();
+            assert_eq!(references.len(), 1);
+            foreign_read.store.extra[references[0]] = foreign_source as u32;
+            let error = FullVerifier::verify(&foreign_read).unwrap_err();
+            assert_eq!(error.message, "full IR instruction belongs to another function", "uncached={uncached}");
+        }
+    }
+
+    #[test]
     fn generic_comprehension_filters_authenticate_actual_control_domains() {
         let program = prepare("pure copy(value, selected: Bool, wrong: Int) { [item for item in [value] if selected] }");
         let (owner, scheme) = generic_owner(&program);

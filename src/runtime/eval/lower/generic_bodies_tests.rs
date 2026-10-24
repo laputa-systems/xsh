@@ -8,6 +8,101 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_comprehension_argument_call(typed: bool) {
+    let same = if typed { "pure same(value: List[Int]) -> List[Int] { value }" } else { "pure same(value) { value }" };
+    let source = format!("{same}\npure selected(values: List[Int]) -> List[Int] {{ same([item for item in values if item > 0]) }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("selected")));
+        for (values, expected) in [(vec![Value::Int(-1), Value::Int(7), Value::Int(0)], vec![Value::Int(7)]), (Vec::new(), Vec::new())] {
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::List(values)], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::List(expected), "typed={typed} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn typed_comprehension_arguments_preserve_filtered_values() {
+    verify_comprehension_argument_call(true);
+}
+
+#[test]
+fn inferred_comprehension_arguments_preserve_filtered_values() {
+    verify_comprehension_argument_call(false);
+}
+
+#[test]
+fn inferred_comprehension_arguments_preserve_records_and_opaque_results() {
+    let source = r#"type Row = {issue: Str, name: Str, path: Path, stdin: Bool}
+pure same(value) { value }
+pure records(values: List[Row]) -> List[Row] { same([item for item in values if item.issue == ""]) }
+pure outcomes(values: List[Result[Int, Str]]) -> List[Result[Int, Str]] { same([item for item in values]) }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    let record = |issue: &str, name: &str| program.symbol_owner().with_current(|| Value::Record([
+        (Arc::from("issue"), Value::Str(Arc::from(issue))),
+        (Arc::from("name"), Value::Str(Arc::from(name))),
+        (Arc::from("path"), Value::Path(crate::runtime::value::PathValue::from_text("input").unwrap())),
+        (Arc::from("stdin"), Value::Bool(false)),
+     ].into_iter().collect()));
+    let kept = record("", "kept");
+    let outcomes = vec![Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))), Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("opaque")))))];
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, input, expected) in [
+            ("records", vec![record("bad", "removed"), kept.clone()], vec![kept.clone()]),
+            ("records", Vec::new(), Vec::new()),
+            ("outcomes", outcomes.clone(), outcomes.clone()),
+            ("outcomes", Vec::new(), Vec::new()),
+        ] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::List(input)], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::List(expected), "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn inferred_comprehension_arguments_keep_evaluation_and_cleanup_order() {
+    let source = r#"pure same(value, later: Int) { let _ = later; value }
+pure ordinary(value: List[Int], later: Int) -> List[Int] { let _ = later; value }
+stream items() [io, error] -> Stream[Int] { defer { print "close" }; print "pull"; yield 1; yield 2 }
+proc later() [io] -> Int { print "later"; 7 }
+proc selected(fail: Bool) [io, error] -> List[Int] {
+  same([{ print "project"; let _ = [item][if fail { 9 } else { 0 }]; item } for item in items() if item > 0], later())
+}
+proc typed(fail: Bool) [io, error] -> List[Int] {
+  ordinary([{ print "project"; let _ = [item][if fail { 9 } else { 0 }]; item } for item in items() if item > 0], later())
+}
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for fail in [false, true] {
+            let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            evaluator.stdout.clear();
+            let expected = evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &[Value::Bool(fail)], Span::at(source_id, 0)).unwrap();
+            let stdout = evaluator.stdout.clone();
+            evaluator.stdout.clear();
+            let actual = evaluator.call_indexed_direct(key("selected"), CallableKind::Proc, &[Value::Bool(fail)], Span::at(source_id, 0)).unwrap();
+            assert_eq!(evaluator.stdout, stdout, "fail={fail} frames={force_frames}");
+            assert_eq!(stdout.as_slice(), if fail { b"pull\nproject\nclose\n".as_slice() } else { b"pull\nproject\nproject\nclose\nlater\n".as_slice() });
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => { assert!(!fail); assert_eq!(actual, expected); assert_eq!(actual, Value::List(vec![Value::Int(1), Value::Int(2)])); }
+                (Err(expected), Err(actual)) => { assert!(fail); assert_eq!(actual.kind, "index-out-of-range"); assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family); }
+                (expected, actual) => panic!("fail={fail} frames={force_frames}: {expected:?} vs {actual:?}"),
+            }
+        }
+    }
+}
+
 fn verify_unsigned_arithmetic_context(context: &str) {
     let (body, returned) = match context {
         "return" => ("value / 2", "UInt"),
