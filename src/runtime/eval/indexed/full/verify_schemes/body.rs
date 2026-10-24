@@ -2014,6 +2014,34 @@ mod tests {
         program
     }
 
+    #[test]
+    fn exit_effects_infer_and_reach_compact_owner_contracts() {
+        prepare(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/snippets/spec/49-exit.xsh")));
+        for source in [
+            "proc leave(code: Int) { exit code }\nproc relay() [process] { leave(77) }\n",
+            "proc leave(code: Int) [process] { exit code }\n",
+            "exit 77\n",
+        ] { prepare(source); }
+    }
+
+    #[test]
+    fn exit_effects_reject_empty_pure_and_excluded_contracts() {
+        use crate::diagnostic::{DiagnosticCode, Severity};
+        for (source, code) in [
+            ("proc leave() [] { exit 77 }\n", DiagnosticCode::CheckEffectViolation),
+            ("pure leave() { exit 77 }\n", DiagnosticCode::CheckPureRun),
+            ("proc leave() [process] { without process { exit 77 } }\n", DiagnosticCode::CheckEffectViolation),
+            ("proc leave() { exit 77 }\nproc relay() [] { leave() }\n", DiagnosticCode::CheckEffectViolation),
+        ] {
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("exit-effects.xsh", source.to_owned());
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(code)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn record_list_conditionals_execute_after_disposal_on_both_routes() {

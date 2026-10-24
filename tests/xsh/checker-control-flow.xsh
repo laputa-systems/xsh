@@ -294,7 +294,7 @@ test test_error_capture_retry_and_cleanup_keep_exit_paths { |ctx|
       },
       {
         name: "return-through-error-boundaries-remains-an-exit",
-        source: "pure choose() -> Int { loop { let value: Result[Int, Error] = try { return 1; 2 } } }\nproc choose_with(result: Result[Int, Error]) [error] -> Int { loop { with value = result? { return value } else { |_| return 0 } } }\nproc leave() [] { loop { exit 0 } }\n",
+        source: "pure choose() -> Int { loop { let value: Result[Int, Error] = try { return 1; 2 } } }\nproc choose_with(result: Result[Int, Error]) [error] -> Int { loop { with value = result? { return value } else { |_| return 0 } } }\nproc leave() [process] { loop { exit 0 } }\n",
         diagnostics: [],
       },
       {

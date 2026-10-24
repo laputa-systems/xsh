@@ -3075,6 +3075,9 @@ runs while unwinding, and the status is an `Int` expression from 0 to 255
 their `errdefer` actions (8.7) run when the status is not zero and are skipped
 by `exit 0`.
 
+`exit` requires the `process` effect. An omitted proc effect clause infers
+that requirement; pure functions and `without process` regions reject it.
+
 ```xsh
 {{.spec.exit.source}}
 ```

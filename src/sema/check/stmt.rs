@@ -3377,6 +3377,7 @@ impl Checker {
                 self.check_yield_delegation_arena(arena, source, value, stmt.span);
             }
             ArenaStmtKind::Exit(status) => {
+                self.check_process_effect(stmt.span, "`exit`");
                 let actual = self.check_expr_arena(arena, source, status, Some(&Type::Int));
                 self.expect_type(&Type::Int, &actual, arena.arena.expr(status).span);
             }
