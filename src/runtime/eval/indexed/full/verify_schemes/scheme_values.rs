@@ -31,7 +31,7 @@ pub(super) fn verify_call_site(store: &FullStore, decoder: &FullDecoder<'_>, ins
     }
     let proof = ScopedEffectProof::new(store, effects);
     let contract = proof.value_call_contract(decoder, instruction, relationship.canonical.index(), budget)?;
-    proof.require(owner, &contract, captured || owner_kind == crate::sema::types::CallableKind::Pure, budget)?;
+    proof.require_at(owner, instruction, &contract, captured || owner_kind == crate::sema::types::CallableKind::Pure, budget)?;
     budget.charge(1 + args.len())?;
     let mut children = Vec::with_capacity(1 + args.len());
     children.push(callee.raw() as usize);

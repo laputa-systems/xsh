@@ -601,7 +601,7 @@ impl Checker {
     }
 
     pub(super) fn check_process_effect(&mut self, span: Span, form: &str) {
-        self.record_required_effect(Effect::Process);
+        self.record_required_effect(Effect::Process, span);
         if self.boundary.in_pure {
             self.error(
                 span,
@@ -2771,7 +2771,7 @@ impl Checker {
             self.expect_type(&Type::Duration, &ty, delay_span);
         }
         if !delay_ids.is_empty() {
-            self.record_required_effect(Effect::Time);
+            self.record_required_effect(Effect::Time, span);
             if self.boundary.in_pure {
                 self.error(
                     span,
@@ -2860,7 +2860,7 @@ impl Checker {
         run_id: RunFormId,
     ) -> Type {
         let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
-        self.record_required_effect(Effect::Process);
+        self.record_required_effect(Effect::Process, run_span);
         if self.boundary.in_pure {
             self.error(
                 run_span,

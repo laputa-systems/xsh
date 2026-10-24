@@ -850,13 +850,16 @@ impl TypeConstraints {
         if scope.owner != CallableApplicationScope::Declaration(owner) {
             return Err(ConstraintResolutionError::ForeignVariable.into());
         }
-        self.validate_generalized_applications(callable, scope)?;
         let id = self.referenced_callable_application(reference).map_err(super::SchemeOperationError::Application)?;
-        if scope.application_sources.get(&id) == Some(&reference) {
-            return scope.applications.get(&id).copied().map(Some)
+        let entry = self.applications.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        if entry.owner != reference.scope { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let view = self.generalized_requirement_view(entry.owner, callable, scope)?;
+        self.validate_generalized_applications_view(callable, scope, &view)?;
+        if view.applications.contains_key(&id) {
+            return view.applications.get(&id).copied().map(Some)
                 .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
         }
-        if reference.scope == scope.owner && self.applications.entries[&id].binding.is_some() { return Ok(None); }
+        if self.applications.entries[&id].binding.is_some() { return Ok(None); }
         Err(ConstraintResolutionError::ForeignVariable.into())
     }
 
@@ -1033,6 +1036,7 @@ impl TypeConstraints {
         let wrappers = self.generalize_wrappers(owners, environment_level, generalization)?;
         let guard_calls = self.generalize_guard_calls(owners, environment_level, generalization)?;
         let iteration_parameters = self.generalized_iterations(environment_level, generalization)?;
+        self.generalize_guard_effect_outputs(owners, environment_level, generalization)?;
         let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
         let mut requirements = crate::sema::schemes::CallableRequirements {
             iteration_parameters, applications, operations, wrappers, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
@@ -1042,6 +1046,7 @@ impl TypeConstraints {
             guard_calls,
         };
         requirements.guards = self.generalize_guard_requirements(owners, environment_level, generalization)?;
+        requirements.effect_parameters = generalization.effect_parameters.clone();
         Ok(requirements)
     }
 

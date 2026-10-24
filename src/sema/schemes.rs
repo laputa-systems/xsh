@@ -735,6 +735,14 @@ fn validate_guard_requirements(
     let mut usage = GuardUsage::default();
     let mut pending = guards.iter().rev().map(|guard| (guard, None)).collect::<Vec<_>>();
     while let Some((guard, parent)) = pending.pop() {
+        if let Some(exports) = &guard.effects {
+            for (scope, contract) in [(parent, &exports.outward), (Some(guard.scope), &exports.local)] {
+                let mut effects = BTreeSet::new();
+                validate_effect_contract(contract, ownership.effects(), &mut effects)?;
+                ownership.check_effects(scope, &effects)?;
+                usage.effects.extend(effects);
+            }
+        }
         validate_guard_type(&guard.source, parent, &ownership, &mut usage, row_requirements)?;
         validate_guard_type(&guard.view, Some(guard.scope), &ownership, &mut usage, row_requirements)?;
         for read in &guard.reads {
@@ -870,6 +878,7 @@ impl CallableRequirements {
                 .saturating_add(guard.row_parameters.capacity() * size_of::<SchemeRowParameter>())
                 .saturating_add(guard.reads.capacity() * size_of::<super::guarded_requirements::GuardReadRequirement>())
                 .saturating_add(guard.requirements.retained_bytes());
+            if let Some(effects) = &guard.effects { bytes = bytes.saturating_add(effects.outward.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())).saturating_add(effects.local.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())); }
             for row in &guard.row_parameters { bytes = bytes.saturating_add(row.lacks.len() * size_of::<Name>()); }
             for read in &guard.reads { bytes = bytes.saturating_add(read.source.retained_bytes().saturating_sub(size_of::<SchemeType>())).saturating_add(read.view.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
         }

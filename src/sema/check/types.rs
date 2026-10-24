@@ -99,7 +99,7 @@ impl Checker {
             self.reject_dynamic_use("a propagated value", None, span);
             return Type::Unknown;
         }
-        self.record_required_effect(Effect::Error);
+        self.record_required_effect(Effect::Error, span);
         self.check_required_effect_clause(
             Effect::Error,
             span,

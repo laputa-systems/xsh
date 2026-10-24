@@ -311,6 +311,16 @@ impl TypeConstraints {
         Ok(crate::sema::effects::CallableEffects::from_contract(self.resolve_effect(&contract)?))
     }
 
+    pub(crate) fn owns_generalized_effect_predicate(
+        &self, owner: super::CallableApplicationScope, callable: &crate::sema::schemes::CallableScheme,
+        scope: &CallableGeneralizationScope, contract: &EffectContract<EffectVariableId>,
+        predicate: impl FnOnce(EffectContract<crate::sema::schemes::SchemeEffectParameterId>) -> crate::sema::effects::EffectPredicate<crate::sema::schemes::SchemeEffectParameterId>,
+    ) -> Result<bool, super::SchemeOperationError> {
+        let view = self.generalized_requirement_view(owner, callable, scope)?;
+        let required = predicate(self.resolve_generalized_effect(contract, scope)?);
+        Ok(view.requirements.effect_predicates.iter().any(|owned| crate::sema::effects::effect_predicate_implies(owned, &required)))
+    }
+
     pub(crate) fn resolve_generalized_effect(
         &self,
         contract: &EffectContract<EffectVariableId>,

@@ -335,7 +335,13 @@ fn verify_ground_slot(
     let source = super::instantiate_bound_type(store, metadata.source, &parent, budget, 0)?;
     let actual = non_null_source(&source).map_err(|_| IrVerifyError::new("guard call source has no closed non-null classification"))?;
     let (local_arguments, payload) = match (actual, binding) {
-        (NonNullSource::Null, FullGuardBinding::Null) => return Ok(None),
+        (NonNullSource::Null, FullGuardBinding::Null) => {
+            if let Some(exports) = metadata.effects {
+                let outward = super::effects::instantiate_prepared_contract(store, exports.outward, &parent, budget)?;
+                if outward.closed() != Some(crate::sema::effects::EffectSet::default()) { return Err(IrVerifyError::new("absent guard exports executable effects")); }
+            }
+            return Ok(None);
+        },
         (NonNullSource::NonNull(payload), FullGuardBinding::NonNull(local))
         | (NonNullSource::Optional(payload), FullGuardBinding::Optional(local)) => (local, payload),
         _ => return Err(IrVerifyError::new("guard call binding disagrees with its actual source classification")),
@@ -345,6 +351,11 @@ fn verify_ground_slot(
             let rows = super::mark_range(local_arguments.row_arguments, &store.call_row_arguments, row_coverage, "guard row arguments are invalid or overlap")?;
             let effects = super::bounded(local_arguments.effect_arguments, &store.call_effect_arguments, "guard effect arguments are invalid")?;
             let local = super::build_pack_substitution(store, &local_scope, types, rows, effects, field_coverage, Some(Arc::clone(&parent)))?;
+            if let Some(exports) = metadata.effects {
+                let outward = super::effects::instantiate_prepared_contract(store, exports.outward, &parent, budget)?;
+                let actual = super::effects::instantiate_prepared_contract(store, exports.local, &local, budget)?;
+                if actual.closed().is_none() || outward != actual { return Err(IrVerifyError::new("live guard effect export disagrees with its actual local contribution")); }
+            }
             let actual_view = super::instantiate_bound_type(store, metadata.view, &local, budget, 0)?;
             if &actual_view != payload { return Err(IrVerifyError::new("guard local payload disagrees with its actual source")); }
             let mut evidence = super::SchemeBinderEvidence::default();

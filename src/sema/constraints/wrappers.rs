@@ -61,6 +61,7 @@ pub(super) struct ScopedGuard {
     view_used: bool,
     pub(super) selection: Option<GuardSelection>,
     pub(super) reads: Vec<GuardRead>,
+    pub(super) effects: Option<crate::sema::guarded_requirements::GuardEffects<EffectVariableId>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -108,6 +109,7 @@ pub(super) struct WrapperOperations {
 #[derive(Clone, Debug)]
 pub(super) enum WrapperChange {
     Fresh(WrapperOperationId), GuardInstanceFresh(WrapperOperationId), GuardInstanceState(WrapperOperationId, GuardInstanceState), GuardFresh(WrapperOperationId), GuardRead(WrapperOperationId), GuardViewUsed(WrapperOperationId), GuardSelection(WrapperOperationId, Option<GuardSelection>), Source((CallableApplicationScope, Span)),
+    GuardEffects(WrapperOperationId, Option<crate::sema::guarded_requirements::GuardEffects<EffectVariableId>>),
     Requirement(WrapperOperationId, WrapperRequirement<Type, EffectVariableId>),
     Selection(WrapperOperationId, Option<WrapperSelection>), Watcher(WrapperDependency, WrapperOperationId),
     Queued(WrapperOperationId), Dequeued(WrapperOperationId),
@@ -122,6 +124,7 @@ impl WrapperOperations {
             + self.guards.len() * size_of::<(WrapperOperationId, ScopedGuard)>()
             + self.guards.values().map(|guard| super::type_owned_payload_bytes(&guard.source) + super::type_owned_payload_bytes(&guard.view)).sum::<usize>()
             + self.guards.values().map(|guard| guard.reads.capacity() * size_of::<GuardRead>() + guard.reads.iter().map(|read| super::type_owned_payload_bytes(&read.source) + super::type_owned_payload_bytes(&read.view)).sum::<usize>()).sum::<usize>()
+            + self.guards.values().filter_map(|guard| guard.effects.as_ref()).map(|effects| effects.outward.retained_bytes().saturating_sub(size_of::<EffectContract<EffectVariableId>>()) + effects.local.retained_bytes().saturating_sub(size_of::<EffectContract<EffectVariableId>>())).sum::<usize>()
             + self.guard_instances.len() * size_of::<(WrapperOperationId, GuardInstance)>()
             + self.guard_instances.values().map(|instance| super::type_owned_payload_bytes(&instance.source) + match &instance.state {
                 GuardInstanceState::Pending(bindings) => bindings.retained_bytes() + 2 * size_of::<usize>(),
@@ -162,6 +165,7 @@ impl WrapperOperations {
                 if owned.is_empty() { self.guard_owners.remove(&entry.owner); }
             }
             WrapperChange::GuardViewUsed(id) => self.guards.get_mut(&id).unwrap().view_used = false,
+            WrapperChange::GuardEffects(id, previous) => self.guards.get_mut(&id).unwrap().effects = previous,
             WrapperChange::GuardRead(id) => { self.guards.get_mut(&id).unwrap().reads.pop().expect("guarded read belongs to its journal"); }
             WrapperChange::GuardSelection(id, previous) => self.guards.get_mut(&id).unwrap().selection = previous,
             WrapperChange::Source(site) => { self.sources.remove(&site).expect("wrapper source belongs to its journal"); }
@@ -200,11 +204,36 @@ impl WrapperOperations {
 }
 
 impl TypeConstraints {
+    pub(crate) fn guarded_effect_contract(&mut self, mut owner: CallableApplicationScope, mut contract: EffectContract<EffectVariableId>, level: u32) -> Result<EffectContract<EffectVariableId>, ConstraintResolutionError> {
+        self.commit_constraint_transaction(|this| {
+            for _ in 0..=MAX_TYPE_DEPTH {
+                let CallableApplicationScope::Guard(id) = owner else { return Ok(contract); };
+                let guard = this.wrappers.guards.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                let (parent, subject, previous) = (guard.owner, guard.subject, guard.effects.clone());
+                if previous.is_none() && contract.closed() == Some(EffectSet::default()) { return Ok(contract); }
+                let outward = previous.as_ref().map(|effects| effects.outward.clone())
+                    .unwrap_or_else(|| EffectContract::variable(this.fresh_effect_at_level(subject, level)));
+                let local = previous.as_ref().map(|effects| effects.local.clone()).unwrap_or_else(|| EffectContract::finite(EffectSet::default())).union(contract);
+                let next = crate::sema::guarded_requirements::GuardEffects { outward: outward.clone(), local };
+                if previous.as_ref() != Some(&next) {
+                    this.apply_journaled(|this, changes| {
+                        this.wrappers.guards.get_mut(&id).unwrap().effects = Some(next);
+                        changes.push(ConstraintChange::Wrapper(WrapperChange::GuardEffects(id, previous)));
+                        Ok::<_, ConstraintResolutionError>(())
+                    })?;
+                }
+                contract = outward;
+                owner = parent;
+            }
+            Err(ConstraintResolutionError::TypeDepth)
+        })
+    }
+
     pub(crate) fn register_non_null_guard(&mut self, owner: CallableApplicationScope, source: Type, view: Type, subject: Span, comparison: Span) -> Result<WrapperOperationId, ConstraintResolutionError> {
         let dependencies = self.application_type_dependencies([&source, &view].into_iter())?;
         let id = WrapperOperationId(NonZeroU64::new(NEXT_WRAPPER.fetch_add(1, Ordering::Relaxed)).expect("wrapper identities are nonzero"));
         self.apply_journaled(|this, changes| {
-            assert!(this.wrappers.guards.insert(id, ScopedGuard { owner, source, view, subject, comparison, view_used: false, selection: None, reads: Vec::new() }).is_none());
+            assert!(this.wrappers.guards.insert(id, ScopedGuard { owner, source, view, subject, comparison, view_used: false, selection: None, reads: Vec::new(), effects: None }).is_none());
             this.wrappers.guard_owners.entry(owner).or_default().push(id);
             changes.push(ConstraintChange::Wrapper(WrapperChange::GuardFresh(id)));
             for dependency in dependencies {
@@ -413,7 +442,8 @@ impl TypeConstraints {
         let entry = self.wrappers.guard_instances.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
         if let GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) = &entry.state {
             let (template, pack, level, origin) = (std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(pack), entry.level, entry.origin);
-            return self.solve_guard_identity_reads(id, &template, &pack, level, origin);
+            self.solve_guard_identity_reads(id, &template, &pack, level, origin)?;
+            return self.solve_guard_effects(id, &template, &pack, true);
         }
         let GuardInstanceState::Pending(inherited) = &entry.state else { return Ok(()); };
         let (source, template, inherited, origin, level) = (entry.source.clone(), std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(inherited), entry.origin, entry.level);
@@ -426,7 +456,10 @@ impl TypeConstraints {
         if source.contains_inference() { return Ok(()); }
         let classification = crate::sema::guarded_requirements::non_null_source(&source).map_err(WrapperConstraintError::Guard)?;
         let next = match classification {
-            crate::sema::guarded_requirements::NonNullSource::Null => GuardInstanceState::Null,
+            crate::sema::guarded_requirements::NonNullSource::Null => {
+                self.solve_guard_effects(id, &template, &inherited, false)?;
+                GuardInstanceState::Null
+            },
             crate::sema::guarded_requirements::NonNullSource::NonNull(payload) | crate::sema::guarded_requirements::NonNullSource::Optional(payload) => {
                 let instance = self.instantiate_requirement_pack(&template.type_parameters, &template.row_parameters, &template.requirements, inherited.as_ref().clone(), level, origin, CallableApplicationScope::Guard(id))
                     .map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
@@ -451,8 +484,27 @@ impl TypeConstraints {
             changes.push(ConstraintChange::Wrapper(WrapperChange::GuardInstanceState(id, previous)));
             Ok::<_, WrapperConstraintError>(())
         })?;
-        if let Some(pack) = live { self.solve_guard_identity_reads(id, &template, &pack, level, origin)?; }
+        if let Some(pack) = live {
+            self.solve_guard_identity_reads(id, &template, &pack, level, origin)?;
+            self.solve_guard_effects(id, &template, &pack, true)?;
+        }
         Ok(())
+    }
+
+    fn solve_guard_effects(&mut self, id: WrapperOperationId, template: &crate::sema::guarded_requirements::GuardRequirements, pack: &super::InstantiatedRequirements, live: bool) -> Result<(), WrapperConstraintError> {
+        let Some(effects) = &template.effects else { return Ok(()); };
+        let instantiate = |contract: &EffectContract<crate::sema::schemes::SchemeEffectParameterId>| {
+            contract.substitute(|id| pack.effect_arguments.get(id).copied().map(EffectContract::variable).ok_or(ConstraintResolutionError::ForeignVariable))
+        };
+        let outward = instantiate(&effects.outward)?;
+        let actual = if live { instantiate(&effects.local)? } else { EffectContract::finite(EffectSet::default()) };
+        self.apply_journaled(|this, changes| {
+            for contract in [&outward, &actual] {
+                if let EffectContract::Known(expression) = contract { for (&variable, _) in expression.variables() { this.wrappers.watch(WrapperDependency::Effect(variable), id, changes); } }
+            }
+            if this.resolve_effect(&outward)? == this.resolve_effect(&actual)? { return Ok(()); }
+            this.constrain_effect_inner(EffectPredicate::Equal(outward, actual), changes).map_err(WrapperConstraintError::Effects)
+        })
     }
 
     fn solve_guard_identity_reads(&mut self, id: WrapperOperationId, template: &crate::sema::guarded_requirements::GuardRequirements, pack: &super::InstantiatedRequirements, level: u32, origin: Span) -> Result<(), WrapperConstraintError> {
@@ -1204,6 +1256,18 @@ impl TypeConstraints {
         Ok(requirements)
     }
 
+    pub(super) fn generalize_guard_effect_outputs(&self, owners: &BTreeSet<CallableApplicationScope>, level: u32, generalization: &mut super::Generalization) -> Result<(), SchemeOperationError> {
+        for owner in owners {
+            for id in self.wrappers.guard_owners.get(owner).into_iter().flatten() {
+                if let Some(effects) = self.wrappers.guards.get(id).and_then(|guard| guard.effects.as_ref()) {
+                    self.counters.record_effect_edge_visit();
+                    self.generalize_effect_contract(&effects.outward, level, generalization)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn generalize_guard_requirements(&self, owners: &BTreeSet<CallableApplicationScope>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<std::sync::Arc<crate::sema::guarded_requirements::GuardRequirements>>, SchemeOperationError> {
         let mut requirements = Vec::new();
         for owner in owners {
@@ -1217,7 +1281,9 @@ impl TypeConstraints {
                 let read_sources = guard.reads.iter().map(|read| self.generalize_type(&read.source, level, generalization, 0)).collect::<Result<Vec<_>, _>>()?;
                 let scope = crate::sema::guarded_requirements::GuardScopeId::from_index(generalization.guards.len()).map_err(SchemeOperationError::Build)?;
                 if generalization.guards.insert(id, scope).is_some() { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)); }
+                let outward = guard.effects.as_ref().map(|effects| self.generalize_effect_contract(&effects.outward, level, generalization)).transpose()?;
                 let counts = (generalization.type_parameters.len(), generalization.row_parameters.len(), generalization.effect_parameters.len());
+                let effects = guard.effects.as_ref().zip(outward).map(|(effects, outward)| self.generalize_effect_contract(&effects.local, level, generalization).map(|local| crate::sema::guarded_requirements::GuardEffects { outward, local })).transpose()?;
                 let view = self.generalize_type(&guard.view, level, generalization, 0)?;
                 let reads = guard.reads.iter().zip(read_sources).map(|(read, source)| Ok(crate::sema::guarded_requirements::GuardReadRequirement { source, view: self.generalize_type(&read.view, level, generalization, 0)?, subject: read.subject })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
                 let previous = super::GuardRequirementOrdinals {
@@ -1238,7 +1304,7 @@ impl TypeConstraints {
                 local.map_key_parameters.retain(|parameter| owned.contains(parameter));
                 local.conversion_parameters.retain(|parameter, _| owned.contains(parameter));
                 local.iteration_parameters.retain(|parameter, _| owned.contains(parameter));
-                if !guard.view_used && reads.is_empty() && row_parameters.is_empty() && local == crate::sema::schemes::CallableRequirements::default()
+                if effects.is_none() && !guard.view_used && reads.is_empty() && row_parameters.is_empty() && local == crate::sema::schemes::CallableRequirements::default()
                     && let crate::sema::schemes::SchemeType::Parameter(parameter) = &view
                     && type_parameters.as_slice() == [*parameter]
                     && let Type::Inference(variable) = guard.view {
@@ -1249,7 +1315,7 @@ impl TypeConstraints {
                     generalization.guard_ordinals.remove(&scope);
                     continue;
                 }
-                requirements.push(std::sync::Arc::new(crate::sema::guarded_requirements::GuardRequirements { scope, source, view, subject: guard.subject, comparison: guard.comparison, reads, type_parameters, row_parameters, requirements: Box::new(local) }));
+                requirements.push(std::sync::Arc::new(crate::sema::guarded_requirements::GuardRequirements { scope, source, view, subject: guard.subject, comparison: guard.comparison, reads, effects, type_parameters, row_parameters, requirements: Box::new(local) }));
             }
         }
         Ok(requirements)
@@ -1422,6 +1488,71 @@ mod tests {
     use crate::symbol::{Name, SymbolOwner};
 
     #[test]
+    fn nested_guard_effect_exports_omit_absent_local_packs_and_rollback() {
+        SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let declaration = crate::sema::check::EffectDeclarationId { namespace: None, body: span };
+            let owner = CallableApplicationScope::Declaration(declaration);
+            let mut constraints = TypeConstraints::default();
+            let source = constraints.fresh_at_level(span, 1);
+            let view = constraints.fresh_at_level(span, 1);
+            let nested_view = constraints.fresh_at_level(span, 1);
+            let outer = constraints.register_non_null_guard(owner, source.clone(), view.clone(), span, span).unwrap();
+            let inner = constraints.register_non_null_guard(CallableApplicationScope::Guard(outer), view, nested_view, span, span).unwrap();
+            let before = constraints.wrappers.clone();
+            let effects_before = constraints.effects.clone();
+            let rejected = constraints.commit_constraint_transaction(|trial| {
+                trial.guarded_effect_contract(CallableApplicationScope::Guard(inner), EffectContract::finite(EffectSet::singleton(crate::syntax::node::Effect::Env)), 1)?;
+                Err::<(), _>(ConstraintResolutionError::ForeignVariable)
+            });
+            assert!(rejected.is_err());
+            assert_eq!(constraints.wrappers, before);
+            assert_eq!(constraints.effects, effects_before);
+            constraints.guarded_effect_contract(CallableApplicationScope::Guard(inner), EffectContract::finite(EffectSet::singleton(crate::syntax::node::Effect::Env)), 1).unwrap();
+            let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls::<Span>(&[source, Type::Str], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration).unwrap();
+            assert_eq!(generalized.requirements.effect_parameters.len(), 1);
+            let root_effect = generalized.requirements.effect_parameters[0];
+            assert_eq!(generalized.requirements.guards.len(), 1);
+            assert_eq!(generalized.requirements.guards[0].requirements.effect_parameters.len(), 1);
+            let params = vec![crate::sema::schemes::SchemeParameter { name: Name::intern("source"), ty: generalized.types[0].clone(), schema_expectation: None, defaulted: false, rest: false }];
+            let callable = crate::sema::schemes::CallableScheme::new(generalized.type_parameters, generalized.row_parameters, params, crate::sema::schemes::SchemeType::Ground(Type::Str), None, true, generalized.requirements).unwrap();
+            for actual in [Type::Null, Type::Str, Type::Optional(Box::new(Type::Str))] {
+                let mut trial = TypeConstraints::default();
+                let instance = trial.instantiate_callable(&callable, 1, span, CallableApplicationScope::Invocation).unwrap();
+                trial.constrain_checked_call_argument(&instance, &instance.params[0], &actual, span).unwrap();
+                trial.solve_callable_applications().unwrap();
+                let evidence = trial.resolve_call_instantiation(&callable, &instance).unwrap();
+                let expected = if actual == Type::Null { EffectSet::default() } else { EffectSet::singleton(crate::syntax::node::Effect::Env) };
+                assert_eq!(evidence.effect_arguments()[&root_effect].closed(), Some(expected));
+                if actual == Type::Null {
+                    assert_eq!(trial.variables.len(), 1);
+                    assert_eq!(trial.wrappers.guard_instances.len(), 1);
+                    assert_eq!(evidence.effect_arguments().len(), 1);
+                    assert!(matches!(evidence.guard_bindings()[0], crate::sema::guarded_requirements::GuardBinding::Null));
+                }
+            }
+            let mut requirements = callable.requirements().clone();
+            requirements.effect_predicates.push(crate::sema::effects::EffectPredicate::Covered(EffectContract::variable(root_effect), EffectContract::finite(EffectSet::singleton(crate::syntax::node::Effect::Error))));
+            let bounded = crate::sema::schemes::CallableScheme::new(callable.type_parameters().to_vec(), callable.row_parameters().to_vec(), callable.params().to_vec(), callable.return_type().clone(), None, true, requirements).unwrap();
+            for actual in [Type::Null, Type::Str] {
+                let mut trial = TypeConstraints::default();
+                let instance = trial.instantiate_callable(&bounded, 1, span, CallableApplicationScope::Invocation).unwrap();
+                trial.constrain_checked_call_argument(&instance, &instance.params[0], &actual, span).unwrap();
+                let before = trial.wrappers.clone();
+                let effects_before = trial.effects.clone();
+                if actual == Type::Null {
+                    trial.solve_callable_applications().unwrap();
+                    assert_eq!(trial.resolve_call_instantiation(&bounded, &instance).unwrap().effect_arguments()[&root_effect].closed(), Some(EffectSet::default()));
+                } else {
+                    assert!(trial.solve_callable_applications().is_err());
+                    assert_eq!(trial.wrappers, before);
+                    assert_eq!(trial.effects, effects_before);
+                }
+            }
+        });
+    }
+
+    #[test]
     fn propagation_consumers_preserve_actual_errors_and_transactional_wakeups() {
         SymbolOwner::new().with_current(|| {
             let span = Span::at(crate::source::SourceId::new(0), 0);
@@ -1460,7 +1591,7 @@ mod tests {
             let mut conversions = ValueConversionSet::default();
             conversions.insert(ValueConversion::Display);
             let template = std::sync::Arc::new(crate::sema::guarded_requirements::GuardRequirements {
-                scope: crate::sema::guarded_requirements::GuardScopeId::from_index(0).unwrap(), source: SchemeType::Parameter(source_id), view: SchemeType::Parameter(payload_id), subject: origin, comparison: origin, reads: Vec::new(),
+                scope: crate::sema::guarded_requirements::GuardScopeId::from_index(0).unwrap(), source: SchemeType::Parameter(source_id), view: SchemeType::Parameter(payload_id), subject: origin, comparison: origin, reads: Vec::new(), effects: None,
                 type_parameters: vec![payload_id], row_parameters: Vec::new(), requirements: Box::new(CallableRequirements { conversion_parameters: BTreeMap::from([(payload_id, conversions)]), ..CallableRequirements::default() }),
             });
             let callable = CallableScheme::new(vec![source_id], Vec::new(), vec![SchemeParameter { name: crate::symbol::Name::intern("source"), ty: SchemeType::Parameter(source_id), schema_expectation: None, defaulted: false, rest: false }], SchemeType::Ground(Type::Str), None, true, CallableRequirements { guards: vec![template], ..CallableRequirements::default() }).unwrap();

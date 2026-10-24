@@ -438,20 +438,20 @@ impl<'a> ScopedEffectProof<'a> {
 
     pub(in crate::runtime::eval::indexed::full) fn application_may_error(&self, owner: usize, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
         let id = self.function_scope(owner)?.ok_or_else(|| IrVerifyError::new("application error flow has no generic owner"))?;
-        let scope = self.scopes.get(id)?;
+        let scope = self.scopes.get(id)?.at_instruction(instruction)?;
         let site = self.store.scheme_application_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction)
             .map_err(|_| IrVerifyError::new("application error flow has no checked call site"))?;
         let ordinal = self.store.scheme_application_calls[site].application;
-        let application = bounded(self.store.scheme(id)?.applications, &self.store.scheme_applications, "scheme application range is invalid")?
+        let application = bounded(scope.owned_requirements(self.store.scheme(id)?)?.applications, &self.store.scheme_applications, "scheme application range is invalid")?
             .get(ordinal as usize).and_then(|application| application.invocation()).ok_or_else(|| IrVerifyError::new("application error flow ordinal is out of scope"))?;
-        let effects = decode_contract(self.store, scope, application.effects, budget)?;
+        let effects = decode_contract(self.store, &scope, application.effects, budget)?;
         let possible = match effects {
             EffectContract::Unknown => true,
             EffectContract::Known(expression) => expression.direct().iter().any(|effect| effect == crate::syntax::node::Effect::Error)
                 || expression.variables().any(|(_, mask)| mask.iter().any(|effect| effect == crate::syntax::node::Effect::Error)),
         };
         if !possible { return Ok(false); }
-        let result = super::decode_scheme_type(self.store, scope, application.result, budget, 0)?;
+        let result = super::decode_scheme_type(self.store, &scope, application.result, budget, 0)?;
         Ok(match result {
             crate::sema::schemes::SchemeType::Result(_, _) | crate::sema::schemes::SchemeType::Stream(_) => false,
             crate::sema::schemes::SchemeType::Ground(result) => result.callee_error_flow(Some(&[crate::syntax::node::Effect::Error])) == crate::sema::types::CalleeErrorFlow::Immediate,
@@ -464,6 +464,54 @@ impl<'a> ScopedEffectProof<'a> {
             EffectContract::Unknown => true,
             EffectContract::Known(expression) => expression.direct().iter().any(|permission| crate::sema::effects::effect_covers(&permission, effect)),
         })
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn require_at(&self, owner: usize, instruction: usize, required: &EffectContract<SchemeEffectParameterId>, captured: bool, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+        let Some(id) = self.function_scope(owner)? else { return self.require(owner, required, captured, budget); };
+        budget.charge(1)?;
+        let root_scope = self.scopes.get(id)?;
+        let mut scope = root_scope.at_instruction(instruction)?;
+        if scope.active_guard.is_none() { return self.require(owner, required, captured, budget); }
+        if let EffectContract::Known(expression) = required { budget.charge(expression.variables().count())?; }
+        let mut required = if captured { required.clone().capture_error() } else { required.clone() };
+        if required.closed() == Some(EffectSet::default()) { return Ok(()); }
+        let super::guards::GuardScopes::Scoped(census) = &root_scope.guards else { return Err(IrVerifyError::new("guarded effects have no callable census")); };
+        let mut depth = 0;
+        while let Some(guard) = scope.active_guard {
+            budget.charge(1)?;
+            depth += 1;
+            if depth > crate::sema::constraints::MAX_TYPE_DEPTH { return Err(IrVerifyError::new("guard effect ancestry is too deep")); }
+            let pack = census.scope(guard)?;
+            let parent = root_scope.with_guard(census.parent(guard)?)?;
+            if let Some(exports) = pack.metadata.effects {
+                let local = decode_contract(self.store, &scope, exports.local, budget)?;
+                let predicate = EffectPredicate::Covered(required, local);
+                let mut proven = predicate.satisfaction() == Some(true);
+                if !proven && predicate.satisfaction().is_none() {
+                    for retained in bounded(pack.metadata.effect_predicates, &self.store.scheme_effect_predicates, "guard effect predicate range is invalid")? {
+                        let retained = decode_predicate(self.store, &scope, *retained, budget)?;
+                        if crate::sema::effects::effect_predicate_implies(&retained, &predicate) { proven = true; break; }
+                    }
+                }
+                if !proven { return Err(IrVerifyError::new("executable operation is absent from its guarded effect contribution")); }
+                required = decode_contract(self.store, &parent, exports.outward, budget)?;
+            }
+            scope = parent;
+        }
+        self.require(owner, &required, false, budget)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn permits_at(&self, owner: usize, instruction: usize, effect: &crate::syntax::node::Effect, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+        if self.permits_direct(owner, effect)? { return Ok(true); }
+        let Some(id) = self.function_scope(owner)? else { return Ok(false); };
+        let scope = self.scopes.get(id)?.at_instruction(instruction)?;
+        let Some(guard) = scope.active_guard else { return Ok(false); };
+        let super::guards::GuardScopes::Scoped(census) = &scope.guards else { return Err(IrVerifyError::new("guarded permission has no callable census")); };
+        let Some(exports) = census.scope(guard)?.metadata.effects else { return Ok(false); };
+        let local = decode_contract(self.store, &scope, exports.local, budget)?;
+        if !matches!(&local, EffectContract::Known(expression) if expression.direct().iter().any(|permission| crate::sema::effects::effect_covers(&permission, effect))) { return Ok(false); }
+        self.require_at(owner, instruction, &EffectContract::finite(EffectSet::singleton(effect.clone())), false, budget)?;
+        Ok(true)
     }
 
     pub(in crate::runtime::eval::indexed::full) fn require(&self, owner: usize, required: &EffectContract<SchemeEffectParameterId>, captured: bool, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {

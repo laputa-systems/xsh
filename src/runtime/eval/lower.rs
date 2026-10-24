@@ -5473,7 +5473,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let lowered = push_build_row!(self, expr, BuildExprRow::TypedCall { callee, kind: callable.kind, signature: expected, args: arguments, span });
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
-                let applications = &facts.scheme().callable().requirements().applications;
+                let applications = &requirements.applications;
                 let mut selected = applications.iter().enumerate().filter(|(_, application)| application.invocation().is_some_and(|application| application.span == span));
                 if let Some((ordinal, _)) = selected.next() {
                     if selected.next().is_some() { return self.block_scheme_lowering_expr(expression); }
