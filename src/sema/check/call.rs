@@ -379,13 +379,12 @@ impl Checker {
             if let ArenaExprKind::Field { base, name } = callee_kind
                 && name == "call"
                 && self.resolve_callable_alias_call(arena, base).is_some()
+                && contract.instantiation.is_none()
             {
-                if contract.instantiation.is_none() {
-                    self.static_callable_aliases
-                        .get_mut(&arena.arena.expr(callee).span)
-                        .expect("a monomorphic alias retains its checked method contract")
-                        .method_call = true;
-                }
+                self.static_callable_aliases
+                    .get_mut(&arena.arena.expr(callee).span)
+                    .expect("a monomorphic alias retains its checked method contract")
+                    .method_call = true;
             }
             let mut invocation = None;
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
