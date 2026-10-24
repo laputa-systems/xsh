@@ -35,3 +35,8 @@ test guarded_callback_effect_imports { |ctx|
   assert output.status == 0, output.stderr
   assert output.stdout == ""
 }
+
+test guarded_inferred_declaration_effects { |ctx|
+  let source = p"tests/fixtures/runtime/guarded-requirements-declarations.xsh".read_text()?
+  test.expect(ctx, source + "\nverify_guarded_known_targets()?\n", status: 0)?
+}

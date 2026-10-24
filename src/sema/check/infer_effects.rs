@@ -1779,10 +1779,22 @@ impl Checker {
     pub(super) fn check_function_invocation_effects(&mut self, contract: &super::FunctionCallContract, name: &str, span: Span) -> Option<DeferredInvocationTicket> {
         if self.record_effects || self.collecting_effects {
             let guarded = self.boundary.effect_owner.is_some_and(|owner| matches!(self.constraint_scope_at(owner, span), crate::sema::constraints::CallableApplicationScope::Guard(_)));
-            if guarded && let super::InvocationEffects::Checked(effects) = &contract.effects {
+            let scoped_effects = if guarded {
+                if matches!(contract.effects, super::InvocationEffects::Pending(_)) { self.provisional_effects_read.set(true); }
+                match self.resolve_invocation_effects(contract.effects.clone(), contract.instantiation.as_ref()) {
+                    Ok(effects) => Some(effects),
+                    Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects)) => None,
+                    Err(error) => {
+                        self.error(span, &format!("guarded callable has no actual scoped effect contract: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            } else { None };
+            if let Some(effects) = scoped_effects {
                 if let Err(error) = self.record_scoped_effect_contract(effects.contract(), self.boundary.retry_attempt_depth > 0, name, span) {
                     self.error(span, &format!("guarded callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
                 }
+                if matches!(contract.effects, super::InvocationEffects::Pending(_)) { self.constrain_callable_effects(&effects, name, span); }
             } else if let Some(target) = contract.effect_declaration.filter(|target| self.effect_graph.contains(*target)) {
                 self.effect_graph.call(self.boundary.effect_owner, target, self.boundary.retry_attempt_depth > 0, Some(span));
             } else if let super::InvocationEffects::Checked(effects) = &contract.effects
