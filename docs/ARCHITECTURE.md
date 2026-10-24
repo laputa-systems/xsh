@@ -556,6 +556,11 @@ presence proof even when their checked-expression facts are absent. Completed
 presence evidence belongs to one physical gate in that owner. Reuse rechecks the
 schema, source child, type identity, and exact optional payload; failed queries
 never supply evidence. Source, storage, and callee proofs remain independent.
+Checker null-comparison facts distinguish known replacement types from symbolic
+non-null source variables. Symbolic facts retain their binding identity, path,
+and mutation revision through Boolean proof composition. They do not choose an
+Optional input or a payload type. Retaining a symbolic fact does not itself
+authorize a narrowed value read.
 Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the

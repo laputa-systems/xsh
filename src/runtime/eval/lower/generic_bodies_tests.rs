@@ -5230,3 +5230,5 @@ fn typed_record_guard_continuations_preserve_actual_closed_records_on_both_route
 fn generic_record_guard_continuations_preserve_actual_closed_records_on_both_routes() {
     verify_record_guard_continuation_program(false);
 }
+
+mod guarded_requirements_tests;
