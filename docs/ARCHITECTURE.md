@@ -1136,6 +1136,10 @@ with its authenticated envelope. Ground defaulted procs use the same arm-value
 completion rule when their checked return has non-Unit success; statement-only
 Unit bodies retain ordinary fallthrough completion. Bare procedure returns use an actual Unit producer and the same authenticated completion boundary as value returns. Generic fixed-field projections derive their result from the actual closed receiver through the canonical fixed-field relation; records retain their declared field map. When a structured return has no material control
 fact, resource transfer requires the checked facts of every completing value leaf.
+Statement context scopes carry their actual Proc-completion purpose through
+tail checking. A closed `Result[Unit]` expression body uses ordinary statement
+consumption while its lexical guard and error boundary remain active. Each body
+is checked once. Value scopes and opaque nested Results retain their data shape.
 Missing leaf evidence blocks publication. Values checked against settled return types retain their contextual
 facts, schemas, and ordinary joins. Branches used as values keep their raw type join. A shared descriptor must
 prove the same raw result and normalized return contract across those branches;

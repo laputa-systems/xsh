@@ -1781,8 +1781,7 @@ struct BoundaryContext {
     in_signal_hook: bool,
     item_frames: Vec<ItemFrame>,
     context_scope_depths: Vec<usize>,
-    /// A statement-shaped scope consumes its body only in a value tail.
-    context_scope_tail_value: bool,
+    context_scope_tail_purpose: Option<stmt::TailCheckingPurpose>,
     // The effects enclosing `without` regions exclude, outermost first.
     excluded_effects: Vec<effect_bounds::ExcludedEffect>,
     last_status_available: bool,

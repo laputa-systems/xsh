@@ -3064,6 +3064,16 @@ impl Checker {
         true
     }
 
+    pub(super) fn consume_unit_statement_scope_tail_arena(
+        &mut self, arena: &ArenaProgram, source: &str, block: BlockId, actual: &Type,
+    ) -> Option<Type> {
+        let tail = arena.arena.stmt_ids(arena.arena.block(block).statements).last()?;
+        let statement = arena.arena.stmt(arena.arena.core_stmt_id(tail));
+        let ArenaStmtKind::Expr(value) = statement.kind else { return None; };
+        self.propagating_statements.insert(statement.span);
+        Some(self.check_unit_statement_value_tail(Some(source), actual, statement.span, arena.arena.expr(value).span, None, true))
+    }
+
     pub(super) fn check_unit_statement_value_tail(
         &mut self,
         source: Option<&str>,
@@ -6061,7 +6071,12 @@ impl Checker {
                     self.inferred_err_completion_hole(arena, expression)
                 } else { None };
                 let expectation = expectation.or_else(|| inferred_expectation.as_ref().map(super::types::TypeExpectation::Required));
+                let previous_scope_tail = self.boundary.context_scope_tail_purpose;
+                if matches!(node.kind, ArenaExprKind::ContextScope { value_body: false, .. }) {
+                    self.boundary.context_scope_tail_purpose = Some(TailCheckingPurpose::ProcCompletion);
+                }
                 let actual = self.check_expr_with_expectation_arena(arena, source, expression, expectation);
+                self.boundary.context_scope_tail_purpose = previous_scope_tail;
                 let actual = if collecting { actual } else {
                     self.resolve_local_tail_type_with_expectation(actual, expectation, node.span)
                 };
@@ -6685,9 +6700,9 @@ impl Checker {
                         | ArenaStmtKind::Continue
                 );
             for &stmt_id in non_tail {
-                let previous_tail = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                let previous_tail = self.boundary.context_scope_tail_purpose.take();
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
-                self.boundary.context_scope_tail_value = previous_tail;
+                self.boundary.context_scope_tail_purpose = previous_tail;
                 if self.inferred_returns.is_some()
                     && self.return_inference_stmt_returns(arena, stmt_id)
                 {
@@ -7049,11 +7064,7 @@ impl Checker {
                 && tail_stmt_uses_result_context_arena(arena, id))
         {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
-                let previous_tail = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
-                // A statement's Unit result is produced by consuming its value;
-                // it must not constrain a Bool-producing call before Bool statement
-                // classification. Blocks and inferred schemas still need their
-                // declared success context while checking their contents.
+                let previous_tail = self.boundary.context_scope_tail_purpose.take();
                 let context = statement_tail_needs_value_context_arena(arena, expr_id)
                     .then(|| tail_expr_context_arena(arena, expr_id, expected))
                     .flatten();
@@ -7077,7 +7088,7 @@ impl Checker {
                     context.as_ref(),
                     schema,
                 );
-                self.boundary.context_scope_tail_value = previous_tail;
+                self.boundary.context_scope_tail_purpose = previous_tail;
                 if purpose == TailCheckingPurpose::ProcCompletion {
                     let origin = self.stream_expr_origin(arena, expr_id);
                     let schema = self.checked_schema_for_expr(arena, expr_id);
@@ -7155,7 +7166,7 @@ impl Checker {
                         }
                     })
                 }));
-                let previous = std::mem::replace(&mut self.boundary.context_scope_tail_value, true);
+                let previous = std::mem::replace(&mut self.boundary.context_scope_tail_purpose, Some(purpose));
                 let schema = self.boundary.expected_schema.as_ref().map(|schema| {
                     if matches!(expected, Some(Type::Result(_, _)))
                         && !matches!(ctx, Some(Type::Result(_, _)))
@@ -7176,7 +7187,7 @@ impl Checker {
                     expr_expectation,
                     schema,
                 );
-                self.boundary.context_scope_tail_value = previous;
+                self.boundary.context_scope_tail_purpose = previous;
                 let ty = self.resolve_local_tail_type_with_expectation(
                     ty,
                     expectation,

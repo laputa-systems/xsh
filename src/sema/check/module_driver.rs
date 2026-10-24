@@ -749,6 +749,10 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let output = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions::for_check_cli());
         assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error), "{:?}", output.diagnostics);
+        let declaration = output.checked_declarations.functions.values().find(|declaration| declaration.name == "execute").unwrap();
+        let guards = &declaration.scheme.as_ref().unwrap().callable().requirements().guards;
+        assert_eq!(guards.len(), 1, "{guards:?}");
+        assert_eq!(guards.iter().filter(|guard| guard.effects.is_some()).count(), 1);
         for invalid in [
             source.replace("spec: 1", "spec: true"),
             format!("{source}\nlet _ = execute(true)\n"),
@@ -782,6 +786,124 @@ mod tests {
                 assert!(matches!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)));
             }
         }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn inferred_statement_scope_completions_match_written_unit_results() {
+        for return_type in ["-> Result[Unit, Error]", ""] {
+            for (first, second) in [
+                ("stage(1)", "env ({XSH_COMPLETION_SCOPE: preload}) { stage(2) }"),
+                ("env ({XSH_COMPLETION_SCOPE: preload}) { stage(2) }", "stage(1)"),
+            ] {
+                let source = format!(r#"
+proc stage(value: Int) [io, error] -> Result[Unit, Error] {{ print $value; Ok() }}
+proc choose(preload: Str) {return_type} {{
+  if preload == "direct" {{ {first} }} else {{ {second} }}
+}}
+let _ = choose("direct")
+let _ = choose("scoped")
+"#);
+                let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let modes = parsed.arena.arena.source_rows().expr_ids(crate::source::SourceId::new(0)).filter_map(|expression| match parsed.arena.arena.expr(expression).kind {
+                    crate::syntax::arena::ArenaExprKind::ContextScope { value_body, .. } => Some(value_body),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                assert_eq!(modes, vec![false]);
+                let output = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_check_cli());
+                assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error), "{source}\n{:?}", output.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn value_scope_results_preserve_their_opaque_nested_payloads() {
+        let source = r#"
+proc stage(failed: Bool) [error] -> Result[Unit, Error] {
+  if failed { Err(error.failure("retained")) } else { Ok() }
+}
+proc nested(failed: Bool) [env, error] -> Result[Result[Unit, Error], Error] {
+  env ({XSH_COMPLETION_SCOPE: "nested"}) { stage(failed) }
+}
+let success: Result[Result[Unit, Error], Error] = env ({XSH_COMPLETION_SCOPE: "success"}) { stage(false) }
+let failure: Result[Result[Unit, Error], Error] = env ({XSH_COMPLETION_SCOPE: "failure"}) { stage(true) }
+let _ = nested(false)
+let _ = nested(true)
+"#;
+        let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let modes = parsed.arena.arena.source_rows().expr_ids(crate::source::SourceId::new(0)).filter_map(|expression| match parsed.arena.arena.expr(expression).kind {
+            crate::syntax::arena::ArenaExprKind::ContextScope { value_body, .. } => Some(value_body),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(modes, vec![false, true, true]);
+        let output = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_check_cli());
+        assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error), "{:?}", output.diagnostics);
+    }
+
+    #[test]
+    fn statement_scope_completions_retain_value_and_effect_rejections() {
+        for body in [
+            "proc invalid(flag: Bool) { if flag { Ok() } else { env ({X: \"v\"}) { 7 } } }",
+            "proc invalid(flag: Bool) [] { if flag { stage(false) } else { env ({X: \"v\"}) { stage(false) } } }",
+            "pure require_unit(value: Result[Unit, Error]) -> Unit { let _ = value }\nproc invalid(flag: Bool) { let nested = env ({X: \"v\"}) { stage(flag) }; require_unit(nested) }",
+        ] {
+            let source = format!("proc stage(failed: Bool) [error] -> Result[Unit, Error] {{ if failed {{ Err(error.failure(\"retained\")) }} else {{ Ok() }} }}\n{body}\nlet _ = invalid(true)\n");
+            let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let output = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_check_cli());
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn statement_scope_completions_execute_after_frontend_disposal_on_both_routes() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/statement-scope-completion.xsh"));
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("statement-scope-completion.xsh", crate::loader::entry_source_from_text("statement-scope-completion.xsh", source.to_owned()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+            for force_frames in [false, true] {
+                let result = prepared.eval_test("verify_statement_scope_completion", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert!(result.output.stdout.is_empty(), "{:?}", result.output.stdout);
+                assert!(result.output.stderr.is_empty(), "{:?}", result.output.stderr);
+                assert!(matches!(result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)));
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn inferred_row_alias_environment_result_calls_bind_to_their_declaration() {
+        let source = r#"
+use stages
+proc execute(step) {
+  let preload = step.preload
+  if preload == null {
+    stages.execute(step.spec)
+  } else {
+    env ({LD_PRELOAD: preload}) { stages.execute(step.spec) }
+  }
+}
+let _ = execute({spec: 1, preload: null})
+let _ = execute({spec: 2, preload: "library.so"})
+"#;
+        let modules = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules/guarded-row-environment");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("guarded-row-environment-result.xsh", crate::loader::entry_source_from_text("guarded-row-environment-result.xsh", source.to_owned()), vec![modules]);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let output = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions::for_check_cli());
+        assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != crate::diagnostic::Severity::Error), "{:?}", output.diagnostics);
+        let declaration = output.checked_declarations.functions.values().find(|declaration| declaration.name == "execute" && declaration.namespace.is_none()).unwrap();
+        let guards = &declaration.scheme.as_ref().unwrap().callable().requirements().guards;
+        assert_eq!(guards.len(), 1, "{guards:?}");
+        assert_eq!(guards.iter().filter(|guard| guard.effects.is_some()).count(), 1);
     }
 
     #[test]

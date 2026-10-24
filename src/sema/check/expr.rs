@@ -1035,7 +1035,7 @@ impl Checker {
                 value_body,
             } => {
                 use crate::syntax::arena::ContextScopeKind;
-                let tail_value = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                let tail_purpose = self.boundary.context_scope_tail_purpose.take();
                 if self.boundary.in_pure {
                     self.error(
                         expr.span,
@@ -1110,8 +1110,8 @@ impl Checker {
                 self.push_scope();
                 let within = usize::from(matches!(kind, ContextScopeKind::Within));
                 self.boundary.within_block_depth += within;
-                let body_type = if *value_body
-                    || tail_value
+                let mut body_type = if *value_body
+                    || tail_purpose.is_some()
                     || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
                 {
                     let expected = match expected {
@@ -1123,6 +1123,12 @@ impl Checker {
                     self.check_block_arena(arena, source, *block);
                     Type::Unit
                 };
+                if !*value_body
+                    && tail_purpose == Some(super::stmt::TailCheckingPurpose::ProcCompletion)
+                    && body_type.is_result_unit()
+                    && !body_type.contains_inference() && !body_type.contains_recovery()
+                    && let Some(consumed) = self.consume_unit_statement_scope_tail_arena(arena, source, *block, &body_type)
+                { body_type = consumed; }
                 self.boundary.within_block_depth -= within;
                 self.pop_scope();
                 self.boundary.context_scope_depths.pop();
@@ -1133,7 +1139,7 @@ impl Checker {
                         DiagnosticCode::CheckContextScopeEscape,
                     );
                 }
-                self.boundary.context_scope_tail_value = tail_value;
+                self.boundary.context_scope_tail_purpose = tail_purpose;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::TempDirScope {
@@ -1141,7 +1147,7 @@ impl Checker {
                 block,
                 value_body,
             } => {
-                let tail_value = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                let tail_purpose = self.boundary.context_scope_tail_purpose.take();
                 if self.boundary.in_pure {
                     self.error(
                         expr.span,
@@ -1169,7 +1175,7 @@ impl Checker {
                     );
                 }
                 let body_type = if *value_body
-                    || tail_value
+                    || tail_purpose.is_some()
                     || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
                 {
                     let expected = match expected {
@@ -1182,7 +1188,7 @@ impl Checker {
                     Type::Unit
                 };
                 self.pop_scope();
-                self.boundary.context_scope_tail_value = tail_value;
+                self.boundary.context_scope_tail_purpose = tail_purpose;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::ResourceScope {
@@ -1190,7 +1196,7 @@ impl Checker {
                 block,
                 value_body,
             } => {
-                let tail_value = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                let tail_purpose = self.boundary.context_scope_tail_purpose.take();
                 if self.boundary.in_pure {
                     self.error(
                         expr.span,
@@ -1230,7 +1236,7 @@ impl Checker {
                     self.resource_scopes.remove(&expr.span);
                 }
                 let body_type = if *value_body
-                    || tail_value
+                    || tail_purpose.is_some()
                     || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
                 {
                     let expected = match expected {
@@ -1243,7 +1249,7 @@ impl Checker {
                     Type::Unit
                 };
                 self.pop_scope();
-                self.boundary.context_scope_tail_value = tail_value;
+                self.boundary.context_scope_tail_purpose = tail_purpose;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::ValueBlock(block)
