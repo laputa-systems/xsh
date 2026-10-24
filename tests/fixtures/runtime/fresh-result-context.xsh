@@ -1,6 +1,10 @@
 error ContextFailure = Failed(kind: Str, message: Str)
 error ContextCause = Failed(message: Str)
 
+pure contextual_tail(cause_message: Str, stage: Str) -> Result[Int, Error] {
+  Err(ContextFailure.Failed(kind: "compiler-failed", message: "outer"), cause: ContextCause.Failed(cause_message)).context(stage, "requested preparation")
+}
+
 pure contextual_failure(cause_message: Str, stage: Str) -> Result[Unit, Error] {
   let original: Result[Unit, Error] = Err(
     ContextFailure.Failed(kind: "compiler-failed", message: "outer"),
@@ -41,6 +45,10 @@ proc fresh_result_context() -> Result[Unit] {
   let success: Result[Int] = Ok(7).context("success")
   assert success == Ok(7)
   let original = contextual_failure("input unavailable", "kernel-scenario")
+  let tail = contextual_tail("input unavailable", "kernel-scenario")
+  assert tail == contextual_tail("input unavailable", "kernel-scenario")
+  assert tail != contextual_tail("different input", "kernel-scenario")
+  assert tail != contextual_tail("input unavailable", "different scenario")
   assert original == contextual_failure("input unavailable", "kernel-scenario")
   assert original != contextual_failure("different input", "kernel-scenario")
   assert original != contextual_failure("input unavailable", "different scenario")

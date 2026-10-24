@@ -2020,6 +2020,32 @@ mod tests {
 
     #[cfg(feature = "native-tests")]
     #[test]
+    fn fresh_result_context_accepts_written_return_consumers() {
+        prepare("error Failure = Rejected(message: Str)\npure expected_failure() -> Result[Int, Error] { Err(Failure.Rejected(message: \"closed callback failed\"), cause: error.failure(\"closed cause\")).context(\"closed-observer\", \"closed callback\") }\n");
+    }
+
+    #[test]
+    fn fresh_result_context_written_returns_reject_wrong_method_when_cold() {
+        let mut program = prepare("error Failure = Rejected(message: Str)\npure expected_failure() -> Result[Int, Error] { let spare = \"trim\"; Err(Failure.Rejected(\"failure\")).context(\"stage\") }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let method = program.store.tags.iter().position(|tag| *tag == super::super::super::FullTag::ExprMethod).unwrap();
+        let function = (0..program.store.functions.len()).find(|index| program.store.function_instruction_range(*index).unwrap().contains(&method)).unwrap();
+        let decoder = decoder_for_function(&program.store, function).unwrap();
+        let spelling = decoder.instruction_range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str("trim")))).unwrap();
+        let spelling = program.store.extra[program.store.data[spelling].range().start as usize];
+        let mut changed = program.clone();
+        assert!(changed.store.in_place.get().is_none());
+        let words = changed.store.data[method].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start + 1] = spelling;
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert!(error.message.starts_with("ground method has no receiver contract") || error.message.starts_with("ground method has no registered parameter contract"), "{error:?}");
+    }
+
+    #[test]
     fn record_list_conditionals_execute_after_disposal_on_both_routes() {
         let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/record-list-conditionals.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("record-list-conditionals.xsh", crate::loader::entry_source_from_text("record-list-conditionals.xsh", source), Vec::new());
