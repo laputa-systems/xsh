@@ -1630,6 +1630,8 @@ fn verify_scheme_body_facts(
         let mut decoder = decoder_for_function(store, function_index)?;
         decoder.function_signature_index = Some(Arc::clone(function_signatures));
         decoder.producer_demand = producer_index.demand();
+        let producer_prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
+        decoder.borrowed_instruction_parents = producer_prefix.as_ref().map(ProducerPrefixContext::instruction_forest);
         if completion_sources.values().any(|source| !types.contains_key(&(source.producer as usize))) {
             return Err(IrVerifyError::new("generic completion source has no authenticated producer type"));
         }
@@ -2064,6 +2066,7 @@ fn scheme_stored_type(actual: SchemeType, annotation: Option<Type>) -> Result<Sc
 fn verify_body_expression(
     store: &FullStore,
     decoder: &FullDecoder<'_>,
+    producer_index: &GroundProducerIndex,
     instruction: usize,
     types: &BTreeMap<usize, SchemeType>,
     constructors: &constructors::ConstructorFacts,
@@ -2131,15 +2134,27 @@ fn verify_body_expression(
         }
         schema::ExprView::Param(slot) => {
             let actual = slots.slot_type(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?;
-            if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
+            if body_types_equal(actual, ty) {
+                budget.charge_scheme_clone(actual)?;
+                actual.clone()
+            } else if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && !matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && body_type_matches(actual, ty, budget)?
             {
                 budget.charge_scheme_clone(ty)?;
                 ty.clone()
             } else {
-                budget.charge_scheme_clone(actual)?;
-                actual.clone()
+                let narrowed = if matches!(ty, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))) {
+                    budget.charge_scheme_clone(actual)?;
+                    budget.charge_scheme_clone(ty)?;
+                    match (actual.closed_ground_type(), ty.closed_ground_type()) {
+                        (Some(actual), Some(expected)) => producer_index.guarded_record_read_matches_type(decoder, instruction, &actual, &expected, budget)?,
+                        _ => false,
+                    }
+                } else { false };
+                let proven = if narrowed { ty } else { actual };
+                budget.charge_scheme_clone(proven)?;
+                proven.clone()
             }
         },
         schema::ExprView::Null => SchemeType::Ground(Type::Null),

@@ -1490,7 +1490,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), expected_return, completion_group, &mut completion_contributions, &mut checked_accumulators, budget, constant_budget)?;
+                        verify_body_expression(store, decoder, producer_index, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), expected_return, completion_group, &mut completion_contributions, &mut checked_accumulators, budget, constant_budget)?;
                         record_capture_transfers(store, decoder, scheme_scope, effect_scopes, wrapper_sites, operation_sites, instruction, &scope, &scopes, types, &mut captures, budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
@@ -5574,6 +5574,165 @@ test verify_completion_cleanup {
         changed.store.extra[words.start] = IrFunctionId::new(environmental).unwrap().raw();
         changed.store.checked_call_targets.iter_mut().find(|target| target.instruction as usize == call).unwrap().function = IrFunctionId::new(environmental).unwrap();
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, format!("executable operation requires effect env outside its owner contract: executable operation requires effects outside its owner contract at callable {owner}, instruction {call} ExprCall"));
+    }
+
+
+    fn guarded_record_fixture() -> FullProgram {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-record-field-guards.xsh")).unwrap();
+        prepare(&source)
+    }
+
+    fn guarded_record_fact(program: &FullProgram, name: &str, narrowed: bool) -> usize {
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("the record reader retains its generic marker") };
+        let scope = scopes[scheme.index()].as_ref().unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        program.store.scheme_body_facts.iter().position(|fact| {
+            if fact.function.index() != owner || fact.kind() != FullSchemeBodyFactKind::Expression
+                || !matches!(decoder.expression_view(fact.instruction as usize), Ok(schema::ExprView::Param(_))) { return false; }
+            let Some(Type::Record(fields)) = decode_scheme_type(&program.store, scope, fact.ty().unwrap(), &mut budget, 0).unwrap().closed_ground_type() else { return false };
+            matches!(fields.get(&program.symbol_owner().intern("diagnostic")), Some(Type::Str)) == narrowed
+                && fields.contains_key(&program.symbol_owner().intern("diagnostic"))
+        }).unwrap()
+    }
+
+    #[test]
+    fn generic_record_field_guards_authenticate_physical_field_and_condition() {
+        let program = guarded_record_fixture();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "record_guard").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let field = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Field { name: "diagnostic", .. }))).unwrap();
+        let other = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "other").unwrap().0 as u32 + 1;
+        let mut wrong_field = program.clone();
+        wrong_field.store.in_place.take();
+        let words = wrong_field.store.data[field].range().bounds(wrong_field.store.extra.len()).unwrap();
+        wrong_field.store.extra[words.start + 1] = other;
+        assert!(matches!(decoder_for_function(&wrong_field.store, owner).unwrap().expression_view(field).unwrap(), schema::ExprView::Field { name: "other", .. }));
+        assert!(FullVerifier::verify(&wrong_field).is_err());
+        let read = program.store.scheme_body_facts[guarded_record_fact(&program, "record_guard", true)].instruction as usize;
+        let mut wrong_root = program.clone();
+        wrong_root.store.in_place.take();
+        let words = wrong_root.store.data[read].range().bounds(wrong_root.store.extra.len()).unwrap();
+        assert_eq!(wrong_root.store.extra[words.start], 1);
+        wrong_root.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&wrong_root).is_err());
+        let condition = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprMatch).unwrap();
+        let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(condition).unwrap() else { unreachable!() };
+        let (_, _, absent) = arms.next().unwrap().unwrap();
+        let mut null_succeeds = program.clone();
+        null_succeeds.store.in_place.take();
+        let words = null_succeeds.store.data[absent.raw() as usize].range().bounds(null_succeeds.store.extra.len()).unwrap();
+        null_succeeds.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&null_succeeds).is_err());
+        let foreign_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "typed_record_guard").unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign_owner).unwrap();
+        let foreign = program.store.function_instruction_range(foreign_owner).unwrap().find(|&instruction| matches!(foreign_decoder.expression_view(instruction), Ok(schema::ExprView::Field { name: "diagnostic", .. }))).unwrap();
+        let mut escaped = program.clone();
+        escaped.store.in_place.take();
+        let words = escaped.store.data[condition].range().bounds(escaped.store.extra.len()).unwrap();
+        assert_eq!(escaped.store.extra[words.start], value.raw());
+        escaped.store.extra[words.start] = foreign as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
+    }
+
+    #[test]
+    fn generic_record_field_guards_reject_nonoptional_type_changes() {
+        let program = guarded_record_fixture();
+        let fact = guarded_record_fact(&program, "record_guard", true);
+        let record = program.store.scheme_body_facts[fact].ty().unwrap();
+        let counts = record_field_type(&program.store, record, "counts");
+        let unsigned = record_field_type(&program.store, counts, "bytes");
+        let node = program.store.scheme_types[unsigned.index()];
+        assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+        assert_eq!(program.store.semantic.to_type(super::super::TypeId::from_raw(node.first).unwrap()).unwrap(), Type::UInt);
+        let typed = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == "typed_record_guard").unwrap();
+        let FullCallableContract::Ground(signature) = typed.contract else { unreachable!() };
+        let (_, signed, _) = program.store.semantic.signature_param(signature, 0).unwrap();
+        assert_eq!(program.store.semantic.to_type(signed).unwrap(), Type::Int);
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        changed.store.scheme_types[unsigned.index()].first = signed.raw();
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    fn guarded_record_carriers(program: &FullProgram, owner: usize, base: usize) -> ([usize; 3], usize, usize) {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::Param(generated_slot) = decoder.expression_view(base).unwrap() else { panic!("field base is its evaluated record temporary") };
+        let writers = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if slot == generated_slot => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(writers.len(), 1);
+        let (declaration, raw) = writers[0];
+        let schema::ExprView::Param(source_slot) = decoder.expression_view(raw).unwrap() else { panic!("the record temporary reads the actual mutable source") };
+        assert_ne!(source_slot, generated_slot);
+        let facts = [raw, declaration, base].map(|instruction| program.store.scheme_body_facts.iter().position(|fact| {
+            fact.function.index() == owner && fact.instruction as usize == instruction
+                && fact.kind() == if instruction == declaration { FullSchemeBodyFactKind::LocalImmutable } else { FullSchemeBodyFactKind::Expression }
+        }).unwrap());
+        (facts, source_slot, generated_slot)
+    }
+
+    #[test]
+    fn generic_record_field_guards_reject_refinement_after_a_source_write() {
+        let program = guarded_record_fixture();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "written_record_guard").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let bases = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Field { base, name: "flush", .. }) => Some(base.raw() as usize),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(bases.len(), 2);
+        let (before, source, earlier_slot) = guarded_record_carriers(&program, owner, bases[0]);
+        let (after, actual_source, later_slot) = guarded_record_carriers(&program, owner, bases[1]);
+        assert_eq!(source, actual_source);
+        assert_ne!(earlier_slot, later_slot);
+        let mut written = program.clone();
+        written.store.in_place.take();
+        written.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&written).unwrap();
+        for (before, after) in before.into_iter().zip(after) {
+            let value = written.store.scheme_body_facts[before].value;
+            written.store.scheme_body_facts[before].value = written.store.scheme_body_facts[after].value;
+            written.store.scheme_body_facts[after].value = value;
+        }
+        assert!(FullVerifier::verify(&written).is_err());
+    }
+
+
+    #[test]
+    fn generic_record_field_guards_reject_stale_precondition_aliases() {
+        let mut program = guarded_record_fixture();
+        program.store.in_place.take();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        for name in ["stale_record_guard", "stale_block_record_guard"] {
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let bases = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::Field { base, name: "flush", .. }) => Some(base.raw() as usize),
+                _ => None,
+            }).collect::<Vec<_>>();
+            assert_eq!(bases.len(), 2);
+            let (before, source, earlier_slot) = guarded_record_carriers(&program, owner, bases[0]);
+            let (after, actual_source, later_slot) = guarded_record_carriers(&program, owner, bases[1]);
+            assert_eq!(source, actual_source);
+            assert_ne!(earlier_slot, later_slot);
+            let mut stale = program.clone();
+            stale.store.in_place.take();
+            for (before, after) in before.into_iter().zip(after) {
+                let value = stale.store.scheme_body_facts[before].value;
+                stale.store.scheme_body_facts[before].value = stale.store.scheme_body_facts[after].value;
+                stale.store.scheme_body_facts[after].value = value;
+            }
+            let failure = FullVerifier::verify(&stale).expect_err("a saved field cannot refine the current record after a write");
+            assert_eq!(failure.message, "generic body expression disagrees with its checked type", "{name}");
+        }
     }
 
 }

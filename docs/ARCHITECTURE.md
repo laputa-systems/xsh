@@ -565,6 +565,18 @@ original scope. A mutable local also qualifies when the existing owner and
 lexical writer census proves its declaration is its only writer and it has no
 shared storage. Captures and written locals receive no snapshot refinement.
 This refinement does not change mutable storage contracts.
+Generalized record reads in an optional-binding conditional prove every removed
+optional field through the same owner, lexical binding, and guard-prefix authority
+as ordinary record reads. The physical null-rejecting match and its evaluated
+value-block tail identify the guarded field; immutable temporary aliases retain
+their exact lexical writer. Closed generic header records supply their actual
+type only for the same owner and binding-path prefix. Optional payloads must
+match exactly, and all nonoptional fields retain their original types. Mutable
+sources retain the ordinary write and capture checks between the condition and
+the read. A temporary alias of a mutable source also proves that the source
+path is preserved between its initializer and the condition read within the
+same statement block; aliases across blocks require a protected snapshot.
+The complete condition body still executes and is verified.
 Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
 exact owner, source, pattern, and slot identities. Every proposing use must agree

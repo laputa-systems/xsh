@@ -6762,6 +6762,27 @@ enum GuardPathStability {
     MayChange,
 }
 
+struct GuardedRecordSource<'a> {
+    owner: u32,
+    path: (usize, Vec<Name>),
+    actual: &'a Type,
+}
+
+impl GuardedRecordSource<'_> {
+    fn path_type(&self, owner: u32, path: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<Option<&Type>, IrVerifyError> {
+        charge(1 + self.path.1.len() + path.1.len())?;
+        if owner != self.owner || path.0 != self.path.0 || !path.1.starts_with(&self.path.1) { return Ok(None); }
+        let mut actual = self.actual;
+        for field in &path.1[self.path.1.len()..] {
+            while let Type::Optional(payload) = actual { charge(1)?; actual = payload; }
+            let Type::Record(fields) = actual else { return Ok(None) };
+            let Some(value) = fields.get(field) else { return Ok(None) };
+            actual = value;
+        }
+        Ok(Some(actual))
+    }
+}
+
 struct InstructionParentContext<'a> {
     owner: u32,
     range: std::ops::Range<usize>,
@@ -10378,6 +10399,17 @@ impl<'a> FullDecoder<'a> {
         expected: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        self.checked_guarded_record_read_matches_type_with_prefix(instruction, actual, expected, self.producer_prefix.as_ref(), charge)
+    }
+
+    fn checked_guarded_record_read_matches_type_with_prefix(
+        &self,
+        instruction: usize,
+        actual: &Type,
+        expected: &Type,
+        prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         if !matches!(expected, Type::Record(_)) || actual == expected { return Ok(false); }
         let mut stored = actual;
         while let Type::Optional(payload) = stored {
@@ -10387,7 +10419,7 @@ impl<'a> FullDecoder<'a> {
         if !matches!(stored, Type::Record(_)) || actual.contains_any()
             || actual.contains_inference() || actual.contains_recovery()
         { return Ok(false); }
-        if let Some(prefix) = &self.producer_prefix {
+        if let Some(prefix) = prefix {
             return prefix.guarded_record_read_matches_type(self, instruction, actual, expected, charge);
         }
         charge(1)?;
@@ -14104,7 +14136,39 @@ impl<'a> FullDecoder<'a> {
         stability: GuardPathStability,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        self.checked_condition_proves_nonnull_with_prefix(condition, when_true, is_boolean, use_site, target, expected_payload, stability, self.producer_prefix.as_ref(), None, charge)
+    }
+
+    fn checked_condition_proves_nonnull_with_prefix(
+        &self, condition: usize, when_true: bool, is_boolean: bool, use_site: usize,
+        target: &(usize, Vec<Name>), expected_payload: &Type, stability: GuardPathStability,
+        prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
+        source: Option<&GuardedRecordSource<'_>>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         charge(1)?;
+        if !is_boolean && let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(condition)? {
+            charge(6)?;
+            if !when_true || arms.len() != 3 { return Ok(false); }
+            let (absent, absent_guard, absent_value) = arms.next().unwrap()?;
+            let (present, present_guard, present_value) = arms.next().unwrap()?;
+            let (fallback, fallback_guard, fallback_value) = arms.next().unwrap()?;
+            if absent_guard.is_some() || present_guard.is_some() || fallback_guard.is_some()
+                || !matches!(self.checked_pattern_view(absent.raw())?, schema::PatternView::Literal(literal) if literal.is_null()?)
+                || !matches!(self.checked_pattern_view(present.raw())?, schema::PatternView::Bind { .. })
+                || !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
+                || !matches!(self.expression_view(absent_value.raw() as usize)?, schema::ExprView::Bool(false))
+                || !matches!(self.expression_view(present_value.raw() as usize)?, schema::ExprView::Bool(true))
+                || !matches!(self.expression_view(fallback_value.raw() as usize)?, schema::ExprView::Bool(false))
+                || match prefix { Some(prefix) => prefix.guard_value_binding_path(self, value.raw() as usize, use_site, target, charge)?, None => self.checked_binding_path(value.raw() as usize, charge)? }.as_ref() != Some(target)
+            { return Ok(false); }
+            let subject_type = match self.checked_physical_field_type(value.raw() as usize, charge)? {
+                Some(ty) => Some(ty),
+                None => self.checked_binding_path_type(use_site, target, charge)?,
+            };
+            if let Some(subject_type) = subject_type { return Ok(matches!(subject_type, Type::Optional(payload) if payload.as_ref() == expected_payload)); }
+            return Ok(matches!(source.map(|source| source.path_type(self.owner, target, charge)).transpose()?.flatten(), Some(Type::Optional(payload)) if payload.as_ref() == expected_payload));
+        }
         if is_boolean {
             let tag = *self.store.tags.get(condition).ok_or_else(|| {
                 IrVerifyError::new("optional narrowing condition is out of bounds")
@@ -14424,7 +14488,7 @@ impl<'a> FullDecoder<'a> {
         expected_payload: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, expected_payload, GuardPathStability::MayChange,
+        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, expected_payload, GuardPathStability::MayChange, self.producer_prefix.as_ref(), None,
             &mut |parent, roots, charge| self.checked_branch_preserves_binding_path(parent, roots, field_instruction, target, charge), charge)
     }
 
@@ -14436,6 +14500,8 @@ impl<'a> FullDecoder<'a> {
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
         stability: GuardPathStability,
+        prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
+        source: Option<&GuardedRecordSource<'_>>,
         preserves: &mut dyn FnMut(usize, &[usize], &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
@@ -14444,7 +14510,7 @@ impl<'a> FullDecoder<'a> {
             self.checked_short_circuit_path_for_child(parent, child, charge)?
         } else { None };
         if let Some((left, when_true, is_boolean, right)) = short_circuit
-            && self.checked_condition_proves_nonnull(
+            && self.checked_condition_proves_nonnull_with_prefix(
                 left,
                 when_true,
                 is_boolean,
@@ -14452,6 +14518,8 @@ impl<'a> FullDecoder<'a> {
                 target,
                 expected_payload,
                 stability,
+                prefix,
+                source,
                 charge,
             )?
             && preserves(parent, &[right], charge)?
@@ -14468,7 +14536,7 @@ impl<'a> FullDecoder<'a> {
                     field_instruction,
                     parent,
                     charge,
-                )?) && self.checked_condition_proves_nonnull(
+                )?) && self.checked_condition_proves_nonnull_with_prefix(
                     condition,
                     when_true,
                     is_boolean,
@@ -14476,6 +14544,8 @@ impl<'a> FullDecoder<'a> {
                     target,
                     expected_payload,
                     stability,
+                    prefix,
+                    source,
                     charge,
                 )? && preserves(parent, &body_roots, charge)? {
                     return Ok(true);

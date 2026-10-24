@@ -4848,3 +4848,39 @@ assert caught_signed.result == Ok(false)
         }
     });
 }
+
+fn verify_record_field_guard_program(typed: bool) {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-record-field-guards.xsh");
+    let source = if typed {
+        source.replace("pure record_guard(marker,", "pure record_guard(marker: Any,")
+            .replace("pure local_record_guard(marker,", "pure local_record_guard(marker: Any,")
+            .replace("pure nested_record_guard(marker,", "pure nested_record_guard(marker: Any,")
+            .replace("pure record_argument_guard(marker,", "pure record_argument_guard(marker: Any,")
+            .replace("pure written_record_guard(marker,", "pure written_record_guard(marker: Any,")
+            .replace("pure stale_record_guard(marker,", "pure stale_record_guard(marker: Any,")
+            .replace("pure stale_block_record_guard(marker,", "pure stale_block_record_guard(marker: Any,")
+    } else { source.to_owned() };
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-record-field-guards.xsh", crate::loader::entry_source_from_text("generic-record-field-guards.xsh", source), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("verify_record_field_guards", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+    }
+}
+
+#[test]
+fn typed_record_field_guards_preserve_actual_closed_records_on_both_routes() {
+    verify_record_field_guard_program(true);
+}
+
+#[test]
+fn generic_record_field_guards_preserve_actual_closed_records_on_both_routes() {
+    verify_record_field_guard_program(false);
+}

@@ -408,6 +408,16 @@ impl ProducerPrefixContext<'_> {
         }
         let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         if !self.evidence.binding_path_is_snapshot(decoder, protected, target.0, charge)? { return Ok(None); }
+        self.immutable_value_initializer(decoder, condition, slot, use_site, target, charge)
+    }
+
+    fn immutable_value_initializer(&self, decoder: &FullDecoder<'_>, condition: usize, slot: usize, use_site: usize,
+        target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(usize, bool)>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
+            || !self.evidence.range.contains(&condition) || !self.evidence.range.contains(&use_site)
+        { return Err(IrVerifyError::new("condition value context disagrees with its owner")); }
+        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
         let binding = self.evidence.binding(decoder.store, decoder.owner, condition, slot)?;
         let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None) };
         charge(1)?;
@@ -422,11 +432,57 @@ impl ProducerPrefixContext<'_> {
             _ => return Ok(None),
         };
         if self.evidence.visible_binding(decoder.store, decoder.owner, initializer.0, target.0)? != Some(protected) { return Ok(None); }
+        if !self.evidence.binding_path_is_snapshot(decoder, protected, target.0, charge)? {
+            charge(3)?;
+            let Some(&(block, declaration_position)) = self.evidence.statement_positions.get(&declaration) else { return Ok(None) };
+            let Some(anchor) = self.evidence.statements.get(condition - self.evidence.range.start).copied().flatten() else { return Ok(None) };
+            let Some(&(read_block, read_position)) = self.evidence.statement_positions.get(&anchor) else { return Ok(None) };
+            if block != read_block || declaration_position >= read_position { return Ok(None); }
+            let roots = &self.evidence.block_statements[&block][declaration_position + 1..read_position];
+            charge(roots.len())?;
+            if !decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), condition, target, charge)? { return Ok(None); }
+        }
         Ok(Some(initializer))
     }
 
     pub(in crate::runtime::eval::indexed::full) fn charge_optional_path(&self, amount: usize) -> Result<(), IrVerifyError> {
         self.evidence.work.borrow_mut().charge(amount)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn guard_value_binding_path(
+        &self, decoder: &FullDecoder<'_>, mut instruction: usize, use_site: usize,
+        target: &(usize, Vec<Name>), charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("condition value context disagrees with its owner"));
+        }
+        let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
+        let mut fields = Vec::new();
+        for _ in self.evidence.range.clone() {
+            charge(1)?;
+            if !self.evidence.range.contains(&instruction) { return Err(IrVerifyError::new("condition value leaves its owner range")); }
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::ValueBlock { mut body, .. } => {
+                    charge(body.len())?;
+                    instruction = decoder.checked_block_tail_expression(&mut body)?;
+                }
+                schema::ExprView::Field { base, name, .. } if fields.len() < 128 => {
+                    fields.push(Name::intern(name));
+                    instruction = base.raw() as usize;
+                }
+                schema::ExprView::Param(slot) => {
+                    if self.evidence.binding(decoder.store, decoder.owner, instruction, slot)? == protected {
+                        charge(fields.len())?;
+                        fields.reverse();
+                        return Ok(Some((target.0, fields)));
+                    }
+                    let Some((initializer, false)) = self.immutable_value_initializer(decoder, instruction, slot, use_site, target, charge)? else { return Ok(None) };
+                    instruction = initializer;
+                }
+                _ => return Ok(None),
+            }
+        }
+        Err(IrVerifyError::new("condition value has a cyclic initializer path"))
     }
 
     pub(in crate::runtime::eval::indexed::full) fn optional_path_is_narrowed(&self, decoder: &FullDecoder<'_>,
@@ -437,7 +493,7 @@ impl ProducerPrefixContext<'_> {
             || !self.evidence.range.contains(&instruction) || target.1.len() > 128
         { return Err(IrVerifyError::new("optional path proof disagrees with its owner range")); }
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
-        self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, charge)
+        self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, Some(self), None, charge)
     }
 
     pub(in crate::runtime::eval::indexed::full) fn guarded_record_read_matches_type(&self, decoder: &FullDecoder<'_>,
@@ -465,11 +521,13 @@ impl ProducerPrefixContext<'_> {
         if !crate::runtime::eval::lower::only_optional_read_narrowing(actual, expected) { return Ok(false); }
         let Some(target) = decoder.checked_binding_path(instruction, charge)? else { return Ok(false) };
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        charge(target.1.len())?;
+        let source = super::super::GuardedRecordSource { owner: decoder.owner, path: target.clone(), actual };
         let proven = decoder.checked_declared_type_matches_narrowed_fact_with_optional_proof(
             target, actual, expected,
             &mut |target, payload, charge| {
                 if target.1.len() > 128 { return Ok(false); }
-                self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, charge)
+                self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, Some(self), Some(&source), charge)
             }, charge)?;
         if !proven { return Ok(false); }
         charge(1)?;
@@ -517,7 +575,7 @@ impl ProducerPrefixContext<'_> {
                 { return Ok(true); }
             }
             let binding = self.evidence.binding(decoder.store, decoder.owner, source, target.0)?;
-            self.evidence.optional_path_read_is_narrowed(decoder, source, target, checked, binding,
+            self.evidence.optional_path_read_is_narrowed(decoder, source, target, checked, binding, Some(self), None,
                 &mut |amount| self.evidence.work.borrow_mut().charge(amount))
         })()?;
         if narrowed {
@@ -789,13 +847,13 @@ impl ProducerOwner {
     }
 
     fn optional_path_read_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize,
-        target: &(usize, Vec<Name>), payload: &Type, binding: ProducerBinding,
+        target: &(usize, Vec<Name>), payload: &Type, binding: ProducerBinding, prefix: Option<&ProducerPrefixContext<'_>>, source: Option<&super::super::GuardedRecordSource<'_>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         let snapshot = self.binding_path_is_snapshot(decoder, binding, target.0, charge)?;
         let stability = if snapshot { super::super::GuardPathStability::ImmutableSnapshot } else { super::super::GuardPathStability::MayChange };
         let mut active = |parent, child, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| {
-            decoder.checked_binding_path_is_narrowed_at_parent_with_preservation(instruction, parent, child, target, payload, stability,
+            decoder.checked_binding_path_is_narrowed_at_parent_with_preservation(instruction, parent, child, target, payload, stability, prefix, source,
                 &mut |parent, roots, charge| if snapshot { Ok(true) } else { decoder.checked_branch_preserves_binding_path(parent, roots, instruction, target, charge) }, charge)
         };
         self.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
@@ -811,7 +869,7 @@ impl ProducerOwner {
                         }
                     }
                 }
-                if !decoder.checked_condition_proves_nonnull(condition, when_true, is_boolean, instruction, target, payload, stability, charge)? { return Ok(false); }
+                if !decoder.checked_condition_proves_nonnull_with_prefix(condition, when_true, is_boolean, instruction, target, payload, stability, prefix, source, charge)? { return Ok(false); }
                 if let Some(key) = key {
                     if self.visible_binding(decoder.store, decoder.owner, condition, target.0)? != Some(binding) { return Ok(false); }
                     charge(1 + target.1.len())?;
@@ -1107,6 +1165,15 @@ fn record_condition_inputs(decoder: &FullDecoder<'_>, instruction: usize, output
 }
 
 impl GroundProducerIndex {
+    pub(super) fn guarded_record_read_matches_type(
+        &self, decoder: &FullDecoder<'_>, instruction: usize, actual: &Type, expected: &Type,
+        budget: &mut SchemeInstantiationBudget,
+    ) -> Result<bool, IrVerifyError> {
+        budget.charge(1)?;
+        let Some(prefix) = self.prefix_context(decoder.owner, &decoder.instruction_range)? else { return Ok(false) };
+        decoder.checked_guarded_record_read_matches_type_with_prefix(instruction, actual, expected, Some(&prefix), &mut |amount| budget.charge(amount))
+    }
+
     pub(super) fn mutable_guard_source_is_snapshot(
         &self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize,
         budget: &mut SchemeInstantiationBudget,
@@ -4387,7 +4454,7 @@ impl<'a> ProducerProof<'a> {
         if target.1.is_empty()
             && self.index.owners[&decoder.owner].optional_binding_read_is_narrowed(decoder, instruction, target.0, binding, &mut |amount| self.budget.charge(amount))?
         { return Ok(true); }
-        self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, &mut |amount| self.budget.charge(amount))
+        self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, decoder.producer_prefix.as_ref(), None, &mut |amount| self.budget.charge(amount))
     }
 
     fn is_conditional_record_source(&mut self, decoder: &FullDecoder<'a>, mut instruction: usize) -> Result<bool, IrVerifyError> {
@@ -6091,7 +6158,7 @@ impl<'a> ProducerProof<'a> {
             if self.optional_read_is_narrowed(decoder, value, actual)? { return Ok(true); }
             if let Some(target) = decoder.checked_binding_path(value, &mut |amount| self.budget.charge(amount))? {
                 let binding = self.binding(decoder.owner, value, target.0)?;
-                let result = self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, value, &target, payload, binding, &mut |amount| self.budget.charge(amount))?;
+                let result = self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, value, &target, payload, binding, decoder.producer_prefix.as_ref(), None, &mut |amount| self.budget.charge(amount))?;
                 if result { return Ok(true); }
             }
         }
@@ -6921,7 +6988,7 @@ impl<'a> ProducerProof<'a> {
         if self.optional_read_is_narrowed(decoder, instruction, source)? { return Ok(Some(item)); }
         let Some(target) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
         let binding = self.binding(decoder.owner, instruction, target.0)?;
-        if self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, &mut |amount| self.budget.charge(amount))? {
+        if self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, decoder.producer_prefix.as_ref(), None, &mut |amount| self.budget.charge(amount))? {
             return Ok(Some(item));
         }
         Ok(None)
@@ -6973,7 +7040,7 @@ impl<'a> ProducerProof<'a> {
                     self.budget.charge(fields.len())?;
                     path.extend(fields);
                     let root_binding = self.binding(decoder.owner, instruction, root)?;
-                    if self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &(root, path), payload, root_binding, &mut |amount| self.budget.charge(amount))? {
+                    if self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &(root, path), payload, root_binding, decoder.producer_prefix.as_ref(), None, &mut |amount| self.budget.charge(amount))? {
                         self.budget.charge_clone(payload)?;
                         let projected = Arc::new((**payload).clone());
                         self.expression(decoder.owner, instruction, source, false);
