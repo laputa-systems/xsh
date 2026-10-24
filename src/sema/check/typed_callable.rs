@@ -826,27 +826,33 @@ proc call_rest(raw: Any) [error] -> Int {
     #[test]
     fn stream_producer_alias_keeps_its_lazy_call_contract() {
         let source = "stream values(value: Int) -> Stream[Int] { yield value }\nproc make() -> Result[Stream[Int]] { let create = values; Ok(create(42)) }\n";
-        let checked = checked(source);
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena(&parsed.arena, source);
         assert!(
             !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
             "{source}\n{:?}", checked.diagnostics
         );
-        let (span, callable) = checked.typed_callable_calls.iter().find(|(span, _)| &source[span.range()] == "create(42)")
-            .expect("the alias call retains its actual typed callable contract");
-        assert_eq!(callable.kind, crate::sema::types::CallableKind::Stream);
-        assert_eq!(callable.sig.params.len(), 1);
-        assert_eq!(callable.sig.params[0].name.as_str(), "value");
-        assert_eq!(callable.sig.params[0].ty, crate::sema::types::Type::Int);
-        assert!(!callable.sig.params[0].defaulted);
-        assert!(!callable.sig.params[0].rest);
+        let (_, alias) = checked.static_callable_aliases.iter().find(|(span, _)| &source[span.range()] == "create")
+            .expect("the call retains its canonical stream alias contract");
+        let (span, target) = checked.selected_function_calls.iter().find(|(span, _)| &source[span.range()] == "create(42)")
+            .expect("the call retains its actual producer declaration");
+        assert_eq!(alias.kind, crate::sema::types::CallableKind::Stream);
+        assert_eq!(alias.signature.params.len(), 1);
+        assert_eq!(alias.signature.params[0].name.as_str(), "value");
+        assert_eq!(alias.signature.params[0].ty, crate::sema::types::Type::Int);
+        assert!(!alias.signature.params[0].defaulted);
+        assert!(!alias.signature.params[0].rest);
+        assert!(alias.signature.effects.concrete().unwrap().expect("the closed stream alias retains a known effect contract").is_empty());
         let result = crate::sema::types::Type::Stream(Box::new(crate::sema::types::Type::Int));
-        assert_eq!(callable.sig.return_ty.as_ref(), &result);
+        assert_eq!(alias.signature.return_ty.as_ref(), &result);
         assert_eq!(checked.expr_types.get(span), Some(&result));
         let reference = checked.selected_function_calls.iter().find(|(span, target)|
             checked.selected_function_value_references.contains(span)
                 && &source[span.range()] == "values"
                 && target.name.as_str() == "values");
-        assert!(reference.is_some(), "the typed alias retains its actual producer value selection");
+        assert_eq!(Some(target), reference.map(|(_, target)| target), "the alias calls its actual producer value selection");
     }
 
     #[test]

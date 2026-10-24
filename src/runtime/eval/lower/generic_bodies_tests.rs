@@ -2252,6 +2252,27 @@ fn callable_kind_stream_aliases_preserve_lazy_defaults_and_cleanup() {
 }
 
 #[test]
+fn monomorphic_stream_aliases_preserve_lazy_defaults_and_cleanup() {
+    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value: Int, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; repeat count times { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let second = create(8, count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var other = 0; for item in second { other = item; break }; {before, after_first, defaults, pulls, closed, integer, other} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("exercise")));
+        let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("stream aliases preserve the lazy producer lifecycle") };
+        let Value::Record(fields) = *fields else { panic!("the caller returns lifecycle observations") };
+        for (stage, expected) in [("before", 0), ("after_first", 1)] {
+            let Some(Value::Record(counters)) = fields.get(stage) else { panic!("each stage retains its own counter snapshot") };
+            for name in ["defaults", "pulls", "closed"] { assert_eq!(counters.get(name), Some(&Value::Int(expected)), "{stage}.{name} frames={force_frames}"); }
+        }
+        for (name, expected) in [("defaults", 1), ("pulls", 2), ("closed", 2), ("integer", 7)] { assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} frames={force_frames}"); }
+        assert_eq!(fields.get("other"), Some(&Value::Int(8)));
+    }
+}
+
+#[test]
 fn callable_kind_stream_captures_follow_interleaved_writes_and_cancel() {
     let source = "var counter = 0\nvar defaults = 0\nvar closed = -1\nproc initial() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] -> Unit { closed = counter; counter = counter + 100 }\nstream rows(value, count: Int = initial()) [error] { defer close(); counter = counter + 1; yield value; counter = counter + 1; yield value }\nproc make() [error] -> Stream[Int] { rows(7) }\nproc write(value: Int) [] -> Unit { counter = value }\nproc observe() [] { {counter, defaults, closed} }\n";
     let (program, sources, source_id) = record_form_program(source);

@@ -31509,30 +31509,6 @@ pure use_bool() -> Bool { let value = false; identity(value) }
             }
             count == expected_count
         };
-        let call_has_empty_list_splice = |instruction: u32| {
-            let Ok(view) = decoder.expression_view(instruction as usize) else {
-                return false;
-            };
-            let arguments = match view {
-                schema::ExprView::Call { args, .. }
-                | schema::ExprView::DirectPureCall { args, .. }
-                | schema::ExprView::SelfCall { args, .. } => args,
-                _ => return false,
-            };
-            for argument in arguments {
-                let Ok(decode::CallArgView::Splice(value)) = argument else {
-                    continue;
-                };
-                let empty_list = match decoder.expression_view(value.raw() as usize) {
-                    Ok(schema::ExprView::List(mut values)) => values.next().is_none(),
-                    _ => false,
-                };
-                if empty_list {
-                    return true;
-                }
-            }
-            false
-        };
         let no_rest = calls
             .iter()
             .position(|instruction| {
@@ -31547,39 +31523,42 @@ pure use_bool() -> Bool { let value = false; identity(value) }
                     && call_has_single_arguments(*instruction, 4)
             })
             .expect("multiple-single rest call exists");
-        assert_eq!(
-            calls
-                .iter()
-                .filter(|instruction| {
-                use_rest_instructions.contains(&(**instruction as usize))
-                    && call_has_empty_list_splice(**instruction)
-                })
-                .count(),
-            1
-        );
+        let empty_splice = calls.iter().position(|instruction| {
+            if !use_rest_instructions.contains(&(*instruction as usize)) { return false; }
+            let span = match decoder.expression_view(*instruction as usize).unwrap() {
+                schema::ExprView::Call { span, .. } | schema::ExprView::DirectPureCall { span, .. } | schema::ExprView::SelfCall { span, .. } => span,
+                _ => return false,
+            };
+            &source[span.range()] == r#"select(7, "label", @[])"#
+        }).expect("the empty literal splice retains its canonical call site");
+        assert!(call_has_single_arguments(calls[empty_splice], 2));
+        assert_ne!(empty_splice, no_rest);
+        assert_eq!(calls.iter().filter(|instruction| use_rest_instructions.contains(&(**instruction as usize)) && call_has_single_arguments(**instruction, 2)).count(), 2);
 
-        let mut empty_splice_with_binder = program.clone();
-        let rest_type = empty_splice_with_binder.store.scheme_params[scheme_params.start + 2].ty;
-        let item_type = empty_splice_with_binder.store.scheme_params[scheme_params.start].ty;
+        let mut generic_rest_binder = program.clone();
+        generic_rest_binder.store.in_place.take();
+        assert!(generic_rest_binder.store.in_place.get().is_none());
+        let rest_type = generic_rest_binder.store.scheme_params[scheme_params.start + 2].ty;
+        let item_type = generic_rest_binder.store.scheme_params[scheme_params.start].ty;
         assert_eq!(
-            empty_splice_with_binder.store.scheme_type(item_type).unwrap().tag,
+            generic_rest_binder.store.scheme_type(item_type).unwrap().tag,
             schema::FullSchemeTypeTag::Parameter
         );
         let rest_item_type = SchemeTypeId::from_raw(
-            empty_splice_with_binder
+            generic_rest_binder
                 .store
                 .scheme_type(rest_type)
                 .unwrap()
                 .first,
         )
         .unwrap();
-        let item_node = *empty_splice_with_binder.store.scheme_type(item_type).unwrap();
+        let item_node = *generic_rest_binder.store.scheme_type(item_type).unwrap();
         assert_eq!(
-            empty_splice_with_binder.store.scheme_type(rest_item_type).unwrap().tag,
+            generic_rest_binder.store.scheme_type(rest_item_type).unwrap().tag,
             schema::FullSchemeTypeTag::Ground
         );
-        empty_splice_with_binder.store.scheme_types[rest_item_type.index()] = item_node;
-        FullVerifier::verify(&empty_splice_with_binder).unwrap();
+        generic_rest_binder.store.scheme_types[rest_item_type.index()] = item_node;
+        FullVerifier::verify(&generic_rest_binder).unwrap();
 
         let use_spliced_tail = program
             .store
@@ -31595,7 +31574,9 @@ pure use_bool() -> Bool { let value = false; identity(value) }
             .iter()
             .position(|instruction| use_spliced_tail_instructions.contains(&(*instruction as usize)))
             .expect("spliced rest call exists");
-        let mut wrong_generic_rest_item = empty_splice_with_binder;
+        let mut wrong_generic_rest_item = generic_rest_binder;
+        wrong_generic_rest_item.store.in_place.take();
+        assert!(wrong_generic_rest_item.store.in_place.get().is_none());
         let uint_type = SemanticPoolBuilder::default()
             .intern_type(&mut wrong_generic_rest_item.store.semantic, &Type::UInt)
             .unwrap();
@@ -52601,7 +52582,19 @@ pure apply() -> Int {
             source_id,
         )
         .unwrap();
+        drop(parsed);
+        drop(declarations);
         FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::new(program.clone()));
+            for step in 0..program.driver_step_count().unwrap() {
+                let completion = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+                assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {completion:?}");
+            }
+            assert_eq!(evaluator.stdout, b"2\na\n", "frames={force_frames}");
+        }
 
         let import_step = |suffix: &str| {
             program
@@ -52622,19 +52615,29 @@ pure apply() -> Int {
         };
         let first = import_step("first.xsh");
         let second = import_step("second.xsh");
-        // Both modules export `format` as a pure alias, so only the signature
-        // of the aliased callable tells the two registered types apart.
+        let registered_callable = |step: usize| {
+            let ty = TypeId::from_raw(program.store.driver_steps[step].registered_module_type).unwrap();
+            let Type::Module(module) = program.store.semantic.to_type(ty).unwrap() else { panic!("the import retains its exact module contract") };
+            assert_eq!(module.exports.len(), 1);
+            let Type::Callable(callable) = module.exports.values().next().unwrap().static_callable_value_type().unwrap() else { panic!("the export retains its actual callable signature") };
+            assert_eq!(callable.kind, CallableKind::Pure);
+            assert_eq!(callable.sig.params.len(), 1);
+            assert!(!callable.sig.params[0].defaulted && !callable.sig.params[0].rest);
+            callable
+        };
+        let integer = registered_callable(first);
+        let text = registered_callable(second);
+        assert_eq!(integer.sig.params[0].ty, Type::Int);
+        assert_eq!(integer.sig.return_ty.as_ref(), &Type::Int);
+        assert_eq!(text.sig.params[0].ty, Type::Str);
+        assert_eq!(text.sig.return_ty.as_ref(), &Type::Str);
         let mut forged = program.clone();
+        forged.store.in_place.take();
+        assert!(forged.store.in_place.get().is_none());
         forged.store.driver_steps[first].registered_module_type =
             program.store.driver_steps[second].registered_module_type;
         let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error
-                .message
-                .contains("checked module callable export disagrees with its expected type"),
-            "{}",
-            error.message
-        );
+        assert_eq!(error.message, "checked expression child type disagrees with its producer");
         fs::remove_dir_all(root).unwrap();
     }
 
