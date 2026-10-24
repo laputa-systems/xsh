@@ -1,4 +1,4 @@
-use super::*;
+use super::{FullStore, SchemeScope, SchemeInstantiationBudget, SchemeType, SchemeEffectParameterId, IrVerifyError, Name, bounded, Type, body_types_equal, VerifiedSchemeScopes, PropagationBoundary, IrFunctionId, FullCallableContract, decode_scheme_type, effects, CallSubstitution, body_type_matches, FullScheme, BTreeMap, BTreeSet, SchemeTypeId, mark_range, scheme_type_contains_any, SchemeRowSubstitution, SchemeRowTail, SymbolicCallSubstitution, verify_symbolic_argument_evidence, SymbolicEvidenceSource, ScopedEffectProof, FullDecoder, schema, Arc};
 use super::applications::ApplicationSubstitution;
 use super::super::schemes::{FullWrapper, FullWrapperBoundary, FullWrapperContribution, FullWrapperBinding, FullOperationBinding, FullSealedOperation};
 use crate::sema::wrapper_operation::{WrapperRequirement, WrapperRequirementKind as K, WrapperBoundary as B, WrapperCompletionContribution as PC, WrapperErrorContribution as C, WrapperSelection};
@@ -479,8 +479,8 @@ pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, s
             _ => saw_site = true,
         }
     }
-    for group in groups.iter().copied() {
-        if !referenced_groups.contains(&group) { return Err(IrVerifyError::new("proc completion group has no source relationship")); }
+    for group in groups.iter() {
+        if !referenced_groups.contains(group) { return Err(IrVerifyError::new("proc completion group has no source relationship")); }
     }
     let mut owner_group = None;
     for &ordinal in wrapper_sites.values() {

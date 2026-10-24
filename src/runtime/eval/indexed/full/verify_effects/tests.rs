@@ -472,7 +472,7 @@ fn external_stdlib_calls_authenticate_actual_callee_effects() {
         let error = FullVerifier::verify(&finite_shadow).unwrap_err();
         assert!(error.message.contains("script implementation effects exceed"), "{error:?}");
         let mut plain_shadow = finite_shadow.clone();
-        plain_shadow.store.functions[shadow] = program.store.functions[shadow].clone();
+        plain_shadow.store.functions[shadow] = program.store.functions[shadow];
         plain_shadow.store.function_metadata[shadow] = program.store.function_metadata[shadow];
         let plain = function(&program, "plain");
         plain_shadow.store.functions[plain].name = member;
@@ -591,12 +591,11 @@ if count == 7 {
     program.store.checked_expr_types.retain(|fact| fact.is_contract());
     FullVerifier::verify(&program).unwrap();
     execute_both(&program);
-    let integer = (0..program.store.driver_steps.len()).flat_map(|step| program.store.driver_instruction_range(step).unwrap()).find_map(|instruction| {
-        if program.store.tags[instruction].kind() != schema::InstructionKind::Expr { return None; }
+    let integer = (0..program.store.driver_steps.len()).flat_map(|step| program.store.driver_instruction_range(step).unwrap()).find(|&instruction| {
+        if program.store.tags[instruction].kind() != schema::InstructionKind::Expr { return false; }
         let decoder = driver_projection_decoder(&program, instruction);
         matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(7)
             | schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Int(7), _))))
-            .then_some(instruction)
     }).unwrap();
     let boolean = program.store.function_instruction_range(function(&program, "flag")).unwrap()
         .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
@@ -1966,7 +1965,7 @@ proc launch_command(plan: Command) [process] -> Result[ProcessHandle, ProcessErr
             let FullCallableContract::Ground(id) = program.store.functions[owner].contract else { panic!("ground process function") };
             let mut signature = program.store.semantic.to_signature_with_budget(id, 0,
                 &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            signature.return_ty = Box::new(Type::Result(Box::new(Type::Bool), Box::new(Type::ProcessError)));
+            *signature.return_ty = Type::Result(Box::new(Type::Bool), Box::new(Type::ProcessError));
             let mut forged = program.clone();
             let signature = SemanticPoolBuilder::default().intern_signature(&mut forged.store.semantic, &signature).unwrap();
             forged.store.functions[owner].contract = FullCallableContract::Ground(signature);
@@ -2724,7 +2723,7 @@ assert (empty() ?? [1]).is_empty()
         let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground function") };
         let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
             &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-        signature.return_ty = Box::new(Type::Optional(Box::new(Type::non_empty(Type::Int))));
+        *signature.return_ty = Type::Optional(Box::new(Type::non_empty(Type::Int)));
         let signature = SemanticPoolBuilder::default().intern_signature(&mut program.store.semantic, &signature).unwrap();
         program.store.functions[owner].contract = FullCallableContract::Ground(signature);
         program.store.functions[owner].checked_return_type = program.store.semantic.signature_return_type(signature).unwrap().raw();
@@ -2923,9 +2922,8 @@ fn producer_context_carrier_contracts_require_unique_consumers() {
                     let schema::ExprView::Record(mut entries) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
                     let writers = decoder.checked_record_field_writers(&mut entries, |_| unreachable!()).unwrap();
                     for writer in writers.values() {
-                        if let CheckedRecordFieldWriter::Value(value) = writer {
-                            if program.store.tags[*value] == FullTag::ExprParam { fields.push(*value); }
-                        }
+                        if let CheckedRecordFieldWriter::Value(value) = writer
+                            && program.store.tags[*value] == FullTag::ExprParam { fields.push(*value); }
                     }
                 }
             }
@@ -3017,7 +3015,7 @@ let failed = make(-1)?
         }
         {
             let source = "type Row = {count: UInt}\npure alternate() -> Bool { false }\npure keep() -> Row? { let row: Row? = {count: 7}; row }\nassert keep() != null\n";
-            let mut optional = fixture(&source);
+            let mut optional = fixture(source);
             optional.store.checked_expr_types.retain(|fact| fact.is_contract());
             FullVerifier::verify(&optional).unwrap();
             execute_both(&optional);

@@ -506,10 +506,10 @@ fn ordinary_generic_aggregate_computed_negative_indexes_fail_on_both_routes() {
 #[test]
 fn ordinary_generic_guarded_receivers_preserve_null_and_present_values() {
     for (prefix, input_type, operation, present) in [
-        ("", "List[Int]?", "input?[0]", Value::List(vec![Value::Int(9)].into())),
-        ("", "List[Int]?", "input?[-1]", Value::List(vec![Value::Int(9)].into())),
+        ("", "List[Int]?", "input?[0]", Value::List(vec![Value::Int(9)])),
+        ("", "List[Int]?", "input?[-1]", Value::List(vec![Value::Int(9)])),
 
-        ("", "List[Int]?", "input?[0..1]", Value::List(vec![Value::Int(9)].into())),
+        ("", "List[Int]?", "input?[0..1]", Value::List(vec![Value::Int(9)])),
         ("type Row = {item: Int}\n", "Row?", "input?.item", Value::Record([(Arc::from("item"), Value::Int(9))].into_iter().collect())),
         ("", "Str?", "input?.starts_with(\"v\")", Value::Str(Arc::from("value"))),
     ] {
@@ -531,7 +531,7 @@ fn ordinary_generic_guarded_receivers_preserve_null_and_present_values() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, std::slice::from_ref(&input), Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, expected, "{operation} frames={force_frames}");
                 }
             }
@@ -566,7 +566,7 @@ fn ordinary_generic_guarded_operands_are_evaluated_only_when_present() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, std::slice::from_ref(&input), Span::at(source_id, 0)).unwrap();
                 if matches!(input, Value::Null) { assert_eq!(actual.unwrap(), Value::Int(7), "{operation} frames={force_frames}"); }
                 else { assert_eq!(actual.unwrap_err().kind, "index-out-of-range", "{operation} frames={force_frames}"); }
             }
@@ -608,7 +608,7 @@ fn ordinary_generic_guarded_nullable_returns_preserve_nested_result_data() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, std::slice::from_ref(input), Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, *input, "{input_type} {name} frames={force_frames}");
                 }
             }
@@ -636,7 +636,7 @@ fn ordinary_generic_guarded_operation_results_preserve_optional_payloads() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, std::slice::from_ref(&input), Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, expected, "{operation} {name} frames={force_frames}");
                 }
             }
@@ -687,7 +687,7 @@ fn nullable_branch_inference_executes_independent_payloads_after_frontend_dispos
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let plain = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("plain")));
                 let opaque = Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("plain")))));
-                let actual = evaluator.call_indexed_direct(plain, CallableKind::Pure, &[opaque.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(plain, CallableKind::Pure, std::slice::from_ref(&opaque), Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, opaque);
                 for flag in [false, true] {
                     let present = flag == present_when_true;
@@ -2257,7 +2257,7 @@ fn prepared_callable_host_call_retains_its_program() {
         for program in [&first, &second] {
             evaluator.indexed_program = Some(Arc::clone(program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("direct")));
-            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[prepared.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, std::slice::from_ref(&prepared), Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(8), "frames={force_frames}");
         }
     }
@@ -2283,7 +2283,7 @@ fn prepared_callable_cache_separates_programs_and_preserves_clones() {
         for (program, handle, answer) in [(&first, &handles[0], 8), (&first, &handles[0], 8), (&second, &handles[1], 9), (&second, &handles[1], 9)] {
             evaluator.indexed_program = Some(Arc::clone(program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached")));
-            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[handle.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, std::slice::from_ref(handle), Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(answer), "frames={force_frames}");
         }
         assert_eq!(evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")).count(), 2);
@@ -2539,7 +2539,7 @@ fn prepared_callable_host_call_checks_stream_items_without_pulling() {
         for source in [&numbers, &texts, &unsigned] {
             assert!(matches!(source, Value::Stream(stream) if stream.script.is_some() && stream.source.is_none() && stream.items.is_empty()));
         }
-        let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, std::slice::from_ref(&numbers), Span::at(source_id, 0)).unwrap().unwrap();
         let Value::Callable(callable) = &prepared else { panic!("the stream argument retains its actual invocation") };
         let instance = callable.instance().unwrap();
         program.symbol_owner().with_current(|| {
@@ -2560,7 +2560,7 @@ fn prepared_callable_host_call_checks_stream_items_without_pulling() {
         let error = actual.expect_err("the actual Str producer cannot satisfy the retained Stream[Int] input");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
-        let prepared_unsigned = evaluator.call_indexed_direct(make_unsigned, CallableKind::Pure, &[unsigned.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let prepared_unsigned = evaluator.call_indexed_direct(make_unsigned, CallableKind::Pure, std::slice::from_ref(&unsigned), Span::at(source_id, 0)).unwrap().unwrap();
         assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared_unsigned.clone(), unsigned], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
         evaluator.trace_events.clear();
         let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared_unsigned, numbers], Span::at(source_id, 0)).unwrap().expect_err("a signed item contract cannot promise UInt even when its unpulled literal happens to be positive");
@@ -2671,7 +2671,7 @@ fn prepared_callable_host_call_retains_native_stream_factory_contracts_on_large_
             let Value::Stream(stream) = &actual else { panic!("native factory returns a stream") };
             assert!(stream.source.is_some() && stream.script.is_none() && stream.items.is_empty());
             assert!(stream.contract.is_some(), "ordinary unchecked native factory output must retain its solved contract before aggregate escape");
-            let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[actual.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, std::slice::from_ref(&actual), Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), actual.clone()], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
             assert_eq!(stream.next_live(Span::at(source_id, 0)).unwrap(), Some(Value::Str(Arc::from("first"))), "contract validation must leave the first native item untouched");
             let wrong = evaluator.call_indexed_direct(wrong, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
@@ -3572,7 +3572,7 @@ assert set_items(ordinary) == ordinary
             let mut failures = Vec::new();
             for name in ["spliced", "left_added", "right_added", "extended", "flattened", "set_items"] {
                 let target = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                match evaluator.call_indexed_direct(target, CallableKind::Pure, &[snapshot.clone()], Span::at(source_id, 0)).unwrap() {
+                match evaluator.call_indexed_direct(target, CallableKind::Pure, std::slice::from_ref(&snapshot), Span::at(source_id, 0)).unwrap() {
                     Ok(actual) if runtime_values_semantically_equal(&actual, &ordinary) => {}
                     actual => failures.push(format!("{name}: {actual:?}")),
                 }
@@ -4270,7 +4270,7 @@ proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; ro
             let missing = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path("missing")], span).unwrap().unwrap();
             let Value::Result(ResultValue::Err(error)) = missing else { panic!("missing rooted input must retain Err") };
             assert!(error.error_message().is_some_and(|message| !message.is_empty()));
-            assert_eq!(success(evaluator.call_indexed_direct(key("closed"), CallableKind::Proc, &[root.clone()], span).unwrap().unwrap()), Value::Unit);
+            assert_eq!(success(evaluator.call_indexed_direct(key("closed"), CallableKind::Proc, std::slice::from_ref(&root), span).unwrap().unwrap()), Value::Unit);
             let closed = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root, path("a")], span).unwrap().unwrap();
             assert!(matches!(closed, Value::Result(ResultValue::Err(_))));
         }
@@ -4377,13 +4377,13 @@ fn verify_pipeline_adapter_results(source: &str, markers: &[Value]) {
         let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
         for marker in markers {
             let lines = evaluator.call_indexed_direct(key("lines"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("one\r\n\ntwo\n"))], span).unwrap().unwrap();
-            assert_eq!(lines, Value::List(vec![Value::Str(Arc::from("one")), Value::Str(Arc::from("")), Value::Str(Arc::from("two"))].into()));
+            assert_eq!(lines, Value::List(vec![Value::Str(Arc::from("one")), Value::Str(Arc::from("")), Value::Str(Arc::from("two"))]));
             let bytes = |text: &[u8]| Value::Bytes(text.to_vec());
             let chunks = evaluator.call_indexed_direct(key("chunks"), CallableKind::Pure, &[marker.clone(), bytes(b"abcde"), Value::Int(2)], span).unwrap().unwrap();
-            assert_eq!(chunks, Value::List(vec![bytes(b"ab"), bytes(b"cd"), bytes(b"e")].into()));
+            assert_eq!(chunks, Value::List(vec![bytes(b"ab"), bytes(b"cd"), bytes(b"e")]));
             for name in ["json_lines", "json_stream"] {
                 let values = evaluator.call_indexed_direct(key(name), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ntrue\n\"word\"\n"))], span).unwrap().unwrap();
-                assert_eq!(values, Value::List(vec![Value::Int(1), Value::Bool(true), Value::Str(Arc::from("word"))].into()));
+                assert_eq!(values, Value::List(vec![Value::Int(1), Value::Bool(true), Value::Str(Arc::from("word"))]));
             }
             let invalid = evaluator.call_indexed_direct(key("ignored_json"), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
             assert_eq!(invalid.kind, "json-lines");

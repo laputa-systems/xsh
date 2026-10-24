@@ -8629,7 +8629,7 @@ mod checked_storage_tests {
             name: Arc::from("Service"),
         };
         let value = LoweredValue::Module(Arc::new(BTreeMap::from([
-            (Arc::from("item"), LoweredValue::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, function.into()))),
+            (Arc::from("item"), LoweredValue::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, function))),
         ])));
         let mut evaluator = Evaluator::new(Vec::new());
         Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { kind: CallableKind::Pure, sig: signature(Type::Int) });

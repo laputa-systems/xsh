@@ -250,7 +250,7 @@ impl ProducerPrefixContext<'_> {
                     { return Ok(None); }
                     let super::super::FullCallableContract::Scheme(scheme_id) = contract else { return Ok(None); };
                     let scheme = decoder.store.scheme(scheme_id)?;
-                    if scheme.callable_kind != kind || !scheme.is_quantified(&decoder.store)? { return Ok(None); }
+                    if scheme.callable_kind != kind || !scheme.is_quantified(decoder.store)? { return Ok(None); }
                     return Ok(Some(super::super::ImmutableCallableSource::ImportedFunction(function)));
                 }
                 schema::ExprView::Param(slot) => slot,
@@ -384,9 +384,8 @@ impl ProducerPrefixContext<'_> {
                     work.charge(1)?;
                     let accepted = member.matches_expected(&tested);
                     if accepted != (*kind == tested_kind) { return Ok(false); }
-                    if accepted == (outcome == super::super::TypeTestOutcome::Accepted) {
-                        if selected.replace((member, *kind)).is_some() { return Ok(false); }
-                    }
+                    if accepted == (outcome == super::super::TypeTestOutcome::Accepted)
+                        && selected.replace((member, *kind)).is_some() { return Ok(false); }
                 }
                 let Some((selected, kind)) = selected else { return Ok(false) };
                 work.charge_clone(selected)?;
@@ -762,7 +761,7 @@ impl ProducerOwner {
             return Ok(false);
         }
         self.guarded_binding_read_is_narrowed(decoder, instruction, slot, binding,
-            |condition, when_true, is_boolean, _, charge| decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, |amount| charge(amount)), None, charge)
+            |condition, when_true, is_boolean, _, charge| decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, charge), None, charge)
     }
 
     fn binding_path_is_snapshot(&self, decoder: &FullDecoder<'_>, binding: ProducerBinding, slot: usize,
@@ -942,7 +941,7 @@ impl ProducerOwner {
             if let Some(active) = active.as_mut() {
                 if active(parent, at, charge)? { return Ok(true); }
             } else if let Some((conditions, _)) = decoder.checked_branch_conditions_for_child_with(parent, at,
-                |child, roots| Ok(roots.contains(&child)), |amount| charge(amount))?
+                |child, roots| Ok(roots.contains(&child)), &mut *charge)?
             {
                 for (condition, when_true, is_boolean) in conditions {
                     charge(1)?;
@@ -1208,12 +1207,11 @@ impl GroundProducerIndex {
                     effect_demand_work += 1;
                     if store.tags[instruction] == FullTag::StmtForRecord { selected_demand = true; break; }
                     if store.tags[instruction] != FullTag::ExprCheckedValue { continue; }
-                    if let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(instruction)? {
-                        if check.schema.is_none()
+                    if let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(instruction)?
+                        && check.schema.is_none()
                             && matches!(store.semantic.to_type(check.ty.id)?, Type::List(item) if item.has_unsigned_constraint())
                             && store.tags[value.raw() as usize] == FullTag::ExprValueBlock
                         { selected_demand = true; break; }
-                    }
                 }
                 if selected_demand { break; }
             }
@@ -1805,7 +1803,7 @@ impl GroundProducerIndex {
                     + owner.children.capacity() * size_of::<u32>() + owner.siblings.capacity() * size_of::<u32>()
                     + owner.parents.capacity() * size_of::<Option<usize>>() + owner.statements.capacity() * size_of::<Option<usize>>() + owner.returns.capacity() * size_of::<usize>()
                     + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
-                    + owner.snapshot_predicates.borrow().iter().map(|(_, paths)| size_of::<((usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
+                    + owner.snapshot_predicates.borrow().values().map(|paths| size_of::<((usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.block_can_complete.len() * size_of::<(usize, bool)>()
                     + owner.completed_optional_reads.borrow().values().map(|proof| size_of::<(usize, CompletedOptionalRead)>() + match proof {
@@ -2239,13 +2237,12 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         let receiver = receiver.raw() as usize;
         let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
         proof.budget.charge(arguments.len())?;
-        if proof.operand_context(&decoder, receiver)?.ty().is_none() {
-            if let Some((call, expected)) = proof.ground_call_argument_ancestor(owner, instruction)? {
-                proof.budget.charge(1)?;
-                proof.expression(owner, call, expected, false);
-                seeded_method_roots.push((owner, instruction));
-                continue;
-            }
+        if proof.operand_context(&decoder, receiver)?.ty().is_none()
+            && let Some((call, expected)) = proof.ground_call_argument_ancestor(owner, instruction)? {
+            proof.budget.charge(1)?;
+            proof.expression(owner, call, expected, false);
+            seeded_method_roots.push((owner, instruction));
+            continue;
         }
         proof.budget.charge(1)?;
         proof.verify_registered_method(&decoder, instruction, receiver, name, &arguments, &Type::Any)?;
@@ -3423,7 +3420,7 @@ impl<'a> ProducerProof<'a> {
                 (super::super::LoweredModuleExport::GenericCallable { .. }, Some(ModuleExportType::GenericCallable { kind: registered, optional: false }), super::super::FullCallableContract::Scheme(id))
                     if *registered == kind && metadata.flags == flags => {
                     let scheme = self.store.scheme(id)?;
-                    if scheme.callable_kind != kind || !scheme.is_quantified(&self.store)? {
+                    if scheme.callable_kind != kind || !scheme.is_quantified(self.store)? {
                         return Err(IrVerifyError::new("generic callable import has no matching quantified contract"));
                     }
                 }
@@ -5804,7 +5801,7 @@ impl<'a> ProducerProof<'a> {
             for signature in crate::modules::signature::native_static_operation_signatures(op) {
                 self.budget.charge(1 + signature.params.len())?;
                 if arguments.len() > signature.params.len() { continue; }
-                let Some(specialized) = self.native_signature(&decoder, signature, &arguments, Some(&expected))? else { continue };
+                let Some(specialized) = self.native_signature(decoder, signature, &arguments, Some(expected))? else { continue };
                 let original = signature;
                 let signature = &specialized;
                 let mut fits = true;
@@ -5818,7 +5815,7 @@ impl<'a> ProducerProof<'a> {
                             if let Some(actual) = actuals[position].get().unwrap().ty()
                                 && !actual.matches_expected(&parameter.ty)
                                 && !NativeParameterDomain::declared(&original.params[position].ty).accepts(&parameter.ty, actual)
-                                && !self.contextual_list_argument(&decoder, argument, &parameter.ty)?
+                                && !self.contextual_list_argument(decoder, argument, &parameter.ty)?
                             {
                                 fits = false;
                                 break;
@@ -5847,8 +5844,8 @@ impl<'a> ProducerProof<'a> {
             };
             (result, signature.params.iter().zip(&original.params).map(|(parameter, declared)| (parameter.ty.clone(), parameter.defaulted, NativeParameterDomain::declared(&declared.ty))).collect::<Vec<_>>(), signature.effects.to_vec(), signature.pure)
         };
-        self.require_callable_effects(&decoder, instruction, Some(&effects), pure)?;
-        if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground native result disagrees with its operation contract")); }
+        self.require_callable_effects(decoder, instruction, Some(&effects), pure)?;
+        if !result.matches_expected(expected) { return Err(IrVerifyError::new("ground native result disagrees with its operation contract")); }
         if arguments.len() > parameters.len() { return Err(IrVerifyError::new("ground native operation has excess arguments")); }
         let mut actuals = actuals.into_iter();
         for (position, (parameter, defaulted, domain)) in parameters.into_iter().enumerate() {
@@ -5866,7 +5863,7 @@ impl<'a> ProducerProof<'a> {
                     else if let Some(actual) = actual {
                         if actual.matches_expected(&parameter) || domain.accepts(&parameter, &actual) {
                             actual
-                        } else if self.contextual_list_argument(&decoder, argument, &parameter)? {
+                        } else if self.contextual_list_argument(decoder, argument, &parameter)? {
                             Arc::new(parameter)
                         } else {
                             return Err(IrVerifyError::new("ground native argument disagrees with its operation contract"));
@@ -5999,9 +5996,8 @@ impl<'a> ProducerProof<'a> {
                         Some(ty) => self.contextual_argument(decoder, value, ty)?,
                         None => false,
                     };
-                    if let (Some(actual), Some(expected)) = (types.get(&value), expected.get(&name)) {
-                        if !self.checked_record_field_fits(decoder, value, actual, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
-                    }
+                    if let (Some(actual), Some(expected)) = (types.get(&value), expected.get(&name))
+                        && !self.checked_record_field_fits(decoder, value, actual, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
                     if unresolved.remove(&value) {
                         let ty = expected.get(&name).ok_or_else(|| IrVerifyError::new("checked record field has no producer contract"))?;
                         if !contextual && !matches!(self.store.tags[value], FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprRecord | FullTag::ExprMethod) {
@@ -6051,11 +6047,9 @@ impl<'a> ProducerProof<'a> {
                 if result { return Ok(true); }
             }
         }
-        if (super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+        Ok((super::runtime_complete_storage_check_type(checked, &mut self.budget)?
             || super::runtime_complete_storage_check_from_source(actual, checked, &mut self.budget)?)
-            && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?
-        { return Ok(true); }
-        Ok(false)
+            && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?)
     }
 
     fn checked_storage_record_fields_fit(&mut self, decoder: &FullDecoder<'a>, actual: &Type, expected: &Type, depth: usize) -> Result<bool, IrVerifyError> {

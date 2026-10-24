@@ -1,4 +1,4 @@
-use super::*;
+use super::{SchemeType, FullStore, SchemeScope, SchemeInstantiationBudget, IrVerifyError, IR_NONE, Name, bounded, body_type_matches, SymbolicCallSubstitution, BTreeSet, body_type_matches_ground, Type, decode_scheme_type, BTreeMap, verify_symbolic_argument_evidence, SymbolicEvidenceSource, CallSubstitution, body_types_equal, FullScheme, SchemeRowTail};
 use super::applications::ApplicationSubstitution;
 use super::super::schemes::{FullOperationBinding, FullSealedOperation};
 use crate::sema::sealed_operation::{SealedBinaryOperation, SealedOperation, SealedOperationSignature, arithmetic_operator, arithmetic_selection, index_selection, slice_selection, record_override_selection, RecordOverrideField};
@@ -180,7 +180,7 @@ fn record_contract(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> R
             SchemeType::Validated(_, inner) => { ty = inner; continue; }
             SchemeType::Record { fields, tail } => {
                 budget.charge_scheme_clone(ty)?;
-                Ok((fields.clone(), tail.clone()))
+                Ok((fields.clone(), *tail))
             }
             SchemeType::Ground(ty) => {
                 let Type::Record(fields) = ty.unvalidated() else { return Err(IrVerifyError::new("record override has no record domain")); };

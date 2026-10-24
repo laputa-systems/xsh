@@ -1868,9 +1868,8 @@ impl PropagationBoundary {
         let function = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("propagation boundary has no function owner"))?;
         let declaration = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner is out of bounds"))?;
         let metadata = store.function_metadata.get(function.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner has no metadata"))?;
-        if let FullCallableContract::Scheme(id) = declaration.contract {
-            if store.scheme(id)?.callable_kind != metadata.callable_kind { return Err(IrVerifyError::new("propagation boundary kind disagrees with its actual scheme")); }
-        }
+        if let FullCallableContract::Scheme(id) = declaration.contract
+            && store.scheme(id)?.callable_kind != metadata.callable_kind { return Err(IrVerifyError::new("propagation boundary kind disagrees with its actual scheme")); }
         if metadata.callable_kind == crate::sema::types::CallableKind::Stream {
             if !matches!(ty, SchemeType::Stream(_) | SchemeType::Ground(Type::Stream(_))) { return Err(IrVerifyError::new("stream propagation boundary has no actual stream return")); }
             return Ok(Self::StreamProducer(function));
@@ -2479,7 +2478,7 @@ fn verify_body_expression(
                 let parameter = &callable.sig.params[supplied.min(fixed)];
                 match argument? {
                     super::decode::CallArgView::Default(slot) => {
-                        if slot as usize != supplied || supplied >= fixed || !parameter.defaulted { return Err(IrVerifyError::new("generic typed default has no actual parameter default")); }
+                        if slot != supplied || supplied >= fixed || !parameter.defaulted { return Err(IrVerifyError::new("generic typed default has no actual parameter default")); }
                     }
                     argument => {
                         let (value, splice) = match argument {
@@ -2513,7 +2512,7 @@ fn verify_body_expression(
                 arguments.push(match argument? {
                     super::decode::CallArgView::Single(value) => Some((child(value, budget)?, false)),
                     super::decode::CallArgView::Splice(value) => Some((child(value, budget)?, true)),
-                    super::decode::CallArgView::Default(slot) => { budget.charge(1)?; if slot as usize != arguments.len() { return Err(IrVerifyError::new("generic default argument has an invalid slot")); } None },
+                    super::decode::CallArgView::Default(slot) => { budget.charge(1)?; if slot != arguments.len() { return Err(IrVerifyError::new("generic default argument has an invalid slot")); } None },
                 });
             }
             let target = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
@@ -2590,7 +2589,7 @@ fn verify_body_expression(
             };
             let context = applications::ApplicationSubstitution::Symbolic(&substitution).schema(store, &scope, template.context, budget)?;
             verify_constructor_field_contexts(store, decoder, record.raw() as usize, &context, scheme_scope, slots, scopes, effect_scopes, budget)?;
-            verify_constructor_defaults(store, &decoder, record.raw() as usize, root, template, budget)?;
+            verify_constructor_defaults(store, decoder, record.raw() as usize, root, template, budget)?;
             ty.clone()
         }
         schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
@@ -2703,7 +2702,7 @@ fn verify_body_expression(
             let output = SchemeType::Ground(Type::run_capture_output(run.kind, run.assert_success).ok_or_else(|| IrVerifyError::new("generic process capture has no output contract"))?);
             if completion_boundary_matches(boundary, completion_group) {
                 if run.propagate {
-                    let error = body::completion_result_error(&output, budget)?.unwrap_or_else(|| SchemeType::Ground(Type::ProcessError));
+                    let error = body::completion_result_error(&output, budget)?.unwrap_or(SchemeType::Ground(Type::ProcessError));
                     budget.charge_scheme_clone(&error)?;
                     completion_contributions.push(crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError(error));
                 }
@@ -3296,11 +3295,10 @@ fn iteration_contract(
             if matches!(inner.policy, IterationPolicy::PipelineTransport) { return Ok(IterationRequirement { item: inner.item, policy: IterationPolicy::PipelineTransport, source_kind: IterationSourceKind::DirectOrResult }); }
             budget.charge_scheme_clone(error)?;
             let mut bound = (**error).clone();
-            if let Some(latent) = inner.policy.error() {
-                if !body_type_matches(latent, error, budget)? {
-                    if body_type_matches(error, latent, budget)? { budget.charge_scheme_clone(latent)?; bound = latent.clone(); }
-                    else { return Ok(IterationRequirement { item: inner.item, policy: IterationPolicy::PipelineTransport, source_kind: IterationSourceKind::DirectOrResult }); }
-                }
+            if let Some(latent) = inner.policy.error()
+                && !body_type_matches(latent, error, budget)? {
+                if body_type_matches(error, latent, budget)? { budget.charge_scheme_clone(latent)?; bound = latent.clone(); }
+                else { return Ok(IterationRequirement { item: inner.item, policy: IterationPolicy::PipelineTransport, source_kind: IterationSourceKind::DirectOrResult }); }
             }
             let policy = if inner.policy.is_pipeline() { IterationPolicy::PipelinePropagates(bound) } else { IterationPolicy::IterablePropagates(bound) };
             return Ok(IterationRequirement { item: inner.item, policy, source_kind: IterationSourceKind::DirectOrResult });
@@ -3903,7 +3901,7 @@ fn verify_symbolic_call_arguments(
         let mut parameter_type = decode_scheme_type(store, callee_scope, parameter.ty, budget, 0)?;
         let mut expected = substitute_scheme_type(&parameter_type, callee_scope, substitution, budget, 0)?;
         let value = match argument {
-            super::decode::CallArgView::Default(actual) if slot < fixed && *actual as usize == slot && params[slot].flags & 2 != 0 => continue,
+            super::decode::CallArgView::Default(actual) if slot < fixed && *actual == slot && params[slot].flags & 2 != 0 => continue,
             super::decode::CallArgView::Default(_) => return Err(IrVerifyError::new("generic default argument has no matching parameter")),
             super::decode::CallArgView::Single(value) if slot < fixed => value,
             super::decode::CallArgView::Single(value) => {
@@ -4146,7 +4144,7 @@ fn verify_instantiated_call_arguments(
     let mut ground_arguments = Vec::new();
     for (index, argument) in arguments.iter().enumerate() {
         let (value, expected_scheme_type, expected_ground_type, is_splice) = match argument {
-            super::decode::CallArgView::Default(slot) if index < fixed_count && *slot as usize == index && params[index].flags & 2 != 0 => continue,
+            super::decode::CallArgView::Default(slot) if index < fixed_count && *slot == index && params[index].flags & 2 != 0 => continue,
             super::decode::CallArgView::Default(_) => return Err(IrVerifyError::new("generic default argument has no matching parameter")),
             super::decode::CallArgView::Single(value) if index < fixed_count => {
                 (value, Some(scheme_params[index].ty), None, false)
@@ -4690,15 +4688,14 @@ fn checked_argument_type(
             } => {
                 if let CheckedArgumentType::Known(input) = &actual {
                     ensure_closed_type(input)?;
-                    if !input.matches_expected(&declared) {
-                        if !driver_rel_path_literal_matches_annotation(
+                    if !input.matches_expected(&declared)
+                        && !driver_rel_path_literal_matches_annotation(
                             store,
                             (step, initializer),
                             input,
                             &declared,
                         )? {
                             return Err(IrVerifyError::new("local initializer disagrees with its declaration annotation"));
-                        }
                     }
                     materialization.charge_clone(&declared)?;
                     CheckedArgumentType::Known(declared)
@@ -6376,7 +6373,7 @@ mod tests {
             let state = Type::Tag(Name::intern("State"));
             let checked = Type::Record(Arc::new(BTreeMap::from([(name, state.clone())])));
             let mut fields = BTreeMap::from([(name, state)]);
-            for index in 0..64 { fields.insert(Name::intern(&format!("hidden{index}")), Type::Int); }
+            for index in 0..64 { fields.insert(Name::intern(format!("hidden{index}")), Type::Int); }
             let actual = Type::Record(Arc::new(fields));
             let mut sufficient = SchemeInstantiationBudget { remaining: 4096, semantic_types: TypeMaterializationBudget::default() };
             assert!(runtime_complete_storage_check_from_source(&actual, &checked, &mut sufficient).unwrap());
@@ -6538,8 +6535,7 @@ mod tests {
             },
         ];
         let error = build_substitution(&store, &scope, &type_rows, &[], &[], &mut [])
-            .err()
-            .expect("aggregate type materialization should exceed the shared budget");
+            .expect_err("aggregate type materialization should exceed the shared budget");
 
         assert!(error.message.contains("semantic type materialization exceeds its work limit"));
     }

@@ -1,4 +1,4 @@
-use super::*;
+use super::{SchemeType, BTreeMap, PropagationBoundary, SchemeInstantiationBudget, IrVerifyError, FullDecoder, Arc, schema, FullStore, SchemeScope, body_types_equal, IrFunctionId, FullCallableContract, bounded, decode_scheme_type, BTreeSet, VerifiedSchemeScopes, producers, wrappers, Type, Name, Validation, iteration_contract, body_propagated_error_matches_owner, RefCell, body_type_matches_ground, body_type_matches, FullTag, applications, scheme_conversion, ValueConversion, SchemeRowTail, verify_body_expression, scheme_stored_type};
 
 #[derive(Clone, Copy)]
 pub(super) struct LexicalScope {
@@ -232,11 +232,9 @@ fn authored_result_constructor(
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<usize, IrVerifyError> {
     let is_authored = |instruction| -> Result<bool, IrVerifyError> {
-        Ok(match (form, decoder.expression_view(instruction)?) {
+        Ok(matches!((form, decoder.expression_view(instruction)?),
             (crate::runtime::eval::SchemeCompletionSourceForm::AuthoredOk, schema::ExprView::Ok(_))
-            | (crate::runtime::eval::SchemeCompletionSourceForm::AuthoredErr, schema::ExprView::Err { .. }) => true,
-            _ => false,
-        })
+            | (crate::runtime::eval::SchemeCompletionSourceForm::AuthoredErr, schema::ExprView::Err { .. })))
     };
     let constructor = match decoder.expression_view(producer)? {
         _ if is_authored(producer)? => producer,
@@ -1473,7 +1471,7 @@ pub(super) fn verify_body(
                         for (arm, (pattern, guard, value)) in arms.into_iter().enumerate() {
                             let inner = pattern_scope(decoder, pattern, &subject, &scope, &mut scopes, slot_count, &mut writers, budget)?;
                             if !(arm == 1 && wrapper_sites.contains_key(&instruction)) && !body_type_matches(&expression_type(types, value as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
-                            pending.push(Obligation::Expression(value as usize, inner.clone()));
+                            pending.push(Obligation::Expression(value as usize, inner));
                             if let Some(guard) = guard {
                                 condition(types, guard as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
                                 pending.push(Obligation::Expression(guard as usize, inner));
@@ -1644,7 +1642,7 @@ pub(super) fn verify_body(
                         };
                         if propagate_result && !process_failure_is_recorded && completion_group.is_some() && scope.error_boundary.is_none() {
                             let actual = expression_type(types, value.raw() as usize, budget)?;
-                            let error = completion_result_error(&actual, budget)?.unwrap_or_else(|| SchemeType::Ground(Type::ProcessError));
+                            let error = completion_result_error(&actual, budget)?.unwrap_or(SchemeType::Ground(Type::ProcessError));
                             push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
                         }
                         expressions.push(value.raw() as usize);
@@ -1782,7 +1780,7 @@ pub(super) fn verify_body(
                         if stream_item.is_some() {
                             if actual != SchemeType::Ground(Type::Unit) { return Err(IrVerifyError::new("generic stream returns an eager value")); }
                             expressions.push(returned.raw() as usize);
-                            pending.push(Obligation::Block { statements, position: position + 1, scope: scope.clone(), value: value_contract });
+                            pending.push(Obligation::Block { statements, position: position + 1, scope, value: value_contract });
                             for instruction in expressions { pending.push(Obligation::Expression(instruction, scope)); }
                             continue;
                         }
@@ -1937,7 +1935,7 @@ pub(super) fn verify_body(
                             let inner = pattern_scope(decoder, pattern.raw(), &subject_type, &scope, &mut scopes, slot_count, &mut writers, budget)?;
                             let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
                             budget.charge(statements.len())?;
-                            nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner.clone(), value: None });
+                            nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
                             if let Some(guard) = guard {
                                 condition(types, guard.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
                                 nested.push(Obligation::Expression(guard.raw() as usize, inner));
@@ -1947,7 +1945,7 @@ pub(super) fn verify_body(
                     }
                     _ => return Err(IrVerifyError::new("generic body has an unsupported statement contract")),
                 }
-                pending.push(Obligation::Block { statements, position: position + 1, scope: scope.clone(), value: value_contract });
+                pending.push(Obligation::Block { statements, position: position + 1, scope, value: value_contract });
                 pending.extend(nested);
                 for instruction in expressions { pending.push(Obligation::Expression(instruction, scope)); }
             }
@@ -1974,6 +1972,7 @@ pub(super) fn verify_body(
 
 #[cfg(test)]
 mod tests {
+    use super::super::{FullSchemeBodyFactKind, FullSchemeId, FullSchemeTypeTag, GroundProducerIndex, IR_NONE, IrBlockId, SchemeTypeId, decoder_for_function, effects, verify_function_schemes};
     use crate::runtime::eval::indexed::full::decode::ValueCheckView;
     use super::*;
     use super::super::super::{FullBuilder, FullProgram, FullVerifier};
@@ -2866,7 +2865,7 @@ test namespace_borrow {
         assert!(FullVerifier::verify(&non_err_initializer).is_err());
 
         let producer_type = program.store.scheme_body_facts.iter().find_map(|fact| {
-            (fact.function.index() == authored_owner && fact.instruction as usize == authored_producer).then(|| match fact.value {
+            (fact.function.index() == authored_owner && fact.instruction as usize == authored_producer).then_some(match fact.value {
                 super::super::super::schemes::FullSchemeBodyFactValue::Expression(ty) => Some(ty),
                 _ => None,
             }).flatten()
@@ -4436,10 +4435,7 @@ test namespace_borrow {
         let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
         assert_eq!(operations.len(), 1);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
-        let binary = program.store.function_instruction_range(owner).unwrap().find(|instruction| match decoder.expression_view(*instruction) {
-            Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. }) => true,
-            _ => false,
-        }).unwrap();
+        let binary = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. }))).unwrap();
         let mut opcode = program.clone();
         let words = opcode.store.data[binary].range().bounds(opcode.store.extra.len()).unwrap();
         let selected = opcode.store.extra[words.start] as usize;
@@ -5167,6 +5163,7 @@ test namespace_borrow {
 
 #[cfg(test)]
 mod structured_pipeline_tests {
+    use super::super::FullSchemeBodyFactKind;
     use super::*;
     use super::super::super::{FullBuilder, FullVerifier};
 

@@ -3416,7 +3416,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         match constructor {
             Some(crate::sema::check::CheckedResultConstructor::Ok) if result_source => Some(SchemeCompletionSourceForm::AuthoredOk),
             Some(crate::sema::check::CheckedResultConstructor::Err) if result_source => Some(SchemeCompletionSourceForm::AuthoredErr),
-            Some(_) => return None,
+            Some(_) => None,
             None if result_source => Some(SchemeCompletionSourceForm::ReturnedResult),
             None => Some(SchemeCompletionSourceForm::LiftedValue),
         }
@@ -5311,9 +5311,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let arguments = if scheme.as_ref().is_none_or(|scheme| scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()) {
                         let arguments = self.expand_static_positional_source_arguments(self.program.arena.call_args(args));
                         for &list in &arguments.expanded_lists {
-                            if facts.expression_types().contains_key(&list) || facts.constructor_producers().contains_key(&list) {
-                                if !visited.insert(list) { return self.block_scheme_lowering_expr(expression); }
-                            }
+                            if (facts.expression_types().contains_key(&list) || facts.constructor_producers().contains_key(&list))
+                                && !visited.insert(list) { return self.block_scheme_lowering_expr(expression); }
                         }
                         self.lower_scheme_source_arguments(expression, &arguments.arguments, None, slots, current_function, facts, visited, lowered_types, body)?
                     } else {
@@ -5510,15 +5509,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         lowered_types.insert(lowered, plan.source.clone());
-        if let Some(source) = plan.source.closed_ground_type() {
-            if !self.scratch.borrow_mut().record_checked_expr_type(lowered, source, false) { return None; }
-        }
+        if let Some(source) = plan.source.closed_ground_type()
+            && !self.scratch.borrow_mut().record_checked_expr_type(lowered, source, false) { return None; }
         let destination = plan.destination.clone();
         let span = self.program.arena.expr(expression).span;
         let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check: LoweredValueCheck::Materialization(Arc::from(plan)), span });
-        if let Some(destination) = destination.closed_ground_type() {
-            if !self.scratch.borrow_mut().record_checked_expr_type(checked, destination, false) { return None; }
-        }
+        if let Some(destination) = destination.closed_ground_type()
+            && !self.scratch.borrow_mut().record_checked_expr_type(checked, destination, false) { return None; }
         Some(self.publish_scheme_expression(checked, destination, slots, lowered_types, body))
     }
 

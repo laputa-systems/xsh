@@ -1,4 +1,4 @@
-use super::*;
+use super::{FullStore, SchemeScope, SchemeInstantiationBudget, IrVerifyError, bounded, BTreeSet, body_types_equal, FullScheme};
 use super::applications::ApplicationSubstitution;
 use super::super::schemes::{FullMethodBinding, FullSchemeMethod};
 use crate::sema::schemes::{MethodFamilyRequirement, SchemeType};

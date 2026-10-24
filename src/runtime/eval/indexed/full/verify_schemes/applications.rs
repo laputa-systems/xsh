@@ -1,4 +1,4 @@
-use super::*;
+use super::{CallSubstitution, SymbolicCallSubstitution, FullStore, SchemeScope, SchemeInstantiationBudget, SchemeType, IrVerifyError, decode_schema_with, SchemeTypeId, instantiate_scheme_type, substitute_scheme_type, decode_scheme_type, EffectContract, SchemeEffectParameterId, effects, IrRange, bounded, Name, body_types_equal, Type, body_type_matches, body_type_matches_ground, IrFunctionId, FullCallableContract, FullScheme, SchemeBinderEvidence, BTreeMap, BTreeSet, scheme_type_binders, FullSchemeTypeTag, scheme_list_item, SchemeTypeExpectation, verify_scheme_argument_evidence, FullDecoder, VerifiedSchemeScopes, ScopedEffectProof, schema};
 use super::super::schemes::{FullApplicationArgumentKind, FullApplicationBinding, FullSchemeApplication};
 use crate::sema::arguments::{ArgumentParameterLayout, StaticArgumentKind};
 use crate::sema::callable_application::CallableKindRequirement;
@@ -524,8 +524,15 @@ pub(super) fn verify_site(
     Ok(children)
 }
 
+pub(super) fn equivalent_contracts(store: &FullStore, left_scope: &SchemeScope, left: FullSchemeApplication, right_scope: &SchemeScope, right: FullSchemeApplication, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let left = decode(store, left_scope, left, &ApplicationSubstitution::Identity, budget)?;
+    let right = decode(store, right_scope, right, &ApplicationSubstitution::Identity, budget)?;
+    same_application(&left, &right, budget)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::super::{Arc, CallableMonotype, SchemeParameter, SchemeTypeParameterId, make_scope};
     use super::*;
     use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument};
     use crate::sema::effects::{CheckedEffects, EffectSet};
@@ -547,7 +554,7 @@ mod tests {
             proc_returns: Arc::from([]), kind: CallableKindRequirement::Pure, span,
         })).collect();
         let params = parameters.iter().enumerate().map(|(index, id)| SchemeParameter {
-            name: Name::intern(&format!("parameter{index}")), ty: SchemeType::Parameter(*id),
+            name: Name::intern(format!("parameter{index}")), ty: SchemeType::Parameter(*id),
             schema_expectation: None, defaulted: false, rest: false,
         }).collect();
         let callable = CallableScheme::new(parameters.clone(), Vec::new(), params,
@@ -603,7 +610,7 @@ mod tests {
                 kind: CallableKindRequirement::Pure, span,
             })).collect();
             let params = parameters[..2].iter().enumerate().map(|(index, id)| SchemeParameter {
-                name: Name::intern(&format!("callback{index}")), ty: SchemeType::Parameter(*id),
+                name: Name::intern(format!("callback{index}")), ty: SchemeType::Parameter(*id),
                 schema_expectation: None, defaulted: false, rest: false,
             }).collect();
             let callable = CallableScheme::new(parameters, Vec::new(), params, SchemeType::Parameter(SchemeTypeParameterId(13)),
@@ -697,10 +704,4 @@ mod tests {
             assert!(verify(&substitution, &bindings).unwrap_err().message.contains("invalid argument layout"));
         });
     }
-}
-
-pub(super) fn equivalent_contracts(store: &FullStore, left_scope: &SchemeScope, left: FullSchemeApplication, right_scope: &SchemeScope, right: FullSchemeApplication, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
-    let left = decode(store, left_scope, left, &ApplicationSubstitution::Identity, budget)?;
-    let right = decode(store, right_scope, right, &ApplicationSubstitution::Identity, budget)?;
-    same_application(&left, &right, budget)
 }

@@ -2365,7 +2365,7 @@ impl FullProgram {
             step_mutability.push(mutable);
         }
         let binding_mutability = identity_writers.iter().map(|writer| {
-            writer.map_or(false, |(_, step, _)| step_mutability[step])
+            writer.is_some_and(|(_, step, _)| step_mutability[step])
         }).collect::<Vec<_>>();
         for capture in &self.store.captures {
             let mutable = binding_mutability.get(capture.binding_identity as usize)
@@ -8936,7 +8936,7 @@ impl<'a> FullDecoder<'a> {
         if scheme.callable_kind != kind {
             return Err(IrVerifyError::new("generic module export callable kind differs from its child function"));
         }
-        if !scheme.is_quantified(&self.store)? {
+        if !scheme.is_quantified(self.store)? {
             return Err(IrVerifyError::new("generic callable module export has no quantified binder"));
         }
         Ok(())
@@ -14209,13 +14209,12 @@ impl<'a> FullDecoder<'a> {
         checked: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        self.checked_declared_type_matches_narrowed_fact_with_optional_proof(instruction, binding, declared, checked,
+        self.checked_declared_type_matches_narrowed_fact_with_optional_proof(binding, declared, checked,
             &mut |binding, payload, charge| self.checked_binding_path_is_narrowed(instruction, binding, payload, charge), charge)
     }
 
     fn checked_declared_type_matches_narrowed_fact_with_optional_proof(
         &self,
-        instruction: usize,
         mut binding: (usize, Vec<Name>),
         declared: &Type,
         checked: &Type,
@@ -14237,7 +14236,6 @@ impl<'a> FullDecoder<'a> {
                     binding.1.push(*field);
                     charge(binding.1.len())?;
                     let matches = self.checked_declared_type_matches_narrowed_fact_with_optional_proof(
-                        instruction,
                         binding.clone(),
                         declared_field,
                         checked_field,
@@ -14256,7 +14254,6 @@ impl<'a> FullDecoder<'a> {
                     return Ok(false);
                 }
                 self.checked_declared_type_matches_narrowed_fact_with_optional_proof(
-                    instruction,
                     binding,
                     payload,
                     checked,
@@ -24984,7 +24981,7 @@ assert sample("{\"tool\":\"make\"}")? == "make make make make"
             forged.store.runtime_ops[op] = RuntimeOp::PathDisplay;
             forged.store.checked_expr_types.retain(|fact| fact.is_contract());
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.return_ty = Box::new(Type::Result(Box::new(Type::Str), Box::new(Type::Error)));
+            *callable.return_ty = Type::Result(Box::new(Type::Str), Box::new(Type::Error));
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             let FullCallableContract::Ground(signature) = forged.store.functions[owner].contract else { unreachable!() };
@@ -38690,9 +38687,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
             FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
-            for tag in [FullTag::ExprIf] {
-                assert!((0..program.store.driver_steps.len()).any(|step| program.store.tags[program.store.driver_instruction_range(step).unwrap()].contains(&tag)));
-            }
+            assert!((0..program.store.driver_steps.len()).any(|step| program.store.tags[program.store.driver_instruction_range(step).unwrap()].contains(&FullTag::ExprIf)));
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
@@ -43731,7 +43726,7 @@ proc captured(value: Result[Int, CaptureFailure]) [error] -> Result[Int, Capture
                 let value = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))));
                 assert_eq!(evaluator.call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "captured")), CallableKind::Proc,
-                    &[value.clone()], Span::new(program.store.source_id, 0, 0),
+                    std::slice::from_ref(&value), Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap(), value);
             }
         });
@@ -48737,7 +48732,8 @@ assert make(false, [true])?.len() == 1
         let member = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str(value)) if value == "member")).unwrap();
         let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
         let stored = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
-        for (target, source) in [(member, wrong)] {
+        {
+            let (target, source) = (member, wrong);
             let mut malformed = (*program).clone();
             malformed.store.tags[target] = FullTag::ExprParam;
             malformed.store.data[target] = program.store.data[source];
@@ -53134,7 +53130,7 @@ assert check_paths(p"relative")
                 for (name, expected) in [("opaque", value.clone()), ("opaque_captured", Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(value.clone()))))] {
                     let result = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)), CallableKind::Pure,
-                        &[value.clone()], Span::at(program.store.source_id, 0),
+                        std::slice::from_ref(&value), Span::at(program.store.source_id, 0),
                     ).unwrap().unwrap();
                     assert_eq!(result, expected);
                 }
@@ -53178,7 +53174,7 @@ assert check_paths(p"relative")
                     evaluator.force_frames = force_frames;
                     let result = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "dynamic")), CallableKind::Pure,
-                        &[value.clone()], Span::at(program.store.source_id, 0),
+                        std::slice::from_ref(&value), Span::at(program.store.source_id, 0),
                     ).unwrap().unwrap();
                     assert_eq!(result, value);
                 }
@@ -53245,7 +53241,7 @@ assert check_paths(p"relative")
                     let result = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "dynamic")),
                         CallableKind::Pure,
-                        &[value.clone()],
+                        std::slice::from_ref(&value),
                         Span::at(program.store.source_id, 0),
                     ).unwrap().unwrap();
                     assert_eq!(result, value);
@@ -53315,7 +53311,7 @@ assert check_paths(p"relative")
                         .call_indexed_direct(
                             LoweredFunctionKey::Name(program_name(&grounded, "direct")),
                             CallableKind::Pure,
-                            &[value.clone()],
+                            std::slice::from_ref(value),
                             Span::at(grounded.store.source_id, 0),
                         )
                         .unwrap()
@@ -53334,7 +53330,7 @@ assert check_paths(p"relative")
                         .call_indexed_direct(
                             LoweredFunctionKey::Name(program_name(&generic, "direct")),
                             CallableKind::Pure,
-                            &[value.clone()],
+                            std::slice::from_ref(value),
                             Span::at(generic.store.source_id, 0),
                         )
                         .unwrap()
@@ -53343,7 +53339,7 @@ assert check_paths(p"relative")
                         .call_indexed_direct(
                             LoweredFunctionKey::Name(program_name(&generic, "invoked")),
                             CallableKind::Pure,
-                            &[value.clone()],
+                            std::slice::from_ref(value),
                             Span::at(generic.store.source_id, 0),
                         )
                         .unwrap()

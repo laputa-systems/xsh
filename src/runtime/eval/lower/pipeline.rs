@@ -190,7 +190,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     { return None; }
                 }
                 value
-            } else if let Some(plan) = facts.registered_calls().get(&callee).cloned() {
+            } else {
+                let plan = facts.registered_calls().get(&callee).cloned()?;
                 if plan.receiver.is_some() { return None; }
                 let [argument_slot] = plan.argument_slots.as_ref() else { return None; };
                 let mut body = Vec::new();
@@ -208,7 +209,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
                     push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span })
                 }
-            } else { return None; };
+            };
             lowered_types.insert(value, result);
             Some((slot, value))
         })();
