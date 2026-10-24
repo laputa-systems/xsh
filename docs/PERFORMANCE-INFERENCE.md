@@ -885,8 +885,23 @@ source. Missing in-scope inference remains open work.
 
 The candidate table and all 48 transformed source files validate; comparison
 with the existing `compare_tree.py` confirms the original copy is unchanged.
-Matching interface comparison is pending. These preparation results grant no
-new removal, behavior, or paired-corpus credit.
+Matching `4de7c99e4` interface-only attempts select ten XSH entries and Laputa's
+`pm/plan_json.xsh`, and both exit 2 before a qualification summary. The XSH
+attempt stops at `core/wc.xsh:445` in `count_input`:
+`counted ?? count_data(data, shown, posix, utf8)` cannot be lowered through the
+supported generic projection path. The Laputa attempt reports 204 checker
+diagnostics, beginning with the unannotated `validate_positive_release` body
+in `pm/recipe.xsh`; the later unresolved calls and material-type errors include
+cascades. These are diagnostic totals, not independent cause counts.
+The comparison loader labels candidate byte overrides with original source
+paths. Those path labels alone do not establish which preparation phase failed.
+
+Both container completions and cleanup were consumed. Source revision, product
+hashes, and source-view bytes match their preflight guards afterward. Neither
+project is interface-qualified by these attempts. The XSH generic-body
+relationship remains inference work. The Laputa diagnostics need source-cause
+review; this profile does not classify them as intentional retainers. These
+results grant no new removal, behavior, or paired-corpus credit.
 
 ### Build source witness records
 
