@@ -7,7 +7,7 @@ use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{CheckedBodyContract, CheckedBodyContractError, checked_body_contracts};
 use xsh::frontend::check::{
-    BodyContractError, BodyContractOwner, CheckOptions, CheckSession,
+    BodyContractError, BodyContractOwner, CheckOptions, CheckOutput, CheckSession,
     CheckedCallableContract, CheckedCliEntryContract, CheckedFunctionKind,
     CliContractError, ContractComparisonError,
 };
@@ -21,6 +21,7 @@ enum DeclarationContract {
 }
 
 type Contracts = BTreeMap<(PathBuf, String), DeclarationContract>;
+type PublicTypeNames = BTreeSet<(PathBuf, String)>;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum BodyOwner {
@@ -65,6 +66,7 @@ type BodyContracts = BTreeMap<BodyKey, CheckedBodyContract>;
 
 struct CheckedProgram {
     interfaces: Contracts,
+    public_types: PublicTypeNames,
     bodies: BodyContracts,
 }
 
@@ -194,6 +196,7 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
             }
         }
         candidate_has_declarations |= !new.interfaces.is_empty();
+        compare_public_type_names(relative, &old.public_types, &new.public_types, &mut failures)?;
         compare_contracts(relative, &old.interfaces, &new.interfaces, &mut failures)?;
         merge_body_contracts(&mut original_bodies, old.bodies)?;
         merge_body_contracts(&mut candidate_bodies, new.bodies)?;
@@ -220,6 +223,54 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
     if failures.is_empty() {
         Ok((callable_declarations.len(), cli_declarations.len()))
     } else { Err(failures.join("\n")) }
+}
+
+fn checked_public_type_names(program: &ArenaProgram, checked: &CheckOutput, sources: &SourceMap, root: &Path) -> Result<PublicTypeNames, String> {
+    program.symbol_owner().with_current(|| {
+        let mut names = PublicTypeNames::new();
+        let ranges = std::iter::once(program.statements).chain(program.modules.iter().filter(|module| !module.internal).map(|module| module.statements));
+        for range in ranges {
+            for statement in program.arena.stmt_ids(range) {
+                check_cancellation()?;
+                let ArenaStmtKind::Export(exported) = program.arena.stmt(statement).kind else { continue };
+                let exported = program.arena.stmt(exported);
+                let name = match exported.kind {
+                    ArenaStmtKind::TypeDef(id) => {
+                        let name = program.arena.type_def(id).name;
+                        let declaration = checked.checked_declarations.types.get(&id).ok_or_else(|| format!("missing checked exported type {name}"))?;
+                        if declaration.internal { continue; }
+                        if declaration.name != name || declaration.info.is_none() { return Err(format!("exported type {name} has no matching checked definition")); }
+                        declaration.name
+                    }
+                    ArenaStmtKind::ErrorDef(id) => {
+                        let name = program.arena.error_def(id).name;
+                        let declaration = checked.checked_declarations.errors.get(&id).ok_or_else(|| format!("missing checked exported error family {name}"))?;
+                        if declaration.namespace.is_some_and(|namespace| program.is_internal_namespace(namespace)) { continue; }
+                        if declaration.name != name { return Err(format!("exported error family {name} has no matching checked definition")); }
+                        declaration.name
+                    }
+                    _ => continue,
+                };
+                let source = sources.get(exported.span.source_id).ok_or_else(|| "exported type has no source".to_owned())?;
+                let path = bounded_file(Path::new(source.name()), root)?;
+                let relative = path.strip_prefix(root).expect("bounded exported type source").to_path_buf();
+                names.insert((relative, name.to_string()));
+            }
+        }
+        Ok(names)
+    })
+}
+
+fn compare_public_type_names(entry: &Path, original: &PublicTypeNames, candidate: &PublicTypeNames, failures: &mut Vec<String>) -> Result<(), String> {
+    for (path, name) in original.difference(candidate) {
+        check_cancellation()?;
+        failures.push(format!("entry {}: {}: public type name contract mismatch: missing candidate exported type {name}", entry.display(), path.display()));
+    }
+    for (path, name) in candidate.difference(original) {
+        check_cancellation()?;
+        failures.push(format!("entry {}: {}: public type name contract mismatch: extra candidate exported type {name}", entry.display(), path.display()));
+    }
+    Ok(())
 }
 
 fn comparison_error(error: ContractComparisonError) -> &'static str {
@@ -381,6 +432,7 @@ fn check_contracts(
     if !checked.diagnostics.is_empty() {
         return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &sources));
     }
+    let public_types = checked_public_type_names(&arena, &checked, &sources, original_root)?;
     let mut contracts = Contracts::new();
     let cli_contracts = checked.checked_declarations.cli_entry_contracts(&arena, &sources).map_err(|error| {
         match error {
@@ -427,7 +479,7 @@ fn check_contracts(
         }
         bodies.insert(key, body);
     }
-    Ok(CheckedProgram { interfaces: contracts, bodies })
+    Ok(CheckedProgram { interfaces: contracts, public_types, bodies })
 }
 
 #[cfg(test)]
@@ -465,7 +517,7 @@ export pure accepts(value: Instant) -> Bool { true }\n";
 
         let cases = [
             (
-                "nominal identity",
+                "removed public type name",
                 original_model.replace("Instant", "Timestamp"),
                 original_main.replace("model.Instant", "model.Timestamp"),
                 "contract mismatch",
@@ -504,6 +556,112 @@ export pure accepts(value: Instant) -> Bool { true }\n";
             let error = qualify(&original, &candidate, &["main.xsh", "model.xsh"]).expect_err(changed_fact);
             assert!(error.contains(diagnostic), "{changed_fact}: {error}");
         }
+    }
+
+    #[test]
+    fn paired_qualification_preserves_checked_public_type_names() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let model = r#"##! Public types.
+type Hidden = {seconds: Int}
+## Public number.
+export type Public = Int
+## Generic wrapper.
+export type Box[T] = {value: T}
+## Public choices.
+export enum Choice { First, Second }
+## Public failure.
+export error Failure { Broken(message: Str) }
+## Public service.
+export type Service = module { export pure read() -> Int }
+## Return the value.
+export pure identity(value: Hidden) -> Hidden { value }
+"#;
+        let main = "use model\npure keep(value: Int) -> Int { value }\n";
+        let write = |directory: &Path, model: &str| {
+            fs::write(directory.join("model.xsh"), model).unwrap();
+            fs::write(directory.join("main.xsh"), main).unwrap();
+        };
+        let qualify = |old: &Path, new: &Path| {
+            let paths = [new.join("main.xsh"), new.join("model.xsh")].map(|path| path.to_str().unwrap().to_owned());
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &paths, &StageTimings::start())
+        };
+        write(&original, model);
+        write(&candidate, model);
+        assert_eq!(qualify(&original, &candidate), Ok((2, 0)));
+        let renamed_private = model.replace("Hidden", "PrivateHelper").replace("Box[T] = {value: T}", "Box[Item] = {value: Item}");
+        write(&candidate, &renamed_private);
+        assert_eq!(qualify(&original, &candidate), Ok((2, 0)));
+        for (changed, model, expected) in [
+            ("removed alias", model.replace("## Public number.\nexport type Public = Int\n", ""), "missing candidate exported type Public"),
+            ("renamed alias", model.replace("export type Public = Int", "export type Renamed = Int"), "missing candidate exported type Public"),
+            ("private alias", model.replace("## Public number.\nexport type Public = Int", "type Public = Int"), "missing candidate exported type Public"),
+            ("renamed record", model.replace("export type Box[T]", "export type Container[T]"), "missing candidate exported type Box"),
+            ("renamed enum", model.replace("export enum Choice", "export enum OtherChoice"), "missing candidate exported type Choice"),
+            ("private error family", model.replace("## Public failure.\nexport error Failure", "error Failure"), "missing candidate exported type Failure"),
+            ("private module contract", model.replace("## Public service.\nexport type Service", "type Service"), "missing candidate exported type Service"),
+            ("added alias", format!("{model}## Added public text.\nexport type Added = Str\n"), "extra candidate exported type Added"),
+        ] {
+            write(&candidate, &model);
+            assert_eq!(qualify(&candidate, &candidate), Ok((2, 0)), "{changed}");
+            let error = qualify(&original, &candidate).expect_err(changed);
+            assert!(error.contains(expected), "{changed}: {error}");
+        }
+    }
+
+    #[test]
+    fn paired_qualification_preserves_nominal_domains_with_unchanged_public_names() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let original_model = "##! Public choices.\n## Public choice.\nexport enum Choice { First, Second }\n## Return the choice.\nexport pure identity(value: Choice) -> Choice { value }\n";
+        let candidate_model = "##! Public choices.\nenum HiddenChoice { First, Second }\n## Public choice.\nexport type Choice = HiddenChoice\n## Return the choice.\nexport pure identity(value: Choice) -> Choice { value }\n";
+        for (directory, model) in [(&original, original_model), (&candidate, candidate_model)] {
+            fs::write(directory.join("model.xsh"), model).unwrap();
+        }
+        let paths = [candidate.join("model.xsh").to_str().unwrap().to_owned()];
+        assert_eq!(compare_paths(candidate.to_str().unwrap(), candidate.to_str().unwrap(), &paths, &StageTimings::start()), Ok((1, 0)));
+        let error = compare_paths(original.to_str().unwrap(), candidate.to_str().unwrap(), &paths, &StageTimings::start()).unwrap_err();
+        assert!(error.contains("contract mismatch"), "{error}");
+    }
+
+    #[test]
+    fn public_type_availability_requires_checked_declaration_facts() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let root_path = canonical(root.path()).unwrap();
+        let file = root_path.join("model.xsh");
+        let source = "##! Public names.\n## Public number.\nexport type Public = Int\n## Public failure.\nexport error Failure { Broken(message: Str) }\n";
+        fs::write(&file, source).unwrap();
+        let file = file.to_str().unwrap();
+        let (sources, parsed) = loader::parse_load_entry_source_arena_only(file, loader::entry_source_from_text(file, source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = sources.files().first().unwrap().id();
+        let arena = Arc::new(parsed.arena);
+        let sources = Arc::new(sources);
+        let session = CheckSession::new(Arc::clone(&arena), Arc::clone(&sources));
+        let checked = session.check_view(&session.view_for_root(arena.statements, source_id), CheckOptions::for_check_cli());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked_public_type_names(&arena, &checked, &sources, &root_path).unwrap().len(), 2);
+        let mut missing = checked.clone();
+        missing.checked_declarations.types.clear();
+        assert!(checked_public_type_names(&arena, &missing, &sources, &root_path).is_err());
+        let mut unresolved = checked.clone();
+        for declaration in unresolved.checked_declarations.types.values_mut() { declaration.info = None; }
+        assert!(checked_public_type_names(&arena, &unresolved, &sources, &root_path).is_err());
+        let mut missing = checked;
+        missing.checked_declarations.errors.clear();
+        assert!(checked_public_type_names(&arena, &missing, &sources, &root_path).is_err());
     }
 
     #[test]

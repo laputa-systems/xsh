@@ -902,3 +902,20 @@ test test_check_reports_invalid_utf8_source_as_a_diagnostic { |ctx|
   assert checked.status.exited_with(2), checked.stderr
   assert "source.invalid-utf8" in checked.stderr, checked.stderr
 }
+
+test test_check_compare_preserves_public_type_names { |ctx|
+  let model = "##! Event values.\n## Public event.\nexport type Event = {id: Int}\n## Return the event.\nexport pure identity(value: Event) -> Event { value }\n"
+  let main = "use model\npure keep(value: model.Event) -> model.Event { model.identity(value) }\n"
+  let root = project(ctx, {"original/model.xsh": model, "original/main.xsh": main, "candidate/model.xsh": model, "candidate/main.xsh": main})?
+  cd $root {
+    let unchanged = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
+    assert unchanged.status.exited_with(0), unchanged.stderr
+    assert unchanged.stdout == "xsht check interface qualification: 2 callable, 0 CLI\n"
+    p"candidate/model.xsh".write(model.replace("Event", "RenamedEvent"))?
+    p"candidate/main.xsh".write(main.replace("Event", "RenamedEvent"))?
+    let renamed = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
+    assert renamed.status.exited_with(2), renamed.stderr
+    assert renamed.stdout == ""
+    assert "missing candidate exported type Event" in renamed.stderr, renamed.stderr
+  }
+}

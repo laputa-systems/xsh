@@ -46,7 +46,8 @@ parameters, inferred returns, and exported bindings; `locals` is opt-in. A
 bare `--annotate` uses `[check] annotate` when configured.
 
 `xsht check --compare-with ORIGINAL_ROOT --candidate-root CANDIDATE_ROOT
-CANDIDATE_PATH...` qualifies callable interfaces, CLI parsing contracts, and checked body facts
+CANDIDATE_PATH...` qualifies callable interfaces, CLI parsing contracts, exported
+type-name availability, and checked body facts
 without writing either tree.
 Candidate entries must be existing `.xsh` files inside the explicit candidate
 root; directories are not entry selectors. Relative paths are relative to the
@@ -67,6 +68,14 @@ comparison. Missing, extra, mismatched, unresolved, or unsupported contracts
 fail with status 2 and a declaration diagnostic. CLI comparison covers
 command paths, parameter parser domains, defaults, rest parameters, and declared
 effect bounds. Help text and runtime behavior require separate paired tests.
+Exported type names must form the same set in each selected entry, keyed by
+relative source path and name. This covers aliases, bounded types, record schemas,
+module contracts, enums, and error families; missing, renamed, newly private, or
+additional public names fail qualification. Private helper names and generic
+binder spellings do not enter this availability set. Ordinary structural alias
+semantics stay unchanged. This check establishes name availability, not independent
+equivalence of every unused type definition. Definitions used in callable, schema,
+and checked body contracts retain those existing canonical comparisons.
 Internal host declarations
 are excluded from both sides. The command checks each program once and prepares
 it once without executing initialization. It compares each selected program's
