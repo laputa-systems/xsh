@@ -7,11 +7,11 @@
 # Example: xsh showcase/watch-run.xsh -- --root src --ext rs cargo test
 type Opts = {root: Path, ext: List[Str], interval: Int, once: Bool, cmd: List[Str]}
 
-on SIGINT [error] {
+on SIGINT [process, error] {
   exit 3
 }
 
-on SIGTERM [error] {
+on SIGTERM [process, error] {
   exit 3
 }
 

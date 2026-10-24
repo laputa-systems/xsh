@@ -8,7 +8,7 @@ type ManifestEntry = {path: Str, size: Int, sha256: Str}
 
 type Opts = {input: Path, output: Path, dry_run: Bool}
 
-proc main(...argv: List[Str]) [fs, error] {
+proc main(...argv: List[Str]) [fs, process, error] {
   let opts: Opts = cli.parse(
     argv,
     {

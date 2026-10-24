@@ -15,7 +15,7 @@ pure add_finding(findings: List[Finding], severity: Int, kind: Str, item_path: S
   findings.push({severity, kind, path: item_path, detail})
 }
 
-proc main(...argv: List[Str]) [fs, error] {
+proc main(...argv: List[Str]) [fs, process, error] {
   let opts: Opts = cli.parse(
     argv,
     {
