@@ -6396,6 +6396,109 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
         assert!(failure.message.contains("owner"), "{failure:?}");
     }
 
+
+    #[test]
+    fn comprehension_list_builds_authenticate_members_splices_and_lexical_sources() {
+        let source = r#"type Entry = {name: Str, outputs: List[Path], argv: List[Union[Str, Path]]}
+pure retain(value) { value }
+pure spare() -> Bool { false }
+pure nested(rows: List[Entry]) -> Bool {
+  let items = [{...row, argv: [p"/head", "--", @row.outputs]} for row in rows]
+  retain(items).is_empty()
+}
+"#;
+        let mut program = prepare(source);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "nested").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let build = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListBuild).unwrap();
+        let schema::ExprView::ListBuild(mut entries) = decoder.expression_view(build).unwrap() else { unreachable!() };
+        let block = entries.block_identity_for_test();
+        assert_eq!(entries.len(), 3);
+        let (head_splice, head, _) = entries.next().unwrap().unwrap();
+        let (middle_splice, _, _) = entries.next().unwrap().unwrap();
+        let (tail_splice, tail, _) = entries.next().unwrap().unwrap();
+        assert!(!head_splice && !middle_splice && tail_splice);
+        let head = head.raw() as usize;
+        assert_eq!(program.store.tags[head], FullTag::ExprPath);
+        let schema::ExprView::Field { base, name: "outputs", .. } = decoder.expression_view(tail.raw() as usize).unwrap() else { panic!("splice reads the actual comprehension field") };
+        let base = base.raw() as usize;
+        let schema::ExprView::Param(slot) = decoder.expression_view(base).unwrap() else { panic!("the field belongs to the comprehension target") };
+        assert_ne!(slot, 0);
+        let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+        assert!(!range.contains(&boolean));
+        let mut wrong_member = program.clone();
+        wrong_member.store.tags[head] = FullTag::ExprBool;
+        wrong_member.store.data[head] = wrong_member.store.data[boolean];
+        assert!(wrong_member.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_member).expect_err("Bool cannot replace a Str-or-Path member");
+        assert_eq!(failure.message, "generic call argument has no closed checked type");
+        let mut wrong_splice = program.clone();
+        let words = wrong_splice.store.blocks[block.index()].instructions.bounds(wrong_splice.store.extra.len()).unwrap();
+        assert_eq!(wrong_splice.store.extra[words.start], 3);
+        assert_eq!(wrong_splice.store.extra[words.start + 1], 0);
+        wrong_splice.store.extra[words.start + 1] = 1;
+        assert!(wrong_splice.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_splice).expect_err("a scalar Path cannot supply a list splice");
+        assert_eq!(failure.message, "generic call argument has no closed checked type");
+        let mut wrong_binding = program.clone();
+        let words = wrong_binding.store.data[base].range().bounds(wrong_binding.store.extra.len()).unwrap();
+        assert_eq!(wrong_binding.store.extra[words.start] as usize, slot);
+        wrong_binding.store.extra[words.start] = 0;
+        assert!(wrong_binding.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_binding).expect_err("the header list cannot replace its comprehension item");
+        assert_eq!(failure.message, "generic call argument has no closed checked type");
+        let mut foreign_child = program.clone();
+        let words = foreign_child.store.blocks[block.index()].instructions.bounds(foreign_child.store.extra.len()).unwrap();
+        assert_eq!(foreign_child.store.extra[words.start + 2] as usize, head);
+        foreign_child.store.extra[words.start + 2] = boolean as u32;
+        assert!(foreign_child.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&foreign_child).expect_err("a list cannot borrow an instruction from another function");
+        assert_eq!(failure.message, "full IR instruction belongs to another function");
+    }
+
+
+    #[test]
+    fn comprehension_list_builds_reject_possibly_empty_nonempty_evidence() {
+        let mut program = prepare(r#"pure nonempty(marker, values: NonEmpty[Path]) { let _ = values; marker }
+pure probe(values: List[Path]) -> Int { let spare = values; nonempty(7, [p"/head", @values]) }
+"#);
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "probe").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let build = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListBuild).unwrap();
+        let schema::ExprView::ListBuild(mut entries) = decoder.expression_view(build).unwrap() else { unreachable!() };
+        let block = entries.block_identity_for_test();
+        assert_eq!(entries.len(), 2);
+        let (splice, head, _) = entries.next().unwrap().unwrap();
+        assert!(!splice);
+        let head = head.raw() as usize;
+        assert_eq!(program.store.tags[head], FullTag::ExprPath);
+        let source = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut changed = program.clone();
+        changed.store.tags[head] = FullTag::ExprParam;
+        changed.store.data[head] = changed.store.data[source];
+        let words = changed.store.blocks[block.index()].instructions.bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(&changed.store.extra[words.start..words.start + 3], &[2, 0, head as u32]);
+        changed.store.extra[words.start + 1] = 1;
+        let changed_decoder = decoder_for_function(&changed.store, owner).unwrap();
+        let schema::ExprView::ListBuild(mut entries) = changed_decoder.expression_view(build).unwrap() else { unreachable!() };
+        assert!(entries.all(|entry| entry.unwrap().0));
+        assert!(changed.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&changed).expect_err("two possibly empty splices cannot establish NonEmpty");
+        assert_eq!(failure.message, "ground list build has no non-empty producer");
+    }
+
 }
 
 #[cfg(test)]

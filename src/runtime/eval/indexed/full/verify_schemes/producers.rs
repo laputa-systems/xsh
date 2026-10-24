@@ -2519,13 +2519,20 @@ impl<'a> ProducerProof<'a> {
         Ok(Some((*actual).clone()))
     }
 
-    pub(super) fn literal_argument_context(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+    pub(super) fn literal_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<CheckedArgumentType>, IrVerifyError> {
         if !matches!(self.store.tags.get(instruction), Some(FullTag::ExprList | FullTag::ExprListBuild)) { return Ok(None); }
         let decoder = self.owner(owner)?;
-        let Some(actual) = self.producer_context_type(&decoder, instruction, ProducerContextRole::LiteralListData)? else { return Ok(None); };
+        if let Some(actual) = self.producer_context_type(&decoder, instruction, ProducerContextRole::LiteralListData)? {
+            ensure_closed_type(&actual)?;
+            self.budget.charge_clone(&actual)?;
+            return Ok(Some(CheckedArgumentType::Known((*actual).clone())));
+        }
+        let Some(actual) = self.derive_unannotated_type(&decoder, instruction)? else { return Ok(None) };
         ensure_closed_type(&actual)?;
-        self.budget.charge_clone(&actual)?;
-        Ok(Some((*actual).clone()))
+        let Type::List(item) = actual.as_ref() else { return Ok(None) };
+        self.expression(owner, instruction, Arc::clone(&actual), false);
+        self.budget.charge_clone(item)?;
+        Ok(Some(CheckedArgumentType::ListItems(vec![(**item).clone()])))
     }
 
     pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
@@ -3316,6 +3323,25 @@ impl<'a> ProducerProof<'a> {
                     }
                     None => Some(list),
                 }
+            }
+            schema::ExprView::ListBuild(mut values) => {
+                let mut items = Vec::new();
+                for value in &mut values {
+                    self.budget.charge(1)?;
+                    let (splice, value, _) = value?;
+                    let value = value.raw() as usize;
+                    let Some(actual) = self.need_context(decoder, value)? else {
+                        if splice && decoder.is_empty_list_literal_expression(value)? { continue; }
+                        return Ok(None);
+                    };
+                    let item = if splice {
+                        let Type::List(item) = actual.unvalidated() else { return Ok(None) };
+                        item.as_ref()
+                    } else { actual.as_ref() };
+                    self.budget.charge_clone(item)?;
+                    items.push(item.clone());
+                }
+                return merge_list_item_types(&items, &mut self.budget).map(|ty| ty.map(Arc::new));
             }
             schema::ExprView::List(mut values) => {
                 let mut items = Vec::new();

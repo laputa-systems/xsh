@@ -5396,3 +5396,33 @@ test imported_path_method_results {
         }
     });
 }
+
+#[test]
+fn generic_list_splices_preserve_comprehension_binding_sources() {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": List[Path]" };
+        let source = format!("type Entry = {{name: Str, outputs: List[Path]}}\npure retain(value{annotation}) {{ value }}\npure nested(rows: List[Entry]) -> List[List[Path]] {{ [retain([p\"/head\", @row.outputs]) for row in rows] }}\n");
+        let _ = record_form_program(&source);
+    }
+}
+
+#[test]
+fn generic_record_arguments_preserve_comprehension_splice_sources() {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-comprehension-list-builds.xsh");
+    for generic in [false, true] {
+        let source = if generic { source.to_owned() } else { source.replace("pure retain_build_rows(value)", "pure retain_build_rows(value: List[BuildEntry])") };
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-comprehension-list-builds.xsh", crate::loader::entry_source_from_text("generic-comprehension-list-builds.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("verify_generic_comprehension_list_builds", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "generic={generic} frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "generic={generic} frames={force_frames}: {:?}", result.result);
+        }
+    }
+}

@@ -336,6 +336,13 @@ completion query proves that handler cannot continue before a ground payload is
 published. Lexical binding, complete writer census, and ordinary argument proofs
 remain mandatory.
 
+List builders derive their item domain from actual members and list-valued
+splices through the same lexical binding and iterator proof. A physical literal
+without retained context keeps the existing literal-item argument role; the full
+expression proof independently establishes any required nonempty cardinality.
+Ordinary data contexts retain their distinct closed-list role. Neither a selected
+parameter nor an unrelated slot type supplies a comprehension member's type.
+
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor
 context supplies elaboration types; physical slot proof independently
