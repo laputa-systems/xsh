@@ -8,6 +8,62 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+#[test]
+fn closed_optional_callbacks_execute_imports_after_frontend_disposal() {
+    let provider = include_str!("../../../../tests/fixtures/runtime/closed-callback-provider.xsh");
+    let source = include_str!("../../../../tests/fixtures/runtime/closed-callback-import.xsh");
+    let directory = tempfile::Builder::new().prefix("closed-callback-import-").tempdir_in(".work/tmp").unwrap();
+    std::fs::write(directory.path().join("closed-callback-provider.xsh"), provider).unwrap();
+    let file = directory.path().canonicalize().unwrap().join("entry.xsh");
+    std::fs::write(&file, source).unwrap();
+    let file = file.to_str().unwrap();
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.to_owned()), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    drop(directory);
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("closed_imported_callbacks", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "{:?}", result.result);
+        assert_eq!(result.output.stdout, b"observer:7\nobserver:4\nobserver:-1\n");
+    }
+}
+
+fn verify_closed_callback_call(optional: bool) {
+    let parameter = if optional { "Observer?" } else { "Observer" };
+    let invoke = if optional { "if action != null { action(value)? } else { null }" } else { "action(value)?" };
+    let source = format!(r#"type Observer = proc(value: Int) [io, error] -> Result[Int, Error]
+proc observe(value: Int) [io, error] -> Result[Int, Error] {{ defer {{ print "close" }}; print f"observer:{{value}}"; Ok(value + 1) }}
+proc invoke(action: {parameter}, value: Int) [io, error] -> Result[Int?, Error] {{ {invoke} }}
+proc present(value: Int) [io, error] -> Result[Int?, Error] {{ invoke(observe, value) }}
+"#);
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("present")));
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Int(4)], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Int(5)))));
+        assert_eq!(evaluator.stdout, b"observer:4\nclose\n", "optional={optional} frames={force_frames}");
+    }
+}
+
+#[test]
+fn closed_required_callbacks_preserve_their_checked_signature() {
+    verify_closed_callback_call(false);
+}
+
+#[test]
+fn closed_optional_callbacks_preserve_their_checked_signature() {
+    verify_closed_callback_call(true);
+}
+
 fn verify_formatted_path_native_consumer(typed: bool) {
     let definitions = if typed {
         r#"proc selected(value: Int, base: Path) [fs, error] -> Result[Str] { fp"{base}/{value}".read_text() }

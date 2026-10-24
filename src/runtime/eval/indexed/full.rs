@@ -7353,6 +7353,14 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn derive_typed_callee_type(&self, instruction: usize) -> Result<TypeId, IrVerifyError> {
+        if let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = self.expression_view(instruction)?
+            && check.schema.is_none()
+        {
+            let checked = check.ty.materialize()?;
+            if matches!(checked, Type::Callable(_))
+                && self.checked_value_optional_source(instruction, value.raw() as usize, check.ty.id, &checked)?.is_some()
+            { return Ok(check.ty.id); }
+        }
         let tag = *self
             .store
             .tags
@@ -50660,6 +50668,113 @@ pure set_scale(callbacks: Map[Str, Scale], alternate: Label) -> Map[Str, Scale] 
             );
         }
 
+    }
+
+    #[test]
+    fn closed_optional_callees_authenticate_payload_prefix_and_metadata() {
+        let program = fixture("closed-optional-callee.xsh", r#"type Observer = proc(value: Int) [io, error] -> Result[Int, Error]
+proc foreign(action: Observer?) [] -> Unit { let _ = action }
+proc invoke(action: Observer?, other: Observer?, replacement: Observer, value: Int) [io, error] -> Result[Int?, Error] {
+  var scratch: Observer? = other
+  let spare_other: Any = other
+  if action != null {
+    scratch = null
+    action(value)?
+  } else { null }
+}
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let owner = scheme_fixture_root_function(&program, "invoke");
+        let decoder = return_analysis_decoder(&program, "invoke");
+        let typed = function_instruction_indices(&program, "invoke", FullTag::ExprTypedCall)[0];
+        let schema::ExprView::TypedCall { callee, signature, .. } = decoder.expression_view(typed).unwrap() else { unreachable!() };
+        let callee = callee.raw() as usize;
+        let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(callee).unwrap() else { panic!("the callee retains its checked optional projection") };
+        assert!(check.schema.is_none());
+        assert_eq!(check.ty.id, signature.id);
+        let checked = check.ty.materialize().unwrap();
+        let Type::Callable(callable) = &checked else { panic!("the checked destination is the authored callable") };
+        let source = value.raw() as usize;
+        assert!(matches!(decoder.expression_view(source).unwrap(), schema::ExprView::Param(0)));
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let guard = function_instruction_indices(&program, "invoke", FullTag::BoolLiteralCompareSlot).into_iter().find(|instruction| {
+            let words = payload_start(&program, *instruction);
+            program.store.binary_ops[program.store.extra[words] as usize] == BinaryOp::Ne && program.store.extra[words + 1] == 0
+        }).unwrap();
+        let guard_slot = payload_start(&program, guard) + 1;
+        let scratch = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, annotation: Some(annotation) }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(1))) && matches!(annotation.materialize().unwrap(), Type::Optional(_)) => Some(slot),
+            _ => None,
+        }).unwrap();
+        let writer = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. }) if slot == scratch)).unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        for variant in ["label", "default", "kind", "effect", "success", "error"] {
+            let mut changed = cold();
+            let mut alternate = (**callable).clone();
+            match variant {
+                "label" => alternate.sig.params[0].name = Name::intern("other"),
+                "default" => alternate.sig.params[0].defaulted = true,
+                "kind" => { alternate.kind = CallableKind::Pure; alternate.sig.effects = crate::sema::types::CallableEffects::finite([]); },
+                "effect" => alternate.sig.effects = crate::sema::types::CallableEffects::finite([crate::syntax::node::Effect::Error]),
+                "success" => alternate.sig.return_ty = Box::new(Type::Result(Box::new(Type::Str), Box::new(Type::Error))),
+                "error" => alternate.sig.return_ty = Box::new(Type::Result(Box::new(Type::Int), Box::new(Type::Str))),
+                _ => unreachable!(),
+            }
+            let kind = alternate.kind;
+            let alternate = SemanticPoolBuilder::default().intern_type(&mut changed.store.semantic, &Type::Callable(Arc::new(alternate))).unwrap();
+            let call_words = payload_start(&changed, typed);
+            assert_eq!(changed.store.extra[call_words + 2], signature.id.raw());
+            changed.store.extra[call_words + 1] = kind as u32;
+            changed.store.extra[call_words + 2] = alternate.raw();
+            let check_words = payload_start(&changed, callee);
+            assert_eq!(changed.store.extra[check_words + 1], 0);
+            assert_eq!(changed.store.extra[check_words + 2], signature.id.raw());
+            changed.store.extra[check_words + 2] = alternate.raw();
+            for fact in &mut changed.store.checked_expr_types {
+                if fact.instruction as usize == callee { fact.type_id = alternate; }
+            }
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert_eq!(error.message, "checked callable payload differs from its optional source", "{variant}");
+        }
+        let mut unguarded = cold();
+        unguarded.store.extra[guard_slot] = 1;
+        let error = FullVerifier::verify(&unguarded).unwrap_err();
+        assert_eq!(error.message, "checked optional field receiver has no non-null branch proof");
+        let mut written = cold();
+        written.store.extra[payload_start(&program, writer)] = 0;
+        let error = FullVerifier::verify(&written).unwrap_err();
+        assert_eq!(error.message, "checked optional field receiver has no non-null branch proof");
+        let foreign_owner = scheme_fixture_root_function(&program, "foreign");
+        let foreign_decoder = return_analysis_decoder(&program, "foreign");
+        let foreign = program.store.function_instruction_range(foreign_owner).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut foreign_read = cold();
+        foreign_read.store.extra[payload_start(&program, callee)] = foreign as u32;
+        let error = FullVerifier::verify(&foreign_read).unwrap_err();
+        assert_eq!(error.message, "full IR instruction belongs to another function");
+        let with_schema = |mut changed: FullProgram, schema: Type| {
+            let mut words = changed.store.payload(changed.store.data[callee].range()).unwrap().to_vec();
+            assert_eq!(words.len(), 6);
+            assert_eq!(words[4], 0);
+            words[4] = 1;
+            let schema_id = changed.store.prepared_schemas.len() as u32;
+            changed.store.prepared_schemas.push(Arc::new(super::super::super::require::PreparedSchema::Validate(schema)));
+            words.insert(5, schema_id);
+            let start = changed.store.extra.len() as u32;
+            changed.store.extra.extend_from_slice(&words);
+            changed.store.data[callee] = IrData::new(start, words.len() as u32);
+            changed
+        };
+        let schema_on_projection = with_schema(cold(), checked);
+        assert_eq!(FullVerifier::verify(&schema_on_projection).unwrap_err().message, "checked optional payload carries unrelated contract evidence");
+        let wrong_schema = with_schema(cold(), Type::Int);
+        assert_eq!(FullVerifier::verify(&wrong_schema).unwrap_err().message, "prepared schema does not match its checked type");
     }
 
     #[test]

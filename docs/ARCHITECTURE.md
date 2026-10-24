@@ -353,6 +353,10 @@ interpolation, the ground producer reuses that exact physical expression's
 same-owner body proof. The body checks every actual child against its Display
 requirement before producer verification; symbolic children need no invented
 closed type. This reuse does not apply to other expressions or output types.
+A typed callee retains an actual checked optional-to-callable projection before
+following aliases to its original slot. Only a schema-free callable check whose
+exact payload and nonnull source are independently proved supplies that callee
+type; the call still requires the same complete callable signature identity.
 
 List builders derive their item domain from actual members and list-valued
 splices through the same lexical binding and iterator proof. A physical literal
