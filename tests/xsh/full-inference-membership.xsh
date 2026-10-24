@@ -92,21 +92,30 @@ match caught_relay(unsigned) {
 }
 
 test test_full_inference_membership_rejects_incompatible_domains { |ctx|
-  for source in [
+  test.expect(
+    ctx,
     r"""pure has(item, container) { item in container }
 let invalid = has(true, [1])
 """,
+    status: 2,
+    stderr: ["[check.operator-type]", "operation requires Int, found Bool", "has(true, [1])"],
+  )?
+  test.expect(
+    ctx,
     r"""pure has(item, container) { item in container }
 let invalid = has("key", 7)
 """,
+    status: 2,
+    stderr: ["[check.membership-type]", "membership is not defined for Str in Int", "has(\"key\", 7)"],
+  )?
+  test.expect(
+    ctx,
     r"""enum First: Str { Build = "same" }
 enum Second: Str { Run = "same" }
 pure has(item, container) { item in container }
 let invalid = has(Build, [Run])
 """,
-  ] {
-    let output = test.run_xsh(ctx, source)?
-    assert !output.success
-    assert "[check.type-mismatch]" in output.stderr or "[check.membership-type]" in output.stderr, output.stderr
-  }
+    status: 2,
+    stderr: ["[check.operator-type]", "operation requires Second, found First", "has(Build, [Run])"],
+  )?
 }
