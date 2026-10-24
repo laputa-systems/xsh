@@ -24,9 +24,11 @@ disk-backed native test unless the Rust API must inspect or construct source.
 ## Finding tests
 
 `xsht test --list FILTER` lists tests matching a path prefix or test-name
-substring. Use `--exact PATH::TEST_NAME` to select one native test. Listing an
-unmatched exact selector succeeds without output; running it exits 2. The
-`xsht test` options are in `xsht help test`.
+substring. Use `--exact PATH::TEST_NAME` to select one native test. Listing or
+running an unmatched exact selector exits 2. Repeat `--exact-id ID` to freeze a
+set across modules and add `--events-jsonl PATH` for the schema-1 result stream;
+both are specified in [XSHT](XSHT.md#native-tests). The `xsht test` options are
+in `xsht help test`.
 
 Use `xsht grep` or text search to find native coverage for a symbol. Rust test
 names are Cargo filter strings. For example:
@@ -110,7 +112,7 @@ them without it so child processes do not inherit the library. Manual builds
 do not use this wrapper. See `dev/cargo_steps.xsh` for the policy.
 
 Changed fixtures select their compiler owner rather than running as native
-test modules. `cargo dev gate PATH...` applies that mapping. The batch gate runs
+test modules. `cargo dev gate PATH...` applies that mapping. The Full gate runs
 one full native suite at a time and includes repository and documentation
 checks.
 
