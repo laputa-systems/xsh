@@ -45,9 +45,15 @@ Guard argument evidence, correlated Path method results and the fresh
 `Err.context` consumer proof are now integrated at `cc79637f3`. Independent
 combined-source review is clear and matching verification products build.
 The full library run finishes with 2,574 passes, one failure and three ignored
-tests: the existing Length-family diagnostic assertion is under repair, so this
-run remains failed. Strict native qualification is running against these
-products; all earlier selectors remain required.
+tests: the existing Length-family diagnostic assertion expected the later error
+category. The unchanged invalid inputs now require the precise earlier callable
+domain rejection, and five focused controls pass. The original full run remains
+failed; final combined qualification remains required. These products pass all
+205 native selectors in normal and forced modes and all six API selectors,
+retaining all prior 197 cases with clean source/product guards and cleanup.
+Generated docs are refreshed from matching tools. Their check exposes six
+snippet discrepancies, with a separate expert distinguishing obsolete diagnostic
+expectations from compiler defects before making changes.
 
 Guard-local requirements and formatted-path producer evidence remain active
 inference work. A separate ListBuild repair now prepares Laputa's unchanged
