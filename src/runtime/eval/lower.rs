@@ -4490,7 +4490,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
         if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none_or(|ordinal| {
-            facts.scheme().callable().requirements().wrappers.get(ordinal as usize).is_some_and(|requirement| matches!(requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation { .. }))
+            facts.scheme().callable().requirements().wrappers.get(ordinal as usize).is_some_and(|requirement| matches!(requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation { .. }))
         }) {
             let base = match self.program.arena.expr(expression).kind {
                 ArenaExprKind::NullSafeField { base, .. }
@@ -4836,14 +4836,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
                     _ => false,
                 };
+                let membership_operation = match facts.operation_site(expression) {
+                    Some(ordinal) if matches!(facts.scheme().callable().requirements().operations.get(ordinal as usize)?, crate::sema::sealed_operation::SealedOperation::Membership { .. }) => Some(ordinal),
+                    _ => None,
+                };
                 let left_span = self.program.arena.expr(left).span;
                 let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
+                let left = if let Some(ordinal) = membership_operation {
+                    let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: left, check: LoweredValueCheck::MembershipKey(ordinal), span: left_span });
+                    lowered_types.insert(checked, lowered_types.get(&left)?.clone());
+                    checked
+                } else { left };
                 let left = if unsigned_key {
                     let checked = self.require_uint_key(left, left_span);
                     self.record_scheme_storage_elaboration(checked, &SchemeType::Ground(Type::UInt), lowered_types);
                     checked
                 } else { left };
-                let right = if matches!(op, BinaryOp::And | BinaryOp::Or) {
+                let right = if membership_operation.is_some() || matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?
                 } else {
                     self.lower_scheme_expression(right, slots, current_function, facts, visited, lowered_types, body)?
@@ -7867,7 +7876,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 (_, BuildExprRow::CheckedValue { check, .. }) => return match check {
                     LoweredValueCheck::Ground(check) => Some(check.ty.clone()),
                     LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type(),
-                    LoweredValueCheck::RecordConstructor(_) => None,
+                    LoweredValueCheck::RecordConstructor(_) | LoweredValueCheck::MembershipKey(_) => None,
                 },
                 _ => {}
             }

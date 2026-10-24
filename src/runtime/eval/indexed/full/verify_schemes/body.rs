@@ -2637,7 +2637,7 @@ test namespace_borrow {
         let capture = program.store.wrapper_captures[detail as usize];
         let contributions = capture.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
         assert_eq!(contributions.len(), 1);
-        assert!(matches!(program.store.wrapper_contributions[contributions.start], super::super::super::schemes::FullWrapperContribution::IndexValidation(_)));
+        assert!(matches!(program.store.wrapper_contributions[contributions.start], super::super::super::schemes::FullWrapperContribution::KeyValidation(_)));
 
         let mut missing_relation = program.clone();
         missing_relation.store.wrapper_contributions[capture.contributions.start as usize] =
@@ -2652,11 +2652,11 @@ test namespace_borrow {
         let scheme = concrete.store.scheme(scheme_id).unwrap();
         let wrappers = bounded(scheme.wrappers, &concrete.store.scheme_wrappers, "wrapper range is invalid").unwrap();
         let (operation, detail) = wrappers.iter().find_map(|wrapper| match wrapper {
-            super::super::super::schemes::FullWrapper::IndexValidation { operation, detail } => Some((*operation, *detail)),
+            super::super::super::schemes::FullWrapper::KeyValidation { operation, detail } => Some((*operation, *detail)),
             _ => None,
         }).expect("the concrete UInt-key operation retains its lexical capture boundary");
         assert_eq!(
-            concrete.store.wrapper_index_validations[detail as usize].boundary,
+            concrete.store.wrapper_key_validations[detail as usize].boundary,
             super::super::super::schemes::FullWrapperBoundary::Captured,
         );
         assert!(matches!(bounded(scheme.operations, &concrete.store.scheme_operations, "operation range is invalid").unwrap().get(operation as usize), Some(super::super::super::schemes::FullSealedOperation::Index { .. })));
@@ -4304,6 +4304,74 @@ test verify_completion_cleanup {
         }
         assert_eq!(result.store.scheme_types[flag.index()], program.store.scheme_types[flag.index()]);
         assert_eq!(FullVerifier::verify(&result).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn generic_membership_key_checks_authenticate_physical_sites_and_owners() {
+        let program = prepare("pure has(item, container, other, other_container) { let first = item in container; let second = other not in other_container; [first, second] }\npure unrelated(value) { value }\nlet unsigned: Map[UInt, Int] = {[1]: 7}\nlet selected = has(1, unsigned, \"word\", [\"word\"])");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "has").unwrap();
+        let other_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "unrelated").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let sites = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Binary { left, right, .. }) => {
+                let schema::ExprView::CheckedValue { value, check: ValueCheckView::MembershipKey(ordinal), .. } = decoder.expression_view(left.raw() as usize).unwrap() else { panic!("membership owns its physical key check") };
+                Some((instruction, left.raw() as usize, value.raw() as usize, right.raw() as usize, ordinal))
+            }
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(sites.len(), 2);
+        let (binary, check, value, _, ordinal) = sites[0];
+        assert_ne!(ordinal, sites[1].4);
+        let binary_payload = program.store.data[binary].range().bounds(program.store.extra.len()).unwrap();
+        let check_payload = program.store.data[check].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[binary_payload.start + 1], check as u32);
+        assert_eq!(program.store.extra[check_payload.start], value as u32);
+        assert_eq!(program.store.extra[check_payload.start + 1], 3);
+        assert_eq!(program.store.extra[check_payload.start + 2], ordinal);
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); changed };
+        let mut missing = cold();
+        let int = (0..program.store.semantic.type_count()).map(|index| super::super::super::TypeId::new(index).unwrap())
+            .find(|id| program.store.semantic.to_type(*id).unwrap() == Type::Int).unwrap();
+        let mut payload = vec![value as u32, 0, int.raw(), program.store.functions[owner].name, 0];
+        payload.extend_from_slice(&program.store.extra[check_payload.start + 3..check_payload.end]);
+        let start = missing.store.extra.len() as u32;
+        missing.store.extra.extend_from_slice(&payload);
+        missing.store.data[check] = crate::runtime::eval::indexed::IrData::new(start, payload.len() as u32);
+        assert!(matches!(decoder_for_function(&missing.store, owner).unwrap().expression_view(check).unwrap(), schema::ExprView::CheckedValue { check: ValueCheckView::Ground(_), .. }));
+        let error = FullVerifier::verify(&missing).expect_err("a membership cannot omit its operation check");
+        assert!(error.message.contains("selected key check"), "{error:?}");
+        let mut wrong_guard = cold();
+        let binding = wrong_guard.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, crate::sema::schemes::SealedOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::Membership(crate::sema::sealed_operation::MembershipDomain::UnsignedMap)))).expect("the actual UInt map call selects its unsigned domain");
+        *binding = crate::sema::schemes::SealedOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::Membership(crate::sema::sealed_operation::MembershipDomain::Map));
+        assert!(FullVerifier::verify(&wrong_guard).is_err());
+        let mut wrong_ordinal = cold();
+        wrong_ordinal.store.extra[check_payload.start + 2] = sites[1].4;
+        assert!(FullVerifier::verify(&wrong_ordinal).unwrap_err().message.contains("differs from its operation"));
+        let mut wrong_op = cold();
+        wrong_op.store.extra[binary_payload.start] = crate::syntax::node::BinaryOp::Eq as u32;
+        assert!(FullVerifier::verify(&wrong_op).is_err());
+        let mut wrong_owner = cold();
+        let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == binary && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Operation(_))).unwrap();
+        fact.function = super::super::super::IrFunctionId::new(other_owner).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).unwrap_err().message.contains("ownership"));
+        let mut wrong_needle = cold();
+        let schema::ExprView::Param(original) = decoder.expression_view(value).unwrap() else { panic!("the key retains its actual ANF binding") };
+        assert_ne!(original, 2);
+        let payload = wrong_needle.store.data[value].range().bounds(wrong_needle.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        wrong_needle.store.extra[payload.start] = 2;
+        assert!(FullVerifier::verify(&wrong_needle).is_err());
+        let mut moved = cold();
+        let second = moved.store.data[sites[1].0].range().bounds(moved.store.extra.len()).unwrap();
+        moved.store.extra[binary_payload.start + 1] = sites[1].1 as u32;
+        moved.store.extra[second.start + 1] = check as u32;
+        assert!(FullVerifier::verify(&moved).is_err());
+        let mut duplicate = cold();
+        let second = duplicate.store.data[sites[1].0].range().bounds(duplicate.store.extra.len()).unwrap();
+        duplicate.store.extra[second.start + 1] = check as u32;
+        let fact = duplicate.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == sites[1].0 && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Operation(_))).unwrap();
+        fact.value = super::super::super::schemes::FullSchemeBodyFactValue::Operation(ordinal);
+        assert!(FullVerifier::verify(&duplicate).is_err());
     }
 
     #[test]

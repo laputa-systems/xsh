@@ -1007,7 +1007,7 @@ struct_schema!(LoweredTypeCheck => TypeCheckView {
 });
 #[derive(Clone, Copy)]
 #[repr(u32)]
-pub(super) enum ValueCheckTag { Ground, Materialization, RecordConstructor }
+pub(super) enum ValueCheckTag { Ground, Materialization, RecordConstructor, MembershipKey }
 
 impl TryFrom<u32> for ValueCheckTag {
     type Error = IrVerifyError;
@@ -1017,15 +1017,28 @@ impl TryFrom<u32> for ValueCheckTag {
             0 => Ok(Self::Ground),
             1 => Ok(Self::Materialization),
             2 => Ok(Self::RecordConstructor),
+            3 => Ok(Self::MembershipKey),
             _ => Err(IrVerifyError::new("checked value contract tag is invalid")),
         }
     }
 }
 
 pub(in crate::runtime::eval) enum ValueCheckView<'a> {
+    MembershipKey(u32),
     Ground(TypeCheckView<'a>),
     Materialization(u32),
     RecordConstructor(super::schemes::FullSchemeSchemaExpectationId),
+}
+
+fn verify_membership_key_owner(decoder: &FullDecoder<'_>, ordinal: u32) -> Result<(), IrVerifyError> {
+    let super::ExecutableOwner::Function(function) = super::ExecutableOwner::from_raw(decoder.owner)? else { return Err(IrVerifyError::new("membership key check has no function owner")); };
+    let super::FullCallableContract::Scheme(id) = decoder.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("membership key check owner is out of bounds"))?.contract else { return Err(IrVerifyError::new("membership key check has no scoped owner")); };
+    let scheme = decoder.store.scheme(id)?;
+    let range = scheme.operations.bounds(decoder.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
+    match decoder.store.scheme_operations[range].get(ordinal as usize) {
+        Some(super::schemes::FullSealedOperation::Membership { .. }) => Ok(()),
+        _ => Err(IrVerifyError::new("membership key check ordinal has no membership contract")),
+    }
 }
 
 impl BorrowCodec for LoweredValueCheck {
@@ -1033,6 +1046,11 @@ impl BorrowCodec for LoweredValueCheck {
 
     fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
         match ValueCheckTag::try_from(input.raw()?)? {
+            ValueCheckTag::MembershipKey => {
+                let ordinal = input.raw()?;
+                if !context.verified { verify_membership_key_owner(&context.decoder(), ordinal)?; }
+                Ok(ValueCheckView::MembershipKey(ordinal))
+            }
             ValueCheckTag::Ground => LoweredTypeCheck::borrow(context, input).map(ValueCheckView::Ground),
             ValueCheckTag::Materialization => {
                 let id = input.raw()?;
@@ -1051,6 +1069,7 @@ impl BorrowCodec for LoweredValueCheck {
 impl FullCodec for LoweredValueCheck {
     fn encode(&self, builder: &mut super::FullBuilder, output: &mut Vec<u32>) -> Result<(), super::IrBuildError> {
         match self {
+            Self::MembershipKey(ordinal) => { output.push(ValueCheckTag::MembershipKey as u32); output.push(*ordinal); }
             Self::Ground(check) => { output.push(ValueCheckTag::Ground as u32); check.encode(builder, output)?; }
             Self::Materialization(plan) => { output.push(ValueCheckTag::Materialization as u32); output.push(builder.encode_value_materialization(plan)?); }
             Self::RecordConstructor(schema) => { output.push(ValueCheckTag::RecordConstructor as u32); output.push(builder.encode_record_constructor(schema)?.raw()); }
@@ -1060,6 +1079,11 @@ impl FullCodec for LoweredValueCheck {
 
     fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
         match ValueCheckTag::try_from(input.raw()?)? {
+            ValueCheckTag::MembershipKey => {
+                let ordinal = input.raw()?;
+                verify_membership_key_owner(decoder, ordinal)?;
+                Ok(Self::MembershipKey(ordinal))
+            }
             ValueCheckTag::Ground => LoweredTypeCheck::decode(decoder, input).map(Self::Ground),
             ValueCheckTag::Materialization => Err(IrVerifyError::new("owned materialization plans cannot be decoded from executable IR")),
             ValueCheckTag::RecordConstructor => Err(IrVerifyError::new("scoped constructor contracts cannot be decoded from executable IR")),
@@ -1068,6 +1092,7 @@ impl FullCodec for LoweredValueCheck {
 
     fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         match ValueCheckTag::try_from(input.raw()?)? {
+            ValueCheckTag::MembershipKey => verify_membership_key_owner(decoder, input.raw()?),
             ValueCheckTag::Ground => LoweredTypeCheck::verify(decoder, input),
             ValueCheckTag::Materialization => decoder.store.value_materializations.get(input.raw()? as usize).map(|_| ())
                 .ok_or_else(|| IrVerifyError::new("value materialization is out of bounds")),

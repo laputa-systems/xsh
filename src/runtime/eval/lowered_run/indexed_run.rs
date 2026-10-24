@@ -413,6 +413,7 @@ pub(super) fn indexed_type_check(
 }
 
 pub(in crate::runtime::eval) enum IndexedValueCheck {
+    MembershipKey(u32),
     Ground(LoweredTypeCheck),
     Materialization(u32),
     RecordConstructor,
@@ -420,10 +421,16 @@ pub(in crate::runtime::eval) enum IndexedValueCheck {
 
 pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Result<IndexedValueCheck, RuntimeError> {
     match check {
+        ValueCheckView::MembershipKey(ordinal) => Ok(IndexedValueCheck::MembershipKey(ordinal)),
         ValueCheckView::Ground(check) => indexed_type_check(check, span).map(IndexedValueCheck::Ground),
         ValueCheckView::Materialization(id) => Ok(IndexedValueCheck::Materialization(id)),
         ValueCheckView::RecordConstructor(_) => Ok(IndexedValueCheck::RecordConstructor),
     }
+}
+
+pub(super) enum CheckedValueOutcome {
+    Value(LoweredValue),
+    Propagate(LoweredValue),
 }
 
 pub(super) fn finish_checked_value(
@@ -434,19 +441,26 @@ pub(super) fn finish_checked_value(
     check: &IndexedValueCheck,
     value: LoweredValue,
     span: Span,
-) -> Result<LoweredValue, RuntimeError> {
+) -> Result<CheckedValueOutcome, RuntimeError> {
     match check {
-        IndexedValueCheck::RecordConstructor => Ok(value),
+        IndexedValueCheck::MembershipKey(ordinal) => {
+            if execution.membership_key_check(*ordinal, invocation).map_err(|error| indexed_error(error, span))? == crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt {
+                let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
+                return Ok(CheckedValueOutcome::Propagate(crate::runtime::eval::require::require_value(evaluator, value, &check, span)));
+            }
+            Ok(CheckedValueOutcome::Value(value))
+        }
+        IndexedValueCheck::RecordConstructor => Ok(CheckedValueOutcome::Value(value)),
         IndexedValueCheck::Ground(check) => {
             let value = materialize_indexed_scheme_value(execution, invocation, instruction, value, span)?;
             super::checked_storage_value(evaluator, &value, check, span)?;
-            Ok(value.materialize_validated_list(&check.ty))
+            Ok(CheckedValueOutcome::Value(value.materialize_validated_list(&check.ty)))
         }
         IndexedValueCheck::Materialization(id) => {
             let (value, ty) = execution.program().materialize_checked_value(*id, instruction, invocation, value).map_err(|error| indexed_error(error, span))?;
             let check = LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None };
             super::checked_storage_value(evaluator, &value, &check, span)?;
-            Ok(value.materialize_validated_list(&check.ty))
+            Ok(CheckedValueOutcome::Value(value.materialize_validated_list(&check.ty)))
         }
     }
 }
@@ -1872,8 +1886,13 @@ impl Evaluator {
                 let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
-                        let value = finish_checked_value(self, execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, &check, value, span)?;
-                        ControlFlow::Continue(value)
+                        match finish_checked_value(self, execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, &check, value, span)? {
+                            CheckedValueOutcome::Value(value) => ControlFlow::Continue(value),
+                            CheckedValueOutcome::Propagate(value) => match self.indexed_question_value(value, span)? {
+                                Ok(value) => ControlFlow::Continue(value),
+                                Err(value) => return Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value))),
+                            },
+                        }
                     }
                     ControlFlow::Break(value) => ControlFlow::Break(value),
                 }

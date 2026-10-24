@@ -480,7 +480,7 @@ pub(super) enum FullWrapper {
     Fallback { source: SchemeTypeId, result: SchemeTypeId, backup: SchemeTypeId },
     Handler { source: SchemeTypeId, result: SchemeTypeId, detail: u32 },
     Capture { result: SchemeTypeId, detail: u32 },
-    IndexValidation { operation: u32, detail: u32 },
+    KeyValidation { operation: u32, detail: u32 },
     ProcCompletion { returned: SchemeTypeId, group: u32, detail: u32 },
 }
 
@@ -505,7 +505,7 @@ pub(super) struct FullWrapperField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
-pub(super) struct FullWrapperIndexValidation {
+pub(super) struct FullWrapperKeyValidation {
     pub(super) boundary: FullWrapperBoundary,
 }
 
@@ -535,8 +535,8 @@ pub(super) struct FullWrapperCompletion {
 pub(super) enum FullWrapperContribution {
     Explicit(SchemeTypeId),
     Source(SchemeTypeId),
-    IndexValidation(u32),
-    IndexValidationBoundary(u32),
+    KeyValidation(u32),
+    KeyValidationBoundary(u32),
     PropagatedError(SchemeTypeId),
     ReturnedResult(SchemeTypeId),
     FieldSource(SchemeTypeId),
@@ -553,6 +553,7 @@ pub(super) enum FullSealedOperation {
     Index { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId, syntax: crate::sema::sealed_operation::IndexSyntax, constant_key: u32 },
     Slice { receiver: SchemeTypeId, result: SchemeTypeId, bounds: crate::sema::sealed_operation::SliceBounds },
     RecordOverride { receiver: SchemeTypeId, result: SchemeTypeId, overrides: IrRange },
+    Membership { needle: SchemeTypeId, container: SchemeTypeId },
 }
 
 impl FullSealedOperation {
@@ -560,6 +561,7 @@ impl FullSealedOperation {
         let (fixed, overrides): (_, &[FullSchemeField]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary { left, right, .. } => ([Some(left), Some(right)], &[]),
+            Self::Membership { needle, container } => ([Some(needle), Some(container)], &[]),
             Self::Index { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
             Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
             Self::RecordOverride { receiver, overrides, .. } => {
@@ -570,7 +572,7 @@ impl FullSealedOperation {
         Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
     pub(super) fn result(self) -> Option<SchemeTypeId> {
-        match self { Self::TypePredicate { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Membership { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         Ok(self.inputs(store)?.chain(self.result()))
@@ -972,6 +974,7 @@ impl FullBuilder {
         for operation in &scheme.callable().requirements().operations {
             let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
             let encoded = match operation {
+                crate::sema::sealed_operation::SealedOperation::Membership { needle, container, .. } => FullSealedOperation::Membership { needle, container },
                 crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, subject: key, .. } => FullSealedOperation::TypePredicate { domain, subject: key },
                 crate::sema::sealed_operation::SealedOperation::Binary(operation) => FullSealedOperation::Binary { left: operation.left, right: operation.right, result: operation.result, operator: operation.operator },
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, result, syntax, constant_key, .. } => FullSealedOperation::Index { receiver, key, result, syntax, constant_key: constant_key.map(|name| self.intern_string(name.as_str().as_str()).map(|id| id.raw())).transpose()?.unwrap_or(super::IR_NONE) },
@@ -1308,10 +1311,10 @@ impl FullBuilder {
                     encoded.push(match term {
                         C::Explicit(ty) => FullWrapperContribution::Explicit(self.intern_scheme_type(ty, types, rows, effects)?),
                         C::Source(ty) => FullWrapperContribution::Source(self.intern_scheme_type(ty, types, rows, effects)?),
-                        C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => FullWrapperContribution::IndexValidation(*operation),
-                        C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
-                        C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(wrapper)) => FullWrapperContribution::IndexValidationBoundary(*wrapper),
-                        C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(_)) => return Err(IrBuildError::format("wrapper_requirement_scope", None, 0, ordinal as usize)),
+                        C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => FullWrapperContribution::KeyValidation(*operation),
+                        C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
+                        C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(wrapper)) => FullWrapperContribution::KeyValidationBoundary(*wrapper),
+                        C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(_)) => return Err(IrBuildError::format("wrapper_requirement_scope", None, 0, ordinal as usize)),
                     });
                 }
                 let start = self.store.wrapper_contributions.len();
@@ -1321,7 +1324,7 @@ impl FullBuilder {
                 self.store.wrapper_captures.push(FullWrapperCapture { contributions, expected: *expected, reserved: [0; 3] });
                 FullWrapper::Capture { result, detail }
             }
-            K::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } => {
+            K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } => {
                 let boundary = match boundary {
                     B::Captured => FullWrapperBoundary::Captured,
                     B::Return(ty) => FullWrapperBoundary::Return(self.intern_scheme_type(ty, types, rows, effects)?),
@@ -1331,11 +1334,11 @@ impl FullBuilder {
                     B::Producer => FullWrapperBoundary::Producer,
                     B::TopLevel => FullWrapperBoundary::TopLevel,
                 };
-                let detail = index(self.store.wrapper_index_validations.len())?;
-                self.store.wrapper_index_validations.push(FullWrapperIndexValidation { boundary });
-                FullWrapper::IndexValidation { operation: *operation, detail }
+                let detail = index(self.store.wrapper_key_validations.len())?;
+                self.store.wrapper_key_validations.push(FullWrapperKeyValidation { boundary });
+                FullWrapper::KeyValidation { operation: *operation, detail }
             }
-            K::IndexValidation { .. } => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
+            K::KeyValidation { .. } => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
             K::ProcCompletion { group: WrapperGroupRef::Ordinal(group), returned, contributions: CC::Ready(contributions) } => {
                 if *group != ordinal { return Err(IrBuildError::format("wrapper_group_scope", None, 0, ordinal as usize)); }
                 let returned = self.intern_scheme_type(returned, types, rows, effects)?;
@@ -1346,8 +1349,8 @@ impl FullBuilder {
                         PC::ReturnedResult(ty) => FullWrapperContribution::ReturnedResult(self.intern_scheme_type(ty, types, rows, effects)?),
                         PC::FieldSource(ty) => FullWrapperContribution::FieldSource(self.intern_scheme_type(ty, types, rows, effects)?),
                         PC::ApplicationSource(ty) => FullWrapperContribution::ApplicationSource(self.intern_scheme_type(ty, types, rows, effects)?),
-                        PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => FullWrapperContribution::IndexValidation(*operation),
-                        PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
+                        PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => FullWrapperContribution::KeyValidation(*operation),
+                        PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
                     });
                 }
                 let start = self.store.wrapper_contributions.len();

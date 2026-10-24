@@ -773,7 +773,7 @@ struct FullStore {
     wrapper_completions: Vec<schemes::FullWrapperCompletion>,
     wrapper_handlers: Vec<schemes::FullWrapperHandler>,
     wrapper_fields: Vec<schemes::FullWrapperField>,
-    wrapper_index_validations: Vec<schemes::FullWrapperIndexValidation>,
+    wrapper_key_validations: Vec<schemes::FullWrapperKeyValidation>,
     scheme_wrappers: Vec<schemes::FullWrapper>,
     scheme_application_arguments: Vec<schemes::FullApplicationArgument>,
     scheme_proc_returns: Vec<schemes::FullProcReturnEnvelope>,
@@ -889,7 +889,7 @@ impl Default for FullStore {
             wrapper_completions: Vec::new(),
             wrapper_handlers: Vec::new(),
             wrapper_fields: Vec::new(),
-            wrapper_index_validations: Vec::new(),
+            wrapper_key_validations: Vec::new(),
             scheme_wrappers: Vec::new(),
             scheme_application_arguments: Vec::new(),
             scheme_proc_returns: Vec::new(),
@@ -1148,7 +1148,7 @@ impl FullStore {
             + self.wrapper_completions.capacity() * size_of::<schemes::FullWrapperCompletion>()
             + self.wrapper_handlers.capacity() * size_of::<schemes::FullWrapperHandler>()
             + self.wrapper_fields.capacity() * size_of::<schemes::FullWrapperField>()
-            + self.wrapper_index_validations.capacity() * size_of::<schemes::FullWrapperIndexValidation>()
+            + self.wrapper_key_validations.capacity() * size_of::<schemes::FullWrapperKeyValidation>()
             + self.scheme_wrappers.capacity() * size_of::<schemes::FullWrapper>()
             + self.scheme_application_arguments.capacity() * size_of::<schemes::FullApplicationArgument>()
             + self.scheme_proc_returns.capacity() * size_of::<schemes::FullProcReturnEnvelope>()
@@ -1284,7 +1284,7 @@ impl FullStore {
         self.wrapper_completions.shrink_to_fit();
         self.wrapper_handlers.shrink_to_fit();
         self.wrapper_fields.shrink_to_fit();
-        self.wrapper_index_validations.shrink_to_fit();
+        self.wrapper_key_validations.shrink_to_fit();
         self.scheme_wrappers.shrink_to_fit();
         self.scheme_application_arguments.shrink_to_fit();
         self.scheme_proc_returns.shrink_to_fit();
@@ -1471,6 +1471,56 @@ impl FullProgram {
             });
         }
         Err(IrVerifyError::new("index receiver nesting is too deep"))
+    }
+
+    fn membership_key_check(&self, owner: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Err(IrVerifyError::new("membership check has no function owner")); };
+        let FullCallableContract::Scheme(id) = self.store.functions[function.index()].contract else { return Err(IrVerifyError::new("membership check has no scoped contract")); };
+        let scheme = self.store.scheme(id)?;
+        let operations = scheme.operations.bounds(self.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
+        let Some(schemes::FullSealedOperation::Membership { container, .. }) = self.store.scheme_operations[operations].get(ordinal as usize) else { return Err(IrVerifyError::new("membership check names another operation")); };
+        self.invocation_membership_key_check(*container, invocation)
+    }
+
+    fn invocation_membership_key_check(&self, mut container: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        use schema::FullSchemeTypeTag as S;
+        use super::semantic::TypeTag as T;
+        for _ in 0..=128 {
+            let node = self.store.scheme_type(container)?;
+            return Ok(match node.tag {
+                S::Parameter => {
+                    let actual = invocation.substitution.types.get(node.first as usize).ok_or_else(|| IrVerifyError::new("membership container has no actual binding"))?;
+                    match crate::sema::sealed_operation::membership_domain(actual) {
+                        Some(crate::sema::sealed_operation::MembershipDomain::UnsignedMap) => PreparedIndexKeyCheck::UInt,
+                        Some(_) => PreparedIndexKeyCheck::Ordinary,
+                        None => return Err(IrVerifyError::new("membership container has no prepared domain")),
+                    }
+                }
+                S::List | S::Set | S::Record => PreparedIndexKeyCheck::Ordinary,
+                S::Map => {
+                    let key = schemes::SchemeTypeId::from_raw(node.first)?;
+                    let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+                    let key = verify_schemes::instantiate_bound_type(&self.store, key, &invocation.substitution, &mut budget, 0)?;
+                    if !key.is_map_key() { return Err(IrVerifyError::new("membership map has no prepared key domain")); }
+                    if key == Type::UInt { PreparedIndexKeyCheck::UInt } else { PreparedIndexKeyCheck::Ordinary }
+                }
+                S::Validated => { container = schemes::SchemeTypeId::from_raw(node.first)?; continue; }
+                S::Ground => {
+                    let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("membership ground container is invalid"))?;
+                    let id = self.store.semantic.unvalidated_type_id(id)?;
+                    match self.store.semantic.type_tag(id)? {
+                        T::Map => {
+                            let key = self.store.semantic.map_key_type_id(id)?.ok_or_else(|| IrVerifyError::new("membership map has no key contract"))?;
+                            if self.store.semantic.type_tag(key)? == T::UInt { PreparedIndexKeyCheck::UInt } else { PreparedIndexKeyCheck::Ordinary }
+                        }
+                        T::List | T::Set | T::Record | T::ErasedRecord | T::Str | T::Bytes | T::Path | T::EnvPathList => PreparedIndexKeyCheck::Ordinary,
+                        _ => return Err(IrVerifyError::new("membership container has no prepared domain")),
+                    }
+                }
+                _ => return Err(IrVerifyError::new("membership container has no prepared domain")),
+            });
+        }
+        Err(IrVerifyError::new("membership container nesting is too deep"))
     }
 
     fn index_contract(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<(PreparedIndexReceiver, crate::sema::sealed_operation::IndexSyntax)>, IrVerifyError> {
@@ -1747,7 +1797,7 @@ impl FullProgram {
         let Some(wrapper) = self.store.wrapper_site(owner, instruction)? else { return Ok(None); };
         let source = match &wrapper {
             schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
-            schemes::FullWrapper::Capture { .. } | schemes::FullWrapper::IndexValidation { .. } => return Err(IrVerifyError::new("wrapper relationship has no source mode")),
+            schemes::FullWrapper::Capture { .. } | schemes::FullWrapper::KeyValidation { .. } => return Err(IrVerifyError::new("wrapper relationship has no source mode")),
             schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no source mode")),
         };
         Ok(Some(match self.invocation_type_constructor(source, invocation)? {
@@ -1927,7 +1977,7 @@ impl FullProgram {
                             let (source, destination) = verify_schemes::materialization_contract(&self.store, scopes, id, instruction, &mut budget)?;
                             Contract::Materialization { source, destination }
                         }
-                        ValueCheckView::RecordConstructor(_) => continue,
+                        ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_) => continue,
                     };
                     Some(Record { site: Site::ValueBoundary(span), contract })
                 }
@@ -3614,7 +3664,7 @@ struct FullCheckpoint {
     wrapper_completions: usize,
     wrapper_handlers: usize,
     wrapper_fields: usize,
-    wrapper_index_validations: usize,
+    wrapper_key_validations: usize,
     scheme_wrappers: usize,
     scheme_application_arguments: usize,
     scheme_proc_returns: usize,
@@ -5455,7 +5505,7 @@ impl FullBuilder {
             wrapper_completions: self.store.wrapper_completions.len(),
             wrapper_handlers: self.store.wrapper_handlers.len(),
             wrapper_fields: self.store.wrapper_fields.len(),
-            wrapper_index_validations: self.store.wrapper_index_validations.len(),
+            wrapper_key_validations: self.store.wrapper_key_validations.len(),
             scheme_wrappers: self.store.scheme_wrappers.len(),
             scheme_application_arguments: self.store.scheme_application_arguments.len(),
             scheme_proc_returns: self.store.scheme_proc_returns.len(),
@@ -5569,7 +5619,7 @@ impl FullBuilder {
         self.store.wrapper_completions.truncate(checkpoint.wrapper_completions);
         self.store.wrapper_handlers.truncate(checkpoint.wrapper_handlers);
         self.store.wrapper_fields.truncate(checkpoint.wrapper_fields);
-        self.store.wrapper_index_validations.truncate(checkpoint.wrapper_index_validations);
+        self.store.wrapper_key_validations.truncate(checkpoint.wrapper_key_validations);
         self.store.scheme_wrappers.truncate(checkpoint.scheme_wrappers);
         self.store.scheme_application_arguments.truncate(checkpoint.scheme_application_arguments);
         self.store.scheme_proc_returns.truncate(checkpoint.scheme_proc_returns);
@@ -6354,6 +6404,10 @@ impl<'p> FullExecution<'p> {
         self.program().index_literal_mode(self.owner, instruction, distance, invocation)
     }
 
+    pub(in crate::runtime::eval) fn membership_key_check(&self, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        self.program().membership_key_check(self.owner, ordinal, invocation)
+    }
+
     pub(in crate::runtime::eval) fn index_key_check(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         self.program().index_key_check(self.owner, instruction, invocation)
     }
@@ -7075,7 +7129,7 @@ impl<'a> FullDecoder<'a> {
             let binding_dependent_value = if tag == FullTag::ExprCheckedValue {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(index)? else { unreachable!() };
                 match check {
-                    ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => true,
+                    ValueCheckView::MembershipKey(_) | ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => true,
                     ValueCheckView::Ground(_) => self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok(),
                 }
             } else { false };
@@ -7332,7 +7386,7 @@ impl<'a> FullDecoder<'a> {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(current)? else { unreachable!() };
                 match check {
                     ValueCheckView::Ground(check) => check.ty.id,
-                    ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
+                    ValueCheckView::MembershipKey(_) | ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
                 }
             } else {
                 self.checked_expression_type_id(current)?
@@ -10078,7 +10132,7 @@ impl<'a> FullDecoder<'a> {
                 if destination != *expected { return Err(IrVerifyError::new("materialized value disagrees with its checked result")); }
                 self.checked_expression_matches_type(value.raw() as usize, &source)
             }
-            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. } => self.checked_expression_matches_type(value.raw() as usize, expected),
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_), .. } => self.checked_expression_matches_type(value.raw() as usize, expected),
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
                 if checked != *expected {
@@ -11360,7 +11414,7 @@ impl<'a> FullDecoder<'a> {
                 verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget).map(|(_, destination)| Some(destination))
             }
             schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } => Ok(Some(check.ty.materialize()?)),
-            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. } => self.derive_checked_expression_type(value.raw() as usize),
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_), .. } => self.derive_checked_expression_type(value.raw() as usize),
             schema::ExprView::ValueBlock { mut body, .. } => {
                 match self.checked_value_block_result(&mut body)? {
                     CheckedValueBlockResult::Tail(value) => {
@@ -11889,6 +11943,10 @@ impl<'a> FullDecoder<'a> {
             }
         };
         match view {
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::MembershipKey(_), .. } => {
+                if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("membership key carries unrelated contract evidence")); }
+                require_child(value.raw() as usize, &ty)?;
+            }
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
                 if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("materialization fact carries unrelated authority")); }
                 let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
@@ -45393,7 +45451,7 @@ assert last_alias(keyed) == "negative"
     }
 
     #[test]
-    fn generic_scheme_value_calls_preserve_captured_index_validation() {
+    fn generic_scheme_value_calls_preserve_captured_key_validation() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-index-value-call-capture.xsh", r#"
 type TextRow = {name: Str}
@@ -45475,10 +45533,10 @@ assert unsigned_value == Ok(7)
             let contribution_range = program.store.wrapper_completions[completion as usize].contributions
                 .bounds(program.store.wrapper_contributions.len()).unwrap();
             let contributions = &program.store.wrapper_contributions[contribution_range.clone()];
-            let validation = contributions.iter().position(|contribution| matches!(contribution, schemes::FullWrapperContribution::IndexValidation(_)))
+            let validation = contributions.iter().position(|contribution| matches!(contribution, schemes::FullWrapperContribution::KeyValidation(_)))
                 .expect("the index operation remains a conditional proc-completion contribution");
             let mut foreign_validation = (*program).clone();
-            foreign_validation.store.wrapper_contributions[contribution_range.start + validation] = schemes::FullWrapperContribution::IndexValidation(u32::MAX);
+            foreign_validation.store.wrapper_contributions[contribution_range.start + validation] = schemes::FullWrapperContribution::KeyValidation(u32::MAX);
             assert!(FullVerifier::verify(&foreign_validation).is_err());
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
@@ -45672,7 +45730,7 @@ match read(values, -1) {{
     }
 
     #[test]
-    fn generic_index_validation_cannot_publish_schema_errors_as_strings() {
+    fn generic_key_validation_cannot_publish_schema_errors_as_strings() {
         run_with_large_stack(|| {
             for annotation in [": Map[UInt, Str]", ""] {
                 let source = format!(r#"

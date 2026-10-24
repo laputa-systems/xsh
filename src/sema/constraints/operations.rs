@@ -19,6 +19,7 @@ pub(crate) enum SealedOperationError {
     MapKey(super::MapKeyConstraintError),
     UnsupportedTypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: Type },
     UnsupportedIndex { receiver: Type, key: Type },
+    UnsupportedMembership { container: Type, needle: Type },
     UnsupportedSlice { receiver: Type },
     UnsupportedRecordSpread { receiver: Type },
     Unsupported { operator: crate::sema::sealed_operation::ArithmeticOperator, left: Type, right: Type },
@@ -217,6 +218,7 @@ impl std::fmt::Display for SealedOperationError {
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
             Self::UnsupportedTypePredicate { domain, subject } => write!(formatter, "{domain:?} does not support {subject}"),
+            Self::UnsupportedMembership { container, needle } => write!(formatter, "membership is not defined for {needle} in {container}"),
             Self::UnsupportedIndex { receiver, key } => write!(formatter, "indexing is not defined for {receiver} with key {:?}", Some(key)),
             Self::UnsupportedSlice { receiver } => write!(formatter, "slicing is not defined for {receiver} with key None"),
             Self::UnsupportedRecordSpread { receiver } => write!(formatter, "record spread is not defined for {receiver} with key None"),
@@ -420,6 +422,24 @@ impl TypeConstraints {
                         if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
                         continue;
                     }
+                    SealedOperation::Membership { needle, container, span } => {
+                        let container = this.resolve_with_changes(&container, 0, changes)?;
+                        if matches!(container.unvalidated(), Type::Inference(_)) { continue; }
+                        let needle = this.resolve_with_changes(&needle, 0, changes)?;
+                        use crate::sema::types::MembershipCheck;
+                        match container.membership_needle_type(&needle) {
+                            MembershipCheck::Expected(required) | MembershipCheck::Compared(required) => this.constrain_operation_type(required, &needle, span, changes)?,
+                            _ => return Err(SealedOperationError::UnsupportedMembership { container, needle }),
+                        }
+                        let needle = this.resolve_with_changes(&needle, 0, changes)?;
+                        if needle.contains_inference() || container.contains_inference() { continue; }
+                        let selected = crate::sema::sealed_operation::membership_selection(&container, &needle)
+                            .ok_or_else(|| SealedOperationError::UnsupportedMembership { container, needle })?;
+                        let selected = SealedOperationSignature::Membership(selected);
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
+                        if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
                     SealedOperation::Binary(operation) => operation,
                     SealedOperation::Index { receiver, key, result, constant_key, span, .. } => {
                         let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
@@ -442,7 +462,7 @@ impl TypeConstraints {
                             Type::Record(_) | Type::Module(_) if constant_key.is_some() => Type::Str,
                             _ => return Err(SealedOperationError::UnsupportedIndex { receiver, key }),
                         };
-                        if !crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
+                        if !crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
                             this.constrain_operation_type(&required, &key, span, changes)?;
                         }
                         let key = this.resolve_with_changes(&key, 0, changes)?;
@@ -579,7 +599,7 @@ impl TypeConstraints {
         self.sealed_operation_at(owner, span).and_then(|id| self.operations.entries.get(&id)).map(|entry| &entry.operation)
     }
 
-    pub(crate) fn index_validation_wrapper_requirements_for_instantiation(
+    pub(crate) fn key_validation_wrapper_requirements_for_instantiation(
         &self,
         callable: &crate::sema::schemes::CallableScheme,
         instance: &super::InstantiatedScheme,
@@ -592,7 +612,7 @@ impl TypeConstraints {
         }
         let mut requirements = Vec::new();
         for (ordinal, requirement) in callable.requirements().wrappers.iter().enumerate() {
-            let crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation {
+            let crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation {
                 operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation_ordinal), boundary,
             } = &requirement.kind else { continue; };
             let operation = *instance.operations.get(*operation_ordinal as usize).ok_or(ConstraintResolutionError::ForeignVariable)?;
@@ -600,7 +620,7 @@ impl TypeConstraints {
             let wrapper_entry = self.wrappers.entries.get(&wrapper).ok_or(ConstraintResolutionError::ForeignVariable)?;
             let operation_entry = self.operations.entries.get(&operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if wrapper_entry.owner != operation_entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
-            let crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation {
+            let crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation {
                 operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(actual_operation), boundary: actual_boundary,
             } = &wrapper_entry.requirement.kind else { return Err(ConstraintResolutionError::ForeignVariable); };
             if actual_operation != &operation { return Err(ConstraintResolutionError::ForeignVariable); }
@@ -610,8 +630,8 @@ impl TypeConstraints {
                 continue;
             }
             let operation = operation_entry.operation.try_map(|ty| self.resolve(ty))?;
-            let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable); };
-            if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+            let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable); };
+            if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
                 requirements.push(wrapper);
             }
         }
@@ -652,9 +672,9 @@ impl TypeConstraints {
         let mut wrapper_operations = BTreeSet::new();
         for entry in self.wrappers.entries.values().filter(|entry| matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner))) {
             let operations = match &entry.requirement.kind {
-                crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(id), .. } => vec![*id],
+                crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(id), .. } => vec![*id],
                 crate::sema::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } => contributions.iter().filter_map(|contribution| match contribution {
-                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(id)) => Some(*id),
+                    crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(id)) => Some(*id),
                     _ => None,
                 }).collect(),
                 _ => continue,
@@ -662,8 +682,8 @@ impl TypeConstraints {
             for id in operations {
                 let indexed = self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
                 let operation = indexed.operation.try_map(|ty| self.resolve(ty))?;
-                let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
-                if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
                     wrapper_operations.insert(id);
                 }
             }

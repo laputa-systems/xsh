@@ -1607,6 +1607,42 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn membership_container_typed_declaration_keeps_its_ordinary_domain() {
+        accepts("pure has(item: Int, container: List[Int]) -> Bool { item in container }", "assert has(7, [7])\nassert !has(8, [7])");
+    }
+
+    #[test]
+    fn membership_container_generic_declaration_retains_independent_call_domains() {
+        for calls in [
+            "",
+            "assert has(7, [7])\nassert has(\"key\", \"a key\")",
+            "assert has(\"key\", \"a key\")\nassert has(7, [7])",
+        ] {
+            accepts("pure has(item, container) { item in container }", calls);
+        }
+    }
+
+    #[test]
+    fn generic_membership_rejects_wrong_domains_and_dynamic_containers() {
+        for source in [
+            "pure has(item, container) { item in container }\nlet _ = has(true, [1])",
+            "pure has(item, container) { item in container }\nlet _ = has(1, true)",
+            "pure has(item, container) { item in container }\nlet _ = has(1, \"word\")",
+            "pure has(item, container) { item in container }\nlet _ = has(\"key\", b\"bytes\")",
+            "pure has(item, container) { item in container }\nlet _ = has(1, {key: 7})",
+            "pure has(item, container) { item in container }\nlet _ = has(\"key\", {[1]: 7})",
+            "pure has(item, container) { item in container }\nproc unknown(container: Any) [] { has(1, container) }",
+            "pure forbidden(item: Any, container: Any) { item in container }",
+            "enum MembershipFirst: Str { MembershipBuild = \"build\" }\nenum MembershipSecond: Str { MembershipTask = \"task\" }\npure has(item, container) { item in container }\nlet _ = has(MembershipBuild, [MembershipTask])",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
     fn generic_operators_list_membership_keeps_the_symbolic_item() {
         accepts("pure keep(value) { let _ = value in [value]; let _ = value not in [value]; value }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
     }

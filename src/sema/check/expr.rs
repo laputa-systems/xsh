@@ -3514,6 +3514,32 @@ impl Checker {
                         (left_ty, right_ty.into_unvalidated())
                     };
                 let Ok(left_ty) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
+                if matches!(right_ty.unvalidated(), Type::Inference(_)) {
+                    let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
+                    let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+                    let operation = crate::sema::sealed_operation::SealedOperation::Membership { needle: left_ty, container: right_ty, span };
+                    let operation = match self.type_constraints.register_source_sealed_operation(owner, operation).and_then(|id| {
+                        self.type_constraints.solve_sealed_operations()?;
+                        Ok(id)
+                    }) {
+                        Ok(operation) => operation,
+                        Err(error) => {
+                            self.error(span, &error.to_string(), DiagnosticCode::CheckMembershipType);
+                            return Type::Invalid;
+                        }
+                    };
+                    if self.type_constraints.source_sealed_operation(owner, span).and_then(|operation| operation.key_operands())
+                        .is_some_and(|(container, needle)| crate::sema::sealed_operation::may_require_uint_key_validation(container, needle))
+                    {
+                        self.register_key_validation(owner, operation, span);
+                        if self.boundary.retry_attempt_depth > 0
+                            && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
+                        {
+                            errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)), span));
+                        }
+                    }
+                    return Type::Bool;
+                }
                 use crate::sema::types::MembershipCheck as M;
                 match right_ty.membership_needle_type(&left_ty) {
                     M::Expected(expected) | M::Compared(expected) => self.expect_type(expected, &left_ty, left_span),
@@ -4257,7 +4283,7 @@ impl Checker {
         }
     }
 
-    fn index_validation_boundary(&mut self, span: Span) -> crate::sema::wrapper_operation::WrapperBoundary<Type> {
+    fn key_validation_boundary(&mut self, span: Span) -> crate::sema::wrapper_operation::WrapperBoundary<Type> {
         use crate::sema::wrapper_operation::{WrapperBoundary, WrapperGroupRef};
         if self.boundary.retry_attempt_depth > 0 { return WrapperBoundary::Captured; }
         match self.boundary.current_return.clone() {
@@ -4284,7 +4310,7 @@ impl Checker {
         }
     }
 
-    fn register_index_validation(
+    fn register_key_validation(
         &mut self,
         owner: crate::sema::constraints::CallableApplicationScope,
         operation: crate::sema::constraints::SealedOperationId,
@@ -4292,9 +4318,9 @@ impl Checker {
     ) {
         use crate::sema::wrapper_operation::{WrapperOperationRef, WrapperRequirement, WrapperRequirementKind};
         let requirement = WrapperRequirement {
-            kind: WrapperRequirementKind::IndexValidation {
+            kind: WrapperRequirementKind::KeyValidation {
                 operation: WrapperOperationRef::Source(operation),
-                boundary: self.index_validation_boundary(span),
+                boundary: self.key_validation_boundary(span),
             },
             span,
         };
@@ -4352,15 +4378,15 @@ impl Checker {
             let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
             let validation = self.type_constraints.source_sealed_operation(owner, span).and_then(|operation| match operation {
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. }
-                    if crate::sema::sealed_operation::index_may_require_uint_key_validation(receiver, key) => self.type_constraints.source_sealed_operation_id(owner, span),
+                    if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) => self.type_constraints.source_sealed_operation_id(owner, span),
                 _ => None,
             });
             if let Some(operation) = validation {
-                self.register_index_validation(owner, operation, span);
+                self.register_key_validation(owner, operation, span);
                 if self.boundary.retry_attempt_depth > 0
                     && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
                 {
-                    errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)), span));
+                    errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)), span));
                 }
             }
             return Self::lift_postfix_type(result, lift);
@@ -4375,7 +4401,7 @@ impl Checker {
                     None,
                 );
                 self.expect_type(&key, &index_ty, index_span);
-                if crate::sema::sealed_operation::index_requires_uint_key_validation(&Type::Map(key.clone(), item.clone()), &index_ty) {
+                if crate::sema::sealed_operation::requires_uint_key_validation(&Type::Map(key.clone(), item.clone()), &index_ty) {
                     let operation_owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
                     let operation = crate::sema::sealed_operation::SealedOperation::Index {
                         receiver: Type::Map(key.clone(), item.clone()),
@@ -4390,11 +4416,11 @@ impl Checker {
                         .and_then(|operation| self.type_constraints.solve_sealed_operations().map(|()| operation));
                     match operation {
                         Ok(operation) => {
-                            self.register_index_validation(operation_owner, operation, span);
+                            self.register_key_validation(operation_owner, operation, span);
                             if self.boundary.retry_attempt_depth > 0
                                 && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
                             {
-                                errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)), span));
+                                errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)), span));
                             }
                         }
                         Err(error) => self.error(span, &error.to_string(), DiagnosticCode::CheckIndexType),

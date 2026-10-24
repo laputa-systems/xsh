@@ -1636,6 +1636,7 @@ struct LoweredRecordConstructor {
 
 #[derive(Clone, Debug, PartialEq)]
 enum LoweredValueCheck {
+    MembershipKey(u32),
     Ground(LoweredTypeCheck),
     RecordConstructor(Arc<LoweredRecordConstructor>),
     Materialization(Arc<crate::sema::value_materialization::ValueMaterialization<

@@ -305,7 +305,7 @@ fn verify_uint_index_return_contract(decoder: &FullDecoder<'_>, index: usize) ->
             }
             crate::runtime::eval::IndexOperand::NegativeLiteral(_) => Type::Int,
         };
-        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
+        if crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
             return Err(IrVerifyError::new("ground UInt map index can produce Error outside its Result return contract"));
         }
     }

@@ -1582,7 +1582,14 @@ fn verify_scheme_body_facts(
                     super::schemes::FullWrapper::Field { .. } => FullTag::ExprField,
                     super::schemes::FullWrapper::Fallback { .. } => FullTag::ExprResultFallback,
                     super::schemes::FullWrapper::Handler { .. } => FullTag::ExprMatch,
-                    super::schemes::FullWrapper::IndexValidation { .. } => FullTag::ExprIndex,
+                    super::schemes::FullWrapper::KeyValidation { operation, .. } => {
+                        let operations = bounded(scheme.operations, &store.scheme_operations, "key validation operation range is invalid")?;
+                        match operations.get(operation as usize) {
+                            Some(super::schemes::FullSealedOperation::Index { .. }) => FullTag::ExprIndex,
+                            Some(super::schemes::FullSealedOperation::Membership { .. }) => FullTag::ExprBinary,
+                            _ => return Err(IrVerifyError::new("key validation names another operation")),
+                        }
+                    },
                     super::schemes::FullWrapper::Capture { .. } if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) => store.tags[instruction],
                     super::schemes::FullWrapper::Capture { .. } => return Err(IrVerifyError::new("capture wrapper has no capture instruction")),
                     super::schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no executable instruction")),
@@ -1626,6 +1633,31 @@ fn verify_scheme_body_facts(
         if completion_sources.values().any(|source| !types.contains_key(&(source.producer as usize))) {
             return Err(IrVerifyError::new("generic completion source has no authenticated producer type"));
         }
+        let operations = bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")?;
+        let mut membership_checks = BTreeMap::new();
+        for (&instruction, &ordinal) in &operation_sites {
+            budget.charge(1)?;
+            if !matches!(operations[ordinal as usize], super::schemes::FullSealedOperation::Membership { .. }) { continue; }
+            let schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, left, .. } = decoder.expression_view(instruction)? else {
+                return Err(IrVerifyError::new("membership requirement has no physical membership operation"));
+            };
+            let schema::ExprView::CheckedValue { check: ValueCheckView::MembershipKey(actual), .. } = decoder.expression_view(left.raw() as usize)? else {
+                return Err(IrVerifyError::new("membership operation has no selected key check"));
+            };
+            if actual != ordinal || membership_checks.insert(left.raw() as usize, ordinal).is_some() {
+                return Err(IrVerifyError::new("membership key check differs from its operation"));
+            }
+        }
+        budget.charge(operations.len())?;
+        if operations.iter().any(|operation| matches!(operation, super::schemes::FullSealedOperation::Membership { .. })) {
+            for &instruction in types.keys() {
+                budget.charge(1)?;
+                if let schema::ExprView::CheckedValue { check: ValueCheckView::MembershipKey(ordinal), .. } = decoder.expression_view(instruction)?
+                    && membership_checks.remove(&instruction) != Some(ordinal)
+                { return Err(IrVerifyError::new("membership key check has no unique physical operation")); }
+            }
+        }
+        if !membership_checks.is_empty() { return Err(IrVerifyError::new("membership key check has no body type")); }
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
             slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false, access: body::BindingAccess::Value });
@@ -2068,6 +2100,12 @@ fn verify_body_expression(
             let left = child(left, budget)?;
             let right = child(right, budget)?;
             operations::verify_body_site(store, scheme_scope, operation_sites[&instruction], op, &left, &right, ty, budget)?;
+            if matches!(op, crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn)
+                && let Some(contribution) = wrappers::verify_key_validation_site(
+                    store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites.get(&instruction).copied(), operation_sites[&instruction],
+                    &right, &left, expected_return, boundary, completion_group, budget,
+                )?
+            { completion_contributions.push(contribution); }
             budget.charge_scheme_clone(ty)?;
             ty.clone()
         }
@@ -2297,7 +2335,7 @@ fn verify_body_expression(
             };
             operations::verify_index_site(store, scheme_scope, operation_sites[&instruction], &receiver, &key, ty, syntax, constant_key, budget)?;
             let wrapper = wrapper_sites.get(&instruction).copied();
-            if let Some(contribution) = wrappers::verify_index_validation_site(
+            if let Some(contribution) = wrappers::verify_key_validation_site(
                 store, decoder.owner, scheme_scope, effect_scopes, wrapper, operation_sites[&instruction],
                 &receiver, &key, expected_return, boundary, completion_group, budget,
             )? {
@@ -2605,6 +2643,7 @@ fn verify_body_expression(
             verify_constructor_defaults(store, decoder, record.raw() as usize, root, template, budget)?;
             ty.clone()
         }
+        schema::ExprView::CheckedValue { value, check: ValueCheckView::MembershipKey(_), .. } => child(value, budget)?,
         schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
             let actual = child(value, budget)?;
             let (source, destination) = materializations::endpoints(store, id, instruction, Some(scheme_scope), budget)?;

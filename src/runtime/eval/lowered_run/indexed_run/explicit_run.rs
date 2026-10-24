@@ -9725,9 +9725,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
             FrameContinuation::CheckedValue { instruction, check, span, next } => match value {
-                FrameValue::Value(mut value) => {
-                    value = super::finish_checked_value(self.evaluator, &self.calls[index].execution, &self.calls[index].applications, instruction, &check, value, span)?;
-                    self.push_value(index, FrameValue::Value(value), *next);
+                FrameValue::Value(value) => {
+                    match super::finish_checked_value(self.evaluator, &self.calls[index].execution, &self.calls[index].applications, instruction, &check, value, span)? {
+                        super::CheckedValueOutcome::Value(value) => self.push_value(index, FrameValue::Value(value), *next),
+                        super::CheckedValueOutcome::Propagate(value) => self.push_value(index, FrameValue::Value(value), FrameContinuation::Try { span, next }),
+                    }
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },

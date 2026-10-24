@@ -1206,7 +1206,7 @@ impl SchemeBodyFacts {
                         returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
                     }, ..
                 }
-                | super::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                | super::wrapper_operation::WrapperRequirementKind::KeyValidation {
                     boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
                         returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
                     }, ..
@@ -1236,7 +1236,7 @@ impl SchemeBodyFacts {
                         returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
                     }, ..
                 }
-                | super::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                | super::wrapper_operation::WrapperRequirementKind::KeyValidation {
                     boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
                         returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
                     }, ..

@@ -270,7 +270,7 @@ impl Checker {
                 }
                 if let Some(instantiation) = &contract.instantiation {
                     let (callable, authority) = instantiation;
-                    let validations = match self.type_constraints.index_validation_wrapper_requirements_for_instantiation(callable, authority) {
+                    let validations = match self.type_constraints.key_validation_wrapper_requirements_for_instantiation(callable, authority) {
                         Ok(validations) => validations,
                         Err(error) => {
                             self.error(span, &format!("index validation escaped its callable authority: {error:?}"), DiagnosticCode::CheckLocalInference);
@@ -281,7 +281,7 @@ impl Checker {
                         if self.boundary.retry_attempt_depth > 0
                             && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
                         {
-                            errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)), span));
+                            errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)), span));
                         }
                     }
                     self.record_pending_call_instantiation(span, instantiation.clone());
@@ -302,6 +302,7 @@ impl Checker {
                             crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream,
                             crate::sema::sealed_operation::TypeDomain::MinMaxItem => DiagnosticCode::CheckDynamicBoundary,
                         },
+                        crate::sema::constraints::SealedOperationError::UnsupportedMembership { .. } => DiagnosticCode::CheckMembershipType,
                         crate::sema::constraints::SealedOperationError::UnsupportedIndex { .. } => DiagnosticCode::CheckIndexType,
                         crate::sema::constraints::SealedOperationError::UnsupportedSlice { .. } => DiagnosticCode::CheckSliceType,
                         crate::sema::constraints::SealedOperationError::UnsupportedRecordSpread { .. } => DiagnosticCode::CheckSpreadNotRecord,
@@ -316,7 +317,7 @@ impl Checker {
                         crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
                         crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
                         crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
-                        crate::sema::wrapper_operation::WrapperOperationKind::IndexValidation => DiagnosticCode::CheckTryError,
+                        crate::sema::wrapper_operation::WrapperOperationKind::KeyValidation => DiagnosticCode::CheckTryError,
                         crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion => DiagnosticCode::CheckTryError,
                     }
                 } else { DiagnosticCode::CheckCallableMismatch };
@@ -432,7 +433,7 @@ impl Checker {
                     crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
                     crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
                     crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
-                    crate::sema::wrapper_operation::WrapperOperationKind::IndexValidation => DiagnosticCode::CheckTryError,
+                    crate::sema::wrapper_operation::WrapperOperationKind::KeyValidation => DiagnosticCode::CheckTryError,
                     crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion => DiagnosticCode::CheckTryError,
                 },
                 crate::sema::constraints::WrapperConstraintError::Effects(_) => DiagnosticCode::CheckEffectViolation,

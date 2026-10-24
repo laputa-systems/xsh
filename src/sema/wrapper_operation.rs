@@ -29,7 +29,7 @@ pub(crate) fn map_wrapper_groups<T, V, E>(
 ) -> Result<(), E> {
     match &mut requirement.kind {
         WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group, .. }, .. } => *group = map(*group)?,
-        WrapperRequirementKind::IndexValidation { boundary: WrapperBoundary::ProcCompletion { group, .. }, .. } => *group = map(*group)?,
+        WrapperRequirementKind::KeyValidation { boundary: WrapperBoundary::ProcCompletion { group, .. }, .. } => *group = map(*group)?,
         WrapperRequirementKind::ProcCompletion { group, .. } => *group = map(*group)?,
         _ => {}
     }
@@ -56,8 +56,8 @@ pub(crate) enum WrapperRequirementRef { Source(WrapperOperationId), Ordinal(u32)
 pub(crate) enum WrapperErrorContribution<T> {
     Explicit(T),
     Source(T),
-    IndexValidation(WrapperOperationRef),
-    IndexValidationBoundary(WrapperRequirementRef),
+    KeyValidation(WrapperOperationRef),
+    KeyValidationBoundary(WrapperRequirementRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,7 +66,7 @@ pub(crate) enum WrapperCompletionContribution<T> {
     ReturnedResult(T),
     FieldSource(T),
     ApplicationSource(T),
-    IndexValidation(WrapperOperationRef),
+    KeyValidation(WrapperOperationRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,7 +75,7 @@ pub(crate) enum WrapperRequirementKind<T, V> {
     Fallback { source: T, fallback: T, result: T },
     Handler { source: T, error: T, handler: T, result: T },
     Capture { contributions: Arc<[WrapperErrorContribution<T>]>, result: T, expected: bool },
-    IndexValidation { operation: WrapperOperationRef, boundary: WrapperBoundary<T> },
+    KeyValidation { operation: WrapperOperationRef, boundary: WrapperBoundary<T> },
     ProcCompletion { group: WrapperGroupRef, returned: T, contributions: WrapperCompletionContributions<T> },
 }
 
@@ -84,7 +84,7 @@ pub(crate) enum WrapperCompletionContributions<T> { Pending, Ready(Arc<[WrapperC
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(crate) enum WrapperOperationKind { Field, Fallback, Handler, Capture, IndexValidation, ProcCompletion }
+pub(crate) enum WrapperOperationKind { Field, Fallback, Handler, Capture, KeyValidation, ProcCompletion }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WrapperRequirement<T, V> {
@@ -99,7 +99,7 @@ impl<T, V> WrapperRequirement<T, V> {
             WrapperRequirementKind::Fallback { .. } => WrapperOperationKind::Fallback,
             WrapperRequirementKind::Handler { .. } => WrapperOperationKind::Handler,
             WrapperRequirementKind::Capture { .. } => WrapperOperationKind::Capture,
-            WrapperRequirementKind::IndexValidation { .. } => WrapperOperationKind::IndexValidation,
+            WrapperRequirementKind::KeyValidation { .. } => WrapperOperationKind::KeyValidation,
             WrapperRequirementKind::ProcCompletion { .. } => WrapperOperationKind::ProcCompletion,
         }
     }
@@ -118,8 +118,8 @@ impl<T, V> WrapperRequirement<T, V> {
             }
             WrapperRequirementKind::Fallback { source, fallback, result } => vec![source, fallback, result],
             WrapperRequirementKind::Handler { source, error, handler, result } => vec![source, error, handler, result],
-            WrapperRequirementKind::Capture { contributions, result, .. } => contributions.iter().filter_map(|term| match term { WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => Some(ty), WrapperErrorContribution::IndexValidation(_) | WrapperErrorContribution::IndexValidationBoundary(_) => None }).chain(std::iter::once(result)).collect(),
-            WrapperRequirementKind::IndexValidation { boundary, .. } => match boundary {
+            WrapperRequirementKind::Capture { contributions, result, .. } => contributions.iter().filter_map(|term| match term { WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => Some(ty), WrapperErrorContribution::KeyValidation(_) | WrapperErrorContribution::KeyValidationBoundary(_) => None }).chain(std::iter::once(result)).collect(),
+            WrapperRequirementKind::KeyValidation { boundary, .. } => match boundary {
                 WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty) => vec![ty],
                 WrapperBoundary::ProcCompletion { returned, .. } => vec![returned],
                 WrapperBoundary::Captured | WrapperBoundary::Producer | WrapperBoundary::TopLevel => Vec::new(),
@@ -132,7 +132,7 @@ impl<T, V> WrapperRequirement<T, V> {
                         | WrapperCompletionContribution::ReturnedResult(ty)
                         | WrapperCompletionContribution::FieldSource(ty)
                         | WrapperCompletionContribution::ApplicationSource(ty) => Some(ty),
-                        WrapperCompletionContribution::IndexValidation(_) => None,
+                        WrapperCompletionContribution::KeyValidation(_) => None,
                     }));
                 }
                 types
@@ -162,12 +162,12 @@ impl<T, V> WrapperRequirement<T, V> {
                 let contributions = contributions.iter().map(|term| Ok(match term {
                     WrapperErrorContribution::Explicit(value) => WrapperErrorContribution::Explicit(ty(context, value)?),
                     WrapperErrorContribution::Source(value) => WrapperErrorContribution::Source(ty(context, value)?),
-                    WrapperErrorContribution::IndexValidation(operation) => WrapperErrorContribution::IndexValidation(*operation),
-                    WrapperErrorContribution::IndexValidationBoundary(requirement) => WrapperErrorContribution::IndexValidationBoundary(*requirement),
+                    WrapperErrorContribution::KeyValidation(operation) => WrapperErrorContribution::KeyValidation(*operation),
+                    WrapperErrorContribution::KeyValidationBoundary(requirement) => WrapperErrorContribution::KeyValidationBoundary(*requirement),
                 })).collect::<Result<Vec<_>, E>>()?;
                 WrapperRequirementKind::Capture { contributions: contributions.into(), result: ty(context, result)?, expected: *expected }
             }
-            WrapperRequirementKind::IndexValidation { operation, boundary } => {
+            WrapperRequirementKind::KeyValidation { operation, boundary } => {
                 let boundary = match boundary {
                     WrapperBoundary::Captured => WrapperBoundary::Captured,
                     WrapperBoundary::Return(value) => WrapperBoundary::Return(ty(context, value)?),
@@ -176,7 +176,7 @@ impl<T, V> WrapperRequirement<T, V> {
                     WrapperBoundary::Producer => WrapperBoundary::Producer,
                     WrapperBoundary::TopLevel => WrapperBoundary::TopLevel,
                 };
-                WrapperRequirementKind::IndexValidation { operation: *operation, boundary }
+                WrapperRequirementKind::KeyValidation { operation: *operation, boundary }
             }
             WrapperRequirementKind::ProcCompletion { group, returned, contributions } => {
                 let contributions = match contributions {
@@ -187,7 +187,7 @@ impl<T, V> WrapperRequirement<T, V> {
                             WrapperCompletionContribution::ReturnedResult(value) => WrapperCompletionContribution::ReturnedResult(ty(context, value)?),
                             WrapperCompletionContribution::FieldSource(value) => WrapperCompletionContribution::FieldSource(ty(context, value)?),
                             WrapperCompletionContribution::ApplicationSource(value) => WrapperCompletionContribution::ApplicationSource(ty(context, value)?),
-                            WrapperCompletionContribution::IndexValidation(operation) => WrapperCompletionContribution::IndexValidation(*operation),
+                            WrapperCompletionContribution::KeyValidation(operation) => WrapperCompletionContribution::KeyValidation(*operation),
                         })).collect::<Result<Vec<_>, E>>()?;
                         WrapperCompletionContributions::Ready(contributions.into())
                     }
@@ -201,7 +201,7 @@ impl<T, V> WrapperRequirement<T, V> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(crate) enum WrapperSelection { Optional, Result, Capture, IndexValidation, ProcCompletion }
+pub(crate) enum WrapperSelection { Optional, Result, Capture, KeyValidation, ProcCompletion }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
@@ -340,7 +340,7 @@ pub(crate) fn closed_wrapper_selection<V: Ord>(requirement: &WrapperRequirement<
             }
             return Ok(Some(WrapperSelection::Capture));
         }
-        WrapperRequirementKind::IndexValidation { .. } => return Ok(Some(WrapperSelection::IndexValidation)),
+        WrapperRequirementKind::KeyValidation { .. } => return Ok(Some(WrapperSelection::KeyValidation)),
         WrapperRequirementKind::ProcCompletion { returned, contributions, .. } => {
             let WrapperCompletionContributions::Ready(contributions) = contributions else { return Ok(None) };
             let Some(errors) = completion_error_contributions(contributions)? else { return Ok(None); };
@@ -368,7 +368,7 @@ pub(crate) fn capture_error_contributions(contributions: &[WrapperErrorContribut
                     errors.push(error.clone());
                 }
             }
-            WrapperErrorContribution::IndexValidation(_) | WrapperErrorContribution::IndexValidationBoundary(_) => return Ok(None),
+            WrapperErrorContribution::KeyValidation(_) | WrapperErrorContribution::KeyValidationBoundary(_) => return Ok(None),
         }
     }
     Ok(Some(errors))
@@ -405,7 +405,7 @@ pub(crate) fn completion_error_contributions(contributions: &[WrapperCompletionC
                     errors.push((**error).clone());
                 }
             }
-            WrapperCompletionContribution::IndexValidation(_) => return Ok(None),
+            WrapperCompletionContribution::KeyValidation(_) => return Ok(None),
         }
     }
     Ok(Some(errors))

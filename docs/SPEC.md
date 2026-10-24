@@ -3910,7 +3910,11 @@ Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
 Equality can retain a shared type parameter, including list membership with
-the same item parameter. Ordering uses concrete checked operand domains.
+the same item parameter. Membership can retain independent value and container
+parameters, selecting the ordinary domain at each call. Unsigned map membership
+validates the computed needle before evaluating the container; validation errors
+follow the enclosing capture or Proc error boundary. Ordering uses concrete
+checked operand domains.
 Boolean `and` and `or` evaluate the left operand first and evaluate the right
 operand only when needed. Ordering chains evaluate each reached operand once
 and stop at the first false pair. Map membership preserves its declared key

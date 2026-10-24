@@ -4706,3 +4706,145 @@ fn typed_line_loop_arguments_preserve_source_items_after_frontend_disposal() {
 fn inferred_line_loop_arguments_preserve_source_items_after_frontend_disposal() {
     verify_line_loop_argument_program(false);
 }
+
+#[test]
+fn generic_membership_container_domains_execute_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure has(item, container) { item in container }
+pure lacks(item, container) { item not in container }
+pure forward(item, container) { has(item, container) }
+enum MembershipFirst: Str { MembershipBuild = "build", MembershipRun = "run" }
+enum MembershipSecond: Str { MembershipTask = "task" }
+assert has(MembershipBuild, [MembershipBuild]) and lacks(MembershipRun, [MembershipBuild])
+assert forward(MembershipTask, [MembershipTask])
+let payload: Result[Int, Str] = Err("data")
+assert has(payload, [payload])
+let unsigned: Map[UInt, Int] = {[1]: 7}
+let signed: Map[Int, Str] = {[-1]: "negative"}
+let list_expected = 7 in [7, 8]
+assert has(7, [7, 8]) == list_expected
+assert has("word", ["word"]) and lacks("absent", ["word"])
+let set_expected = 2 in {1, 2}
+assert has(2, {1, 2}) == set_expected
+assert has("key", {["key"]: null})
+assert has(-1, signed)
+assert has(1, unsigned) and lacks(0, unsigned)
+assert has("key", {key: null})
+assert has("key", "a key") and lacks("missing", "a key")
+assert has(b"bc", b"abcd") and lacks(b"ce", b"abcd")
+assert has("bin", p"/xsh/bin") and has(p"/xsh", p"/xsh/bin")
+assert forward(7, [7]) and forward("word", "word")
+env ({PATH: "/xsh/bin:/xsh/other"}) {
+  assert has(p"/xsh/bin", env.PATH)
+  assert lacks(p"/xsh/missing", env.PATH)
+}?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
+                    .unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames} step={step}: {flow:?}");
+            }
+        }
+    });
+}
+
+#[test]
+fn generic_membership_checks_computed_and_mutated_unsigned_keys_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure computed(container) { 1 - 2 in container }
+pure mutated(container) { var key = 1; key -= 2; key in container }
+pure ordinary(container: Map[UInt, Int]) -> Bool { var key = 1; key -= 2; key in container }
+pure captured(container) { try { var key = 1; key -= 2; key in container } }
+pure relay(container) { mutated(container) }
+pure caught_relay(container) { try { relay(container) } }
+pure unsigned_relay(container: Map[UInt, Int]) -> Bool { relay(container) }
+pure unsigned_caught_relay(container: Map[UInt, Int]) -> Result[Bool] { caught_relay(container) }
+pure unsigned_computed(container: Map[UInt, Int]) -> Bool { computed(container) }
+pure unsigned_mutated(container: Map[UInt, Int]) -> Bool { mutated(container) }
+pure unsigned_captured(container: Map[UInt, Int]) -> Result[Bool] { captured(container) }
+pure signed_mutated(container: Map[Int, Int]) -> Bool { mutated(container) }
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let arguments = [Value::Map(Default::default())];
+            for name in ["ordinary", "unsigned_computed", "unsigned_mutated", "unsigned_relay"] {
+                let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let error = evaluator.call_indexed_direct(function, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().expect_err(name);
+                assert_eq!(error.kind, "schema", "frames={force_frames} {name}: {error:?}");
+                assert_eq!(error.message, "schema check failed: expected UInt, found Int");
+                let callee = match name { "ordinary" => "ordinary", "unsigned_computed" => "computed", _ => "mutated" };
+                let definition = source.find(&format!("pure {callee}(" )).unwrap();
+                let needle = if callee == "computed" { "1 - 2" } else { "key in container" };
+                let start = definition + source[definition..].find(needle).unwrap();
+                let length = if callee == "computed" { 5 } else { 3 };
+                assert_eq!(error.span, Some(Span::new(source_id, start, start + length)), "frames={force_frames} {name}");
+            }
+            let captured = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("unsigned_captured")));
+            let result = evaluator.call_indexed_direct(captured, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap();
+            assert!(matches!(result, Value::Result(ResultValue::Err(_))), "frames={force_frames}: {result:?}");
+            let forwarded = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("unsigned_caught_relay")));
+            let result = evaluator.call_indexed_direct(forwarded, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Err(error)) = result else { panic!("forwarding retains the captured UInt failure") };
+            let Value::Error(error) = *error else { panic!("UInt validation retains ordinary Error data") };
+            assert_eq!(error.kind, "schema");
+            assert_eq!(error.message, "schema check failed: expected UInt, found Int");
+            let signed = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("signed_mutated")));
+            assert_eq!(evaluator.call_indexed_direct(signed, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(false));
+        }
+    });
+}
+
+#[test]
+fn generic_membership_preserves_conditional_errors_and_evaluation_order() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+proc selected(container, key: Int) { key in container }
+pure ordered(container) {
+  var visits = 0
+  let result = try {
+    let key = { visits += 1; -1 }
+    key in { visits += 10; container }
+  }
+  {visits, result}
+}
+let signed: Map[Int, Int] = {[0]: 3}
+let unsigned: Map[UInt, Int] = {[0]: 7}
+assert selected(signed, 0) == Ok(true)
+assert selected(unsigned, 0) == Ok(true)
+match selected(unsigned, -1) {
+  Ok(_) => { assert false },
+  Err(error) => { assert error.message == "schema check failed: expected UInt, found Int" },
+}
+let caught_unsigned = ordered(unsigned)
+assert caught_unsigned.visits == 1
+match caught_unsigned.result {
+  Ok(_) => { assert false },
+  Err(error) => { assert error.message == "schema check failed: expected UInt, found Int" },
+}
+let caught_signed = ordered(signed)
+assert caught_signed.visits == 11
+assert caught_signed.result == Ok(false)
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap()
+                    .unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames} step={step}: {flow:?}");
+            }
+        }
+    });
+}

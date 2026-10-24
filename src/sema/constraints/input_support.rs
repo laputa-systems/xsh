@@ -71,15 +71,15 @@ impl TypeConstraints {
                         for term in contributions.iter() {
                             match term {
                                 WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => inputs.push(ty.clone()),
-                                WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)) => {
+                                WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)) => {
                                     let entry = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
                                     inputs.extend(entry.operation.inputs().cloned());
                                 }
-                                WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
-                                WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)) => {
+                                WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                                WrapperErrorContribution::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)) => {
                                     let source = self.wrappers.entries.get(requirement).ok_or(ConstraintResolutionError::ForeignVariable)?;
                                     if source.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
-                                    let WrapperRequirementKind::IndexValidation {
+                                    let WrapperRequirementKind::KeyValidation {
                                         operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation), boundary,
                                     } = &source.requirement.kind else { return Err(ConstraintResolutionError::ForeignVariable); };
                                     let operation_entry = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
@@ -88,12 +88,12 @@ impl TypeConstraints {
                                     if let crate::sema::wrapper_operation::WrapperBoundary::Return(ty)
                                     | crate::sema::wrapper_operation::WrapperBoundary::ErrorReturn(ty) = boundary { inputs.push(ty.clone()); }
                                 }
-                                WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                                WrapperErrorContribution::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
                             }
                         }
                         (inputs, vec![result.clone()])
                     }
-                    WrapperRequirementKind::IndexValidation { operation, boundary } => {
+                    WrapperRequirementKind::KeyValidation { operation, boundary } => {
                         let crate::sema::wrapper_operation::WrapperOperationRef::Source(operation) = operation else { return Err(ConstraintResolutionError::ForeignVariable); };
                         let indexed = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
                         if indexed.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
@@ -123,12 +123,12 @@ impl TypeConstraints {
                                     Type::Inference(_) => inputs.push(source.clone()),
                                     _ => {}
                                 },
-                                WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)) => {
+                                WrapperCompletionContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)) => {
                                     let indexed = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
                                     if indexed.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
                                     inputs.extend(indexed.operation.inputs().cloned());
                                 }
-                                WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                                WrapperCompletionContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
                             }
                         }
                         (inputs, vec![(**output).clone()])

@@ -19,6 +19,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
     budget.charge(1)?;
     let span = crate::source::Span::at(store.source_id, 0);
     Ok(match encoded {
+        FullSealedOperation::Membership { needle, container } => SealedOperation::Membership { needle: substitution.ty(store, scope, needle, budget)?, container: substitution.ty(store, scope, container, budget)?, span },
         FullSealedOperation::TypePredicate { domain, subject: key } => SealedOperation::TypePredicate { domain, subject: substitution.ty(store, scope, key, budget)?, span },
         FullSealedOperation::Binary { left, right, result, operator } => SealedOperation::Binary(SealedBinaryOperation {
             operator, left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, result: substitution.ty(store, scope, result, budget)?, span,
@@ -42,6 +43,10 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         budget.charge_scheme_clone(ty)?;
         ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("selected operation has no closed input tuple"))
     })?;
+    if let SealedOperation::Membership { needle, container, .. } = &closed {
+        return crate::sema::sealed_operation::membership_selection(container, needle).map(SealedOperationSignature::Membership)
+            .ok_or_else(|| IrVerifyError::new("membership has no supported canonical domain"));
+    }
     if let SealedOperation::TypePredicate { domain, subject: key, .. } = &closed {
         return if domain.accepts(key) { Ok(SealedOperationSignature::TypePredicate(*domain)) }
             else { Err(IrVerifyError::new("key predicate has no supported canonical domain")) };
@@ -51,7 +56,7 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         SealedOperation::Index { receiver, key, constant_key, .. } => index_selection(receiver, key, *constant_key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
-        SealedOperation::TypePredicate { .. } => unreachable!(),
+        SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } => unreachable!(),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
@@ -67,7 +72,7 @@ pub(super) fn symbolic_output_binders(
     substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<BTreeSet<usize>, IrVerifyError> {
     let mut evidence = BTreeSet::new();
-    if matches!(encoded, FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
+    if matches!(encoded, FullSealedOperation::Membership { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
         SealedOperation::Index { mut receiver, key, constant_key, .. } => {
@@ -115,7 +120,7 @@ pub(super) fn symbolic_output_binders(
             }
             return Ok(evidence);
         }
-        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } => unreachable!(),
+        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } => unreachable!(),
     };
     if let Some(projection) = projection {
         let parameter = decode_scheme_type(store, scope, encoded.result().unwrap(), budget, 0)?;
@@ -226,13 +231,13 @@ pub(super) fn verify_record_override_site(
     Ok(())
 }
 
-pub(super) fn index_may_require_uint_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
+pub(super) fn may_require_uint_key_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
     let mut receiver = receiver;
     while let SchemeType::Validated(_, inner) = receiver { receiver = inner; }
     let required = match receiver {
         SchemeType::Map(required, _) => Some(required.as_ref()),
         SchemeType::Ground(ty) if matches!(ty.unvalidated(), Type::Map(..)) => {
-            return key.closed_ground_type().is_none_or(|key| crate::sema::sealed_operation::index_may_require_uint_key_validation(ty, &key));
+            return key.closed_ground_type().is_none_or(|key| crate::sema::sealed_operation::may_require_uint_key_validation(ty, &key));
         }
         SchemeType::Parameter(_) => return !matches!(key.closed_ground_type(), Some(Type::UInt | Type::Str)),
         _ => None,
@@ -249,9 +254,9 @@ pub(super) fn index_may_require_uint_validation(receiver: &SchemeType, key: &Sch
     }
 }
 
-pub(super) fn index_requires_uint_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
+pub(super) fn requires_uint_key_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
     receiver.closed_ground_type().zip(key.closed_ground_type())
-        .is_some_and(|(receiver, key)| crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key))
+        .is_some_and(|(receiver, key)| crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key))
 }
 
 pub(super) fn result_error_type(ty: &SchemeType) -> Option<Option<Type>> {
@@ -266,6 +271,13 @@ pub(super) fn result_error_type(ty: &SchemeType) -> Option<Option<Type>> {
 pub(super) fn verify_body_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, operator: crate::syntax::node::BinaryOp, left: &SchemeType, right: &SchemeType, result: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body operation ordinal is out of scope"))?;
     let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+    if let SealedOperation::Membership { needle, container, .. } = &operation {
+        if !matches!(operator, crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn)
+            || !body_types_equal(left, needle) || !body_types_equal(right, container) || result != &SchemeType::Ground(Type::Bool)
+        { return Err(IrVerifyError::new("generic membership site disagrees with its scoped requirement")); }
+        if needle.closed_ground_type().is_some() && container.closed_ground_type().is_some() { selection(&operation, budget)?; }
+        return Ok(());
+    }
     let SealedOperation::Binary(operation) = operation else { return Err(IrVerifyError::new("generic binary site disagrees with its sealed operation")); };
     if arithmetic_operator(operator) != Some(operation.operator) || !body_types_equal(left, &operation.left) || !body_types_equal(right, &operation.right) || !body_types_equal(result, &operation.result) {
         return Err(IrVerifyError::new("generic binary site disagrees with its sealed operation"));
@@ -293,11 +305,11 @@ pub(super) fn verify_index_site(
     let supported = match receiver {
         SchemeType::Parameter(_) => true,
         SchemeType::List(_) => body_type_matches_ground(key, &Type::Int),
-        SchemeType::Map(required, _) => body_type_matches(key, required, budget)? || index_may_require_uint_validation(receiver, key),
+        SchemeType::Map(required, _) => body_type_matches(key, required, budget)? || may_require_uint_key_validation(receiver, key),
         SchemeType::Record { fields, .. } => constant_key.is_some_and(|key| fields.contains_key(&key)),
         SchemeType::Ground(ground_receiver) => match ground_receiver.unvalidated() {
             Type::List(_) => body_type_matches_ground(key, &Type::Int),
-            Type::Map(required, _) => body_type_matches_ground(key, required) || index_may_require_uint_validation(receiver, key),
+            Type::Map(required, _) => body_type_matches_ground(key, required) || may_require_uint_key_validation(receiver, key),
             Type::Record(fields) => constant_key.is_some_and(|key| fields.contains_key(&key)),
             Type::Module(module) => constant_key.is_some_and(|key| module.exports.contains_key(&key)),
             _ => false,

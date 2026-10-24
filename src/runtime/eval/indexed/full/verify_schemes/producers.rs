@@ -2185,8 +2185,8 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
             if actual.len() != expected.len() || !actual.iter().zip(expected.iter()).all(|((_, actual), expected)| match (actual, expected) {
                 (crate::sema::wrapper_operation::WrapperErrorContribution::Source(actual), crate::sema::wrapper_operation::WrapperErrorContribution::Source(expected))
                 | (crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(actual), crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(expected)) => super::body_types_equal(actual, expected),
-                (crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(actual)), crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(expected))) => actual == expected,
-                (crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(actual)), crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(expected))) => actual == expected,
+                (crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(actual)), crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(expected))) => actual == expected,
+                (crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(actual)), crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(expected))) => actual == expected,
                 _ => false,
             }) { return Err(IrVerifyError::new("capture contributions disagree with its actual body")); }
             continue;
@@ -4777,6 +4777,10 @@ impl<'a> ProducerProof<'a> {
                 self.verify_condition(owner, right.raw() as usize, ConditionRole::Boolean)
             }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, left, right, .. } => {
+                if expected.as_ref() == &Type::Bool
+                    && matches!(self.store.sealed_operation_site(owner, instruction as u32)?, Some(super::super::schemes::FullSealedOperation::Membership { .. }))
+                    && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))
+                { return Ok(()); }
                 let container = match self.need_context(&decoder, right.raw() as usize)? {
                     Some(container) => container,
                     None => {

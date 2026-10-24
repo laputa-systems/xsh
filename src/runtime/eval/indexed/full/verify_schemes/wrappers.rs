@@ -23,8 +23,8 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
             let handler = store.wrapper_handlers.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper handler detail is out of bounds"))?;
             K::Handler { source: substitution.ty(store, scope, source, budget)?, result: substitution.ty(store, scope, result, budget)?, error: substitution.ty(store, scope, handler.error, budget)?, handler: substitution.ty(store, scope, handler.handler, budget)? }
         }
-        FullWrapper::IndexValidation { operation, detail } => {
-            let validation = store.wrapper_index_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
+        FullWrapper::KeyValidation { operation, detail } => {
+            let validation = store.wrapper_key_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
             let boundary = match validation.boundary {
                 FullWrapperBoundary::Captured => B::Captured,
                 FullWrapperBoundary::Return(ty) => B::Return(substitution.ty(store, scope, ty, budget)?),
@@ -33,7 +33,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                 FullWrapperBoundary::Producer => B::Producer,
                 FullWrapperBoundary::TopLevel => B::TopLevel,
             };
-            K::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary }
+            K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary }
         }
         FullWrapper::Capture { result, detail } => {
             let capture = store.wrapper_captures.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper capture detail is out of bounds"))?;
@@ -44,15 +44,15 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                 contributions.push(match contribution {
                     FullWrapperContribution::Explicit(ty) => C::Explicit(substitution.ty(store, scope, *ty, budget)?),
                     FullWrapperContribution::Source(ty) => C::Source(substitution.ty(store, scope, *ty, budget)?),
-                    FullWrapperContribution::IndexValidation(operation) => {
+                    FullWrapperContribution::KeyValidation(operation) => {
                         let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*operation as usize).ok_or_else(|| IrVerifyError::new("capture index operation ordinal is out of scope"))?;
-                        if !matches!(encoded, super::super::schemes::FullSealedOperation::Index { .. }) { return Err(IrVerifyError::new("capture index contribution names another operation")); }
-                        C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(*operation))
+                        if !matches!(encoded, super::super::schemes::FullSealedOperation::Index { .. } | super::super::schemes::FullSealedOperation::Membership { .. }) { return Err(IrVerifyError::new("capture index contribution names another operation")); }
+                        C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(*operation))
                     }
-                    FullWrapperContribution::IndexValidationBoundary(wrapper) => {
+                    FullWrapperContribution::KeyValidationBoundary(wrapper) => {
                         let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(*wrapper as usize).ok_or_else(|| IrVerifyError::new("capture index boundary ordinal is out of scope"))?;
-                        if !matches!(encoded, FullWrapper::IndexValidation { .. }) { return Err(IrVerifyError::new("capture index boundary names another wrapper")); }
-                        C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(*wrapper))
+                        if !matches!(encoded, FullWrapper::KeyValidation { .. }) { return Err(IrVerifyError::new("capture index boundary names another wrapper")); }
+                        C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(*wrapper))
                     }
                     FullWrapperContribution::PropagatedError(_) | FullWrapperContribution::ReturnedResult(_) | FullWrapperContribution::FieldSource(_) | FullWrapperContribution::ApplicationSource(_) => return Err(IrVerifyError::new("proc completion contribution appears in a capture")),
                 });
@@ -69,12 +69,12 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                     FullWrapperContribution::ReturnedResult(ty) => PC::ReturnedResult(substitution.ty(store, scope, *ty, budget)?),
                     FullWrapperContribution::FieldSource(ty) => PC::FieldSource(substitution.ty(store, scope, *ty, budget)?),
                     FullWrapperContribution::ApplicationSource(ty) => PC::ApplicationSource(substitution.ty(store, scope, *ty, budget)?),
-                    FullWrapperContribution::IndexValidation(ordinal) => {
+                    FullWrapperContribution::KeyValidation(ordinal) => {
                         let operation = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation ordinal is out of scope"))?;
-                        if !matches!(operation, super::super::schemes::FullSealedOperation::Index { .. }) { return Err(IrVerifyError::new("completion index contribution names another operation")); }
-                        PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(*ordinal))
+                        if !matches!(operation, super::super::schemes::FullSealedOperation::Index { .. } | super::super::schemes::FullSealedOperation::Membership { .. }) { return Err(IrVerifyError::new("completion index contribution names another operation")); }
+                        PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(*ordinal))
                     }
-                    FullWrapperContribution::IndexValidationBoundary(_) | FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::KeyValidationBoundary(_) | FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
                 });
             }
             K::ProcCompletion { group: crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(group), returned: substitution.ty(store, scope, returned, budget)?, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions.into()) }
@@ -94,11 +94,11 @@ fn resolve_capture_index_contributions(
     let mut resolved = Vec::with_capacity(contributions.len());
     for contribution in contributions.iter() {
         match contribution {
-            C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
-                if let Some(contribution) = resolve_index_validation(store, scope, *ordinal, substitution, budget)? { resolved.push(contribution); }
+            C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
+                if let Some(contribution) = resolve_key_validation(store, scope, *ordinal, substitution, budget)? { resolved.push(contribution); }
             }
-            C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)) => {
-                if let Some(contribution) = resolve_index_validation_boundary(store, scope, *ordinal, substitution, budget)? { resolved.push(contribution); }
+            C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)) => {
+                if let Some(contribution) = resolve_key_validation_boundary(store, scope, *ordinal, substitution, budget)? { resolved.push(contribution); }
             }
             _ => resolved.push(contribution.clone()),
         }
@@ -107,7 +107,7 @@ fn resolve_capture_index_contributions(
     Ok(())
 }
 
-fn resolve_index_validation_boundary(
+fn resolve_key_validation_boundary(
     store: &FullStore,
     scope: &SchemeScope,
     ordinal: u32,
@@ -116,17 +116,17 @@ fn resolve_index_validation_boundary(
 ) -> Result<Option<C<SchemeType>>, IrVerifyError> {
     let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("capture index boundary ordinal is out of scope"))?;
     let requirement = decode(store, scope, encoded, substitution, budget)?;
-    let K::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } = requirement.kind else {
+    let K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } = requirement.kind else {
         return Err(IrVerifyError::new("capture index boundary names another wrapper"));
     };
     let encoded_operation = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize).ok_or_else(|| IrVerifyError::new("capture index operation ordinal is out of scope"))?;
     let operation = super::operations::decode(store, scope, encoded_operation, substitution, budget)?;
-    let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(IrVerifyError::new("capture index boundary names another operation")); };
-    if !super::operations::index_may_require_uint_validation(&receiver, &key) { return Ok(None); }
+    let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("capture index boundary names another operation")); };
+    if !super::operations::may_require_uint_key_validation(&receiver, &key) { return Ok(None); }
     if receiver.closed_ground_type().is_none() || key.closed_ground_type().is_none() {
-        return Ok(Some(C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal))));
+        return Ok(Some(C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal))));
     }
-    if !super::operations::index_requires_uint_validation(&receiver, &key) { return Ok(None); }
+    if !super::operations::requires_uint_key_validation(&receiver, &key) { return Ok(None); }
     match boundary {
         B::Captured | B::ProcCompletion { .. } => Ok(None),
         B::Producer | B::TopLevel => Ok(Some(C::Explicit(SchemeType::Ground(Type::Error)))),
@@ -138,7 +138,7 @@ fn resolve_index_validation_boundary(
     }
 }
 
-fn resolve_index_validation(
+fn resolve_key_validation(
     store: &FullStore,
     scope: &SchemeScope,
     ordinal: u32,
@@ -147,13 +147,13 @@ fn resolve_index_validation(
 ) -> Result<Option<C<SchemeType>>, IrVerifyError> {
     let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("capture index operation ordinal is out of scope"))?;
     let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
-    let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(IrVerifyError::new("capture index contribution names another operation")); };
+    let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("capture index contribution names another operation")); };
     if let (Some(receiver), Some(key)) = (receiver.closed_ground_type(), key.closed_ground_type()) {
-        return Ok(crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key)
+        return Ok(crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key)
             .then_some(C::Explicit(SchemeType::Ground(Type::Error))));
     }
-    Ok(super::operations::index_may_require_uint_validation(&receiver, &key)
-        .then_some(C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal))))
+    Ok(super::operations::may_require_uint_key_validation(&receiver, &key)
+        .then_some(C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal))))
 }
 
 fn map_forwarded_index_references(
@@ -166,7 +166,7 @@ fn map_forwarded_index_references(
     wrapper_bindings: &[FullWrapperBinding],
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
-    if let K::IndexValidation { operation, .. } = &mut requirement.kind {
+    if let K::KeyValidation { operation, .. } = &mut requirement.kind {
         budget.charge(1)?;
         let crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal) = operation else {
             return Err(IrVerifyError::new("forwarded index wrapper contains a source operation identity"));
@@ -177,7 +177,7 @@ fn map_forwarded_index_references(
         };
         let caller_operation = bounded(caller_scope.operations, &store.scheme_operations, "caller operation range is invalid")?
             .get(caller_ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded index wrapper operation is out of scope"))?;
-        if !matches!(caller_operation, FullSealedOperation::Index { .. }) { return Err(IrVerifyError::new("forwarded index wrapper names another operation")); }
+        if !matches!(caller_operation, FullSealedOperation::Index { .. } | FullSealedOperation::Membership { .. }) { return Err(IrVerifyError::new("forwarded index wrapper names another operation")); }
         *operation = crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal);
         return Ok(());
     }
@@ -185,33 +185,33 @@ fn map_forwarded_index_references(
     let mut mapped = Vec::with_capacity(contributions.len());
     for contribution in contributions.iter() {
         match contribution {
-            C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
+            C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
                 let binding = operation_bindings.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("capture index operation binding is out of scope"))?;
                 match *binding {
-                    FullOperationBinding::Forwarded(caller_ordinal) => mapped.push(C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal))),
+                    FullOperationBinding::Forwarded(caller_ordinal) => mapped.push(C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal))),
                     FullOperationBinding::Selected(_) => {
-                        if let Some(contribution) = resolve_index_validation(store, scope, *ordinal, substitution, budget)? {
-                            if matches!(contribution, C::IndexValidation(_)) { return Err(IrVerifyError::new("selected index operation retains a symbolic validation")); }
+                        if let Some(contribution) = resolve_key_validation(store, scope, *ordinal, substitution, budget)? {
+                            if matches!(contribution, C::KeyValidation(_)) { return Err(IrVerifyError::new("selected index operation retains a symbolic validation")); }
                             mapped.push(contribution);
                         }
                     }
                 }
             }
-            C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)) => {
+            C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)) => {
                 let binding = wrapper_bindings.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("capture index boundary binding is out of scope"))?;
                 match *binding {
                     FullWrapperBinding::Forwarded(caller_ordinal) => {
                         let caller_wrapper = *bounded(caller_scope.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?
                             .get(caller_ordinal as usize)
                             .ok_or_else(|| IrVerifyError::new("forwarded capture index boundary is out of scope"))?;
-                        if !matches!(caller_wrapper, FullWrapper::IndexValidation { .. }) {
+                        if !matches!(caller_wrapper, FullWrapper::KeyValidation { .. }) {
                             return Err(IrVerifyError::new("forwarded capture index boundary names another wrapper"));
                         }
-                        mapped.push(C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(caller_ordinal)));
+                        mapped.push(C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(caller_ordinal)));
                     }
                     FullWrapperBinding::Selected(_) => {
-                        if let Some(contribution) = resolve_index_validation_boundary(store, scope, *ordinal, substitution, budget)? {
-                            if matches!(contribution, C::IndexValidationBoundary(_)) { return Err(IrVerifyError::new("selected index boundary retains a symbolic requirement")); }
+                        if let Some(contribution) = resolve_key_validation_boundary(store, scope, *ordinal, substitution, budget)? {
+                            if matches!(contribution, C::KeyValidationBoundary(_)) { return Err(IrVerifyError::new("selected index boundary retains a symbolic requirement")); }
                             mapped.push(contribution);
                         }
                     }
@@ -232,8 +232,8 @@ fn selection(
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<WrapperSelection, IrVerifyError> {
     resolve_capture_index_contributions(store, scope, &mut requirement, substitution, budget)?;
-    if let K::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } = &requirement.kind {
-        validate_index_validation_boundary(store, scope, *operation, boundary, substitution, budget)?;
+    if let K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } = &requirement.kind {
+        validate_key_validation_boundary(store, scope, *operation, boundary, substitution, budget)?;
     }
     if let K::ProcCompletion { returned, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = &requirement.kind {
         let Some(actual_error) = completion_error_join(store, scope, contributions, substitution, budget)? else {
@@ -256,7 +256,7 @@ fn selection(
         .ok_or_else(|| IrVerifyError::new("selected wrapper has no complete canonical relationship"))
 }
 
-fn validate_index_validation_boundary(
+fn validate_key_validation_boundary(
     store: &FullStore,
     scope: &SchemeScope,
     ordinal: u32,
@@ -266,11 +266,11 @@ fn validate_index_validation_boundary(
 ) -> Result<(), IrVerifyError> {
     let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("index validation operation ordinal is out of scope"))?;
     let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
-    let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(IrVerifyError::new("index validation wrapper names another operation")); };
-    if !super::operations::index_may_require_uint_validation(&receiver, &key)
+    let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("index validation wrapper names another operation")); };
+    if !super::operations::may_require_uint_key_validation(&receiver, &key)
         || receiver.closed_ground_type().is_none()
         || key.closed_ground_type().is_none()
-        || !super::operations::index_requires_uint_validation(&receiver, &key)
+        || !super::operations::requires_uint_key_validation(&receiver, &key)
     { return Ok(()); }
     if let B::Return(returned) | B::ErrorReturn(returned) = boundary
         && super::operations::result_error_type(returned).is_some_and(|error| error.is_none_or(|error| !Type::Error.matches_expected(&error)))
@@ -278,7 +278,7 @@ fn validate_index_validation_boundary(
     Ok(())
 }
 
-pub(super) fn verify_index_validation_site(
+pub(super) fn verify_key_validation_site(
     store: &FullStore,
     owner: u32,
     scope: &SchemeScope,
@@ -292,7 +292,7 @@ pub(super) fn verify_index_validation_site(
     completion_group: Option<u32>,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<Option<PC<SchemeType>>, IrVerifyError> {
-    if !super::operations::index_may_require_uint_validation(receiver, key) {
+    if !super::operations::may_require_uint_key_validation(receiver, key) {
         if wrapper_ordinal.is_some() { return Err(IrVerifyError::new("index validation wrapper has no matching input domain")); }
         return Ok(None);
     }
@@ -302,14 +302,14 @@ pub(super) fn verify_index_validation_site(
     let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?
         .get(wrapper_ordinal as usize)
         .ok_or_else(|| IrVerifyError::new("index validation wrapper ordinal is out of scope"))?;
-    let FullWrapper::IndexValidation { operation: actual_operation, .. } = encoded else {
+    let FullWrapper::KeyValidation { operation: actual_operation, .. } = encoded else {
         return Err(IrVerifyError::new("index instruction has another wrapper relationship"));
     };
     if actual_operation != operation_ordinal {
         return Err(IrVerifyError::new("index validation wrapper names another operation"));
     }
     let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
-    let K::IndexValidation {
+    let K::KeyValidation {
         operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(actual_operation),
         boundary,
     } = requirement.kind else {
@@ -380,12 +380,12 @@ pub(super) fn verify_index_validation_site(
         }
     }
     if let B::Return(returned) | B::ErrorReturn(returned) = &boundary
-        && super::operations::index_requires_uint_validation(receiver, key)
+        && super::operations::requires_uint_key_validation(receiver, key)
         && super::operations::result_error_type(returned).is_some_and(|error| error.is_none_or(|error| !Type::Error.matches_expected(&error)))
     {
         return Err(IrVerifyError::new("UInt map key validation error is outside the callable Result contract"));
     }
-    Ok(completion.map(|_| PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation_ordinal))))
+    Ok(completion.map(|_| PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation_ordinal))))
 }
 
 pub(super) fn verify_ground(store: &FullStore, scope: &SchemeScope, substitution: &CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
@@ -465,9 +465,9 @@ pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, s
                     referenced_groups.insert(actual_group);
                 }
             }
-            FullWrapper::IndexValidation { detail, .. } => {
+            FullWrapper::KeyValidation { detail, .. } => {
                 saw_site = true;
-                let validation = store.wrapper_index_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
+                let validation = store.wrapper_key_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
                 if let FullWrapperBoundary::ProcCompletion { returned, group: actual_group } = validation.boundary {
                     let requirement = completion_requirement(store, scope, actual_group, budget)?;
                     let K::ProcCompletion { returned: group_return, .. } = requirement.kind else { unreachable!() };
@@ -491,8 +491,8 @@ pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, s
                 let field = store.wrapper_fields.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper field detail is out of bounds"))?;
                 match field.boundary { FullWrapperBoundary::ProcCompletion { group, .. } => Some(group), _ => None }
             }
-            FullWrapper::IndexValidation { detail, .. } => {
-                let validation = store.wrapper_index_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
+            FullWrapper::KeyValidation { detail, .. } => {
+                let validation = store.wrapper_key_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
                 match validation.boundary { FullWrapperBoundary::ProcCompletion { group, .. } => Some(group), _ => None }
             }
             _ => None,
@@ -576,16 +576,16 @@ fn completion_error_join(store: &FullStore, scope: &SchemeScope, contributions: 
                 Some(P::Optional(_)) => {}
                 None => return Ok(None),
             },
-            PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
+            PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
                 let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation ordinal is out of scope"))?;
                 let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
-                let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(IrVerifyError::new("completion index contribution names another operation")); };
-                if super::operations::index_may_require_uint_validation(&receiver, &key) {
+                let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("completion index contribution names another operation")); };
+                if super::operations::may_require_uint_key_validation(&receiver, &key) {
                     if receiver.closed_ground_type().is_none() || key.closed_ground_type().is_none() { return Ok(None); }
-                    if super::operations::index_requires_uint_validation(&receiver, &key) { errors.push(SchemeType::Ground(Type::Error)); }
+                    if super::operations::requires_uint_key_validation(&receiver, &key) { errors.push(SchemeType::Ground(Type::Error)); }
                 }
             }
-            PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrVerifyError::new("source operation reference appears in a verified scheme")),
+            PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrVerifyError::new("source operation reference appears in a verified scheme")),
         }
     }
     if errors.is_empty() { return Ok(Some(SchemeType::Ground(Type::Error))); }
@@ -663,8 +663,8 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
             let handler = store.wrapper_handlers.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper handler detail is out of bounds"))?;
             vec![source, result, handler.error, handler.handler]
         }
-        FullWrapper::IndexValidation { detail, .. } => {
-            let validation = store.wrapper_index_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
+        FullWrapper::KeyValidation { detail, .. } => {
+            let validation = store.wrapper_key_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper index-validation detail is out of bounds"))?;
             match validation.boundary {
                 FullWrapperBoundary::Return(ty) | FullWrapperBoundary::ErrorReturn(ty) => vec![ty],
                 FullWrapperBoundary::ProcCompletion { returned, .. } => vec![returned],
@@ -677,7 +677,7 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
             for contribution in bounded(capture.contributions, &store.wrapper_contributions, "wrapper contribution range is invalid")? {
                 types.push(match contribution {
                     FullWrapperContribution::Explicit(ty) | FullWrapperContribution::Source(ty) => *ty,
-                    FullWrapperContribution::IndexValidation(_) | FullWrapperContribution::IndexValidationBoundary(_) => continue,
+                    FullWrapperContribution::KeyValidation(_) | FullWrapperContribution::KeyValidationBoundary(_) => continue,
                     FullWrapperContribution::PropagatedError(_) | FullWrapperContribution::ReturnedResult(_) | FullWrapperContribution::FieldSource(_) | FullWrapperContribution::ApplicationSource(_) => return Err(IrVerifyError::new("proc completion contribution appears in a capture")),
                 });
             }
@@ -689,8 +689,8 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
             for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
                 types.push(match contribution {
                     FullWrapperContribution::PropagatedError(ty) | FullWrapperContribution::ReturnedResult(ty) | FullWrapperContribution::FieldSource(ty) | FullWrapperContribution::ApplicationSource(ty) => *ty,
-                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
-                    FullWrapperContribution::IndexValidation(_) => continue,
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::KeyValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::KeyValidation(_) => continue,
                 });
             }
             types
@@ -699,12 +699,12 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
 }
 
 pub(super) struct Coverage {
-    requirements: Vec<bool>, fields: Vec<bool>, handlers: Vec<bool>, captures: Vec<bool>, completions: Vec<bool>, index_validations: Vec<bool>, contributions: Vec<bool>,
+    requirements: Vec<bool>, fields: Vec<bool>, handlers: Vec<bool>, captures: Vec<bool>, completions: Vec<bool>, key_validations: Vec<bool>, contributions: Vec<bool>,
 }
 
 impl Coverage {
     pub(super) fn new(store: &FullStore) -> Self {
-        Self { requirements: vec![false; store.scheme_wrappers.len()], fields: vec![false; store.wrapper_fields.len()], handlers: vec![false; store.wrapper_handlers.len()], captures: vec![false; store.wrapper_captures.len()], completions: vec![false; store.wrapper_completions.len()], index_validations: vec![false; store.wrapper_index_validations.len()], contributions: vec![false; store.wrapper_contributions.len()] }
+        Self { requirements: vec![false; store.scheme_wrappers.len()], fields: vec![false; store.wrapper_fields.len()], handlers: vec![false; store.wrapper_handlers.len()], captures: vec![false; store.wrapper_captures.len()], completions: vec![false; store.wrapper_completions.len()], key_validations: vec![false; store.wrapper_key_validations.len()], contributions: vec![false; store.wrapper_contributions.len()] }
     }
 
     fn detail(coverage: &mut [bool], index: u32) -> Result<(), IrVerifyError> {
@@ -723,10 +723,10 @@ impl Coverage {
                     effects.contract(store, owner, scope, field.effects)?;
                 }
                 FullWrapper::Handler { detail, .. } => Self::detail(&mut self.handlers, detail)?,
-                FullWrapper::IndexValidation { operation, detail } => {
-                    Self::detail(&mut self.index_validations, detail)?;
+                FullWrapper::KeyValidation { operation, detail } => {
+                    Self::detail(&mut self.key_validations, detail)?;
                     if operation >= scope.operations.len { return Err(IrVerifyError::new("wrapper index operation ordinal is out of scope")); }
-                    if !matches!(bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize), Some(FullSealedOperation::Index { .. })) {
+                    if !matches!(bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize), Some(FullSealedOperation::Index { .. } | FullSealedOperation::Membership { .. })) {
                         return Err(IrVerifyError::new("wrapper index requirement names another operation"));
                     }
                 }
@@ -749,7 +749,7 @@ impl Coverage {
     }
 
     pub(super) fn finish(self) -> Result<(), IrVerifyError> {
-        if [&self.requirements, &self.fields, &self.handlers, &self.captures, &self.completions, &self.index_validations, &self.contributions].into_iter().any(|rows| rows.iter().any(|covered| !covered)) {
+        if [&self.requirements, &self.fields, &self.handlers, &self.captures, &self.completions, &self.key_validations, &self.contributions].into_iter().any(|rows| rows.iter().any(|covered| !covered)) {
             return Err(IrVerifyError::new("wrapper tables contain unowned rows"));
         }
         Ok(())
@@ -830,7 +830,7 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
             let Some(P::Result { value, error }) = source_parts(&source, budget)? else { return Ok(Vec::new()) };
             vec![(result, clone_projection_type(&value, budget)?), (handler.error, error), (handler.handler, value)]
         }
-        (FullWrapper::IndexValidation { .. }, K::IndexValidation { .. }) => Vec::new(),
+        (FullWrapper::KeyValidation { .. }, K::KeyValidation { .. }) => Vec::new(),
         (FullWrapper::Capture { result, .. }, K::Capture { contributions, .. }) => {
             let mut errors = Vec::new();
             for contribution in contributions.iter() {
@@ -841,32 +841,32 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
                         let Some(error) = error.closed_ground_type() else { return Ok(Vec::new()) };
                         Some(error)
                     }
-                    C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => {
+                    C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => {
                         let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*operation as usize).ok_or_else(|| IrVerifyError::new("capture index operation ordinal is out of bounds"))?;
                         let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
-                        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(IrVerifyError::new("capture index reference names another operation")); };
+                        let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("capture index reference names another operation")); };
                         let Some(receiver_ground) = receiver.closed_ground_type() else { return Ok(Vec::new()) };
                         let Some(key_ground) = key.closed_ground_type() else { return Ok(Vec::new()) };
-                        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver_ground, &key_ground) {
+                        if crate::sema::sealed_operation::requires_uint_key_validation(&receiver_ground, &key_ground) {
                             errors.push(Type::Error);
-                        } else if super::operations::index_may_require_uint_validation(&receiver, &key) {
+                        } else if super::operations::may_require_uint_key_validation(&receiver, &key) {
                             return Ok(Vec::new());
                         }
                         continue;
                     }
-                    C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrVerifyError::new("source operation reference appears in a verified scheme")),
-                    C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)) => {
-                        match resolve_index_validation_boundary(store, scope, *ordinal, substitution, budget)? {
+                    C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrVerifyError::new("source operation reference appears in a verified scheme")),
+                    C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)) => {
+                        match resolve_key_validation_boundary(store, scope, *ordinal, substitution, budget)? {
                             Some(C::Explicit(error)) => {
                                 let Some(error) = error.closed_ground_type() else { return Ok(Vec::new()) };
                                 Some(error)
                             }
-                            Some(C::IndexValidationBoundary(_)) => return Ok(Vec::new()),
+                            Some(C::KeyValidationBoundary(_)) => return Ok(Vec::new()),
                             Some(_) => return Err(IrVerifyError::new("capture index boundary resolved to another contribution")),
                             None => continue,
                         }
                     }
-                    C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(_)) => return Err(IrVerifyError::new("source wrapper reference appears in a verified scheme")),
+                    C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(_)) => return Err(IrVerifyError::new("source wrapper reference appears in a verified scheme")),
                     C::Source(source) => match source_parts(source, budget)? {
                         Some(P::Optional(_)) => continue,
                         Some(P::Result { error, .. }) => {
@@ -911,18 +911,18 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
                             outputs.push((returned_error, error));
                         }
                     }
-                    FullWrapperContribution::IndexValidation(ordinal) => {
+                    FullWrapperContribution::KeyValidation(ordinal) => {
                         let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation ordinal is out of scope"))?;
                         let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
-                        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(IrVerifyError::new("completion index contribution names another operation")); };
-                        if super::operations::index_may_require_uint_validation(&receiver, &key) {
+                        let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("completion index contribution names another operation")); };
+                        if super::operations::may_require_uint_key_validation(&receiver, &key) {
                             if receiver.closed_ground_type().is_none() || key.closed_ground_type().is_none() { return Ok(Vec::new()); }
-                            if super::operations::index_requires_uint_validation(&receiver, &key) {
+                            if super::operations::requires_uint_key_validation(&receiver, &key) {
                                 outputs.push((returned_error, SchemeType::Ground(Type::Error)));
                             }
                         }
                     }
-                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::KeyValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
                 }
             }
             outputs
@@ -1000,14 +1000,14 @@ pub(super) fn evidence_roots(store: &FullStore, encoded: FullWrapper) -> Result<
             let handler = store.wrapper_handlers.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper handler detail is out of bounds"))?;
             (vec![source], vec![result, handler.error, handler.handler])
         }
-        FullWrapper::IndexValidation { .. } => (Vec::new(), Vec::new()),
+        FullWrapper::KeyValidation { .. } => (Vec::new(), Vec::new()),
         FullWrapper::Capture { result, detail } => {
             let capture = store.wrapper_captures.get(detail as usize).ok_or_else(|| IrVerifyError::new("wrapper capture detail is out of bounds"))?;
             let mut inputs = Vec::new();
             for contribution in bounded(capture.contributions, &store.wrapper_contributions, "wrapper contribution range is invalid")? {
                 inputs.push(match contribution {
                     FullWrapperContribution::Explicit(ty) | FullWrapperContribution::Source(ty) => *ty,
-                    FullWrapperContribution::IndexValidation(_) | FullWrapperContribution::IndexValidationBoundary(_) => continue,
+                    FullWrapperContribution::KeyValidation(_) | FullWrapperContribution::KeyValidationBoundary(_) => continue,
                     FullWrapperContribution::PropagatedError(_) | FullWrapperContribution::ReturnedResult(_) | FullWrapperContribution::FieldSource(_) | FullWrapperContribution::ApplicationSource(_) => return Err(IrVerifyError::new("proc completion contribution appears in a capture")),
                 });
             }
@@ -1019,8 +1019,8 @@ pub(super) fn evidence_roots(store: &FullStore, encoded: FullWrapper) -> Result<
             for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
                 inputs.push(match contribution {
                     FullWrapperContribution::PropagatedError(ty) | FullWrapperContribution::ReturnedResult(ty) | FullWrapperContribution::FieldSource(ty) | FullWrapperContribution::ApplicationSource(ty) => *ty,
-                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
-                    FullWrapperContribution::IndexValidation(_) => continue,
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::KeyValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::KeyValidation(_) => continue,
                 });
             }
             (inputs, vec![result_error_id(store, returned)?])
@@ -1101,8 +1101,23 @@ pub(super) fn capture_boundary(store: &FullStore, scope: &SchemeScope, ordinal: 
     Ok(PropagationBoundary::CaptureRelationship { instruction, request })
 }
 
+fn key_error_transfer(receiver: &SchemeType, key: &SchemeType, ordinal: Option<u32>) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
+    if !super::operations::may_require_uint_key_validation(receiver, key) { return Ok(Vec::new()); }
+    if super::operations::requires_uint_key_validation(receiver, key) { return Ok(vec![C::Explicit(SchemeType::Ground(Type::Error))]); }
+    let ordinal = ordinal.ok_or_else(|| IrVerifyError::new("captured UInt key validation has no retained operation"))?;
+    Ok(vec![C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal))])
+}
+
 pub(super) fn actual_transfer(store: &FullStore, decoder: &FullDecoder<'_>, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: Option<u32>, operation_ordinal: Option<u32>, instruction: usize, view: schema::ExprView<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
     match view {
+        schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, .. } if operation_ordinal.is_some() => {
+            let ordinal = operation_ordinal.unwrap();
+            let encoded = *bounded(scope.operations, &store.scheme_operations, "membership operation range is invalid")?.get(ordinal as usize)
+                .ok_or_else(|| IrVerifyError::new("captured membership ordinal is out of scope"))?;
+            let operation = super::operations::decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
+            let crate::sema::sealed_operation::SealedOperation::Membership { container, needle, .. } = operation else { return Err(IrVerifyError::new("captured membership names another operation")); };
+            key_error_transfer(&container, &needle, Some(ordinal))
+        }
         schema::ExprView::Index { base, index, .. } => {
             let (receiver, key) = if let Some(operation) = operation_ordinal {
                 let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize).ok_or_else(|| IrVerifyError::new("captured index operation ordinal is out of bounds"))?;
@@ -1117,17 +1132,13 @@ pub(super) fn actual_transfer(store: &FullStore, decoder: &FullDecoder<'_>, scop
                 };
                 (receiver, key)
             };
-            if !super::operations::index_may_require_uint_validation(&receiver, &key) { return Ok(Vec::new()); }
-            if super::operations::index_requires_uint_validation(&receiver, &key) {
-                return Ok(vec![C::Explicit(SchemeType::Ground(Type::Error))]);
-            }
-            let Some(operation) = operation_ordinal else { return Err(IrVerifyError::new("captured index may validate a UInt key but has no retained operation")); };
-            Ok(vec![C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation))])
+            key_error_transfer(&receiver, &key, operation_ordinal)
+
         }
         schema::ExprView::Call { .. }
         | schema::ExprView::DirectPureCall { .. }
         | schema::ExprView::SelfCall { .. }
-        | schema::ExprView::DynamicCall { .. } => call_index_validation_transfers(store, decoder, scope, effect_scopes, instruction, budget),
+        | schema::ExprView::DynamicCall { .. } => call_key_validation_transfers(store, decoder, scope, effect_scopes, instruction, budget),
         schema::ExprView::Field { .. } if ordinal.is_some() => {
             let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal.unwrap() as usize).ok_or_else(|| IrVerifyError::new("wrapper field ordinal is out of bounds"))?;
             let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
@@ -1147,7 +1158,7 @@ pub(super) fn actual_transfer(store: &FullStore, decoder: &FullDecoder<'_>, scop
     }
 }
 
-fn call_index_validation_transfers(store: &FullStore, decoder: &FullDecoder<'_>, caller_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
+fn call_key_validation_transfers(store: &FullStore, decoder: &FullDecoder<'_>, caller_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
     let Ok(instruction) = u32::try_from(instruction) else { return Ok(Vec::new()); };
     budget.charge(1)?;
     let Ok(index) = store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction) else { return Ok(Vec::new()); };
@@ -1187,9 +1198,9 @@ fn call_index_validation_transfers(store: &FullStore, decoder: &FullDecoder<'_>,
     let mut transfers = Vec::new();
     budget.charge(wrappers.len())?;
     for (ordinal, (encoded, binding)) in wrappers.iter().zip(bindings).enumerate() {
-        let FullWrapper::IndexValidation { .. } = encoded else { continue; };
+        let FullWrapper::KeyValidation { .. } = encoded else { continue; };
         let requirement = decode(store, callee_scope, *encoded, &ApplicationSubstitution::Symbolic(&substitution), budget)?;
-        let K::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_), boundary } = requirement.kind else {
+        let K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_), boundary } = requirement.kind else {
             return Err(IrVerifyError::new("captured index wrapper has another requirement"));
         };
         if matches!(boundary, B::Captured | B::ProcCompletion { .. }) { continue; }
@@ -1198,16 +1209,16 @@ fn call_index_validation_transfers(store: &FullStore, decoder: &FullDecoder<'_>,
                 let caller_wrapper = *bounded(caller_scope.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?
                     .get(caller_ordinal as usize)
                     .ok_or_else(|| IrVerifyError::new("forwarded capture index boundary is out of scope"))?;
-                if !matches!(caller_wrapper, FullWrapper::IndexValidation { .. }) {
+                if !matches!(caller_wrapper, FullWrapper::KeyValidation { .. }) {
                     return Err(IrVerifyError::new("forwarded capture index boundary names another wrapper"));
                 }
-                transfers.push(C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(caller_ordinal)));
+                transfers.push(C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(caller_ordinal)));
             }
             FullWrapperBinding::Selected(_) => {
-                if let Some(contribution) = resolve_index_validation_boundary(store, callee_scope, ordinal as u32, &ApplicationSubstitution::Symbolic(&substitution), budget)? {
+                if let Some(contribution) = resolve_key_validation_boundary(store, callee_scope, ordinal as u32, &ApplicationSubstitution::Symbolic(&substitution), budget)? {
                     match contribution {
                         C::Explicit(error) => transfers.push(C::Explicit(error)),
-                        C::IndexValidationBoundary(_) => return Err(IrVerifyError::new("selected capture index boundary retains symbolic inputs")),
+                        C::KeyValidationBoundary(_) => return Err(IrVerifyError::new("selected capture index boundary retains symbolic inputs")),
                         _ => return Err(IrVerifyError::new("selected capture index boundary has another contribution")),
                     }
                 }

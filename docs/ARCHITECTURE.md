@@ -796,6 +796,15 @@ the completed body proof without grounding opaque sibling fields. Unchanged
 subtrees remain shared; conversion visits only affected branches. Checks that
 need invocation bindings use scheduled execution on both evaluator routes.
 Body facts use cold-validated instruction/kind order for bounded lookup.
+Scoped membership requirements retain both actual operand contracts. Cold
+verification binds each physical membership to its own selected key check and
+operation ordinal, then proves its operands independently. The check occupies
+extra payload without growing hot function or parameter rows. Execution reads
+only the outer container domain and map key from the same immutable invocation
+bindings; it does not clone unrelated record fields. Unsigned keys use the
+ordinary Require/Try path after computing the needle and before evaluating the
+container. Shared key-validation requirements preserve conditional Error across
+Index and Membership captures, forwarding and Proc completion.
 Invocation and value materialization retain distinct checked evidence, including
 when a factory expression needs both at the same source span. Both execution
 routes use the same checked materialization operation. Dynamic value calls have

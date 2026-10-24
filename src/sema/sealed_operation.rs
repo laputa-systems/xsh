@@ -13,6 +13,9 @@ pub(crate) struct SealedBinaryOperation<T> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MembershipDomain { List, Set, Map, UnsignedMap, Record, Str, Bytes, Path, EnvPath }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +60,7 @@ pub(crate) enum SealedOperation<T> {
     Index { receiver: T, key: T, result: T, syntax: IndexSyntax, constant_key: Option<crate::symbol::Name>, span: Span },
     Slice { receiver: T, result: T, bounds: SliceBounds, span: Span },
     RecordOverride { receiver: T, overrides: std::sync::Arc<[RecordOverrideField<T>]>, result: T, span: Span },
+    Membership { needle: T, container: T, span: Span },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -71,6 +75,7 @@ pub(crate) enum SealedOperationSignature {
     SliceStr,
     SliceBytes,
     RecordOverride,
+    Membership(MembershipDomain),
 }
 
 impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
@@ -79,26 +84,35 @@ impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
 
 impl<T> SealedOperation<T> {
     pub(crate) fn span(&self) -> Span {
-        match self { Self::Binary(operation) => operation.span, Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
+        match self { Self::Binary(operation) => operation.span, Self::Membership { span, .. } | Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
     }
     pub(crate) fn result(&self) -> Option<&T> {
-        match self { Self::TypePredicate { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Membership { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(crate) fn inputs(&self) -> impl Iterator<Item = &T> {
         let (fixed, overrides): (_, &[RecordOverrideField<T>]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary(operation) => ([Some(&operation.left), Some(&operation.right)], &[]),
+            Self::Membership { needle, container, .. } => ([Some(needle), Some(container)], &[]),
             Self::Index { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
             Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
             Self::RecordOverride { receiver, overrides, .. } => ([Some(receiver), None], overrides),
         };
         fixed.into_iter().flatten().chain(overrides.iter().map(|field| &field.ty))
     }
+    pub(crate) fn key_operands(&self) -> Option<(&T, &T)> {
+        match self {
+            Self::Index { receiver, key, .. } => Some((receiver, key)),
+            Self::Membership { container, needle, .. } => Some((container, needle)),
+            _ => None,
+        }
+    }
     pub(crate) fn types(&self) -> impl Iterator<Item = &T> { self.inputs().chain(self.result()) }
     pub(crate) fn types_mut(&mut self) -> impl Iterator<Item = &mut T> where T: Clone {
         let (fixed, overrides): (_, &mut [RecordOverrideField<T>]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None, None], &mut []),
             Self::Binary(operation) => ([Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)], &mut []),
+            Self::Membership { needle, container, .. } => ([Some(needle), Some(container), None], &mut []),
             Self::Index { receiver, key, result, .. } => ([Some(receiver), Some(key), Some(result)], &mut []),
             Self::Slice { receiver, result, .. } => ([Some(receiver), Some(result), None], &mut []),
             Self::RecordOverride { receiver, overrides, result, .. } => ([Some(receiver), Some(result), None], std::sync::Arc::make_mut(overrides)),
@@ -109,6 +123,7 @@ impl<T> SealedOperation<T> {
         match (self, other) {
             (Self::TypePredicate { domain, .. }, SealedOperation::TypePredicate { domain: right, .. }) => domain == right,
             (Self::Binary(left), SealedOperation::Binary(right)) => left.operator == right.operator,
+            (Self::Membership { .. }, SealedOperation::Membership { .. }) => true,
             (Self::Index { syntax, constant_key, .. }, SealedOperation::Index { syntax: right_syntax, constant_key: right_key, .. }) => syntax == right_syntax && constant_key == right_key,
             (Self::Slice { bounds, .. }, SealedOperation::Slice { bounds: right, .. }) => bounds == right,
             (Self::RecordOverride { overrides, .. }, SealedOperation::RecordOverride { overrides: right, .. }) => overrides.len() == right.len() && overrides.iter().zip(right.iter()).all(|(left, right)| left.name == right.name),
@@ -125,6 +140,7 @@ impl<T> SealedOperation<T> {
         Ok(match self {
             Self::TypePredicate { domain, subject: key, span } => SealedOperation::TypePredicate { domain: *domain, subject: map(key)?, span: *span },
             Self::Binary(operation) => SealedOperation::Binary(SealedBinaryOperation { operator: operation.operator, left: map(&operation.left)?, right: map(&operation.right)?, result: map(&operation.result)?, span: operation.span }),
+            Self::Membership { needle, container, span } => SealedOperation::Membership { needle: map(needle)?, container: map(container)?, span: *span },
             Self::Index { receiver, key, result, syntax, constant_key, span } => SealedOperation::Index { receiver: map(receiver)?, key: map(key)?, result: map(result)?, syntax: *syntax, constant_key: *constant_key, span: *span },
             Self::Slice { receiver, result, bounds, span } => SealedOperation::Slice { receiver: map(receiver)?, result: map(result)?, bounds: *bounds, span: *span },
             Self::RecordOverride { receiver, overrides, result, span } => SealedOperation::RecordOverride { receiver: map(receiver)?, overrides: overrides.iter().map(|field| Ok(RecordOverrideField { name: field.name, ty: map(&field.ty)? })).collect::<Result<Vec<_>, E>>()?.into(), result: map(result)?, span: *span },
@@ -142,19 +158,19 @@ pub(crate) fn record_override_selection(receiver: &Type, overrides: &[RecordOver
 pub(crate) fn index_selection(receiver: &Type, key: &Type, constant_key: Option<crate::symbol::Name>) -> Option<(SealedOperationSignature, Type)> {
     Some(match receiver.unvalidated() {
         Type::List(item) if key.matches_expected(&Type::Int) => (SealedOperationSignature::IndexList, (**item).clone()),
-        Type::Map(required, item) if key.matches_expected(required) || index_requires_uint_key_validation(receiver, key) => (SealedOperationSignature::IndexMap, (**item).clone()),
+        Type::Map(required, item) if key.matches_expected(required) || requires_uint_key_validation(receiver, key) => (SealedOperationSignature::IndexMap, (**item).clone()),
         Type::Record(fields) if key.matches_expected(&Type::Str) => (SealedOperationSignature::IndexRecord, fields.get(&constant_key?)?.clone()),
         Type::Module(module) if key.matches_expected(&Type::Str) => (SealedOperationSignature::IndexModule, module.exports.get(&constant_key?)?.field_value_type()?),
         _ => return None,
     })
 }
 
-pub(crate) fn index_requires_uint_key_validation(receiver: &Type, key: &Type) -> bool {
+pub(crate) fn requires_uint_key_validation(receiver: &Type, key: &Type) -> bool {
     matches!(receiver.unvalidated(), Type::Map(required, _) if required.unvalidated() == &Type::UInt)
         && key.unvalidated() == &Type::Int
 }
 
-pub(crate) fn index_may_require_uint_key_validation(receiver: &Type, key: &Type) -> bool {
+pub(crate) fn may_require_uint_key_validation(receiver: &Type, key: &Type) -> bool {
     let receiver_can_be_unsigned_map = match receiver.unvalidated() {
         Type::Inference(_) => true,
         Type::Map(required, _) if required.as_ref() == key => false,
@@ -272,4 +288,28 @@ mod tests {
             assert_eq!(arithmetic_selection(ArithmeticOperator::Add, left, right), Some((ArithmeticSignature::ListConcatenation, nonempty.clone())));
         }
     }
+}
+
+pub(crate) fn membership_selection(container: &Type, needle: &Type) -> Option<MembershipDomain> {
+    use super::types::MembershipCheck;
+    if container.contains_inference() || needle.contains_inference() || container.contains_recovery() || needle.contains_recovery() { return None; }
+    match container.membership_needle_type(needle) {
+        MembershipCheck::Expected(required) | MembershipCheck::Compared(required) if needle.matches_expected(required) => {},
+        _ => return None,
+    }
+    membership_domain(container)
+}
+
+pub(crate) fn membership_domain(container: &Type) -> Option<MembershipDomain> {
+    Some(match container.unvalidated() {
+        Type::List(_) => MembershipDomain::List,
+        Type::Set(item) if item.is_map_key() => MembershipDomain::Set,
+        Type::Map(key, _) if key.is_map_key() => if **key == Type::UInt { MembershipDomain::UnsignedMap } else { MembershipDomain::Map },
+        Type::Record(_) | Type::ErasedRecord => MembershipDomain::Record,
+        Type::Str => MembershipDomain::Str,
+        Type::Bytes => MembershipDomain::Bytes,
+        Type::Path => MembershipDomain::Path,
+        Type::EnvPathList => MembershipDomain::EnvPath,
+        _ => return None,
+    })
 }
