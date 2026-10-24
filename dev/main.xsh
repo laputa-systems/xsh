@@ -383,9 +383,9 @@ pure gate_request(arguments: List[Str]) -> Bool {
     (arguments.len() > 1 and arguments[0] == "internal" and arguments[1] in ["gate-lane", "gate-full"]))
 }
 
-on INT [error] {
+on INT [process] {
   if gate_request(args) { exit 130 }
 }
-on TERM [error] {
+on TERM [process] {
   if gate_request(args) { exit 130 }
 }

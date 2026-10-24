@@ -14,5 +14,5 @@ proc main(...arguments: List[Str]) [fs, process, env, error, io] {
   gates.run_case(context.create()?, action, arguments[1], arguments |> drop(2))
 }
 
-on INT [error] { exit 130 }
-on TERM [error] { exit 130 }
+on INT [process] { exit 130 }
+on TERM [process] { exit 130 }

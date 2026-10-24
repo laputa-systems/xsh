@@ -23,15 +23,15 @@ export enum Tier { Edit, Change, Scenario }
 ## Runtime limits use seconds; manual cases retain their existing owner lifecycle.
 export enum CaseLimit { RuntimeSeconds(Int), ManualOwner }
 
+## Products provided by one retained manual preparation command.
+export type ManualProducts = {products: List[tests.Product], command: contract.CommandSpec}
+
 ## Commands and aliases cannot grant a manual full request.
 export enum CaseExecution {
   RunCommand(contract.CommandSpec), DocumentationCheck, Alias, ManualFull,
   ManualPreparation(ManualProducts),
   ManualCommand(contract.CommandSpec), ManualNative, ManualDocumentation,
 }
-
-## Products provided by one retained manual preparation command.
-export type ManualProducts = {products: List[tests.Product], command: contract.CommandSpec}
 
 ## A declared case owns its command, prerequisites, products and bounded scope.
 export type CatalogCase = {
@@ -110,10 +110,10 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   Focused(tier, paths, case_ids, output)
 }
 
-pure resolve_case(catalogue: List[CatalogCase], id: Str, explicit: List[Str], visiting: List[Str], completed: List[CatalogCase], authority: RequestAuthority) -> Result[List[CatalogCase], Error] {
+pure resolve_case(entries: List[CatalogCase], id: Str, explicit: List[Str], visiting: List[Str], completed: List[CatalogCase], authority: RequestAuthority) -> Result[List[CatalogCase], Error] {
   return Err(PlanError.Invalid(detail: f"catalogue cycle at {id}")) when id in visiting
   return completed when id in [entry.id for entry in completed]
-  let matches = [entry for entry in catalogue |> where .id == id]
+  let matches = [entry for entry in entries |> where .id == id]
   return Err(PlanError.Invalid(detail: f"case {id} has {matches.len()} declarations")) when matches.len() != 1
   let entry = matches[0]
   match entry.execution {
@@ -138,14 +138,14 @@ pure resolve_case(catalogue: List[CatalogCase], id: Str, explicit: List[Str], vi
   }
   var resolved = completed
   for dependency in entry.prerequisite_ids {
-    resolved = resolve_case(catalogue, dependency, explicit, [@visiting, id], resolved, authority)?
+    resolved = resolve_case(entries, dependency, explicit, [@visiting, id], resolved, authority)?
   }
   [@resolved, entry]
 }
 
 ## Resolves the entire focused dependency closure before returning commands.
-export pure resolve_plan(catalogue: List[CatalogCase], ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
-  resolve_selection(catalogue, ids, ids, tier)
+export pure resolve_plan(entries: List[CatalogCase], ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
+  resolve_selection(entries, ids, ids, tier)
 }
 
 pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
@@ -158,11 +158,11 @@ pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
   return
 }
 
-pure resolve_selection(catalogue: List[CatalogCase], ids: List[Str], explicit_ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
-  validate_cases(catalogue)?
+pure resolve_selection(entries: List[CatalogCase], ids: List[Str], explicit_ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
+  validate_cases(entries)?
   var resolved: List[CatalogCase] = []
   for id in ids {
-    resolved = resolve_case(catalogue, id, explicit_ids, [], resolved, FocusedAuthority)?
+    resolved = resolve_case(entries, id, explicit_ids, [], resolved, FocusedAuthority)?
   }
   var products: List[tests.Product] = []
   for entry in resolved {
@@ -511,12 +511,12 @@ pure manual_cases(ctx: context.Context, profile: tests.TestProfile) -> Result[Li
 }
 
 ## Resolves the manual root and its complete dependency and product closure without effects.
-export pure resolve_full(catalogue: List[CatalogCase]) -> Result[CatalogPlan, Error] {
-  validate_cases(catalogue)?
-  let roots = [entry for entry in catalogue |> where .id == "full"]
+export pure resolve_full(entries: List[CatalogCase]) -> Result[CatalogPlan, Error] {
+  validate_cases(entries)?
+  let roots = [entry for entry in entries |> where .id == "full"]
   return Err(PlanError.Invalid(detail: "Full requires exactly one manual root")) when roots.len() != 1 or roots[0].execution != ManualFull
   return Err(PlanError.Invalid(detail: "Full root has no declared verification dependencies")) when roots[0].prerequisite_ids.is_empty()
-  let cases = resolve_case(catalogue, "full", [], [], [], FullAuthority)?
+  let cases = resolve_case(entries, "full", [], [], [], FullAuthority)?
   var available: List[tests.Product] = []
   for entry in cases {
     for product in entry.products {
@@ -585,7 +585,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     let file = id[7..]
     return Err(PlanError.Invalid(detail: f"invalid native case path {file}")) when file.starts_with("/") or ".." in file.split("/")
     let owner = match select([file]) {
-      Ok(selection) => selection
+      Ok(owned) => owned
       Err(_) => { return Err(PlanError.Invalid(detail: f"native case {id} has no file owner")) }
     }
     return Err(PlanError.Invalid(detail: f"native case {id} has no file owner")) when file not in owner.native_files
@@ -736,7 +736,10 @@ pure harness_arguments(argv: List[Str]) -> List[Str] {
   var index = 2
   while index < argv.len() {
     let word = argv[index]
-    if word == "--" { return [@arguments, @(argv |> drop(index + 1))] }
+    if word == "--" {
+      let literal_arguments = argv |> drop(index + 1)
+      return [@arguments, @literal_arguments]
+    }
     if word in ["--target", "--profile", "-p", "--package", "--test", "--bin", "--features"] {
       index += 2
       continue

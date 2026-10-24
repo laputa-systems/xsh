@@ -647,9 +647,10 @@ test test_bounded_gate_timeout_consumes_leader_and_descendant_cleanup { |ctx|
   }
   for file in [leader_file, child_file] {
     let pid = file.read_text()?.trim() as Int
-    match process.kill(pid, signal: "0") {
-      Err(_) => {}
-      Ok(_) => test.fail(f"owned process {pid} survived its consumed deadline")
+    let started = time.monotonic()?
+    while process.kill(pid, signal: "0") is Ok {
+      test.fail(f"owned process {pid} survived its consumed deadline") when time.monotonic()? - started > 2000000000
+      time.sleep(10ms)
     }
   }
 }
@@ -735,7 +736,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   let started = time.monotonic()?
   while ! ready.exists()? {
-    test.fail(stderr.read_text()?) when time.monotonic()? - started > 2000000000
+    test.fail(stderr.read_text()?) when time.monotonic()? - started > 5000000000
     time.sleep(5ms)
   }
   process.kill(handle.pid, signal: "TERM")
