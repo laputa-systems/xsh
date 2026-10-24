@@ -330,6 +330,11 @@ A fresh list comprehension used as a generic argument derives its closed item
 from the actual qualifier bindings and projection. The ordinary argument demand
 then verifies the complete source, targets, filters, and projection; an expected
 parameter type does not supply the comprehension type.
+Guard-bound arguments derive their actual payload from the guard source and
+target, including the error binding inside a terminating handler. The canonical
+completion query proves that handler cannot continue before a ground payload is
+published. Lexical binding, complete writer census, and ordinary argument proofs
+remain mandatory.
 
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor

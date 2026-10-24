@@ -2542,7 +2542,7 @@ impl<'a> ProducerProof<'a> {
             match binding {
                 ProducerBinding::ScopedDeclaration(declaration, _) => {
                     if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
-                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. } | schema::StmtView::ForStrLines { .. })
+                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. } | schema::StmtView::ForStrLines { .. } | schema::StmtView::Guard { .. })
                     { return Ok(None); }
                 }
                 ProducerBinding::HeaderParameter(parameter) => {
@@ -7130,7 +7130,8 @@ impl<'a> ProducerProof<'a> {
                 }
                 ((instruction, source), projected)
             }
-            schema::StmtView::Guard { value, target, optional, else_param_slot, .. } => {
+            schema::StmtView::Guard { value, target, optional, else_param_slot, else_body, .. } => {
+                if !super::super::indexed_block_can_return_with_decoder(self.store, else_body.block_identity(), Some(decoder))? { return Err(IrVerifyError::new("ground guard failure branch can complete")); }
                 let instruction = value.raw() as usize;
                 let Some(source) = self.need_context(decoder, instruction)? else { return Ok(None) };
                 self.budget.charge_clone(&source)?;

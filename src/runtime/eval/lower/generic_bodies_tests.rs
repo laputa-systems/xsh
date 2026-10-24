@@ -8,6 +8,47 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_guard_argument_call(typed: bool) {
+    let identity = if typed { "pure same(value: Str) -> Str { value }" } else { "pure same(value) { value }" };
+    let source = format!(r#"{identity}
+proc optional(raw: Bytes) -> Str {{
+    let _ = raw.len()
+    guard let text = raw.utf8() else {{ return "missing" }}
+    same(text)
+}}
+proc outcome(raw: Result[Str, Str]) -> Str {{
+    guard let text = raw else {{ |failure| return same(failure) }}
+    same(text)
+}}
+"#);
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, argument, expected) in [
+            ("optional", Value::Bytes(b"value".to_vec()), "value"),
+            ("optional", Value::Bytes(vec![255]), "missing"),
+            ("outcome", Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from("success"))))), "success"),
+            ("outcome", Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("failure"))))), "failure"),
+        ] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[argument], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Str(Arc::from(expected)), "typed={typed} {name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn typed_guard_arguments_preserve_optional_and_result_payloads() {
+    verify_guard_argument_call(true);
+}
+
+#[test]
+fn inferred_guard_arguments_preserve_optional_and_result_payloads() {
+    verify_guard_argument_call(false);
+}
+
 fn verify_comprehension_argument_call(typed: bool) {
     let same = if typed { "pure same(value: List[Int]) -> List[Int] { value }" } else { "pure same(value) { value }" };
     let source = format!("{same}\npure selected(values: List[Int]) -> List[Int] {{ same([item for item in values if item > 0]) }}\n");

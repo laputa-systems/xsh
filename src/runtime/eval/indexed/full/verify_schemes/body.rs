@@ -5468,6 +5468,79 @@ test verify_completion_cleanup {
     }
 
     #[test]
+    fn guard_arguments_authenticate_actual_payloads_handlers_writers_and_owners() {
+        let program = prepare(r#"pure same(value) { value }
+proc foreign(raw: Result[Str, Str]) -> Str { guard let text = raw else { return "foreign" }; text }
+proc selected(raw: Result[Str, Str], other: Result[Int, Str], bad: Int) -> Str {
+    var spare = 3
+    let spare_other: Any = other
+    let spare_bad: Any = bad
+    guard let text = raw else { |failure| return same(failure) }
+    spare = 7
+    same(text)
+}
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "selected").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (guard, source, target, failure, handler_return) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Guard { value, target: super::super::super::decode::CompTargetView::Slot(target), else_param_slot: Some(failure), mut else_body, .. }) => {
+                let handler_return = else_body.find_map(|statement| {
+                    let statement = statement.unwrap().raw() as usize;
+                    matches!(decoder.statement_view(statement), Ok(schema::StmtView::Return { .. })).then_some(statement)
+                }).unwrap();
+                Some((instruction, value.raw() as usize, target, failure, handler_return))
+            }
+            _ => None,
+        }).unwrap();
+        let parameter = |slot| range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::AssignInt { .. }))).unwrap();
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_source = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        for (label, from, to) in [("payload", source, parameter(1)), ("source", source, parameter(2)), ("handler binding", parameter(target), parameter(failure))] {
+            let mut changed = cold();
+            changed.store.tags.swap(from, to);
+            changed.store.data.swap(from, to);
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert_eq!(error.message, match label { "payload" => "generic call argument does not match its checked parameter slot", "source" => "ground guard has no slot transfer contract", "handler binding" => "ground producer use has no visible lexical declaration", _ => unreachable!() }, "{label}");
+        }
+        let mut written = cold();
+        let words = written.store.data[assignment].range().bounds(written.store.extra.len()).unwrap();
+        written.store.extra[words.start] = target as u32;
+        let error = FullVerifier::verify(&written).unwrap_err();
+        assert_eq!(error.message, "integer writer disagrees with its ground slot contract");
+        let mut continuing = cold();
+        assert_eq!(continuing.store.tags[handler_return], FullTag::StmtReturn);
+        continuing.store.tags[handler_return] = FullTag::StmtValue;
+        let error = FullVerifier::verify(&continuing).unwrap_err();
+        assert_eq!(error.message, "ground guard failure branch can complete");
+        let mut premature = cold();
+        let body = IrBlockId::from_raw(premature.store.functions[owner].body).unwrap();
+        let words = premature.store.blocks[body.index()].instructions.bounds(premature.store.extra.len()).unwrap();
+        let statements = (words.start + 1)..words.end;
+        let guard_word = statements.clone().find(|word| premature.store.extra[*word] == guard as u32).unwrap();
+        let return_word = statements.filter(|word| premature.store.tags[premature.store.extra[*word] as usize] == FullTag::StmtReturn).last().unwrap();
+        premature.store.extra.swap(guard_word, return_word);
+        let error = FullVerifier::verify(&premature).unwrap_err();
+        assert_eq!(error.message, "ground producer use has no visible lexical declaration");
+        let mut foreign_read = cold();
+        let words = foreign_read.store.data[guard].range().bounds(foreign_read.store.extra.len()).unwrap();
+        let references = words.filter(|word| foreign_read.store.extra[*word] == source as u32).collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        foreign_read.store.extra[references[0]] = foreign_source as u32;
+        assert_eq!(FullVerifier::verify(&foreign_read).unwrap_err().message, "full IR instruction belongs to another function");
+    }
+
+    #[test]
     fn fresh_comprehension_arguments_authenticate_actual_sources_items_and_filters() {
         let program = prepare(r#"pure same(value) { value }
 pure foreign(rows: List[Int]) -> List[Int] { rows }
