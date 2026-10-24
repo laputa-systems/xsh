@@ -31598,7 +31598,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         }
         let error = FullVerifier::verify(&wrong_list_item).unwrap_err();
         assert!(
-            error.message.contains("generic list item does not match its checked parameter slot"),
+            error.message.contains("ground producer value disagrees with its checked contract"),
             "{}",
             error.message
         );
@@ -31712,7 +31712,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         wrong_list_build_item.store.data[first_item] = wrong_list_build_item.store.data[tail_value];
         let error = FullVerifier::verify(&wrong_list_build_item).unwrap_err();
         assert!(
-            error.message.contains("generic list item does not match its checked parameter slot"),
+            error.message.contains("ground producer value disagrees with its checked contract"),
             "{}",
             error.message
         );
@@ -32275,7 +32275,10 @@ assert nullable_name == null
             );
 
             let wrong_payload = Arc::new(wrong_payload);
-            FullVerifier::verify(&wrong_payload).unwrap();
+            assert_eq!(
+                FullVerifier::verify(&wrong_payload).unwrap_err().message,
+                "local initializer disagrees with its declaration annotation"
+            );
             for force_frames in [false, true] {
                 let mut evaluator =
                     Evaluator::new_with_sources(Vec::new(), (*wrong_payload.sources).clone());
@@ -32680,7 +32683,7 @@ assert nullable_name == null
             .type_id = uint_result;
         let error = FullVerifier::verify(&forged_list).unwrap_err();
         assert!(
-            error.message.contains("generic type binder disagrees with the checked argument"),
+            error.message.contains("generic call argument does not match its checked parameter slot"),
             "{}",
             error.message
         );
@@ -54411,11 +54414,55 @@ let rejected = captured(stopped)
                 .expect("the literal has a byte pool ID");
             let byte_range = absolute_path.store.bytes[byte_id.index()];
             absolute_path.store.byte_data[byte_range.start as usize] = b'/';
-            let error = FullVerifier::verify(&absolute_path).unwrap_err();
+            absolute_path.store.in_place.take();
+            FullVerifier::verify(&absolute_path).unwrap();
+            let driver_step = |name: &str| absolute_path.store.driver_steps.iter().enumerate().find_map(|(index, step)| {
+                if step.tag != FullDriverTag::Let { return None; }
+                let decoder = verify_schemes::decoder_for_driver_step(&absolute_path.store, index).unwrap();
+                let mut payload = FullCursor::new(absolute_path.store.payload(step.data.range()).unwrap());
+                (Name::decode(&decoder, &mut payload).unwrap().as_str() == name).then_some(index)
+            }).unwrap();
+            let relative_step = driver_step("relative");
+            let copied_step = driver_step("copied");
+            let step = absolute_path.store.driver_steps[relative_step];
+            let decoder = verify_schemes::decoder_for_driver_step(&absolute_path.store, relative_step).unwrap();
+            let mut payload = FullCursor::new(absolute_path.store.payload(step.data.range()).unwrap());
+            assert_eq!(Name::decode(&decoder, &mut payload).unwrap().as_str(), "relative");
+            let _ = Option::<LoweredType>::decode(&decoder, &mut payload).unwrap();
+            let validation_start = payload.index;
+            let validation = Option::<LoweredTypeCheck>::decode(&decoder, &mut payload).unwrap().unwrap();
+            let annotation = Option::<Type>::decode(&decoder, &mut payload).unwrap().unwrap();
+            assert!(matches!(&annotation, Type::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath));
+            assert_eq!(validation.ty, annotation);
+            let relative_type = absolute_path.store.driver_slots.iter().find(|slot| slot.name != IR_NONE && absolute_path.store.string(slot.name).unwrap() == "relative").unwrap().type_id;
+            let word = step.data.range().bounds(absolute_path.store.extra.len()).unwrap().start + validation_start + 1;
+            assert_eq!(absolute_path.store.extra[word], relative_type.raw());
+            let mut weakened_guard = absolute_path.clone();
+            weakened_guard.store.in_place.take();
+            let path_type = SemanticPoolBuilder::default().intern_type(&mut weakened_guard.store.semantic, &Type::Path).unwrap();
+            weakened_guard.store.extra[word] = path_type.raw();
             assert_eq!(
-                error.message,
-                "local initializer disagrees with its declaration annotation"
+                FullVerifier::verify(&weakened_guard).unwrap_err().message,
+                "driver annotation disagrees with its runtime validation"
             );
+            let absolute_path = Arc::new(absolute_path);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*absolute_path.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&absolute_path));
+                let mut failed = None;
+                for step in 0..absolute_path.driver_step_count().unwrap() {
+                    if let Err(error) = evaluator.eval_indexed_driver_step(step, Span::at(absolute_path.store.source_id, 0)).unwrap() {
+                        failed = Some((step, error));
+                        break;
+                    }
+                }
+                let (step, error) = failed.expect("the RelPath validator rejects the absolute initializer");
+                assert_eq!(step, relative_step);
+                assert!(step < copied_step);
+                assert_eq!(error.kind, "type-error");
+                assert!(error.message.contains("RelPath"), "{}", error.message);
+            }
 
             let mut wrong_stream = (*stream).clone();
             let values = function_instruction_indices(
