@@ -7454,7 +7454,7 @@ impl<'a> FullDecoder<'a> {
                 let Some(field_type) = self
                     .store
                     .semantic
-                    .field_type(ty, field)?
+                    .typed_callee_field_type(ty, field)?
                 else {
                     return Err(IrVerifyError::new(format!(
                         "typed callee field `{field}` is absent from checked receiver type {:?}",
@@ -52902,17 +52902,13 @@ pure apply() -> Int {
             })
             .expect("imported callable field receiver is a parameter");
         let mut wrong_receiver = program.clone();
+        wrong_receiver.store.in_place.take();
+        assert!(wrong_receiver.store.in_place.get().is_none());
         wrong_receiver.store.extra
             [wrong_receiver.store.data[receiver].range().start as usize] = other_module_slot;
+        program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_receiver.store)).unwrap();
         let error = FullVerifier::verify(&wrong_receiver).unwrap_err();
-        assert!(
-            error.message == "checked field fact disagrees with its structural receiver"
-                || error
-                    .message
-                    .contains("typed call signature differs from its callee field's callable type"),
-            "{}",
-            error.message
-        );
+        assert_eq!(error.message, "checked field fact disagrees with its structural receiver");
 
         let driver_step = program
             .store
@@ -52963,18 +52959,14 @@ pure apply() -> Int {
             })
             .expect("top-level field receiver is a parameter");
         let mut wrong_driver_receiver = program.clone();
+        wrong_driver_receiver.store.in_place.take();
+        assert!(wrong_driver_receiver.store.in_place.get().is_none());
         wrong_driver_receiver.store.extra
             [wrong_driver_receiver.store.data[driver_receiver].range().start as usize] =
             other_driver_slot;
+        program.symbol_owner().with_current(|| verify_schemes::prepare_tables(&wrong_driver_receiver.store)).unwrap();
         let error = FullVerifier::verify(&wrong_driver_receiver).unwrap_err();
-        assert!(
-            error.message == "checked field fact disagrees with its structural receiver"
-                || error
-                    .message
-                    .contains("typed call signature differs from its callee field's callable type"),
-            "{}",
-            error.message
-        );
+        assert_eq!(error.message, "checked field fact disagrees with its structural receiver");
 
         let _ = fs::remove_dir_all(root);
     }

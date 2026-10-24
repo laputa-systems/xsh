@@ -373,6 +373,13 @@ impl Checker {
             );
         }
         if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
+            if let ArenaExprKind::Field { base, .. } = callee_kind
+                && let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, base)
+                && binding.static_namespace
+                && matches!(binding.ty, Type::Module(_))
+            {
+                self.check_expr_arena(arena, source, base, None);
+            }
             let contract = self.function_call_contract(&alias.signature, span);
             if matches!(&call_source, super::method::HostCallSource::Expression(_)) {
                 self.record_function_call_target(span, contract.definition_target);

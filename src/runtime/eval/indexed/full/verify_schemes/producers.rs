@@ -4753,6 +4753,7 @@ impl<'a> ProducerProof<'a> {
                 && self.store.tags[instruction] == FullTag::ExprPath
                 && matches!(decoder.expression_view(instruction)?, schema::ExprView::Path(path) if crate::sema::validated::is_rel_path(path));
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
+            let imported_callable_contract = !fits && decoder.checked_imported_callable_relationship(instruction, actual, container)?;
             let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
                 && expected_list_item(container, true).is_some();
             let fresh_comprehension = self.store.tags[instruction] == FullTag::ExprListComp
@@ -4781,7 +4782,7 @@ impl<'a> ProducerProof<'a> {
             let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
             let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
-            if !fits && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())

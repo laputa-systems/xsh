@@ -1113,6 +1113,10 @@ The public Rust module export contract uses
 Stream declarations. This replaces the separate `Pure` and `Proc` export
 variants. `GenericCallable` identifies contracts with type, row, or effect
 binders. Callable-valued exports retain their actual lexical binding proof.
+Calls through imported callable aliases publish their actual static module
+receiver contract before lowering. Typed-callee projection derives the export's
+canonical invocation signature from that registered module contract; producer
+verification retains the physical receiver and its defining import proof.
 The compact export codec records the canonical kind and rejects retired tags,
 reserved bits, foreign owners, and missing signatures. Runtime module contracts
 use retained executable signatures or checked load-time signatures. A callable

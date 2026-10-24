@@ -8,6 +8,42 @@ use crate::symbol::Name;
 use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
+fn verify_captured_import_call(alias: bool) {
+    on_scoped_body_test_stack(move || {
+        let directory = tempfile::Builder::new().prefix("captured-import-call-").tempdir_in(".work/tmp").unwrap();
+        std::fs::write(directory.path().join("provider.xsh"), "##! Closed callable exports.\npure identity(value: Int) -> Int { value + 1 }\n## Provides the selected callable.\nexport let forwarded = identity\n## Provides the declaration control.\nexport pure direct(value: Int) -> Int { value + 1 }\n").unwrap();
+        let member = if alias { "forwarded" } else { "direct" };
+        let source = format!("use provider\nuse provider as duplicate\ntype Handler = pure(value: Int) -> Int\ntype Handlers = {{forwarded: Handler}}\npure local(value: Int) -> Int {{ value + 100 }}\npure shadow(provider: Handlers, value: Int) -> Int {{ provider.forwarded(value) }}\npure invoke(value: Int) -> Int {{ provider.{member}(value) }}\npure invoke_duplicate(value: Int) -> Int {{ duplicate.{member}(value) }}\ntest imported_call {{ assert invoke(7) == 8; assert invoke_duplicate(9) == 10; assert shadow({{forwarded: local}}, 7) == 107 }}\n");
+        let path = directory.path().canonicalize().unwrap().join("entry.xsh");
+        std::fs::write(&path, &source).unwrap();
+        let file = path.to_str().unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        drop(directory);
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("imported_call", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(*value, Value::Unit)));
+        }
+    });
+}
+
+#[test]
+fn captured_import_alias_calls_publish_module_receiver_contracts() {
+    verify_captured_import_call(true);
+}
+
+#[test]
+fn captured_import_declaration_calls_keep_static_contracts() {
+    verify_captured_import_call(false);
+}
+
 #[test]
 fn closed_optional_callbacks_execute_imports_after_frontend_disposal() {
     let provider = include_str!("../../../../tests/fixtures/runtime/closed-callback-provider.xsh");
