@@ -53,7 +53,7 @@ class LeaseTests(unittest.TestCase):
         self.path = Path(self.directory.name) / "lease"
         self.path.write_bytes(b"preserve")
         self.roots = []
-        for name in ("source-a", "source-b", "source-c"):
+        for name in ("source-a", "source-b", "source-c", "source-d"):
             root = Path(self.directory.name) / name
             (root / ".work/target").mkdir(parents=True)
             self.roots.append(root)
@@ -186,37 +186,41 @@ class LeaseTests(unittest.TestCase):
             with acquire([(self.path, fcntl.LOCK_SH, None)]):
                 self.fail("dangling cleanup marker accepted")
 
-    def test_parallel_cargo_admits_two_disjoint_outputs_and_rejects_a_third(self):
-        first, first_pipe = self.start_cargo_worker(0)
-        self.receive(first_pipe, "held")
-        second, second_pipe = self.start_cargo_worker(1)
-        self.receive(second_pipe, "held")
+    def test_parallel_cargo_admits_three_disjoint_outputs_and_rejects_a_fourth(self):
+        workers = []
+        for index in range(3):
+            worker, channel = self.start_cargo_worker(index)
+            self.receive(channel, "held")
+            workers.append((worker, channel))
         with self.assertRaises(LeaseBusy):
-            with self.attempt_cargo(2):
-                self.fail("third disjoint output entered")
+            with self.attempt_cargo(3):
+                self.fail("fourth disjoint output entered")
+        first, first_pipe = workers.pop(0)
         first_pipe.send("release")
         self.receive(first_pipe, "released")
         self.join_worker(first)
-        with self.attempt_cargo(2):
+        with self.attempt_cargo(3):
             pass
-        second_pipe.send("release")
-        self.receive(second_pipe, "released")
-        self.join_worker(second)
+        for worker, channel in workers:
+            channel.send("release")
+            self.receive(channel, "released")
+            self.join_worker(worker)
 
-    def test_parallel_cargo_rejects_same_output_without_consuming_second_slot(self):
+    def test_parallel_cargo_rejects_same_output_without_consuming_free_slots(self):
         first, first_pipe = self.start_cargo_worker(0)
         self.receive(first_pipe, "held")
         with self.assertRaises(LeaseBusy):
             with self.attempt_cargo(0):
                 self.fail("same output entered twice")
-        second, second_pipe = self.start_cargo_worker(1)
-        self.receive(second_pipe, "held")
-        first_pipe.send("release")
-        self.receive(first_pipe, "released")
-        self.join_worker(first)
-        second_pipe.send("release")
-        self.receive(second_pipe, "released")
-        self.join_worker(second)
+        others = []
+        for index in (1, 2):
+            worker, channel = self.start_cargo_worker(index)
+            self.receive(channel, "held")
+            others.append((worker, channel))
+        for worker, channel in [(first, first_pipe), *others]:
+            channel.send("release")
+            self.receive(channel, "released")
+            self.join_worker(worker)
 
     def test_failed_nested_exclusive_cargo_lease_preserves_shared_output_range(self):
         with self.attempt_cargo(0):
@@ -261,18 +265,29 @@ class LeaseTests(unittest.TestCase):
             del sys.modules[alias_name]
 
     def test_parallel_cargo_excludes_exclusive_final_lease(self):
-        worker, channel = self.start_cargo_worker(0)
-        self.receive(channel, "held")
+        workers = []
+        for index in range(3):
+            worker, channel = self.start_cargo_worker(index)
+            self.receive(channel, "held")
+            workers.append((worker, channel))
         with self.assertRaises(LeaseBusy):
-            with self.attempt_cargo(1, target=False):
+            with self.attempt_cargo(3, target=False):
                 self.fail("exclusive final lease entered during parallel builds")
-        channel.send("release")
-        self.receive(channel, "released")
-        self.join_worker(worker)
-        with self.attempt_cargo(1, target=False):
-            pass
+        for worker, channel in workers:
+            channel.send("release")
+            self.receive(channel, "released")
+            self.join_worker(worker)
+        with self.attempt_cargo(3, target=False):
+            worker, channel = self.start_cargo_worker(0)
+            self.receive(channel, "busy")
+            self.join_worker(worker)
 
     def test_parallel_cargo_releases_ranges_after_worker_exception(self):
+        others = []
+        for index in (1, 2):
+            other, other_pipe = self.start_cargo_worker(index)
+            self.receive(other_pipe, "held")
+            others.append((other, other_pipe))
         worker, channel = self.start_cargo_worker(0)
         self.receive(channel, "held")
         channel.send("raise")
@@ -280,8 +295,17 @@ class LeaseTests(unittest.TestCase):
         self.join_worker(worker)
         with self.attempt_cargo(0):
             pass
+        for other, other_pipe in others:
+            other_pipe.send("release")
+            self.receive(other_pipe, "released")
+            self.join_worker(other)
 
     def test_parallel_cargo_releases_ranges_after_worker_signal(self):
+        others = []
+        for index in (1, 2):
+            other, other_pipe = self.start_cargo_worker(index)
+            self.receive(other_pipe, "held")
+            others.append((other, other_pipe))
         worker, channel = self.start_cargo_worker(0)
         self.receive(channel, "held")
         channel.send("signal")
@@ -291,6 +315,10 @@ class LeaseTests(unittest.TestCase):
         self.join_worker(worker)
         with self.attempt_cargo(0):
             pass
+        for other, other_pipe in others:
+            other_pipe.send("release")
+            self.receive(other_pipe, "released")
+            self.join_worker(other)
 
     def test_parallel_cargo_rejects_output_replacement_during_lease(self):
         target = self.roots[0] / ".work/target"

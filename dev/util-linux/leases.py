@@ -16,6 +16,9 @@ class LeaseBusy(Exception):
     pass
 
 
+_PARALLEL_CARGO_CAPACITY = 3
+
+
 _native_descriptor = contextvars.ContextVar("util_linux_native_descriptor", default=None)
 _cargo_held = contextvars.ContextVar("util_linux_cargo_held", default=False)
 _cargo_guard_module = sys.modules.get("_xsh_util_linux_cargo_lease_guard")
@@ -156,12 +159,12 @@ def _cargo_target_identity(root: Path, target: Path) -> tuple[Path, tuple[int, i
 
 def _cargo_target_offset(identity: tuple[int, int]) -> int:
     digest = hashlib.blake2b(os.fsencode(f"{identity[0]}:{identity[1]}"), digest_size=8).digest()
-    return 2 + (int.from_bytes(digest, "big") & ((1 << 62) - 1))
+    return _PARALLEL_CARGO_CAPACITY + (int.from_bytes(digest, "big") & ((1 << 62) - 1))
 
 
 def _acquire_parallel_cargo_ranges(descriptor: int, identity: tuple[int, int]) -> int:
     target_offset = _cargo_target_offset(identity)
-    for slot in range(2):
+    for slot in range(_PARALLEL_CARGO_CAPACITY):
         try:
             fcntl.lockf(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB, 1, slot, os.SEEK_SET)
         except BlockingIOError:
