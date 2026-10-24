@@ -189,7 +189,10 @@ zero-length phase. The report schema and callable boundaries live in
 ## Inference measurements
 
 `inference_workloads.py` generates annotated and reduced source maps for the
-eight fixed inference families at 64, 128, 256, and 512 units. Deep-record
+nine inference families at 64, 128, 256, and 512 units. The original eight
+families and 36 cases are unchanged. Named generic constructors add four shapes:
+independent binders, shared defaults, ground return carriers and explicitly
+anchored phantom contexts, for 52 cases in total. Deep-record
 constructors and projections keep each syntax expression shallow while the
 named record types retain the requested semantic depth. The 64, 128, and 256
 depth outcomes remain pending probes. The adapter records them as ordinary
@@ -256,7 +259,9 @@ before and after each distribution. The filesystem page cache stays warm; the
 adapter does not flush it. Samples include CPU time, wall time, peak process
 RSS, status, exact output hashes, effects, and first useful output time.
 Summaries use nearest-rank p95 and retain raw samples, ranges, and paired
-spread.
+spread. Check samples recognize only the canonical closing stage-timing line;
+actual diagnostics, malformed or extra lines still fail. Raw stderr bytes and
+hashes remain recorded. Runtime samples still require empty stderr.
 
 The adapter passes each generated `main.xsh` entry to the canonical
 `xsht frontend-stats --json` owner, which resolves its imported sources through
@@ -271,16 +276,20 @@ never enter the timing budgets. Candidate frontend stats must report these nonne
 `successful_generic_call_resolutions`, `worklist_wakeups`,
 `host_candidate_trials`, `host_obligation_requeues`, `rollbacks`,
 `rollback_changes`, `level_adjustments`, `effect_edge_visits`,
-`candidate_tests`, `diagnostic_work`, `output_type_nodes`, and `evidence_nodes`.
+`candidate_tests`, `diagnostic_work`, `output_type_nodes`, `evidence_nodes`,
+`generalization_type_visits`, `instantiation_type_visits`, `schema_argument_visits`,
+`constructor_generalizations`, `constructor_template_binding_visits`, and
+`generalization_binding_clones`.
 The entry record must also report `function_body_check_entries` and
 `semantic_retained_bytes`. The adapter reads allocation traffic from the
 existing `tokens`, `cst`, `ast_check`, `lower`, and `after_drop` stages. It
 requires allocation tracking to be active for candidate samples.
 
-The current `frontend-stats` report has no `inference_work` object. The adapter
-fails before timing and reports the missing canonical counters. It does not
-derive solver work from test-only counters, source length, or output-shape
-metadata. Output and evidence descriptions in the workload generator remain
+Candidate `frontend-stats` supplies invocation-local counters. Missing candidate
+fields are unavailable and fail before timing; they never default to zero.
+Older reference products may lack these counters. The reference reader uses
+retained typing and allocation data without inventing solver counts. The adapter
+does not derive solver work from source length or output-shape metadata. Output and evidence descriptions in the workload generator remain
 structural metadata.
 
 P4 qualification compares candidate annotated checks with the frozen

@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import statistics
 from pathlib import Path
 import sys
@@ -98,18 +99,33 @@ def canonical_allocation_traffic(value):
     return result
 
 
+def check_diagnostics(stderr):
+    if not stderr.endswith(b'\n'):
+        return stderr
+    lines = stderr.splitlines(keepends=True)
+    summary = lines[-1]
+    seconds = rb'[0-9]+\.[0-9]{2}s'
+    stages = b', '.join(name + b' ' + seconds for name in (b'discover', b'load', b'check', b'lower'))
+    match = re.fullmatch(rb'xsht check: ([1-9][0-9]*) (file|files) in ' + seconds
+                         + rb' \(thread time by stage: ' + stages + rb'\)\n', summary)
+    if match is None or (match[1] == b'1') != (match[2] == b'file'):
+        return stderr
+    return b''.join(lines[:-1])
+
+
 def validate_observation(row, expected_stdout, *, expected_status=0, expected_depth_rejection=False,
-                         require_useful=False):
+                         require_useful=False, stage=None):
     status = row.get('status')
     if row.get('timed_out') is not False or type(status) is not int:
         raise ValueError('inference sample did not complete with an observed process status')
     stderr = base64.b64decode(row.get('stderr_base64', ''))
     stdout = base64.b64decode(row.get('stdout_base64', ''))
+    diagnostics = check_diagnostics(stderr) if stage == 'check' else stderr
     if expected_depth_rejection:
         diagnostic = stderr.decode('utf-8', errors='replace').lower()
         if status != 2 or b'parse.nesting-depth' in stderr or 'type depth limit' not in diagnostic:
             raise ValueError('512-level deep-record control did not reach the semantic type-depth rejection')
-    elif status != expected_status or stdout != expected_stdout or stderr or row.get('effects') != {}:
+    elif status != expected_status or stdout != expected_stdout or diagnostics or row.get('effects') != {}:
         raise ValueError(f'inference output/status/effects mismatch: status={status} stdout={stdout!r} stderr={stderr!r} effects={row.get("effects")!r}')
     for metric in MEASURES:
         if type(row.get(metric)) is not int or row[metric] < 0:
@@ -165,7 +181,8 @@ def alternate_pairs(count, invoke_pair, arms=VARIANTS):
         for variant in variants:
             observation = invoke_pair(variant)
             sample = validate_observation(observation['row'], observation['expected_stdout'],
-                                          require_useful=observation.get('require_useful', False))
+                                          require_useful=observation.get('require_useful', False),
+                                          stage=observation.get('stage'))
             pair[variant] = sample
             samples[variant].append(sample)
             order.append(variant)
@@ -358,7 +375,8 @@ def run_distribution(workload, variant_directories, products, sampler, environme
             expected = workload.expected_stdout
             useful_prefix = expected.splitlines(keepends=True)[0]
         row = sampler.invoke(argv, directory, environment, 60, measured=True, useful_prefix=useful_prefix)
-        return {'row': row, 'expected_stdout': expected, 'require_useful': useful_prefix is not None}
+        return {'row': row, 'expected_stdout': expected, 'require_useful': useful_prefix is not None,
+                'stage': stage}
 
     distribution = alternate_pairs(count, invoke_pair, tuple(arms))
     return {
@@ -709,7 +727,7 @@ def reference_support(xsht, entry, sampler, environment):
         raise ValueError('reference support probe did not finish with an observed status')
     stdout = base64.b64decode(row.get('stdout_base64', ''))
     stderr = base64.b64decode(row.get('stderr_base64', ''))
-    supported = row['status'] == 0 and not stdout and not stderr and row.get('effects') == {}
+    supported = row['status'] == 0 and not stdout and not check_diagnostics(stderr) and row.get('effects') == {}
     return {
         'observed': True,
         'supported': supported,
