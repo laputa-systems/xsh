@@ -466,7 +466,7 @@ impl ProducerPrefixContext<'_> {
         let Some(target) = decoder.checked_binding_path(instruction, charge)? else { return Ok(false) };
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
         let proven = decoder.checked_declared_type_matches_narrowed_fact_with_optional_proof(
-            instruction, target, actual, expected,
+            target, actual, expected,
             &mut |target, payload, charge| {
                 if target.1.len() > 128 { return Ok(false); }
                 self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, charge)
