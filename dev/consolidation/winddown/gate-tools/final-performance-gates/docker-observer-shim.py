@@ -27,7 +27,7 @@ RESOURCE_FLAGS = {
 GATE_BATCH_TAIL = [
     "cargo", "run", "--quiet", "--target", "x86_64-unknown-linux-musl",
     "-p", "xsh", "--bin", "xsh", "--",
-    "dev/main.xsh", "--", "internal", "gate-batch",
+    "dev/main.xsh", "--", "internal", "gate-full",
 ]
 
 

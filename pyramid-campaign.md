@@ -1,15 +1,42 @@
 # Scoped verification across XSH and Laputa
 
-Status: staggered preparation and native-runner implementation, 2026-10-22.
-The owner authorized starting independent Pyramid work alongside full inference.
-Full inference remains the priority; its remaining gates are unchanged.
+Status: first slice landed on master, 2026-10-24; the rest is parked.
+Full inference is separate. P0 qualification and campaign acceptance are open.
 
-The first provisional lane owns native exact-set selection and structured
-results in `.work/wt/pyramid-native-results`, based on `4f47f9ec7`. Local
-checkpoint `22f94efc0` passes sixteen focused controls and independent review.
-This qualifies the early slice; it does not establish P0 or campaign acceptance.
-P0 source freeze and qualification wait for accepted, integrated full inference.
-Keep this lane frozen until that source is ready.
+Landed from `campaign/pyramid-port`:
+
+- `xsht test --exact-id ID` sets and `--events-jsonl PATH` schema-1 results.
+- The component catalogue behind `cargo dev gate`: `--plan [--json]`,
+  `--tier edit|change`, repeatable `--case ID`, bounded execution and the exit
+  mapping below. Cases derive from the existing lane plans, plus
+  `showcase/tokei/correctness`, `core/lsmem/correctness` and
+  `core/lsmem/consumers`.
+- `cargo dev gate --full` as the only Full entry. `--batch` and
+  `internal gate-batch` are gone; Full validates its closure before Docker.
+
+Parked on `campaign/pyramid-integration` (`c7b9b7b29`, built on an older
+provisional inference compiler, so port by path rather than merge): product and
+input binding, stale-evidence status, standalone host execution and mixed
+host/native cases, lease and resource accounting, focused performance and
+workload adapters, Tokei, core-workload, frontend and Laputa PM cases, and the
+final-replay validation boundary. Each is the P1/P2 lane in the table below and
+needs its own port against the accepted inference source.
+
+Pilot, `core/lsmem.xsh` edit, 2 CPUs, in-container operation run on the host
+because the pinned image was absent:
+
+- Selection: `core/lsmem/correctness` (22 tests in `test-lsmem.xsh`) and
+  `core/lsmem/consumers` (two exact IDs in other modules that run the applet).
+  Both namespace-dependent consumers skip in either route, so they are excluded.
+- Pyramid: 35 s warm (34.5, 35.3, 35.1) and 60 s cold including a 16 s product
+  relink. The existing `gate PATH` selects `xsht test core/tests`: 9,473 tests
+  in 515 files, 3,386 s including a 50 s product build, single run.
+- Confidence: the 24 selected tests are every `core/tests` test that runs the
+  applet and does not skip, and they pass in both routes. The existing run is red on this host (1,453
+  environment failures, none in lsmem), so it gave no verdict either.
+- Not established: `xsht check`/`lint` of the file, Rust integration tests,
+  other applets, and the container itself. Neither route was run in Docker, and
+  32-CPU and `--full` turnaround were not measured.
 
 For a change, select the smallest declared verification scope, explain each
 selection, prepare only its required products, and report what the result
@@ -188,8 +215,9 @@ and `dev/tests/test-gates.xsh::test_cargo_callers_select_their_exact_native_test
 Each reports 5 ms test duration; observed whole helper calls were 0.611 and
 1.834 seconds. These are single operational observations during other work,
 not controlled performance baselines. No compilation was needed.
-`xsht test --list --exact` on an absent ID exits 0; actual `--exact` execution
-of the same ID exits 2. Retain this real gap as a regression case for exact sets.
+`xsht test --list --exact` on an absent ID exited 0 while execution exited 2.
+Closed: both exit 2, and the integration control
+`cli::test_exact_filter_with_no_matching_tests_fails` keeps it so.
 The existing Python regression also passes:
 `python3 -B -m unittest dev.performance.test_check.PolicyTests.test_measure_without_live_close_report_fails_before_effects`.
 It exercises the current live-close prerequisite and verifies rejection before
@@ -255,7 +283,8 @@ Run a single regression with the existing Cargo named-test or XSHT exact-ID
 selector. End an item with its named family, a phase with the changed areas'
 Change collection. Use `cargo dev gate --plan --case ID` to inspect new cases,
 then `cargo dev gate --case ID` for Change or an explicitly applicable Scenario.
-These new flags are implementation targets, not existing working commands.
+`--plan`, `--tier`, `--case` and `--full` exist now; Scenario cases and the
+workload families beyond the pilot remain implementation targets.
 P0 records the exact existing commands and narrow filters alongside each new
 case. A missed required check, budget overrun or mandatory timing deferral leaves
 selected scope incomplete. Optional manual coverage does not invalidate an
@@ -304,8 +333,9 @@ follow-up proposal if warranted; do not begin a second campaign here.
 
 ## Verified code map and reference
 
-- `dev/gates.xsh` owns `Area`, `select`, `required_products`, `lane_plan` and
-  explicit `batch`; `dev/main.xsh` dispatches `gate` and `--batch`.
+- `dev/gates.xsh` owns `Area`, `select`, `required_products`, `lane_plan`, the
+  case catalogue, `plan_paths` and the manual `--full` sequence; `dev/main.xsh`
+  dispatches `gate` and `internal gate-lane|gate-full`.
 - `crates/xsht/src/xsht/test.rs` owns discovery, filtering, module preparation,
   cancellation and timeouts. `crates/xsht/src/commands.rs` defines current CLI.
 - `dev/performance/check.py`, its tests, `inference_measurement.py`, and
@@ -347,12 +377,22 @@ scope; its optional Buck2/Nextest investigations remain deferred as stated above
   130; missing legacy exact listings exit 2. No Full suite or P0/performance
   qualification ran. Retain the clean lane and matching products for P0.
 
+- 2026-10-24: Owner steered the smallest useful slice onto master. Ported
+  `29b0bd974` (exact sets and events), `2fd3b92e5` (catalogue and tiers) and
+  `4e98783bc` (manual Full) by cherry-pick; every other branch commit is parked.
+  The ported driver needed current-checker repairs and two timing-tolerant
+  controls (cancellation startup wait, descendant reaping wait). The lsmem
+  Edit case was narrower than the Core directory run it replaced, so a Change
+  request adds `core/lsmem/consumers`.
+
 ## For the owner afterwards
 
 - Read the short report, explicit contract changes and any manual scope not run.
-- Review integrated XSH/Laputa commits and baseline-promotion decisions.
-- Expand beyond the early native-runner lane only within an explicit execution
-  grant; qualify the campaign on accepted post-inference sources.
+- Review the parked branch commit by commit before porting the next family
+  onto the accepted inference source; `--batch` callers outside the repository
+  must move to `--full`.
+- Expand beyond the landed slice only within an explicit execution grant;
+  qualify the campaign on accepted post-inference sources.
 
 ---
 

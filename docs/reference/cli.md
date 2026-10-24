@@ -181,16 +181,18 @@ xsht test — Run discovered tests
 Usage:
   xsht test [OPTIONS] [FILTER]
 
-  --list              List matching tests
-  --exact             Match FILTER exactly
-  --cov               Print source coverage
-  --api               Include API coverage, with --cov
-  -j, --jobs N        Run N tests concurrently (default: all CPUs capped at 32; max 8 per file)
-  --timeout DURATION  Fail a test that runs longer (default: 120s; 0 or none disables)
-  --nocapture         Show test output
-  --fail-fast         Stop after the first failure
-  --keep-temp         Preserve temporary directories
-  --cov-json FILE     Write coverage JSON
+  --list               List matching tests
+  --exact              Match FILTER exactly
+  --exact-id ID        Select an exact test ID (repeatable; cannot combine with FILTER or --exact)
+  --events-jsonl PATH  Create a schema-1 test lifecycle event stream
+  --cov                Print source coverage
+  --api                Include API coverage, with --cov
+  -j, --jobs N         Run N tests concurrently (default: all CPUs capped at 32; max 8 per file)
+  --timeout DURATION   Fail a test that runs longer (default: 120s; 0 or none disables)
+  --nocapture          Show test output
+  --fail-fast          Stop after the first failure
+  --keep-temp          Preserve temporary directories
+  --cov-json FILE      Write coverage JSON
 ```
 
 ### `xsht grep`

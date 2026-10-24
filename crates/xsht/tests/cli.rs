@@ -151,9 +151,225 @@ fn test_exact_filter_with_no_matching_tests_fails() {
         .output()
         .expect("list unmatched exact native test filter");
 
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsht: no native tests matched exact filter: tests/present.xsh::missing\n"
+    );
+}
+
+#[test]
+fn test_exact_sets_validate_the_same_inventory_for_listing_and_execution() {
+    let root = cli_tempdir();
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).unwrap();
+    fs::write(tests.join("a.xsh"), "test alpha { |_| }\ntest excluded { |_| assert false }\n").unwrap();
+    fs::write(tests.join("b.xsh"), "test beta { |_| }\n").unwrap();
+    let selected = ["tests/b.xsh::beta", "tests/a.xsh::alpha"];
+    let mut args = vec!["test", "--jobs", "1"];
+    for id in selected { args.extend(["--exact-id", id]); }
+    let listed = Command::new(test_bin!("xsht")).args(&args).arg("--list").current_dir(root.path()).output().unwrap();
+    assert_eq!(listed.status.code(), Some(0), "{}", String::from_utf8_lossy(&listed.stderr));
+    assert_eq!(listed.stdout, b"tests/a.xsh::alpha\ntests/b.xsh::beta\n");
+    let executed = Command::new(test_bin!("xsht")).args(&args).current_dir(root.path()).output().unwrap();
+    assert_eq!(executed.status.code(), Some(0), "{}", String::from_utf8_lossy(&executed.stderr));
+    let text = String::from_utf8(executed.stdout).unwrap();
+    assert!(text.contains("running 2 tests"), "{text}");
+    assert!(text.contains("tests/a.xsh::alpha") && text.contains("tests/b.xsh::beta"), "{text}");
+    assert!(!text.contains("excluded"), "{text}");
+    for list in [false, true] {
+        for (second, diagnostic) in [("tests/a.xsh::alpha", "duplicate exact test ID"), ("tests/b.xsh::missing", "missing exact test ID")] {
+            let mut command = Command::new(test_bin!("xsht"));
+            command.args(["test", "--exact-id", "tests/a.xsh::alpha", "--exact-id", second]);
+            if list { command.arg("--list"); }
+            let output = command.current_dir(root.path()).output().unwrap();
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty(), "{}", String::from_utf8_lossy(&output.stdout));
+            assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic), "{}", String::from_utf8_lossy(&output.stderr));
+        }
+    }
+    for conflict in ["alpha", "--exact"] {
+        let output = Command::new(test_bin!("xsht")).args(["test", "--exact-id", "tests/a.xsh::alpha", conflict]).current_dir(root.path()).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("cannot combine"));
+    }
+}
+
+fn native_event_field<'a>(event: &'a miniserde::json::Value, name: &str) -> &'a miniserde::json::Value {
+    let miniserde::json::Value::Object(fields) = event else { panic!("event is not an object") };
+    fields.get(name).unwrap_or_else(|| panic!("event is missing {name}"))
+}
+
+fn native_event_text(value: &miniserde::json::Value) -> &str {
+    let miniserde::json::Value::String(text) = value else { panic!("event field is not a string") };
+    text
+}
+
+fn native_event_number(value: &miniserde::json::Value) -> u64 {
+    match value {
+        miniserde::json::Value::Number(miniserde::json::Number::U64(number)) => *number,
+        miniserde::json::Value::Number(miniserde::json::Number::I64(number)) => u64::try_from(*number).unwrap(),
+        _ => panic!("event field is not an unsigned integer"),
+    }
+}
+
+fn reconciled_native_events(path: &Path, status: u64) -> (std::collections::BTreeMap<String, String>, miniserde::json::Value) {
+    let text = fs::read_to_string(path).unwrap();
+    assert!(text.ends_with('\n'), "the event stream must end at a complete record");
+    let events = text.lines().map(|line| miniserde::json::from_str::<miniserde::json::Value>(line).unwrap()).collect::<Vec<_>>();
+    let first = events.first().unwrap();
+    assert_eq!(native_event_text(native_event_field(first, "event")), "run_started");
+    let run_id = native_event_text(native_event_field(first, "run_id"));
+    let miniserde::json::Value::Array(selected) = native_event_field(first, "selected") else { panic!("run selection is not frozen") };
+    let selected = selected.iter().map(|id| native_event_text(id).to_owned()).collect::<std::collections::BTreeSet<_>>();
+    let mut active = std::collections::BTreeSet::new();
+    let mut outcomes = std::collections::BTreeMap::new();
+    let mut final_event = None;
+    for (index, event) in events.iter().enumerate() {
+        assert_eq!(native_event_number(native_event_field(event, "schema")), 1);
+        assert_eq!(native_event_text(native_event_field(event, "run_id")), run_id);
+        match native_event_text(native_event_field(event, "event")) {
+            "run_started" => assert_eq!(index, 0),
+            "case_started" => {
+                let id = native_event_text(native_event_field(event, "case_id"));
+                assert!(selected.contains(id) && !outcomes.contains_key(id));
+                assert!(active.insert(id.to_owned()));
+            }
+            "case_finished" => {
+                let id = native_event_text(native_event_field(event, "case_id"));
+                let outcome = native_event_text(native_event_field(event, "outcome"));
+                assert!(matches!(outcome, "passed" | "failed" | "skipped" | "timed_out" | "cancelled" | "not_executed"));
+                assert!(selected.contains(id));
+                if outcome == "not_executed" { assert!(!active.contains(id)); }
+                else { assert!(active.remove(id), "{id} finished without starting"); }
+                assert!(outcomes.insert(id.to_owned(), outcome.to_owned()).is_none());
+                native_event_number(native_event_field(event, "duration_ns"));
+                native_event_field(event, "reason");
+            }
+            "run_finished" => { assert_eq!(index + 1, events.len()); assert!(final_event.replace(event.clone()).is_none()); }
+            other => panic!("unknown event {other}"),
+        }
+    }
+    let summary = final_event.expect("a truncated stream cannot establish a result");
+    assert!(active.is_empty());
+    assert_eq!(selected, outcomes.keys().cloned().collect());
+    assert_eq!(native_event_number(native_event_field(&summary, "status")), status);
+    assert_eq!(native_event_number(native_event_field(&summary, "selected")), selected.len() as u64);
+    assert_eq!(native_event_number(native_event_field(&summary, "completed")), selected.len() as u64);
+    let counts = native_event_field(&summary, "counts");
+    for kind in ["passed", "failed", "skipped", "timed_out", "cancelled", "not_executed"] {
+        assert_eq!(native_event_number(native_event_field(counts, kind)), outcomes.values().filter(|outcome| outcome.as_str() == kind).count() as u64);
+    }
+    native_event_number(native_event_field(&summary, "duration_ns"));
+    (outcomes, summary)
+}
+
+#[test]
+fn test_exact_set_events_reconcile_pass_skip_failure_timeout_and_unstarted_cases() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    fs::write(root.path().join("tests/cases.xsh"), "test pass { |_| }\ntest skip { |_| test.skip(\"capability unavailable\") }\ntest fail { |_| assert false }\ntest timeout { |_| var n = 0; while true { n += 1 } }\ntest unstarted { |_| assert false }\n").unwrap();
+    for (name, selected, extra, status, expected) in [
+        ("pass", vec!["pass"], vec![], 0, vec!["passed"]),
+        ("skip", vec!["pass", "skip"], vec![], 2, vec!["passed", "skipped"]),
+        ("fail-fast", vec!["fail", "unstarted"], vec!["--fail-fast"], 1, vec!["failed", "not_executed"]),
+        ("timeout", vec!["pass", "timeout"], vec!["--timeout", "100ms"], 1, vec!["passed", "timed_out"]),
+    ] {
+        let events = root.path().join(format!("{name}.jsonl"));
+        let mut command = Command::new(test_bin!("xsht"));
+        command.args(["test", "--jobs", "2", "--events-jsonl"]).arg(&events).args(extra);
+        for selected in &selected { command.arg("--exact-id").arg(format!("tests/cases.xsh::{selected}")); }
+        let output = command.current_dir(root.path()).output().unwrap();
+        assert_eq!(output.status.code(), Some(status), "{name}: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let (outcomes, _) = reconciled_native_events(&events, status as u64);
+        for (id, expected) in selected.iter().zip(expected) { assert_eq!(outcomes[&format!("tests/cases.xsh::{id}")], expected); }
+    }
+    let legacy = Command::new(test_bin!("xsht")).args(["test", "--exact", "tests/cases.xsh::skip"]).current_dir(root.path()).output().unwrap();
+    assert_eq!(legacy.status.code(), Some(0));
+    let existing = root.path().join("existing.jsonl");
+    fs::write(&existing, "retained result").unwrap();
+    let output = Command::new(test_bin!("xsht")).args(["test", "--exact-id", "tests/cases.xsh::pass", "--events-jsonl"]).arg(&existing).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(fs::read_to_string(&existing).unwrap(), "retained result");
+    let output = Command::new(test_bin!("xsht")).args(["test", "--list", "--events-jsonl"]).arg(root.path().join("list.jsonl")).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!root.path().join("list.jsonl").exists());
+}
+
+#[test]
+fn test_exact_sets_preserve_selected_module_diagnostics() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    fs::write(root.path().join("tests/good.xsh"), "test good { |_| }\n").unwrap();
+    fs::write(root.path().join("tests/malformed.xsh"), "pure").unwrap();
+    fs::write(root.path().join("tests/bad.xsh"), r#"test bad { |_| let value: Int = "wrong"; assert value == 1 }"#).unwrap();
+    for list in [false, true] {
+        let run = |id: &str| {
+            let mut command = Command::new(test_bin!("xsht"));
+            command.args(["test", "--exact-id", id]).current_dir(root.path());
+            if list { command.arg("--list"); }
+            command.output().unwrap()
+        };
+        let bad = run("tests/bad.xsh::bad");
+        assert_eq!(bad.status.code(), Some(2));
+        let diagnostic = String::from_utf8_lossy(&bad.stderr);
+        assert!(diagnostic.contains("wrong"), "{diagnostic}");
+        assert!(!diagnostic.contains("missing exact test ID"), "{diagnostic}");
+        let malformed = run("tests/malformed.xsh::requested");
+        assert_eq!(malformed.status.code(), Some(2));
+        let parse_error = String::from_utf8_lossy(&malformed.stderr);
+        assert!(parse_error.contains("pure"), "{parse_error}");
+        assert!(!parse_error.contains("missing exact test ID"), "{parse_error}");
+        let good = run("tests/good.xsh::good");
+        assert!(good.status.success(), "{}", String::from_utf8_lossy(&good.stderr));
+        let missing = run("tests/good.xsh::missing");
+        assert_eq!(missing.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&missing.stderr).contains("missing exact test ID"));
+    }
+}
+
+#[test]
+fn test_coverage_output_failure_preserves_case_results_and_run_failure() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    fs::write(root.path().join("tests/pass.xsh"), "test pass { |_| }\n").unwrap();
+    let destination = root.path().join("coverage-directory");
+    fs::create_dir(&destination).unwrap();
+    for structured in [false, true] {
+        let events = root.path().join("coverage-events.jsonl");
+        let mut command = Command::new(test_bin!("xsht"));
+        command.args(["test", "--exact-id", "tests/pass.xsh::pass", "--cov-json"]).arg(&destination).current_dir(root.path());
+        if structured { command.arg("--events-jsonl").arg(&events); }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("coverage-json ... FAILED"));
+        if structured {
+            let (outcomes, summary) = reconciled_native_events(&events, 1);
+            assert_eq!(outcomes.len(), 1);
+            assert_eq!(outcomes["tests/pass.xsh::pass"], "passed");
+            assert_eq!(native_event_text(native_event_field(native_event_field(&summary, "reason"), "kind")), "coverage_failure");
+            assert_eq!(native_event_number(native_event_field(native_event_field(&summary, "counts"), "failed")), 0);
+        }
+    }
+}
+
+#[test]
+fn test_event_summary_does_not_pass_when_native_directory_cleanup_fails() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let temp = root.path().join("runner-temp");
+    fs::create_dir(&temp).unwrap();
+    fs::write(root.path().join("tests/cleanup.xsh"), r#"test interferes { |ctx| run sh -c "rmdir \"$1\"; : > \"$1\"" -- ${ctx.temp_root.display()} }
+test unstarted { |_| }
+"#).unwrap();
+    let events = root.path().join("cleanup.jsonl");
+    let output = Command::new(test_bin!("xsht")).args(["test", "--jobs", "1", "--events-jsonl"]).arg(&events).args(["--exact-id", "tests/cleanup.xsh::interferes", "--exact-id", "tests/cleanup.xsh::unstarted"]).env("TMPDIR", &temp).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let (outcomes, summary) = reconciled_native_events(&events, 2);
+    assert_eq!(outcomes["tests/cleanup.xsh::unstarted"], "not_executed");
+    assert_eq!(native_event_text(native_event_field(native_event_field(&summary, "reason"), "kind")), "cleanup_failure");
 }
 
 #[test]
@@ -526,8 +742,10 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
             ),
         )
         .expect("write descendant fixture");
+        let events = root.path().join("cancelled.jsonl");
         let mut runner = Command::new(test_bin!("xsht"))
-            .args(["test", "--jobs", "1"])
+            .args(["test", "--jobs", "1", "--events-jsonl"])
+            .arg(&events)
             .current_dir(root.path())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -556,7 +774,9 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
             None,
             "{status:?}"
         );
-        assert_eq!(status.code(), Some(128 + signal));
+        assert_eq!(status.code(), Some(130));
+        let (outcomes, _) = reconciled_native_events(&events, 130);
+        assert_eq!(outcomes["tests/spawn.xsh::spawns_descendants"], "cancelled");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while !processes_with_marker(&marker).is_empty() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(50));

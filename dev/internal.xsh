@@ -92,19 +92,21 @@ proc gate_git_directory(ctx: context.Context) [process, error, io] {
 }
 
 ## Runs selected Linux lane checks inside the pinned container.
-export proc gate_lane(ctx: context.Context, paths: List[Str]) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.ensure_dir(ctx.target_dir)
+export proc gate_lane(ctx: context.Context, paths: List[Str]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   defer repair_target(ctx)
-  gate_git_directory(ctx)
   gates.lane(ctx, paths)
 }
 
-## Runs the complete Linux batch sequence inside the pinned container.
-export proc gate_batch(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+## Requires the explicit gate-full operation before resolving the manual container sequence.
+export proc gate_full(ctx: context.Context, operation: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  return Err(gates.PlanError.Invalid(detail: "manual container dispatch requires gate-full operation identity")) when operation != "gate-full"
+  let request = gates.parse_request(["--full"])?
+  let profile = test_workflows.execution_profile()?
+  let _ = gates.full_plan(ctx, profile)?
   stages.ensure_dir(ctx.target_dir)
   defer repair_target(ctx)
   gate_git_directory(ctx)
-  gates.batch(ctx)
+  gates.batch(ctx, request)
 }
 
 ## Repairs the bind-mounted coverage result directory after container work completes.

@@ -162,6 +162,50 @@ trace-only flags. See
 [test ownership and commands](TESTING.md#native-tests-first) for repository
 test selection and profiles. Use `xsht help test` for test-runner options.
 
+`FILTER` selects matching IDs; `--exact FILTER` selects one exact ID. Both
+execution and `--list` reject an absent exact ID. Repeat `--exact-id ID` to
+freeze a set across modules; it cannot combine with `FILTER` or `--exact`.
+Every requested ID must exist and occur once, including during `--list`.
+Validation completes before a test starts. A selected module's compiler
+diagnostics remain compiler diagnostics; they are not reported as missing IDs.
+Invalid unselected modules do not block an exact set. Selected declarations in
+the same source module share one prepared program.
+
+`--events-jsonl PATH` creates a new file and refuses existing files or symlinks.
+It cannot combine with `--list`. Each newline-terminated schema-1 object has
+`schema`, `run_id`, and `event`. The stream contains:
+
+- `run_started` with the sorted `selected` ID array.
+- `case_started` with `case_id` when a test is admitted.
+- `case_finished` with `case_id`, `outcome`, `reason`, and integer `duration_ns`.
+  Outcomes are `passed`, `failed`, `skipped`, `timed_out`, `cancelled`, or
+  `not_executed`. A reason is null for success, or an object with `kind` and
+  `detail`; a timeout also includes its `limit` as a duration string.
+- One `run_finished` with `status`, `selected` and `completed` counts, counts
+  for every outcome, `reason`, and integer `duration_ns`.
+
+Each selected ID has exactly one terminal outcome. A never-admitted test has
+`not_executed` without `case_started`. Consumers must reject unknown schemas,
+malformed or duplicate records, invalid order, missing terminal outcomes, and
+streams without the final summary; a partial file cannot establish success.
+The runner checks its own lifecycle and reports event-write and cleanup errors.
+Consumers must also require the actual process status to agree with the final
+row: a final write or flush failure can leave readable bytes while the runner
+exits unsuccessfully.
+Test durations describe execution and scheduling, not performance measurements.
+Nested `test.run_*` results retain their existing raw child `status`; native
+cases themselves execute in-process and have no invented child exit status.
+
+Required exact-set skips leave the scope incomplete with exit 2. Existing
+filter and single-exact skip behavior is unchanged. Failures and timeouts exit
+1; invalid selection, event output, or incomplete cleanup exits 2. SIGINT and
+SIGTERM stop admission, cancel active tests, and drain owned workers before
+exit 130. Pending tests receive terminal outcomes. A second signal aborts
+immediately and can leave a truncated stream. An in-process evaluator that
+cannot stop within its existing cleanup grace is reported as still running;
+that scope cannot pass and requires process shutdown. `--fail-fast` records
+remaining selected tests as not executed.
+
 ## API queries
 
 `xsht api` queries the language and standard-library registry. With no

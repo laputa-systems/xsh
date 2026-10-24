@@ -67,7 +67,7 @@ enum InternalOperation {
     TestLinuxSplit,
     TestLinuxCiSplit,
     GateLane,
-    GateBatch,
+    GateFull,
     Coverage,
 }
 
@@ -79,7 +79,7 @@ pure internal_operation(value: Str) -> Result[InternalOperation] {
     "test-linux-split" => TestLinuxSplit
     "test-linux-ci-split" => TestLinuxCiSplit
     "gate-lane" => GateLane
-    "gate-batch" => GateBatch
+    "gate-full" => GateFull
     "coverage" => Coverage
     else => Err(usage(f"unsupported internal operation {value}"))
   }
@@ -93,8 +93,8 @@ usage: cargo dev COMMAND [OPTIONS]
 commands:
   build
   check [lint]
-  gate [PATH...]
-  gate --batch
+  gate [PATH...] [--tier edit|change] [--case ID] [--plan [--json]]
+  gate --full
   docs [check]
   lint --fix
   test [xsh|linux|macos] [--ci]
@@ -351,8 +351,10 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         TestLinux => return container_internal.linux_developer_test(ctx)
         TestLinuxCi => return container_internal.linux_ci_test(ctx)
         TestLinuxSplit | TestLinuxCiSplit => return container_internal.linux_split_resource_test(ctx)
-        GateLane => return container_internal.gate_lane(ctx, rest)
-        GateBatch => return container_internal.gate_batch(ctx)
+        GateLane => {
+          return container_internal.gate_lane(ctx, rest)
+        }
+        GateFull => return container_internal.gate_full(ctx, args[0])
         Coverage => return container_internal.container_coverage(ctx)
       }
     }
@@ -374,4 +376,16 @@ proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
   env TARGET=$global.target {
     dispatch(command, global.rest)
   }
+}
+
+pure gate_request(arguments: List[Str]) -> Bool {
+  ! arguments.is_empty() and (arguments[0] == "gate" or
+    (arguments.len() > 1 and arguments[0] == "internal" and arguments[1] in ["gate-lane", "gate-full"]))
+}
+
+on INT [process] {
+  if gate_request(args) { exit 130 }
+}
+on TERM [process] {
+  if gate_request(args) { exit 130 }
 }

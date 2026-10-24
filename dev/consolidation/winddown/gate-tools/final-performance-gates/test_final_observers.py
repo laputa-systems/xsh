@@ -763,7 +763,7 @@ def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str,
 
 
 def main() -> None:
-    assert observer.gate_batch_command() == ["cargo", "dev", "gate", "--batch"]
+    assert observer.gate_batch_command() == ["cargo", "dev", "gate", "--full"]
     assert_helper_pin_detects_drift()
     plan = assert_supplemental_handoff()
     assert plan["stages"][1]["full_native_suite_count"] == 1
