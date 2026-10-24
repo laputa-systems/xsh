@@ -876,20 +876,20 @@ mod tests {
             (super::MethodReceiver::Bytes, "is_empty", super::MethodFamilyId::Emptiness),
             (super::MethodReceiver::Str, "is_empty", super::MethodFamilyId::Emptiness),
         ] {
-            let overloads = method_overloads(&spec, receiver, name).expect("registered family member");
+            let overloads = method_overloads(spec, receiver, name).expect("registered family member");
             assert!(!overloads.is_empty());
             for index in 0..overloads.len() {
                 assert_eq!(spec.method_family_id(receiver, name, index), Some(family));
             }
         }
-        let writes = method_overloads(&spec, super::MethodReceiver::Path, "write").unwrap();
+        let writes = method_overloads(spec, super::MethodReceiver::Path, "write").unwrap();
         assert_eq!(writes.len(), 4);
         for index in 0..writes.len() {
             assert_eq!(spec.method_family_id(super::MethodReceiver::Path, "write", index), Some(super::MethodFamilyId::PathWrite));
         }
-        assert!(method_overloads(&spec, super::MethodReceiver::Str, "len").is_none());
+        assert!(method_overloads(spec, super::MethodReceiver::Str, "len").is_none());
         for receiver in [super::MethodReceiver::Str, super::MethodReceiver::Bytes] {
-            assert!(method_overloads(&spec, receiver, "byte_at").unwrap().iter().enumerate()
+            assert!(method_overloads(spec, receiver, "byte_at").unwrap().iter().enumerate()
                 .all(|(index, _)| spec.method_family_id(receiver, "byte_at", index).is_none()));
         }
         for receiver in &spec.methods {
@@ -914,7 +914,7 @@ mod tests {
             for &id in members {
                 let (receiver, name, overload, signature) = spec.registered_method(id).unwrap();
                 assert_eq!(spec.method_family_id(receiver, name, overload), Some(family));
-                assert!(std::ptr::eq(signature, &method_overloads(&spec, receiver, name).unwrap()[overload]));
+                assert!(std::ptr::eq(signature, &method_overloads(spec, receiver, name).unwrap()[overload]));
             }
         }
     }
