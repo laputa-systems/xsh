@@ -83,6 +83,34 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    pub(super) fn lower_scheme_pipeline_reduce_by(
+        &mut self, expression: ExprId, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<LoweredPipelineStage> {
+        let (item_slot, value) = self.lower_scheme_pipeline_callback(stage, item_type, slots, current_function, facts, visited, lowered_types)?;
+        let mut configuration = Vec::new();
+        let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+        let parameters = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
+        let binding = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?;
+        if arguments.len() != binding.argument_slots.len() || binding.callable_entry.is_some() { return None; }
+        let mut fields = BTreeMap::new();
+        let mut entries = Vec::new();
+        for (argument, &slot) in arguments.iter().zip(&binding.argument_slots) {
+            let name = parameters.get(slot)?.name;
+            let value = argument.lowered?;
+            if fields.insert(name, lowered_types.get(&value)?.clone()).is_some() { return None; }
+            entries.push(LoweredRecordEntry::Field(name, value));
+        }
+        let record = push_build_row!(self, expr, BuildExprRow::Record(entries));
+        let ty = SchemeType::Record { fields, tail: crate::sema::schemes::SchemeRowTail::Closed };
+        lowered_types.insert(record, ty.clone());
+        configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: record }));
+        let configuration = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+        lowered_types.insert(configuration, ty);
+        Some(LoweredPipelineStage::ReduceByConfigured { item_slot, body: Vec::new(), value, configuration })
+    }
+
     pub(super) fn lower_scheme_pipeline_observer(
         &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
         current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,

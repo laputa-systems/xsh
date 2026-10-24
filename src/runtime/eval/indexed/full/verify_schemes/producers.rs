@@ -6728,8 +6728,29 @@ impl<'a> ProducerProof<'a> {
             S::ReduceBy { .. } | S::ReduceByConfigured { .. } | S::ParMapFlatMapReduceBy { .. } => {
                 let Type::Map(key, item) = expected.unvalidated() else { return Err(IrVerifyError::new("pipeline reduction has no map contract")) };
                 if **key != Type::Str { return Err(IrVerifyError::new("pipeline reduction has no string key contract")); }
-                let row = Type::Record(Arc::new(BTreeMap::from([(Name::intern("key"), Type::Str), (Name::intern("value"), (**item).clone())])));
-                self.pipeline_callback(owner, pipeline, position, last, Arc::new(row), matches!(last, S::ParMapFlatMapReduceBy { .. }))
+                let reduced = matches!(last, S::ParMapFlatMapReduceBy { .. });
+                let can_complete = match last {
+                    S::ParMapFlatMapReduceBy { reduce_body, reduce_value, .. } => {
+                        !super::super::indexed_block_can_return_with_decoder(self.store, reduce_body.block_identity(), Some(&decoder))?
+                            && super::super::indexed_expr_can_complete(&decoder, reduce_value.raw() as usize, 0)?
+                    }
+                    _ => super::super::indexed_stage_callback_can_complete(&decoder, last)?,
+                };
+                if !can_complete {
+                    if !self.index.owners[&owner].pipeline_groups.contains_key(&(pipeline, position, reduced)) { return Err(IrVerifyError::new("pipeline callback has no lexical region")); }
+                    return Ok(());
+                }
+                let value = match last {
+                    S::ReduceBy { value, .. } | S::ReduceByConfigured { value, .. } => *value,
+                    S::ParMapFlatMapReduceBy { reduce_value, .. } => *reduce_value,
+                    _ => unreachable!(),
+                };
+                let row = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("pipeline reduction callback has no actual record contract"))?;
+                let Type::Record(fields) = row.unvalidated() else { return Err(IrVerifyError::new("pipeline reduction callback is not a record")) };
+                if !fields.contains_key(&Name::intern("key")) { return Err(IrVerifyError::new("pipeline reduction callback has no key field")); }
+                let value = fields.get(&Name::intern("value")).ok_or_else(|| IrVerifyError::new("pipeline reduction callback has no value field"))?;
+                if !value.matches_expected(item) { return Err(IrVerifyError::new("pipeline reduction value disagrees with its result contract")); }
+                self.pipeline_callback(owner, pipeline, position, last, row, reduced)
             }
             _ => {
                 let item = match expected.unvalidated() { Type::List(item) | Type::Stream(item) => Arc::new((**item).clone()), _ => return Err(IrVerifyError::new("pipeline producer has no collection output contract")) };

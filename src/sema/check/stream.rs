@@ -603,17 +603,23 @@ impl Checker {
                 self.check_stage_no_args_arena(arena, stage);
                 let block_ty =
                     self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let expected = Type::Record(btree_map(vec![
-                    ("key".to_string(), Type::Any),
-                    ("value".to_string(), Type::Any),
-                ]).into());
-                self.expect_type(&expected, &block_ty, stage_span);
-                let value_ty = match &block_ty {
-                    Type::Record(fields) => fields
-                        .get(&Name::intern("value"))
-                        .cloned()
-                        .unwrap_or(Type::Unknown),
-                    _ => Type::Unknown,
+                let block_ty = match self.type_constraints.resolve(&block_ty) {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        self.error(stage_span, &format!("reduction callback type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                };
+                if let Err(conflict) = self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("key"), self.callable_solver_level(), stage_span) {
+                    self.report_inferred_type_conflict(conflict);
+                    return Type::Invalid;
+                }
+                let value_ty = match self.type_constraints.project_record_field(block_ty.unvalidated(), Name::intern("value"), self.callable_solver_level(), stage_span) {
+                    Ok(ty) => ty,
+                    Err(conflict) => {
+                        self.report_inferred_type_conflict(conflict);
+                        return Type::Invalid;
+                    }
                 };
                 Type::Map(Box::new(Type::Str), Box::new(value_ty))
             }

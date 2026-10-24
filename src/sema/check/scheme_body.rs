@@ -565,7 +565,7 @@ pub(super) fn is_body_expression(
                         | crate::syntax::node::StreamStageKind::FlatMap | crate::syntax::node::StreamStageKind::Any
                         | crate::syntax::node::StreamStageKind::All | crate::syntax::node::StreamStageKind::ParMap
                         | crate::syntax::node::StreamStageKind::GroupBy | crate::syntax::node::StreamStageKind::UniqueBy
-                        | crate::syntax::node::StreamStageKind::SortBy
+                        | crate::syntax::node::StreamStageKind::SortBy | crate::syntax::node::StreamStageKind::ReduceBy
                         | crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee)
                         || (stage.kind == crate::syntax::node::StreamStageKind::Count && stage.block.is_some());
                     let fold = matches!(stage.kind, crate::syntax::node::StreamStageKind::Fold | crate::syntax::node::StreamStageKind::Reduce);

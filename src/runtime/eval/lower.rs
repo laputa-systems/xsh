@@ -5010,6 +5010,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         lowered_stages.push(lowered);
                         continue;
                     }
+                    if stage.kind == StreamStageKind::ReduceBy {
+                        lowered_stages.push(self.lower_scheme_pipeline_reduce_by(expression, &stage, &item_type, slots, current_function, facts, visited, lowered_types)?);
+                        continue;
+                    }
                     if matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee) {
                         let (slot, body) = self.lower_scheme_pipeline_observer(&stage, &item_type, slots, current_function, facts, visited, lowered_types)?;
                         lowered_stages.push(if stage.kind == StreamStageKind::Each { LoweredPipelineStage::Each { slot, body } } else { LoweredPipelineStage::Tee { slot, body } });

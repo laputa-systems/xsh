@@ -4693,8 +4693,10 @@ uses the enclosing scope before the callback parameters are bound.
 - `fold` and `reduce` callbacks must return exactly the accumulator's type and
   run serially. A `Result[T]` accumulator keeps `Err` values as data.
 - `reduce-by` keeps one accumulator per key, and its callback must return the
-  `{key, value}` record directly. `sum` adds numbers, or records field by
-  field. Exactly one of `sum`, `min`, `max` must be true.
+  `{key, value}` record directly. String, integer, and boolean keys convert
+  to text; other keys fail at runtime. Generic callbacks retain their actual
+  value type, including opaque `Result` data. `sum` adds numbers, or records
+  field by field. Exactly one of `sum`, `min`, `max` must be true.
 - `group-by` and `unique-by` compare whole key values (including `Result`s).
   `unique-by` keeps the first item per key.
 

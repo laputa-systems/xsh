@@ -1245,6 +1245,38 @@ pub(super) fn verify_body(
                                     pending.push(Obligation::Expression(value.raw() as usize, inner));
                                     terminal = Some(accumulator);
                                 }
+                                super::super::StageView::ReduceBy { item_slot, ref body, value, .. }
+                                | super::super::StageView::ReduceByConfigured { item_slot, ref body, value, .. } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, item_slot, &item, slot_count, &mut writers, budget)?;
+                                    let row = expression_type(types, value.raw() as usize, budget)?;
+                                    let row = BodyTypeRef::Scheme(&row).unvalidated();
+                                    if row.record_shape().is_none() || row.field(Name::intern("key")).is_none() { return Err(IrVerifyError::new("generic reduce-by callback has no key record")); }
+                                    let value_type = row.field(Name::intern("value")).ok_or_else(|| IrVerifyError::new("generic reduce-by callback has no value field"))?.materialize(budget)?;
+                                    match stage.view {
+                                        super::super::StageView::ReduceBy { jobs: Some(jobs), .. } => {
+                                            if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic reduce-by jobs is not Int")); }
+                                            pending.push(Obligation::Expression(jobs.raw() as usize, scope));
+                                        }
+                                        super::super::StageView::ReduceByConfigured { configuration, .. } => {
+                                            let ty = expression_type(types, configuration.raw() as usize, budget)?;
+                                            let configuration_type = BodyTypeRef::Scheme(&ty).unvalidated();
+                                            let Some((size, SchemeRowTail::Closed)) = configuration_type.record_shape() else { return Err(IrVerifyError::new("generic reduce-by configuration has no closed record")); };
+                                            let mut fields = 0;
+                                            for (name, expected) in [("sum", Type::Bool), ("min", Type::Bool), ("max", Type::Bool), ("jobs", Type::Int)] {
+                                                if let Some(field) = configuration_type.field(Name::intern(name)) {
+                                                    fields += 1;
+                                                    if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic reduce-by configuration field has the wrong type")); }
+                                                }
+                                            }
+                                            if fields != size { return Err(IrVerifyError::new("generic reduce-by configuration has an unknown field")); }
+                                            pending.push(Obligation::Expression(configuration.raw() as usize, scope));
+                                        }
+                                        _ => {}
+                                    }
+                                    if body.len() != 0 { return Err(IrVerifyError::new("generic reduce-by callback has detached statements")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                    terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(value_type)));
+                                }
                                 super::super::StageView::FlatMap { slot, value } => {
                                     let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
                                     let source = expression_type(types, value.raw() as usize, budget)?;
@@ -5148,6 +5180,90 @@ mod structured_pipeline_tests {
         let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_reduce_by_executes_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-reduce-by.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-reduce-by.xsh", crate::loader::entry_source_from_text("generic-pipeline-reduce-by.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_reduce_by", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+            for (entry, message) in [("invalid_reduce_key", "reduce-by key must be Str, Int, or Bool"), ("invalid_reduce_mode", "reduce-by requires exactly one enabled reduction mode")] {
+                let result = prepared.eval_test(entry, crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_ne!(result.output.status, 0, "{entry}, force_frames={force_frames}: {:?}", result.result);
+                assert!(result.output.diagnostics.iter().any(|diagnostic| diagnostic.message.contains(message)), "{entry}, force_frames={force_frames}: {:?}", result.output.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn generic_pipeline_reduce_by_authenticates_callback_and_configuration_scopes() {
+        let program = prepare(r#"pure scoped(value, marker) { let first = [marker] |> reduce-by(min: true) { |item| { key: "bucket", value: item } }; [value] |> reduce-by(max: true) { |item| { key: "bucket", value: item } } }"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "scoped").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let slots = range.clone().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                super::super::super::StageView::ReduceByConfigured { item_slot, .. } => Some(item_slot),
+                _ => None,
+            },
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(slots.len(), 2);
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == slots[1])).unwrap();
+        let mut escaped = program.clone();
+        escaped.store.extra[program.store.data[read].range().start as usize] = slots[0] as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
+        let configured = prepare("pure configured(value, flag: Bool) { [value] |> reduce-by(min: flag) { |item| { key: \"bucket\", value: item } } }\n");
+        let owner = configured.store.functions.iter().position(|function| configured.store.string(function.name).unwrap() == "configured").unwrap();
+        let decoder = super::super::decoder_for_function(&configured.store, owner).unwrap();
+        let range = configured.store.function_instruction_range(owner).unwrap();
+        let item_slot = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                super::super::super::StageView::ReduceByConfigured { item_slot, .. } => Some(item_slot),
+                _ => None,
+            },
+            _ => None,
+        }).unwrap();
+        let flag = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut escaped = configured.clone();
+        escaped.store.extra[configured.store.data[flag].range().start as usize] = item_slot as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
+        for source in [
+            r#"pure invalid(value) { [value] |> reduce-by(min: true) { |item| { key: "bucket" } } }"#,
+            r#"pure invalid(value) { [value] |> reduce-by(min: true, max: true) { |item| { key: "bucket", value: item } } }"#,
+            r#"pure invalid(value) { [value] |> reduce-by(min: true, jobs: 0) { |item| { key: "bucket", value: item } } }"#,
+        ] {
+            let mut sources = crate::source::SourceMap::default();
+            let source_id = sources.add_file("invalid-reduce-by.xsh", source.to_owned());
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(!checked.diagnostics.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn generic_pipeline_reduce_by_retains_actual_value_correlation() {
+        prepare("pure reduced(value) { [value] |> reduce-by(min: true) { |item| { key: \"bucket\", value: item } } }\n");
+        prepare("pure reduced(row) { [row] |> reduce-by(min: true) { |item| item } }\n");
+    }
+
+    #[test]
+    fn typed_pipeline_reduce_by_converts_actual_integer_keys() {
+        prepare("pure keyed(values: List[Int]) { values |> reduce-by(sum: true) { |item| { key: item, value: 1 } } }\n");
+        prepare(r#"type Row = {key: Str, value: Int}
+pure nominal(values: List[Int]) { values |> reduce-by(sum: true) { |item| Row(key: "bucket", value: item) } }"#);
     }
 
     #[test]
