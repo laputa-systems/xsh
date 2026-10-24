@@ -145,3 +145,8 @@ fn imported_guarded_callbacks_forward_conditional_effects_after_disposal() {
         verify_guarded_source(&path, format!("use guarded_callbacks\n{source}"), "verify_guarded_callbacks");
     });
 }
+
+#[test]
+fn guarded_known_declarations_specialize_their_actual_pending_effects() {
+    on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-declarations.xsh", "verify_guarded_known_targets"));
+}

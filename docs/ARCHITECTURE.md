@@ -622,8 +622,11 @@ through the existing wrapper journal after aliases resolve.
 Guarded effect contributions retain an actual local aggregate and a parent-owned
 outward effect parameter. Capture masks apply before aggregation. Nested outputs
 belong to their parent pack. Known checked calls contribute their actual contract
-without a duplicate declaration edge. Pending declaration edges retain their
-conservative graph behavior. The existing effect journal equates a live output
+without a duplicate declaration edge. Guarded pending calls read their actual
+target summary and original instantiation through the existing file inference
+fixed point. A probe without that summary retains its conservative declaration
+edge. Once the actual summary is available, the guard owns its contribution.
+A probe never publishes both contributions. The existing effect journal equates a live output
 with its instantiated local aggregate. Exact Null absence equates only the
 inherited output with empty effects and allocates no local or descendant pack.
 Written effect clauses remain upper bounds on the outward contribution and on
