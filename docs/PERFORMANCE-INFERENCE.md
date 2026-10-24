@@ -848,6 +848,46 @@ changes. Reuse the existing joint checker, lowering, interface, and native
 owners with their next matching source/product pair; no new solver or effect
 registry follows from this review.
 
+### Semantic joint candidate
+
+The current joint proposal retains the 39 plain Proc return selectors, removes
+the other 719 historically retained Proc annotations and all 202 effect clauses,
+and restores four annotations removed in the historical 1,040 view:
+
+| Site | Frozen source | Preserved return contract |
+|---|---|---|
+| 17 | `core/wc.xsh::byte_count` | `ByteCount` UInt fields and return schema |
+| 20 | `core/wc.xsh::add_bytes` | `ByteCount` UInt fields and return schema |
+| 79 | `core/wc.xsh::count_data` | `Counts` UInt fields and return schema |
+| 82 | `core/wc.xsh::add_counts` | `Counts` UInt fields and return schema |
+
+The matching `4de7c99e4` historical replay reaches all original and reduced root
+checks and 21 selectors in each view, then fails interface qualification. These
+four erased returns change UInt fields into inferred arithmetic results and lose
+their return schemas. They are meaning selectors for this proposal. Other
+interface mismatches, including identical printed nullable outputs, remain under
+comparison review; this profile adds no guessed nullable-output retainers.
+
+`frozen_witnesses.py FROZEN_VIEWS --prepare-semantic-candidate` produces the new
+retained table from validated `original` and `reduced-1040` views. The existing
+`cohort.py` and `validate.py` consume it without changing frozen source bytes,
+inventory, or denominators. Candidate validation permits only the complete four
+WC restorations with their explicit reasons; original retained reasons remain
+unchanged, and effect removal still selects zero or all 202 clauses.
+
+The generated table has 926 retainers: 194 local and 732 internal. Its source
+view has 1,957 proposed removals: 499 of 693 locals and 1,458 of 2,190 internal
+sites. Relative to the historical table, it adds 921 erasures and restores four
+annotations. The historical 1,843 retainers and accepted 1,040 removals are not
+revised. All 149 empty-Map selectors, the additional Map-literal selector, the
+39 plain Proc returns, and the remaining checker-restored classes retain their
+source. Missing in-scope inference remains open work.
+
+The candidate table and all 48 transformed source files validate; comparison
+with the existing `compare_tree.py` confirms the original copy is unchanged.
+Matching interface comparison is pending. These preparation results grant no
+new removal, behavior, or paired-corpus credit.
+
 ### Build source witness records
 
 `dev/performance/corpus/frozen_witnesses.py` reads the eligibility, retained,

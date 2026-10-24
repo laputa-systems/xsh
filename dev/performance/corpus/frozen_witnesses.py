@@ -26,6 +26,12 @@ EXPECTED_VIEW_DIGESTS = {
     "reduced-1040": "b67b498467a1dfe613573690288a8c514b9c03d0f895a4a3b20e4fd3b55968f9",
 }
 EXPECTED_VIEW_ENTRIES = 14287
+WC_RETURN_SELECTORS = {
+    17: ("byte_count", "ByteCount"),
+    20: ("add_bytes", "ByteCount"),
+    79: ("count_data", "Counts"),
+    82: ("add_counts", "Counts"),
+}
 EXPECTED_COUNTS = {
     "proc-parameter-contract": 549,
     "proc-return-contract": 209,
@@ -367,6 +373,37 @@ def retained_rows_by_site(rows, source_name):
     return values
 
 
+def meaning_selector_reason(site_id):
+    owner, annotation = WC_RETURN_SELECTORS[site_id]
+    return f"source meaning selector: {annotation} UInt fields and return schema in pure {owner}"
+
+
+def semantic_joint_candidate_rows(views_root, sites, retained):
+    original = Path(views_root) / "original"
+    proc_sites = {site.site for site in sites if site.site in retained and site.reason in {PROC_PARAMETER_REASON, PROC_RETURN_REASON}}
+    effect_sites = {site.site for site in sites if site.site in retained and site.kind == "effect-list" and site.reason == EFFECT_REASON}
+    plain_returns = set()
+    for site in sites:
+        if site.site in retained and site.reason == PROC_RETURN_REASON:
+            _source, annotation, _owner, _context = exact_site_bytes(original, site)
+            if re.match(rb"Result\s*\[", annotation) is None:
+                plain_returns.add(site.site)
+    if len(proc_sites) != 758 or len(effect_sites) != 202 or len(plain_returns) != 39:
+        raise ValueError("semantic candidate does not preserve the frozen Proc and effect partition")
+    rows = {site_id: [str(site_id), row["reason"]] for site_id, row in retained.items() if site_id not in (proc_sites - plain_returns) | effect_sites}
+    by_site = {site.site: site for site in sites}
+    for site_id, (owner, expected_annotation) in WC_RETURN_SELECTORS.items():
+        site = by_site[site_id]
+        _source, annotation, _owner, _context = exact_site_bytes(original, site)
+        if (site.project, site.path, site.kind, site.owner, annotation) != ("xsh", "core/wc.xsh", "return-type", f"pure {owner} return", expected_annotation.encode()):
+            raise ValueError(f"meaning selector differs from frozen source at site {site_id}")
+        rows[site_id] = [str(site_id), meaning_selector_reason(site_id)]
+    accepted = [[str(site_id), row["reason"]] for site_id, row in retained.items()]
+    result = [rows[site_id] for site_id in sorted(rows)]
+    validate_frozen_candidate_rows(accepted, result, proc_sites, effect_sites)
+    return result
+
+
 def validate_frozen_candidate_rows(accepted_rows, candidate_rows, proc_sites, effect_sites):
     accepted = retained_rows_by_site(accepted_rows, "accepted table")
     candidate = retained_rows_by_site(candidate_rows, "candidate table")
@@ -381,15 +418,20 @@ def validate_frozen_candidate_rows(accepted_rows, candidate_rows, proc_sites, ef
     ):
         raise ValueError("candidate validation inputs do not describe the frozen retained cohorts")
 
-    if set(candidate) - set(accepted):
+    restored = set(candidate) - set(accepted)
+    if restored - WC_RETURN_SELECTORS.keys():
         raise ValueError("candidate introduces rows outside the frozen retained cohort")
+    if restored and restored != WC_RETURN_SELECTORS.keys():
+        raise ValueError("candidate must restore all four verified wc meaning selectors")
+    if any(candidate[site_id][1] != meaning_selector_reason(site_id) for site_id in restored):
+        raise ValueError("candidate changes a verified meaning selector reason")
     removed = set(accepted) - set(candidate)
     if removed - proc_sites - effect_sites:
         raise ValueError("candidate removes a retained row outside selected Proc and joint-effect cohorts")
     removed_effects = removed & effect_sites
     if removed_effects and removed_effects != effect_sites:
         raise ValueError("candidate must remove either zero or all 202 joint-effect rows")
-    if any(candidate[site_id] != accepted[site_id] for site_id in candidate):
+    if any(candidate[site_id] != accepted[site_id] for site_id in set(candidate) & set(accepted)):
         raise ValueError("candidate changes a frozen retained row")
 
 
@@ -894,6 +936,7 @@ def witness_rows(views_root, sites, retained, eligibility, individual_effect_ids
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("views_root", type=Path, nargs="?")
+    parser.add_argument("--prepare-semantic-candidate", action="store_true")
     parser.add_argument(
         "--validate-retained-candidate",
         nargs=2,
@@ -905,6 +948,15 @@ def main():
         default="all",
     )
     args = parser.parse_args()
+    if args.prepare_semantic_candidate:
+        if args.views_root is None or args.validate_retained_candidate is not None or args.select != "all":
+            parser.error("--prepare-semantic-candidate requires only the frozen views root")
+        sites, eligibility, retained, _individual, _facts = load_corpus()
+        validate_views(args.views_root, sites, eligibility, retained)
+        writer = csv.writer(sys.stdout, delimiter="\t", lineterminator="\n")
+        writer.writerow(("site", "reason"))
+        writer.writerows(semantic_joint_candidate_rows(args.views_root, sites, retained))
+        return
     if args.validate_retained_candidate is not None:
         if args.select != "all":
             parser.error("--select cannot be combined with --validate-retained-candidate")

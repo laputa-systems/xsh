@@ -30,6 +30,25 @@ def site(site_id=1, kind="parameter-type", owner="pure f parameter x", reason=""
 
 
 class FrozenWitnessTests(unittest.TestCase):
+    def test_candidate_restores_only_the_whole_verified_wc_meaning_group(self):
+        sites, _eligibility, retained, _individual, _facts = corpus.load_corpus()
+        accepted = [[str(site_id), row["reason"]] for site_id, row in sorted(retained.items())]
+        proc_sites = {site.site for site in sites if site.site in retained and site.reason in {corpus.PROC_PARAMETER_REASON, corpus.PROC_RETURN_REASON}}
+        effect_sites = {site.site for site in sites if site.site in retained and site.kind == "effect-list" and site.reason == corpus.EFFECT_REASON}
+        restored = [
+            ["17", "source meaning selector: ByteCount UInt fields and return schema in pure byte_count"],
+            ["20", "source meaning selector: ByteCount UInt fields and return schema in pure add_bytes"],
+            ["79", "source meaning selector: Counts UInt fields and return schema in pure count_data"],
+            ["82", "source meaning selector: Counts UInt fields and return schema in pure add_counts"],
+        ]
+        corpus.validate_frozen_candidate_rows(accepted, accepted + restored, proc_sites, effect_sites)
+        with self.assertRaisesRegex(ValueError, "all four"):
+            corpus.validate_frozen_candidate_rows(accepted, accepted + restored[:1], proc_sites, effect_sites)
+        with self.assertRaisesRegex(ValueError, "meaning selector"):
+            corpus.validate_frozen_candidate_rows(accepted, accepted + restored[:-1] + [["82", "guessed"]], proc_sites, effect_sites)
+        with self.assertRaisesRegex(ValueError, "outside"):
+            corpus.validate_frozen_candidate_rows(accepted, accepted + restored + [["22", "guessed"]], proc_sites, effect_sites)
+
     def test_frozen_candidate_allows_zero_or_all_effects_and_rejects_other_cohorts(self):
         WORK_TMP.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="frozen-candidate-", dir=WORK_TMP) as temporary:
