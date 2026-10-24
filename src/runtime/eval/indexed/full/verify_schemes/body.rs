@@ -5234,12 +5234,14 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
                 ("projection", projection.unwrap(), wrong_item.unwrap()),
             ] {
                 let mut changed = original.clone();
+                if uncached { changed.store.in_place.take(); assert!(changed.store.in_place.get().is_none()); }
                 changed.store.tags.swap(from, to);
                 changed.store.data.swap(from, to);
                 let error = FullVerifier::verify(&changed).unwrap_err();
                 assert_eq!(error.message, if label == "filter" { "condition producer disagrees with its control role" } else { "generic call argument does not match its checked parameter slot" }, "{label} uncached={uncached}");
             }
             let mut foreign_read = original.clone();
+            if uncached { foreign_read.store.in_place.take(); assert!(foreign_read.store.in_place.get().is_none()); }
             let words = foreign_read.store.data[comprehension].range().bounds(foreign_read.store.extra.len()).unwrap();
             let qualifiers = IrBlockId::from_raw(foreign_read.store.extra[words.start + 1]).unwrap();
             let words = foreign_read.store.blocks[qualifiers.index()].instructions.bounds(foreign_read.store.extra.len()).unwrap();
