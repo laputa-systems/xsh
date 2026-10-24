@@ -2054,6 +2054,10 @@ tempdir site { assert publish(site)? == 4 }
         program.store.checked_expr_types.retain(|fact| fact.is_contract());
         FullVerifier::verify(&program).unwrap();
         execute_both(&program);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
         let owner = function(&program, "publish");
         let decoder = function_view_decoder(&program.store, owner);
         let payload = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
@@ -2065,7 +2069,7 @@ tempdir site { assert publish(site)? == 4 }
         wrong_payload.store.tags[payload] = FullTag::ExprInt;
         wrong_payload.store.data[payload] = program.store.data[integer];
         let error = FullVerifier::verify(&wrong_payload).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract"), "{error:?}");
+        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract") || error.message.contains("managed release has no canonical resource scope"), "{error:?}");
         let handover = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
             let schema::StmtView::Assign { value, .. } = decoder.statement_view(instruction).ok()? else { return None };
             (program.store.tags[value.raw() as usize] == FullTag::ExprBool).then_some(value.raw() as usize)
@@ -2074,7 +2078,7 @@ tempdir site { assert publish(site)? == 4 }
         wrong_handover.store.tags[handover] = FullTag::ExprInt;
         wrong_handover.store.data[handover] = program.store.data[integer];
         let error = FullVerifier::verify(&wrong_handover).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract"), "{error:?}");
+        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract") || error.message.contains("managed release has no canonical resource scope"), "{error:?}");
         for (from, to) in [(RuntimeOp::FsCloseRootIfOpen, RuntimeOp::FsUnlockIfHeld), (RuntimeOp::FsUnlockIfHeld, RuntimeOp::FsCloseRootIfOpen)] {
             let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
                 matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op, .. }) if op == from)
@@ -2083,7 +2087,7 @@ tempdir site { assert publish(site)? == 4 }
             let pool = program.store.extra[program.store.data[instruction].range().start as usize] as usize;
             forged.store.runtime_ops[pool] = to;
             let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(error.message.contains("native operation arguments have no matching contract"), "{error:?}");
+            assert!(error.message.contains("native operation arguments have no matching contract") || error.message.contains("managed release has no canonical resource scope"), "{error:?}");
         }
         let error = FullVerifier::verify(&without_effect(&program, owner, Effect::Fs)).unwrap_err();
         assert!(error.message.contains("requires effect fs"), "{error:?}");

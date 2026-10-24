@@ -34,7 +34,7 @@ use super::lowered_ops::{
     lowered_binary_op, lowered_value_matches,
 };
 use super::{
-    CheckedPatternField, CheckedPatternVariantKey, CheckedPatternVariantKind,
+    DeferKind, CheckedPatternField, CheckedPatternVariantKey, CheckedPatternVariantKind,
     LoweredErrorExpr, LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry,
     LoweredRecordEntry,
     LoweredRecordUpdates, LoweredRunCapture, LoweredSpawnRun,
@@ -3798,7 +3798,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
                         }
                     };
-                    BuildStmtRow::Defer { value, on_error: trigger == DeferTrigger::Error }
+                    BuildStmtRow::Defer { value, kind: DeferKind::for_error(trigger == DeferTrigger::Error) }
                 },
                 ArenaStmtKind::Return(None) if facts.scheme().kind() == CallableKind::Stream => {
                     let value = push_build_row!(self, expr, BuildExprRow::Unit);
@@ -7718,7 +7718,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     stmt,
                     BuildStmtRow::Defer {
                         value,
-                        on_error: trigger == DeferTrigger::Error,
+                        kind: DeferKind::for_error(trigger == DeferTrigger::Error),
                     }
                 ))
             }
@@ -7730,7 +7730,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     stmt,
                     BuildStmtRow::Defer {
                         value,
-                        on_error: trigger == DeferTrigger::Error,
+                        kind: DeferKind::for_error(trigger == DeferTrigger::Error),
                     }
                 ))
             }

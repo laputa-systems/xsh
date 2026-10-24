@@ -1665,6 +1665,32 @@ enum LoweredValueCheck {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum DeferKind {
+    Always,
+    OnError,
+    ManagedRelease,
+}
+
+impl DeferKind {
+    const INDEX_BITS: u32 = 30;
+    const INDEX_LIMIT: u32 = 1 << Self::INDEX_BITS;
+
+    fn from_encoded(raw: u32) -> Option<Self> {
+        match raw {
+            0 => Some(Self::Always),
+            1 => Some(Self::OnError),
+            2 => Some(Self::ManagedRelease),
+            _ => None,
+        }
+    }
+
+    fn for_error(on_error: bool) -> Self {
+        if on_error { Self::OnError } else { Self::Always }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredReturnKind {
     Plain(LoweredType),
     Result(LoweredType),

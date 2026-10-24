@@ -1280,7 +1280,12 @@ results flow to the script. Automatic cleanup does not replace the script
 result with a release error.
 Resource scopes register their release operations as deferred `Result[Unit]`
 values. The existing defer consumer handles those results without synthetic `?`
-operations adding caller error requirements.
+operations adding caller error requirements. Their outer cleanup defer has a
+verified managed-release purpose: its failure is secondary to an abrupt body
+exit. Normal completion transfers release into the scope's capture, where the
+first failed release determines its Result. Ordinary user defers retain their
+existing failure priority. The defer purpose shares the packed registration
+word with its bounded instruction index.
 
 Network workers receive plain Rust requests. They do not own evaluator values,
 source spans, or trace buffers. The evaluator owns job lifetimes and trace

@@ -1,4 +1,4 @@
-use super::{FullCallableContract, FullDecoder, FullStore, FullTag, IrVerifyError, Type, schema};
+use super::{DeferKind, FullCallableContract, FullDecoder, FullStore, FullTag, IrVerifyError, Type, schema};
 use crate::modules::signature::NativeEffectRule;
 use crate::sema::types::CallableKind;
 use crate::syntax::node::Effect;
@@ -90,6 +90,84 @@ pub(super) fn require_callable(decoder: &FullDecoder<'_>, scopes: &VerifiedSchem
     let captured = owner.kind != CallableKind::Pure && effects.is_some_and(|effects| effects.contains(&Effect::Error))
         && captures_error(decoder, instruction, &mut BTreeMap::new(), parent_of)?;
     owner.require(&ScopedEffectProof::new(decoder.store, scopes), budget, effects, pure, captured)
+}
+
+fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Result<(usize, Vec<usize>), IrVerifyError> {
+    let invalid = || IrVerifyError::new("managed release has no canonical resource scope");
+    let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(parent)? else { return Err(invalid()) };
+    let body = body.map(|row| row.map(|row| row.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+    if body.len() < 5 || body.len() % 2 != 1 { return Err(invalid()); }
+    let schema::StmtView::Let { slot: closing_slot, value: open, annotation: None } = decoder.statement_view(body[0])? else { return Err(invalid()) };
+    if !matches!(decoder.expression_view(open.raw() as usize)?, schema::ExprView::Bool(false)) { return Err(invalid()); }
+    if decoder.is_parameter_or_capture_slot(closing_slot, &mut |_| Ok(()))? { return Err(IrVerifyError::new("managed release closing slot aliases external storage")); }
+    if let Some(step) = super::driver_owner_index(decoder.owner) {
+        let slots = decoder.store.driver_steps[step].slots.bounds(decoder.store.driver_slots.len()).ok_or_else(invalid)?;
+        if decoder.store.driver_slots[slots].iter().any(|slot| slot.slot as usize == closing_slot && slot.binding_identity != super::IR_NONE) { return Err(IrVerifyError::new("managed release closing slot aliases external storage")); }
+    }
+    let mut locals = std::collections::BTreeSet::from([closing_slot]);
+    let resource_count = (body.len() - 3) / 2;
+    let mut releases = Vec::with_capacity(resource_count);
+    let release_call = |instruction: usize| -> Result<(_, usize), IrVerifyError> {
+        let schema::ExprView::ModuleCall { call_plan: None, op, mut args, .. } = decoder.expression_view(instruction)? else { return Err(invalid()) };
+        if !crate::modules::ManagedResource::ALL.into_iter().any(|resource| resource.release_op() == Some(op)) || args.len() != 1 { return Err(invalid()); }
+        let argument = args.next().ok_or_else(invalid)??.ok_or_else(invalid)?;
+        let schema::ExprView::Param(slot) = decoder.expression_view(argument.raw() as usize)? else { return Err(invalid()) };
+        Ok((op, slot))
+    };
+    for resource in body[1..body.len() - 2].chunks_exact(2) {
+        let schema::StmtView::Let { slot, .. } = decoder.statement_view(resource[0])? else { return Err(invalid()) };
+        let schema::StmtView::Defer { value, kind: DeferKind::ManagedRelease } = decoder.statement_view(resource[1])? else { return Err(invalid()) };
+        let schema::ExprView::IfExpr { mut branches, else_value, .. } = decoder.expression_view(value.raw() as usize)? else { return Err(invalid()) };
+        if branches.len() != 1 { return Err(invalid()); }
+        let (condition, skip) = branches.next().ok_or_else(invalid)??;
+        if !matches!(decoder.expression_view(condition.raw() as usize)?, schema::ExprView::Param(actual) if actual == closing_slot) { return Err(invalid()); }
+        let schema::ExprView::Ok(unit) = decoder.expression_view(skip.raw() as usize)? else { return Err(invalid()) };
+        if !matches!(decoder.expression_view(unit.raw() as usize)?, schema::ExprView::Unit) { return Err(invalid()); }
+        let release = release_call(else_value.raw() as usize)?;
+        if release.1 != slot || !locals.insert(slot) { return Err(invalid()); }
+        releases.push(release);
+    }
+    let schema::StmtView::Let { slot: finished_slot, value: finished, .. } = decoder.statement_view(body[body.len() - 2])? else { return Err(invalid()) };
+    if !locals.insert(finished_slot) || !matches!(decoder.expression_view(finished.raw() as usize)?, schema::ExprView::ValueBlock { .. }) { return Err(invalid()); }
+    let schema::StmtView::Value { value: outcome } = decoder.statement_view(body[body.len() - 1])? else { return Err(invalid()) };
+    let schema::ExprView::Capture { body: closing, .. } = decoder.expression_view(outcome.raw() as usize)? else { return Err(invalid()) };
+    let closing = closing.map(|row| row.map(|row| row.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+    if closing.len() != resource_count + 2 { return Err(invalid()); }
+    for (&statement, release) in closing.iter().zip(releases) {
+        let schema::StmtView::Defer { value, kind: DeferKind::Always } = decoder.statement_view(statement)? else { return Err(invalid()) };
+        if release_call(value.raw() as usize)? != release { return Err(invalid()); }
+    }
+    let handover = closing[resource_count];
+    let schema::StmtView::Assign { slot, op: crate::syntax::node::AssignOp::Set, value, check: None, .. } = decoder.statement_view(handover)? else { return Err(invalid()) };
+    if slot != closing_slot || !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Bool(true)) { return Err(invalid()); }
+    let schema::StmtView::Value { value } = decoder.statement_view(closing[resource_count + 1])? else { return Err(invalid()) };
+    let schema::ExprView::Try { value, .. } = decoder.expression_view(value.raw() as usize)? else { return Err(invalid()) };
+    if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Param(slot) if slot == finished_slot) { return Err(invalid()); }
+    Ok((closing_slot, vec![body[0], handover]))
+}
+
+pub(super) fn verify_defer_purposes(decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {
+    let mut managed_scopes = std::collections::BTreeSet::new();
+    let mut closing_writers = BTreeMap::<usize, Vec<usize>>::new();
+    for instruction in decoder.instruction_range.clone() {
+        if decoder.store.tags[instruction] != FullTag::StmtDefer { continue; }
+        let schema::StmtView::Defer { value, kind } = decoder.statement_view(instruction)? else { unreachable!() };
+        if value.raw() >= DeferKind::INDEX_LIMIT { return Err(IrVerifyError::new("deferred expression index overflows its word")); }
+        if kind == DeferKind::ManagedRelease {
+            let parent = decoder.instruction_parent_of(instruction)?.ok_or_else(|| IrVerifyError::new("managed release has no resource scope owner"))?;
+            if managed_scopes.insert(parent) {
+                let (slot, allowed) = verify_managed_release_scope(decoder, parent)?;
+                if closing_writers.insert(slot, allowed).is_some() { return Err(IrVerifyError::new("managed release closing slot has competing scopes")); }
+            }
+        }
+    }
+    if !closing_writers.is_empty() {
+        let slots = closing_writers.keys().copied().collect();
+        let excluded = closing_writers.values().flatten().copied().collect();
+        let writers = decoder.temporary_slot_writers_except(&slots, &excluded, &mut |_| Ok(()))?;
+        if !writers.is_empty() { return Err(IrVerifyError::new("managed release closing slot has unrelated writers")); }
+    }
+    Ok(())
 }
 
 pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &VerifiedSchemeScopes) -> Result<(), IrVerifyError> {
@@ -259,7 +337,10 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 let schema::StmtView::Print { propagate_result, .. } = decoder.statement_view(instruction)? else { unreachable!() };
                 if propagate_result { require(instruction, Some(&[Effect::Error]), false, &mut captured)?; }
             }
-            FullTag::StmtDefer => require(instruction, Some(&[]), false, &mut captured)?,
+            FullTag::StmtDefer => {
+                require(instruction, Some(&[]), false, &mut captured)?;
+
+            }
             FullTag::StmtYield | FullTag::StmtYieldDelegate if owner.kind != CallableKind::Stream => {
                 return Err(IrVerifyError::new("yield instruction requires a stream callable entry"));
             }

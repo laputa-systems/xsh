@@ -2084,7 +2084,79 @@ mod tests {
         assert_eq!(&changed.store.extra[words.clone()], &[original_slot as u32]);
         changed.store.extra[words.start] = 1;
         let error = FullVerifier::verify(&changed).unwrap_err();
-        assert!(error.message.contains("native operation arguments have no matching contract"), "{error:?}");
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
+    }
+
+    #[test]
+    fn managed_release_authenticates_cold_purpose_and_handover() {
+        let mut program = prepare("var saved = false\nproc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let observed = saved; defer { let kept = 1 }; let ignored = with held = root { return 1 } }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let managed = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Defer { kind: crate::runtime::eval::DeferKind::ManagedRelease, .. }))).unwrap();
+        let ordinary = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Defer { kind: crate::runtime::eval::DeferKind::Always, .. }))).unwrap();
+        let condition = match decoder.statement_view(managed).unwrap() {
+            schema::StmtView::Defer { value, .. } => match decoder.expression_view(value.raw() as usize).unwrap() {
+                schema::ExprView::IfExpr { mut branches, .. } => branches.next().unwrap().unwrap().0.raw() as usize,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+        let handover = decoder.instruction_range.clone().find_map(|instruction| match decoder.statement_view(instruction).ok()? {
+            schema::StmtView::Assign { value, .. } => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let opening = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(instruction).ok()? else { return None; };
+            let rows = body.map(|row| row.unwrap().raw() as usize).collect::<Vec<_>>();
+            rows.contains(&managed).then_some(rows[0])
+        }).unwrap();
+        let assignment = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Assign { value, .. }) if value.raw() as usize == handover)).unwrap();
+        let captures = program.store.functions[0].captures.bounds(program.store.captures.len()).unwrap();
+        let capture_slot = (program.store.captures[captures.start].slot_and_flags & !(1 << 31)) as usize;
+        for slot in [1, capture_slot] {
+            let mut changed = program.clone();
+            for instruction in [opening, condition, assignment] {
+                let words = changed.store.data[instruction].range().bounds(changed.store.extra.len()).unwrap();
+                changed.store.extra[words.start] = slot as u32;
+            }
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("managed release closing slot aliases external storage"), "{slot}: {error:?}");
+        }
+        for (instruction, offset, word, expected) in [
+            (managed, 1, 3, "defer kind is invalid"),
+            (ordinary, 1, 2, "managed release has no"),
+            (condition, 0, 1, "managed release has no canonical resource scope"),
+            (handover, 0, 0, "managed release has no canonical resource scope"),
+        ] {
+            let mut changed = program.clone();
+            assert!(changed.store.in_place.get().is_none());
+            let words = changed.store.data[instruction].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[words.start + offset] = word;
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains(expected), "{instruction}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn managed_release_authenticates_driver_statement_purposes() {
+        let mut program = prepare("tempdir site { let result = with root = fs.open_root(site)? { defer { let kept = 1 }; 3 }?; assert result == 3 }?\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let ordinary = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+            if *tag != super::super::super::FullTag::StmtDefer { return None; }
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            (program.store.extra[words.start + 1] == crate::runtime::eval::DeferKind::Always as u32).then_some(words.start + 1)
+        }).unwrap();
+        let mut changed = program.clone();
+        changed.store.extra[ordinary] = crate::runtime::eval::DeferKind::ManagedRelease as u32;
+        let error = FullVerifier::verify(&changed).unwrap_err();
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
     }
 
     #[test]

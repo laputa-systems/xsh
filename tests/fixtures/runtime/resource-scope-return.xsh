@@ -16,6 +16,36 @@ proc return_lock(lock: FsLock) [fs] -> Int {
   }
 }
 
+proc break_lock(lock: FsLock, early: Bool) [fs] -> Int {
+  loop {
+    let ignored = with held = lock {
+      defer { resource_events += ["break defer"] }
+      if early { break }
+      0
+    }
+    break
+  }
+  return 13
+}
+
+proc continue_lock(lock: FsLock, early: Bool) [fs] -> Int {
+  var visits = 0
+  for item in [1, 2] {
+    let ignored = with held = lock {
+      defer { resource_events += ["continue defer"] }
+      visits += item
+      if early { continue }
+      0
+    }
+  }
+  return visits
+}
+
+proc ordinary_defer_failure() [error] -> Int {
+  defer { error.fail("ordinary defer stays primary")? }
+  return 17
+}
+
 proc foreign_lock(lock_path: Path) [fs, error] -> Result[FsLock] {
   let locks = [lock_path, fp"{lock_path}.other"] |> par-map(jobs: 2) { |worker| fs.lock(worker)? }
   locks[0]
@@ -39,6 +69,13 @@ proc verify_resource_scope_return() [fs, error] -> Result[Unit] {
     assert return_lock(local) == 11
     assert fs.unlock(local) is Err(_)
     let foreign = foreign_lock(fp"{directory}/lock")?
+    assert return_lock(foreign) == 11
+    assert break_lock(foreign, true) == 13
+    assert continue_lock(foreign, true) == 3
+    match try { ordinary_defer_failure() } {
+      Err(problem) => assert problem.message == "ordinary defer stays primary"
+      else => assert false
+    }
     match normal_release(foreign) {
       Err(problem) => assert problem.message == "lock handle is not active"
       else => assert false
@@ -47,6 +84,6 @@ proc verify_resource_scope_return() [fs, error] -> Result[Unit] {
       Err(problem) => assert problem.message == "body stays primary"
       else => assert false
     }
-    assert resource_events == ["root body", "root defer", "lock body", "lock defer"]
+    assert resource_events == ["root body", "root defer", "lock body", "lock defer", "lock body", "lock defer", "break defer", "continue defer", "continue defer"]
   }?
 }

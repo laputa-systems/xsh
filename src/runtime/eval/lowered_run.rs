@@ -110,7 +110,7 @@ use super::net_job::NetJobTask;
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{CompTargetView, InlineList};
 use super::{
-    Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
+    Binding, DeferKind, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
     LoweredFunctionKey, CallableKind, LoweredParamKind,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue,
     Name, ReduceByOp,

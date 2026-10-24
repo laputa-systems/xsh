@@ -31,7 +31,7 @@ use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
     BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, CheckedCallTarget,
     BuildPatternIdSlots, BuildScratch, BuildStmtId, BuildTopKind,
-    BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
+    BuildTopStmtId, BuildTopStmtRow, DeferKind, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
     CheckedPatternField, LoweredBindingIdentity, RuntimeBindingIdentity, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionUnit, LoweredModuleExport,
@@ -9227,6 +9227,15 @@ impl<'a> FullDecoder<'a> {
         temporaries: &BTreeSet<usize>,
         charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<BTreeMap<usize, TemporarySlotWriters>, IrVerifyError> {
+        self.temporary_slot_writers_except(temporaries, &BTreeSet::new(), charge)
+    }
+
+    fn temporary_slot_writers_except(
+        &self,
+        temporaries: &BTreeSet<usize>,
+        excluded: &BTreeSet<usize>,
+        charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<BTreeMap<usize, TemporarySlotWriters>, IrVerifyError> {
         let mut writers: BTreeMap<usize, TemporarySlotWriters> = BTreeMap::new();
         let mut written = Vec::new();
         let mut condition_roots = BTreeSet::new();
@@ -9234,6 +9243,7 @@ impl<'a> FullDecoder<'a> {
         let mut direct_binds = Vec::new();
         for instruction in self.instruction_range.clone() {
             charge(1)?;
+            if excluded.contains(&instruction) { continue; }
             let tag = self.store.tags[instruction];
             written.clear();
             if tag.kind() == schema::InstructionKind::Stmt {
@@ -16422,7 +16432,7 @@ impl<'a> FullDecoder<'a> {
             .as_ref()
             .is_none_or(|proof| proof.borrow().complete());
         if instructions_complete && blocks_complete && proof_complete {
-            Ok(())
+            verify_effects::verify_defer_purposes(self)
         } else {
             Err(IrVerifyError::new(
                 "full IR contains an instruction or block not owned by the function body",
@@ -19838,6 +19848,9 @@ macro_rules! impl_word_codec {
 }
 
 impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
+impl_word_codec!(DeferKind, |kind: &DeferKind| Ok(*kind as u32),
+    |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| DeferKind::from_encoded(raw)
+        .ok_or_else(|| IrVerifyError::new("defer kind is invalid"))));
 impl_word_codec!(CallableKind, |kind: &CallableKind| Ok(*kind as u32),
     |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| CallableKind::from_encoded(raw)
         .ok_or_else(|| IrVerifyError::new("callable kind is invalid"))));
@@ -41791,18 +41804,17 @@ pure foreign(payload, count: Int) {
         );
     }
 
-    /// A deferred action carries whether it is an `errdefer` as one boolean
-    /// word, in a function body and at the top level alike. Any other value
-    /// would be read as one of the two, so the verifier rejects it.
     #[test]
-    fn verifier_rejects_a_deferred_action_whose_trigger_is_not_a_boolean() {
-        let program = fixture(
+    fn verifier_rejects_invalid_statement_and_driver_defer_kinds() {
+        let mut program = fixture(
             "indexed-errdefer.xsh",
             "proc step() -> Int {\n  errdefer { print \"undo\" }\n  defer { print \"done\" }\n  1\n}\n\nerrdefer { print \"undo\" }\ndefer { print \"done\" }\nprint $step()\n",
         );
+        program.store.in_place.take();
         FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
 
-        // In a function body the payload is the action and the trigger.
         let statement_triggers = program
             .store
             .tags
@@ -41825,7 +41837,6 @@ pure foreign(payload, count: Int) {
         written.sort_unstable();
         assert_eq!(written, [0, 1], "one `defer` and one `errdefer`");
 
-        // At the top level it is the action, the trigger, and the span.
         let driver_triggers = program
             .store
             .driver_steps
@@ -41845,12 +41856,16 @@ pure foreign(payload, count: Int) {
         assert_eq!(program.driver_step_defers_on_error(1).ok(), Some(true));
         assert_eq!(program.driver_step_defers_on_error(2).ok(), Some(false));
 
-        for word in statement_triggers.into_iter().chain(driver_triggers) {
+        for (word, invalid, expected) in statement_triggers.into_iter()
+            .map(|word| (word, 3, "defer kind is invalid"))
+            .chain(driver_triggers.into_iter().map(|word| (word, 2, "boolean payload")))
+        {
             let mut corrupt = program.clone();
-            corrupt.store.extra[word] = 2;
+            assert!(corrupt.store.in_place.get().is_none());
+            corrupt.store.extra[word] = invalid;
             let error = FullVerifier::verify(&corrupt).unwrap_err();
             assert!(
-                error.message.contains("boolean payload"),
+                error.message.contains(expected),
                 "{}",
                 error.message
             );
