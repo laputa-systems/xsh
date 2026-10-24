@@ -738,7 +738,14 @@ substituted application relationship against that caller requirement independent
 of constructor range checks. Declaration-owned requirements remain distinct
 from nongeneralizing invocations. Strict `process.command_argv` word requirements
 use the same conversion requirements for inference, substitution, and cold body
-proof; argv retains an invariant list item binder. Nested committed transactions
+proof; argv retains an invariant list item binder. Environment overlay entries
+use the distinct `Env` conversion, with the same scalar and exact `List[Path]`
+domain as concrete environment values. Its bit occupies the existing conversion
+set and uses the same journal, generalization and call substitution. The Full
+scope consumer proves every owned record field or string-keyed map value against
+that conversion; the ordinary expression proof independently authenticates the
+actual keys, values and binders. Other context-scope inputs retain their closed
+type checks. Nested committed transactions
 and speculative trials share the same journal, including fresh scope ownership
 and panic rollback.
 Direct source applications retain one declaration-and-expression identity across

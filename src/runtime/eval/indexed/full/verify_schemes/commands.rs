@@ -142,3 +142,29 @@ pub(super) fn nullary_method(
     }
     result.ok_or_else(|| IrVerifyError::new("generic intrinsic method disagrees with its canonical arity"))
 }
+
+pub(super) fn environment_overlay(ty: &SchemeType, scope: &super::SchemeScope, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    budget.charge(1)?;
+    match ty {
+        SchemeType::Record { fields, tail: crate::sema::schemes::SchemeRowTail::Closed } => {
+            for value in fields.values() {
+                if !super::scheme_conversion(value, super::ValueConversion::Env, scope, budget)? {
+                    return Err(IrVerifyError::new("generic environment overlay value has no Env conversion requirement"));
+                }
+            }
+        }
+        SchemeType::Map(key, value) if key.closed_ground_type() == Some(Type::Str) => {
+            if !super::scheme_conversion(value, super::ValueConversion::Env, scope, budget)? {
+                return Err(IrVerifyError::new("generic environment overlay value has no Env conversion requirement"));
+            }
+        }
+        actual => {
+            budget.charge_scheme_clone(actual)?;
+            let actual = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic environment overlay has no complete record or Map contract"))?;
+            if !actual.accepts_context_scope_input(crate::syntax::arena::ContextScopeKind::Env) {
+                return Err(IrVerifyError::new("generic context scope input disagrees with its kind"));
+            }
+        }
+    }
+    Ok(())
+}

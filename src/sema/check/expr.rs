@@ -1080,7 +1080,7 @@ impl Checker {
                                 None
                             }
                         };
-                        if values.is_some() && !input_type.accepts_context_scope_input(*kind)
+                        if values.is_some_and(|values| values.into_iter().any(|value| !self.require_value_conversion(value, crate::sema::schemes::ValueConversion::Env, arena.arena.expr(*input).span)))
                         {
                             self.error(
                                 arena.arena.expr(*input).span,

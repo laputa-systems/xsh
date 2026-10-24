@@ -1110,8 +1110,12 @@ pub(super) fn verify_body(
                                 }
                                 let input_type = expression_type(types, input.raw() as usize, budget)?;
                                 budget.charge_scheme_clone(&input_type)?;
-                                let input_type = input_type.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic context scope input is unresolved"))?;
-                                if !input_type.accepts_context_scope_input(kind) { return Err(IrVerifyError::new("generic context scope input disagrees with its kind")); }
+                                if kind == crate::syntax::arena::ContextScopeKind::Env {
+                                    super::commands::environment_overlay(&input_type, scheme_scope, budget)?;
+                                } else {
+                                    let input_type = input_type.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic context scope input is unresolved"))?;
+                                    if !input_type.accepts_context_scope_input(kind) { return Err(IrVerifyError::new("generic context scope input disagrees with its kind")); }
+                                }
                                 if !body_type_matches(&SchemeType::Ground(Type::Error), &error, budget)? { return Err(IrVerifyError::new("generic context scope has an incompatible error contract")); }
                                 if context_scope_has_known_escape(&ok, budget)? {
                                     return Err(IrVerifyError::new("generic context scope result escapes its restored context"));
@@ -5959,6 +5963,80 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
             let failure = FullVerifier::verify(&stale).expect_err("a write invalidates the original record field refinement");
             assert_eq!(failure.message, "generic body expression disagrees with its checked type", "{name}");
         }
+    }
+
+
+    fn direct_env_fixture() -> FullProgram {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-env-values.xsh")).unwrap();
+        prepare(&source)
+    }
+
+    #[test]
+    fn generic_env_overlay_requires_its_own_conversion_evidence() {
+        let program = direct_env_fixture();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct_env_pair").unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { unreachable!() };
+        let parameters = program.store.schemes[scheme.index()].type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        assert_eq!(parameters.len(), 2);
+        let env = 1 << (ValueConversion::Env as u8);
+        for index in parameters {
+            assert_eq!(program.store.scheme_type_parameters[index].conversions, env);
+            for replacement in [0, 1 << (ValueConversion::ArgvOrList as u8)] {
+                let mut missing = program.clone();
+                missing.store.in_place.take();
+                missing.store.scheme_type_parameters[index].conversions = replacement;
+                assert!(missing.store.in_place.get().is_none());
+                let failure = FullVerifier::verify(&missing).expect_err("the body must retain the Env conversion for each actual field");
+                assert_eq!(failure.message, "generic environment overlay value has no Env conversion requirement");
+            }
+        }
+    }
+
+    #[test]
+    fn generic_env_overlay_authenticates_fields_and_actual_parameter_owners() {
+        let program = direct_env_fixture();
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct_env_pair").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let record = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRecord).unwrap();
+        let schema::ExprView::Record(mut entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+        assert_eq!(entries.len(), 2);
+        let block = entries.block_identity_for_test();
+        let super::super::super::decode::RecordEntryView::Field(left_name, left) = entries.next().unwrap().unwrap() else { unreachable!() };
+        let super::super::super::decode::RecordEntryView::Field(right_name, _) = entries.next().unwrap().unwrap() else { unreachable!() };
+        assert_ne!(left_name, right_name);
+        let schema::ExprView::Param(temporary) = decoder.expression_view(left.raw() as usize).unwrap() else { unreachable!() };
+        let raw = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if slot == temporary => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(raw).unwrap(), schema::ExprView::Param(0)));
+        let mut wrong_source = program.clone();
+        wrong_source.store.in_place.take();
+        let words = wrong_source.store.data[raw].range().bounds(wrong_source.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_source.store.extra[words.start] = 1;
+        assert!(wrong_source.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_source).expect_err("another Env-capable binder cannot supply the field value");
+        assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+        let mut wrong_key = program.clone();
+        wrong_key.store.in_place.take();
+        let words = wrong_key.store.blocks[block.index()].instructions.bounds(wrong_key.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 7);
+        assert_eq!(&wrong_key.store.extra[words.start..words.start + 3], &[2, 0, left_name.symbol().raw()]);
+        assert_eq!(&wrong_key.store.extra[words.start + 4..words.start + 6], &[0, right_name.symbol().raw()]);
+        wrong_key.store.extra[words.start + 2] = right_name.symbol().raw();
+        assert!(wrong_key.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_key).expect_err("the actual record fields must agree with the overlay contract");
+        assert_eq!(failure.message, "generic record producer repeats a field");
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct_env_value").unwrap();
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && fact.instruction as usize == raw && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut foreign_owner = program.clone();
+        foreign_owner.store.in_place.take();
+        foreign_owner.store.scheme_body_facts[fact].function = super::super::super::IrFunctionId::new(foreign).unwrap();
+        assert!(foreign_owner.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&foreign_owner).expect_err("a foreign function cannot own the overlay producer fact");
+        assert!(failure.message.contains("owner"), "{failure:?}");
     }
 
 }

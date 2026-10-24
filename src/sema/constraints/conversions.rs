@@ -35,6 +35,12 @@ impl TypeConstraints {
                 variable.conversions = required;
                 Ok(())
             }
+            Type::List(item) if conversion == ValueConversion::Env && matches!(item.as_ref(), Type::Inference(_)) => {
+                self.constrain_inner(&Type::Path, &item, _origin, false, 0, changes).map_err(|(_, _, resolution)| match resolution {
+                    Some(error) => ConversionConstraintError::Resolution(error),
+                    None => ConversionConstraintError::Invalid { conversion, actual: Type::List(item) },
+                })
+            }
             Type::List(item) if matches!(conversion, ValueConversion::ArgvOrList | ValueConversion::ArgvList) => self.require_conversion_inner(&item, ValueConversion::Argv, _origin, changes),
             Type::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList | ValueConversion::ProcessWord) => {
                 let member_conversion = if conversion == ValueConversion::ProcessWord { conversion } else { ValueConversion::Argv };
@@ -91,6 +97,47 @@ mod tests {
                 if !conversion.accepts(&actual) { assert_eq!(constraints.resolve(&value).unwrap(), value); }
             }
         }
+    }
+
+    #[test]
+    fn env_conversion_preserves_the_scalar_and_path_list_domains() {
+        for actual in [Type::Str, Type::Int, Type::UInt, Type::Bool, Type::Path, Type::Duration, Type::List(Box::new(Type::Path)), Type::Union(vec![Type::Str, Type::Path])] {
+            let mut constraints = TypeConstraints::default();
+            let value = constraints.fresh(span());
+            constraints.require_conversion(&value, ValueConversion::Env, span()).unwrap();
+            constraints.constrain(&value, &actual, span()).unwrap();
+            assert_eq!(constraints.resolve(&value).unwrap(), actual);
+        }
+        for actual in [Type::Any, Type::Unknown, Type::Invalid, Type::Null, Type::Float, Type::Bytes, Type::FsRoot, Type::Result(Box::new(Type::Str), Box::new(Type::Str)), Type::List(Box::new(Type::Int)), Type::List(Box::new(Type::Str)), Type::List(Box::new(Type::Any)), Type::List(Box::new(Type::Unknown)), Type::Optional(Box::new(Type::Str))] {
+            let mut constraints = TypeConstraints::default();
+            assert!(constraints.require_conversion(&actual, ValueConversion::Env, span()).is_err(), "{actual}");
+        }
+    }
+
+    #[test]
+    fn env_conversion_journals_list_shape_and_preserves_intersections() {
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span());
+        let list = Type::List(Box::new(item.clone()));
+        assert_eq!(constraints.trial(|candidate| {
+            candidate.require_conversion(&list, ValueConversion::Env, span()).unwrap();
+            candidate.constrain(&item, &Type::Path, span())
+        }), Ok(true));
+        assert_eq!(constraints.resolve(&item).unwrap(), item);
+        constraints.require_conversion(&list, ValueConversion::Env, span()).unwrap();
+        assert_eq!(constraints.resolve(&item).unwrap(), Type::Path);
+        for reverse in [false, true] {
+            let mut constraints = TypeConstraints::default();
+            let value = constraints.fresh(span());
+            let requirements = if reverse { [ValueConversion::ArgvList, ValueConversion::Env] } else { [ValueConversion::Env, ValueConversion::ArgvList] };
+            for requirement in requirements { constraints.require_conversion(&value, requirement, span()).unwrap(); }
+            assert!(constraints.constrain(&value, &Type::List(Box::new(Type::Int)), span()).is_err());
+            assert_eq!(constraints.resolve(&value).unwrap(), value);
+            constraints.constrain(&value, &Type::List(Box::new(Type::Path)), span()).unwrap();
+        }
+        let foreign = TypeConstraints::default().fresh(span());
+        let mut constraints = TypeConstraints::default();
+        assert_eq!(constraints.require_conversion(&Type::List(Box::new(foreign)), ValueConversion::Env, span()), Err(ConversionConstraintError::Resolution(ConstraintResolutionError::ForeignVariable)));
     }
 
     #[test]

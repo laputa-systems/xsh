@@ -31,15 +31,16 @@ pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord }
+pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord, Env }
 
 impl ValueConversion {
-    pub(crate) const ALL: [Self; 5] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord];
+    pub(crate) const ALL: [Self; 6] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env];
 
     pub(crate) fn accepts(self, ty: &Type) -> bool {
         if ty.contains_recovery() || ty.contains_any() { return false; }
         match self {
             Self::Display => ty.can_display(),
+            Self::Env => ty.can_be_env_value(),
             Self::ProcessWord => ty.can_be_process_command_argv_item(),
             Self::Argv => ty.can_be_argv_item(),
             Self::ArgvOrList => ty.can_be_argv_item() || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
