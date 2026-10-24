@@ -20,6 +20,8 @@ pub(crate) struct CallableGeneralizationScope {
     pub(super) operations: BTreeMap<super::SealedOperationId, u32>,
     pub(super) methods: BTreeMap<super::SealedMethodId, u32>,
     pub(super) wrappers: BTreeMap<super::WrapperOperationId, u32>,
+    pub(super) guards: BTreeMap<super::WrapperOperationId, crate::sema::guarded_requirements::GuardScopeId>,
+    pub(super) guard_ordinals: BTreeMap<crate::sema::guarded_requirements::GuardScopeId, super::GuardRequirementOrdinals>,
 }
 
 pub(crate) type EffectPredicate = crate::sema::effects::EffectPredicate<EffectVariableId>;
@@ -265,7 +267,7 @@ impl TypeConstraints {
             let parameter = if let Some(parameter) = generalization.effect_ids.get(id) {
                 *parameter
             } else {
-                let parameter = crate::sema::schemes::SchemeEffectParameterId(generalization.effect_parameters.len() as u32);
+                let parameter = crate::sema::schemes::SchemeEffectParameterId(generalization.effect_ids.len() as u32);
                 generalization.effect_ids.insert(*id, parameter);
                 generalization.effect_parameters.push(parameter);
                 parameter

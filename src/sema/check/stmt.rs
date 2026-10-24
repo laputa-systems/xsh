@@ -2911,7 +2911,20 @@ impl Checker {
             if !binding.proof.accepts(narrowing) {
                 continue;
             }
-            let super::proof::Refinement::Type(ty) = &narrowing.refinement else { continue; };
+            let ty = match &narrowing.refinement {
+                super::proof::Refinement::Type(ty) => ty.clone(),
+                super::proof::Refinement::NonNull { source, subject, comparison } => {
+                    let view = self.fresh_wrapper_type(*subject);
+                    match self.type_constraints.register_non_null_guard(self.constraint_scope(), Type::Inference(*source), view.clone(), *subject, *comparison) {
+                        Ok(guard) => self.scopes.last_mut().expect("narrowing has a lexical scope").guard = Some(guard),
+                        Err(error) => {
+                            self.error(*subject, &format!("guarded view source is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            continue;
+                        }
+                    }
+                    view
+                }
+            };
             let mut narrowed = binding;
             if narrowed.unrefined_ty.is_none() {
                 narrowed.unrefined_ty = Some(narrowed.ty.clone());
@@ -3221,6 +3234,7 @@ impl Checker {
     }
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
+        self.record_guarded_node(arena.arena.stmt(id).span);
         self.check_stmt_arena_inner(arena, source, id);
         self.record_literal_capture_payload(arena, id);
         self.advance_stream_flow(arena, id);
@@ -3866,7 +3880,7 @@ impl Checker {
         right: ExprId,
     ) -> ConditionNarrowings {
         let Some(narrowing) =
-            self.null_comparison_fact_arena(arena, left, right)
+            self.null_comparison_fact_arena(arena, condition, left, right)
         else {
             return ConditionNarrowings::default();
         };
@@ -3892,6 +3906,7 @@ impl Checker {
     fn null_comparison_fact_arena(
         &self,
         arena: &ArenaProgram,
+        condition: ExprId,
         left: ExprId,
         right: ExprId,
     ) -> Option<Narrowing> {
@@ -3903,7 +3918,7 @@ impl Checker {
         let (name, path, ty, binding) = self.proof_subject_arena(arena, subject)?;
         match ty {
             Type::Optional(inner) => Some(binding.proof.fact(name, path, *inner)),
-            Type::Inference(variable) => Some(binding.proof.non_null_fact(name, path, variable)),
+            Type::Inference(variable) => Some(binding.proof.non_null_fact(name, path, variable, arena.arena.expr(subject).span, arena.arena.expr(condition).span)),
             _ => None,
         }
     }
@@ -8197,6 +8212,33 @@ mod reader_binding_identity_tests {
     }
 
     #[test]
+    fn symbolic_guard_reads_do_not_narrow_another_binding_with_the_same_type() {
+        let source = "var left = 0\nvar right = 0\nlet present = left != null\nlet narrowed = left\nlet unchanged = right\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            for statement in &statements[..2] { checker.check_stmt_arena(program, source, *statement); }
+            let origin = program.arena.stmt(statements[0]).span;
+            let shared = checker.type_constraints.fresh(origin);
+            for name in [Name::intern("left"), Name::intern("right")] { checker.current_scope_mut().get_mut(&name).unwrap().ty = shared.clone(); }
+            let facts = checker.infer_condition_narrowings_arena(program, initializer_expr(program, statements[2]));
+            checker.push_scope();
+            checker.apply_narrowings(&facts.when_true);
+            let left = checker.check_expr_arena(program, source, initializer_expr(program, statements[3]), None);
+            let right = checker.check_expr_arena(program, source, initializer_expr(program, statements[4]), None);
+            checker.type_constraints.constrain_context(&shared, &Type::Optional(Box::new(Type::Str)), origin).unwrap();
+            checker.type_constraints.solve_wrapper_operations().unwrap();
+            assert_eq!(checker.type_constraints.resolve(&left).unwrap(), Type::Str);
+            assert_eq!(checker.type_constraints.resolve(&right).unwrap(), Type::Optional(Box::new(Type::Str)));
+            assert!(checker.require_value_conversion(&left, crate::sema::schemes::ValueConversion::Display, origin));
+            assert!(!checker.require_value_conversion(&right, crate::sema::schemes::ValueConversion::Display, origin));
+        });
+    }
+
+    #[test]
     fn symbolic_null_guards_retain_source_identity_without_choosing_a_payload() {
         let source = "var subject = 0\nlet present = subject != null\nlet absent = subject == null\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -8214,13 +8256,14 @@ mod reader_binding_identity_tests {
             assert_eq!(facts.when_true.len(), 1);
             assert!(facts.when_false.is_empty());
             let Type::Inference(variable) = unresolved else { unreachable!() };
-            assert_eq!(facts.when_true[0].refinement, crate::sema::check::proof::Refinement::NonNull(variable));
+            assert_eq!(facts.when_true[0].refinement, crate::sema::check::proof::Refinement::NonNull { source: variable, subject: program.arena.expr(condition).span, comparison: program.arena.expr(condition).span });
             let absent = checker.infer_condition_narrowings_arena(program, initializer_expr(program, statements[2]));
             assert!(absent.when_true.is_empty());
             assert_eq!(absent.when_false, facts.when_true);
             assert!(checker.current_scope()[&name].proof.accepts(&facts.when_true[0]));
             checker.apply_narrowings(&facts.when_true);
-            assert_eq!(checker.current_scope()[&name].ty, unresolved);
+            assert_ne!(checker.current_scope()[&name].ty, unresolved);
+            assert_eq!(checker.type_constraints.resolve(&unresolved).unwrap(), unresolved);
             checker.current_scope_mut().get_mut(&name).unwrap().proof.mutate(&[]);
             assert!(!checker.current_scope()[&name].proof.accepts(&facts.when_true[0]));
             for erased in [Type::Any, Type::Unknown, Type::Invalid, Type::Null] {

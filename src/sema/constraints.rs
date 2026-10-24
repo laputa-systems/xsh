@@ -559,6 +559,16 @@ pub(crate) struct GeneralizedTypes {
 pub(crate) struct InstantiatedScheme {
     pub(crate) params: Vec<Type>,
     pub(crate) return_type: Type,
+    pub(crate) requirements: InstantiatedRequirements,
+}
+
+impl std::ops::Deref for InstantiatedScheme {
+    type Target = InstantiatedRequirements;
+    fn deref(&self) -> &Self::Target { &self.requirements }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct InstantiatedRequirements {
     pub(crate) type_arguments: BTreeMap<SchemeTypeParameterId, Type>,
     pub(crate) row_arguments: BTreeMap<SchemeRowParameterId, RowVariableId>,
     pub(crate) effect_arguments: BTreeMap<SchemeEffectParameterId, EffectVariableId>,
@@ -566,6 +576,23 @@ pub(crate) struct InstantiatedScheme {
     pub(crate) operations: Vec<SealedOperationId>,
     pub(crate) methods: Vec<SealedMethodId>,
     pub(crate) wrappers: Vec<WrapperOperationId>,
+    pub(crate) guards: Vec<WrapperOperationId>,
+}
+
+impl InstantiatedRequirements {
+    #[cfg(test)]
+    fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        size_of::<Self>()
+            + self.type_arguments.len() * size_of::<(SchemeTypeParameterId, Type)>()
+            + self.type_arguments.values().map(type_owned_payload_bytes).sum::<usize>()
+            + self.row_arguments.len() * size_of::<(SchemeRowParameterId, RowVariableId)>()
+            + self.effect_arguments.len() * size_of::<(SchemeEffectParameterId, EffectVariableId)>()
+            + self.applications.capacity() * size_of::<CallableApplicationId>()
+            + self.operations.capacity() * size_of::<SealedOperationId>()
+            + self.methods.capacity() * size_of::<SealedMethodId>()
+            + (self.wrappers.capacity() + self.guards.capacity()) * size_of::<WrapperOperationId>()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -593,6 +620,16 @@ struct Generalization {
     row_parameters: Vec<SchemeRowParameter>,
     effect_ids: BTreeMap<EffectVariableId, SchemeEffectParameterId>,
     effect_parameters: Vec<SchemeEffectParameterId>,
+    applications: BTreeMap<CallableApplicationId, u32>,
+    operations: BTreeMap<SealedOperationId, u32>,
+    methods: BTreeMap<SealedMethodId, u32>,
+    wrappers: BTreeMap<WrapperOperationId, u32>,
+    guards: BTreeMap<WrapperOperationId, super::guarded_requirements::GuardScopeId>,
+    guard_ordinals: BTreeMap<super::guarded_requirements::GuardScopeId, GuardRequirementOrdinals>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct GuardRequirementOrdinals {
     applications: BTreeMap<CallableApplicationId, u32>,
     operations: BTreeMap<SealedOperationId, u32>,
     methods: BTreeMap<SealedMethodId, u32>,
@@ -959,6 +996,7 @@ impl TypeConstraints {
                 effects: generalization.effect_ids, applications: generalization.applications, operations: generalization.operations,
                 methods: generalization.methods,
                 wrappers: generalization.wrappers,
+                guards: generalization.guards, guard_ordinals: generalization.guard_ordinals,
             },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
@@ -1009,11 +1047,11 @@ impl TypeConstraints {
             .iter()
             .map(|ty| self.generalize_type(ty, environment_level, &mut generalization, 0))
             .collect::<Result<Vec<_>, _>>()?;
-        let requirements = self.generalize_callable_requirements(component, environment_level, &mut generalization)?;
+        let requirements = self.generalize_callable_requirements(&component.iter().copied().map(CallableApplicationScope::Declaration).collect(), environment_level, &mut generalization)?;
         let type_parameter_count = generalization.type_parameters.len();
         let row_parameter_count = generalization.row_parameters.len();
         let effect_parameter_count = generalization.effect_parameters.len();
-        let quantified = type_parameter_count != 0 || row_parameter_count != 0 || effect_parameter_count != 0;
+        let quantified = type_parameter_count != 0 || row_parameter_count != 0 || effect_parameter_count != 0 || !requirements.guards.is_empty();
         let body_types = body_types
             .iter()
             .filter(|_| quantified)
@@ -1079,6 +1117,7 @@ impl TypeConstraints {
                     effects: generalization.effect_ids, applications: generalization.applications, operations: generalization.operations,
                     methods: generalization.methods,
                     wrappers: generalization.wrappers,
+                guards: generalization.guards, guard_ordinals: generalization.guard_ordinals,
                 },
                 type_parameters: generalization.type_parameters,
                 row_parameters: generalization.row_parameters,
@@ -1167,7 +1206,7 @@ impl TypeConstraints {
             &ground_scope
         } else { &*generalization };
         CallInstantiation::with_method_bindings(
-            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?,
+            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?, self.resolved_guard_bindings(&callable.requirements().guards, &instantiated.guards)?,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
             caller_applications, caller_operations, caller_methods, caller_wrappers, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
         .map_err(SchemeOperationError::Build)
@@ -1205,6 +1244,7 @@ impl TypeConstraints {
             applications: scope.applications.clone(), operations: scope.operations.clone(), type_parameters: callable.type_parameters().to_vec(),
             methods: scope.methods.clone(),
             wrappers: scope.wrappers.clone(),
+            guards: scope.guards.clone(), guard_ordinals: scope.guard_ordinals.clone(),
             row_parameters: callable.row_parameters().to_vec(), effect_parameters: callable.requirements().effect_parameters.clone(),
         }
     }
@@ -1224,6 +1264,7 @@ impl TypeConstraints {
         if self.counters.extended.is_some() {
             let entries = scope.types.len() + scope.rows.len() + scope.effects.len()
                 + scope.applications.len() + scope.operations.len() + scope.methods.len() + scope.wrappers.len()
+                + scope.guards.len() + scope.guard_ordinals.values().map(|scope| scope.applications.len() + scope.operations.len() + scope.methods.len() + scope.wrappers.len()).sum::<usize>()
                 + types + rows.len() + effects + rows.iter().map(|row| row.lacks.len()).sum::<usize>();
             self.counters.record_generalization_binding_clones(entries);
         }
@@ -1235,6 +1276,7 @@ impl TypeConstraints {
         Generalization {
             type_ids: scope.types.clone(), row_ids: scope.rows.clone(), effect_ids: scope.effects.clone(),
             applications: scope.applications.clone(), operations: scope.operations.clone(), methods: scope.methods.clone(), wrappers: scope.wrappers.clone(),
+            guards: scope.guards.clone(), guard_ordinals: scope.guard_ordinals.clone(),
             type_parameters: generalized.type_parameters.clone(), row_parameters: generalized.row_parameters.clone(),
             effect_parameters: generalized.requirements.effect_parameters.clone(),
         }
@@ -1335,8 +1377,8 @@ impl TypeConstraints {
                 &parameter.ty, &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0,
             )).collect::<Result<Vec<_>, _>>()?;
             let return_type = this.instantiate_scheme_type(callable.return_type(), &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0)?;
-            Ok(InstantiatedScheme { params, return_type, type_arguments, row_arguments, effect_arguments,
-                applications: applications.into_iter().map(|(_, id)| id).collect(), operations, methods, wrappers })
+            Ok(InstantiatedScheme { params, return_type, requirements: InstantiatedRequirements { type_arguments, row_arguments, effect_arguments,
+                applications: applications.into_iter().map(|(_, id)| id).collect(), operations, methods, wrappers , guards: Vec::new() } })
         })
     }
 
@@ -1396,45 +1438,16 @@ impl TypeConstraints {
         scope: CallableApplicationScope,
     ) -> Result<InstantiatedScheme, SchemeOperationError> {
         self.note_scheme_instantiation();
-        let mut type_arguments = BTreeMap::new();
-        for &id in callable.type_parameters() {
-            type_arguments.insert(id, self.fresh_at_level(origin, level));
-        }
-        let mut row_arguments = BTreeMap::new();
-        for parameter in callable.row_parameters() {
-            row_arguments.insert(
-                parameter.id,
-                self.fresh_row_at_level(origin, level, parameter.lacks.iter().copied()),
-            );
-        }
-        let effect_arguments = callable.requirements().effect_parameters.iter().map(|&id| {
-            (id, self.fresh_effect_at_level(origin, level))
-        }).collect::<BTreeMap<_, _>>();
-        for parameter in &callable.requirements().map_key_parameters {
-            let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
-            self.require_map_key(ty, origin).map_err(SchemeOperationError::from)?;
-        }
-        for (parameter, conversions) in &callable.requirements().conversion_parameters {
-            let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
-            for conversion in super::schemes::ValueConversion::ALL {
-                if conversions.contains(conversion) { self.require_conversion(ty, conversion, origin).map_err(SchemeOperationError::from)?; }
-            }
-        }
-        for (parameter, iteration) in &callable.requirements().iteration_parameters {
-            let source = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
-            let item = self.instantiate_scheme_type(&iteration.item, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            let policy = iteration.policy.try_map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0))?;
-            self.require_iteration(source, &super::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind }, origin).map_err(SchemeOperationError::Constraint)?;
-        }
+        let requirements = self.instantiate_requirement_pack(callable.type_parameters(), callable.row_parameters(), callable.requirements(), InstantiatedRequirements::default(), level, origin, scope)?;
         let params = callable
             .params()
             .iter()
             .map(|parameter| {
                 self.instantiate_scheme_type(
                     &parameter.ty,
-                    &type_arguments,
-                    &row_arguments,
-                    &effect_arguments,
+                    &requirements.type_arguments,
+                    &requirements.row_arguments,
+                    &requirements.effect_arguments,
                     level,
                     origin,
                     0,
@@ -1443,15 +1456,59 @@ impl TypeConstraints {
             .collect::<Result<Vec<_>, _>>()?;
         let return_type = self.instantiate_scheme_type(
             callable.return_type(),
-            &type_arguments,
-            &row_arguments,
-            &effect_arguments,
+            &requirements.type_arguments,
+            &requirements.row_arguments,
+            &requirements.effect_arguments,
             level,
             origin,
             0,
         )?;
+        Ok(InstantiatedScheme { params, return_type, requirements })
+    }
+
+    fn instantiate_requirement_pack(
+        &mut self,
+        type_parameters: &[SchemeTypeParameterId],
+        row_parameters: &[SchemeRowParameter],
+        requirements: &CallableRequirements,
+        inherited: InstantiatedRequirements,
+        level: u32,
+        origin: Span,
+        scope: CallableApplicationScope,
+    ) -> Result<InstantiatedRequirements, SchemeOperationError> {
+        let mut type_arguments = inherited.type_arguments;
+        for &id in type_parameters {
+            type_arguments.insert(id, self.fresh_at_level(origin, level));
+        }
+        let mut row_arguments = inherited.row_arguments;
+        for parameter in row_parameters {
+            row_arguments.insert(
+                parameter.id,
+                self.fresh_row_at_level(origin, level, parameter.lacks.iter().copied()),
+            );
+        }
+        let mut effect_arguments = inherited.effect_arguments;
+        effect_arguments.extend(requirements.effect_parameters.iter().map(|&id| {
+            (id, self.fresh_effect_at_level(origin, level))
+        }));
+        for parameter in &requirements.map_key_parameters {
+            let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            self.require_map_key(ty, origin).map_err(SchemeOperationError::from)?;
+        }
+        for (parameter, conversions) in &requirements.conversion_parameters {
+            let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            for conversion in super::schemes::ValueConversion::ALL {
+                if conversions.contains(conversion) { self.require_conversion(ty, conversion, origin).map_err(SchemeOperationError::from)?; }
+            }
+        }
+        for (parameter, iteration) in &requirements.iteration_parameters {
+            let source = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            let item = self.instantiate_scheme_type(&iteration.item, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
+            let policy = iteration.policy.try_map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0))?;
+            self.require_iteration(source, &super::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind }, origin).map_err(SchemeOperationError::Constraint)?;
+        }
         let mut applications = Vec::new();
-        for application in &callable.requirements().applications {
+        for application in &requirements.applications {
             let application = application.try_map_types(|ty| {
                 self.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)
             })?.try_map_effects(|effects| effects.substitute(|id| effect_arguments.get(id).copied()
@@ -1459,12 +1516,12 @@ impl TypeConstraints {
             applications.push(self.register_callable_application(scope, application).map_err(SchemeOperationError::Application)?);
         }
         let mut operations = Vec::new();
-        for operation in &callable.requirements().operations {
+        for operation in &requirements.operations {
             let operation = operation.try_map(|ty| self.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0))?;
             operations.push(self.register_sealed_operation(scope, operation).map_err(SchemeOperationError::Operation)?);
         }
         let mut methods = Vec::new();
-        for method in &callable.requirements().methods {
+        for method in &requirements.methods {
             let receiver = self.instantiate_scheme_type(&method.receiver, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
             let arguments = method.arguments.iter()
                 .map(|ty| self.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0))
@@ -1474,15 +1531,15 @@ impl TypeConstraints {
                 family: method.family, receiver, argument_slots: method.argument_slots.clone(), arguments, result,
             }, None, origin)?);
         }
-        let mut wrappers_by_ordinal = vec![None; callable.requirements().wrappers.len()];
-        let mut wrapper_groups = vec![None; callable.requirements().wrappers.len()];
-        for (ordinal, requirement) in callable.requirements().wrappers.iter().enumerate() {
+        let mut wrappers_by_ordinal = vec![None; requirements.wrappers.len()];
+        let mut wrapper_groups = vec![None; requirements.wrappers.len()];
+        for (ordinal, requirement) in requirements.wrappers.iter().enumerate() {
             if let super::wrapper_operation::WrapperRequirementKind::ProcCompletion { group: super::wrapper_operation::WrapperGroupRef::Ordinal(group), .. } = &requirement.kind {
                 if *group as usize != ordinal { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)); }
                 wrapper_groups[ordinal] = Some(super::wrapper_operation::WrapperGroupId::fresh());
             }
         }
-        for (ordinal, source) in callable.requirements().wrappers.iter().enumerate() {
+        for (ordinal, source) in requirements.wrappers.iter().enumerate() {
             if matches!(&source.kind, super::wrapper_operation::WrapperRequirementKind::Capture { .. }) { continue; }
             let mut requirement = source.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
             if let super::wrapper_operation::WrapperRequirementKind::KeyValidation { operation, .. } = &mut requirement.kind {
@@ -1518,7 +1575,7 @@ impl TypeConstraints {
             let id = self.register_wrapper(scope, requirement).map_err(SchemeOperationError::Wrapper)?;
             wrappers_by_ordinal[ordinal] = Some(id);
         }
-        for (ordinal, source) in callable.requirements().wrappers.iter().enumerate() {
+        for (ordinal, source) in requirements.wrappers.iter().enumerate() {
             if !matches!(&source.kind, super::wrapper_operation::WrapperRequirementKind::Capture { .. }) { continue; }
             let mut requirement = source.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
             if let super::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } = &mut requirement.kind {
@@ -1551,14 +1608,13 @@ impl TypeConstraints {
             wrappers_by_ordinal[ordinal] = Some(id);
         }
         let wrappers = wrappers_by_ordinal.into_iter().collect::<Option<Vec<_>>>().ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper))?;
-        for predicate in &callable.requirements().effect_predicates {
+        for predicate in &requirements.effect_predicates {
             let predicate = predicate.try_map_contracts(|contract| contract.substitute(|id| effect_arguments.get(id).copied()
                 .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
             self.constrain_effect(predicate).map_err(SchemeOperationError::Effects)?;
         }
-        Ok(InstantiatedScheme {
-            params, return_type, type_arguments, row_arguments, effect_arguments, applications, operations, methods, wrappers,
-        })
+        let guards = self.instantiate_guards(&requirements.guards, &type_arguments, &row_arguments, &effect_arguments, level, origin, scope)?;
+        Ok(InstantiatedRequirements { type_arguments, row_arguments, effect_arguments, applications, operations, methods, wrappers, guards })
     }
 
     pub(crate) fn resolve_instance_operand(
@@ -1593,13 +1649,21 @@ impl TypeConstraints {
         callable: &CallableScheme,
         instantiated: &InstantiatedScheme,
     ) -> Result<CallInstantiation, SchemeOperationError> {
-        let type_arguments = instantiated
-            .type_arguments
-            .iter()
-            .map(|(&id, ty)| Ok((id, SchemeType::Ground(self.resolve(ty)?))) )
+        let evidence = self.resolve_requirement_instantiation(crate::sema::schemes::SchemeBindingScope { types: callable.type_parameters(), rows: callable.row_parameters(), requirements: callable.requirements() }, &instantiated.requirements)?;
+        if callable.is_quantified() { self.counters.successful_generic_call_resolutions.fetch_add(1, Ordering::Relaxed); }
+        Ok(evidence)
+    }
+
+    fn resolve_requirement_instantiation(
+        &self, scope: crate::sema::schemes::SchemeBindingScope<'_>, instantiated: &InstantiatedRequirements,
+    ) -> Result<CallInstantiation, SchemeOperationError> {
+        let type_arguments = scope.types.iter().map(|&id| {
+            let ty = instantiated.type_arguments.get(&id).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            Ok((id, SchemeType::Ground(self.resolve(ty)?)))
+        })
             .collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         let mut row_arguments = BTreeMap::new();
-        for parameter in callable.row_parameters() {
+        for parameter in scope.rows {
             let id = *instantiated
                 .row_arguments
                 .get(&parameter.id)
@@ -1624,7 +1688,8 @@ impl TypeConstraints {
                     .map_err(SchemeOperationError::Build)?,
             );
         }
-        let effect_arguments = instantiated.effect_arguments.iter().map(|(&id, &variable)| {
+        let effect_arguments = scope.requirements.effect_parameters.iter().map(|&id| {
+            let variable = *instantiated.effect_arguments.get(&id).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))?;
             let contract = self.resolve_effect(&super::effects::EffectContract::variable(variable))?;
             let contract = contract.substitute(|_| Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedEffects)))?;
             Ok((id, contract))
@@ -1632,13 +1697,8 @@ impl TypeConstraints {
         let bindings = self.callable_application_bindings(instantiated, None)?;
         let mut generalization = Generalization::default();
         let method_bindings = self.sealed_method_bindings(instantiated, &mut generalization, &[])?;
-        let evidence = CallInstantiation::with_method_bindings(callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, &generalization)?, method_bindings, self.wrapper_bindings(instantiated, &generalization)?, &[], &[], &[], &[], &[], &[], &[], &[], &BTreeMap::new())
+        let evidence = CallInstantiation::with_scope_bindings(scope, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, &generalization)?, method_bindings, self.wrapper_bindings(instantiated, &generalization)?, self.resolved_guard_bindings(&scope.requirements.guards, &instantiated.guards)?, &[], &[], &[], &[], &[], &[], &[], &[], &BTreeMap::new())
             .map_err(SchemeOperationError::Build)?;
-        if callable.is_quantified() {
-            self.counters
-                .successful_generic_call_resolutions
-                .fetch_add(1, Ordering::Relaxed);
-        }
         Ok(evidence)
     }
 
@@ -1702,7 +1762,7 @@ impl TypeConstraints {
                             *parameter
                         } else {
                             let parameter = SchemeTypeParameterId(
-                                generalization.type_parameters.len() as u32,
+                                generalization.type_ids.len() as u32,
                             );
                             generalization.type_ids.insert(canonical, parameter);
                             generalization.type_parameters.push(parameter);
@@ -1841,7 +1901,7 @@ impl TypeConstraints {
                     *parameter
                 } else {
                     let parameter =
-                        SchemeRowParameterId(generalization.row_parameters.len() as u32);
+                        SchemeRowParameterId(generalization.row_ids.len() as u32);
                     generalization.row_ids.insert(root, parameter);
                     generalization.row_parameters.push(SchemeRowParameter {
                         id: parameter,
@@ -5036,11 +5096,10 @@ mod tests {
                 result: result.clone(), span: span(3),
             }).unwrap();
             let instance = InstantiatedScheme {
-                params: vec![input.clone()], return_type: result.clone(),
+                params: vec![input.clone()], return_type: result.clone(), requirements: InstantiatedRequirements {
                 type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), input.clone())]),
                 row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(),
-                operations: vec![operation], methods: Vec::new(), wrappers: Vec::new(),
-            };
+                operations: vec![operation], methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new() } };
             if union_before_context { constraints.constrain(&input, &result, span(4)).unwrap(); }
             constraints.constrain_call_input_context(&instance, &instance.params, &Type::UInt, span(5)).unwrap();
             assert!(matches!(constraints.resolve(&input).unwrap(), Type::Inference(_)));
@@ -5059,10 +5118,9 @@ mod tests {
             let second = constraints.fresh(span(2));
             let (argument, outside) = if owned_first { (first, second) } else { (second, first) };
             let instance = InstantiatedScheme {
-                params: vec![argument.clone()], return_type: argument.clone(),
+                params: vec![argument.clone()], return_type: argument.clone(), requirements: InstantiatedRequirements {
                 type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
-                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
-            };
+                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new() } };
             constraints.constrain(&argument, &outside, span(3)).unwrap();
             let original = constraints.resolve(&outside).unwrap();
             constraints.constrain_checked_call_argument(&instance, &argument, &Type::Any, span(4)).unwrap();
@@ -5073,10 +5131,9 @@ mod tests {
         let mut constraints = TypeConstraints::default();
         let argument = constraints.fresh(span(5));
         let instance = InstantiatedScheme {
-            params: vec![argument.clone()], return_type: argument.clone(),
+            params: vec![argument.clone()], return_type: argument.clone(), requirements: InstantiatedRequirements {
             type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
-            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
-        };
+            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new() } };
         constraints.require_map_key(&argument, span(6)).unwrap();
         assert!(constraints.constrain_checked_call_argument(&instance, &argument, &Type::Any, span(7)).is_err());
         assert_eq!(constraints.resolve(&argument).unwrap(), argument);
@@ -5093,10 +5150,9 @@ mod tests {
                 let mut constraints = TypeConstraints::default();
                 let argument = constraints.fresh(span(1));
                 let instance = InstantiatedScheme {
-                    params: vec![argument.clone()], return_type: argument.clone(),
+                    params: vec![argument.clone()], return_type: argument.clone(), requirements: InstantiatedRequirements {
                     type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
-                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
-                };
+                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new() } };
                 constraints.constrain(&argument, &actual, span(2)).unwrap();
                 assert_eq!(constraints.resolve(&argument).unwrap(), argument);
                 constraints.constrain_checked_call_argument(&instance, &argument, &actual, span(3)).unwrap();
@@ -5108,10 +5164,9 @@ mod tests {
         let payload = constraints.fresh(span(1));
         let optional = Type::Optional(Box::new(payload.clone()));
         let instance = InstantiatedScheme {
-            params: vec![optional.clone()], return_type: payload.clone(),
+            params: vec![optional.clone()], return_type: payload.clone(), requirements: InstantiatedRequirements {
             type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), payload.clone())]),
-            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
-        };
+            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new() } };
         constraints.constrain_checked_call_argument(&instance, &optional, &Type::Null, span(2)).unwrap();
         assert_eq!(constraints.resolve(&payload).unwrap(), payload);
         assert_eq!(constraints.resolve(&optional).unwrap(), optional);
@@ -5134,10 +5189,9 @@ mod tests {
                 let second = constraints.fresh(span(2));
                 let (argument, outside) = if owned_first { (first, second) } else { (second, first) };
                 let instance = InstantiatedScheme {
-                    params: vec![argument.clone()], return_type: argument.clone(),
+                    params: vec![argument.clone()], return_type: argument.clone(), requirements: InstantiatedRequirements {
                     type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
-                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
-                };
+                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new() } };
                 constraints.constrain(&argument, &outside, span(3)).unwrap();
                 let original = constraints.resolve(&outside).unwrap();
                 constraints.constrain_checked_call_argument(&instance, &argument, &actual, span(4)).unwrap();
@@ -5615,9 +5669,9 @@ mod tests {
             assert_eq!(after.schema_argument_visits - before.schema_argument_visits, 2);
             assert_eq!(after.generalization_type_visits - before.generalization_type_visits, 4);
             assert_eq!(after.generalization_binding_clones - before.generalization_binding_clones, 2);
-            let instance = InstantiatedScheme { params: vec![], return_type: Type::Int,
+            let instance = InstantiatedScheme { params: vec![], return_type: Type::Int, requirements: InstantiatedRequirements {
                 type_arguments: BTreeMap::from([(generalized.type_parameters[0], Type::Str)]), row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(),
-                applications: vec![], operations: vec![], methods: vec![], wrappers: vec![], };
+                applications: vec![], operations: vec![], methods: vec![], wrappers: vec![], guards: Vec::new() } };
             let before = constraints.metrics();
             let instantiated = constraints.instantiate_schema(&symbolic, &instance, span(1)).unwrap();
             let after = constraints.metrics();
@@ -7451,10 +7505,9 @@ mod tests {
             span: span(2),
         }).unwrap();
         let instance = InstantiatedScheme {
-            params: vec![argument.clone()], return_type: Type::Int,
+            params: vec![argument.clone()], return_type: Type::Int, requirements: InstantiatedRequirements {
             type_arguments: BTreeMap::new(), row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(),
-            applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: vec![wrapper],
-        };
+            applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: vec![wrapper], guards: Vec::new() } };
         assert!(constraints.constrain_checked_call_argument(&instance, &argument, &Type::Str, span(3)).is_err());
         assert_eq!(constraints.resolve(&argument).unwrap(), argument);
         constraints.constrain_checked_call_argument(&instance, &argument, &Type::Int, span(4)).unwrap();
@@ -7468,10 +7521,9 @@ mod tests {
             span: span(8),
         }).unwrap();
         let instance = InstantiatedScheme {
-            params: vec![argument.clone()], return_type: result.clone(),
+            params: vec![argument.clone()], return_type: result.clone(), requirements: InstantiatedRequirements {
             type_arguments: BTreeMap::new(), row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(),
-            applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: vec![wrapper],
-        };
+            applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: vec![wrapper], guards: Vec::new() } };
         constraints.constrain_checked_call_argument(&instance, &argument, &Type::Null, span(9)).unwrap();
         constraints.solve_wrapper_operations().unwrap();
         assert_eq!(constraints.resolve(&argument).unwrap(), Type::Optional(Box::new(Type::Str)));

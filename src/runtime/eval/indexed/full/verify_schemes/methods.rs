@@ -158,7 +158,7 @@ pub(super) fn verify_bindings(
     bindings: &[FullMethodBinding],
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
-    let methods = bounded(callee.methods, &store.scheme_methods, "scheme method range is invalid")?;
+    let methods = bounded(scope.owned_requirements(callee)?.methods, &store.scheme_methods, "scheme method range is invalid")?;
     if methods.len() != bindings.len() {
         return Err(IrVerifyError::new("generic call method binding is incomplete"));
     }
@@ -181,7 +181,7 @@ pub(super) fn verify_bindings(
                 let Some((caller, caller_scope)) = caller else {
                     return Err(IrVerifyError::new("ground generic call forwards a method family"));
                 };
-                let caller_method = bounded(caller.methods, &store.scheme_methods, "caller method range is invalid")?
+                let caller_method = bounded(caller_scope.owned_requirements(caller)?.methods, &store.scheme_methods, "caller method range is invalid")?
                     .get(ordinal as usize)
                     .copied()
                     .ok_or_else(|| IrVerifyError::new("forwarded method ordinal is out of scope"))?;

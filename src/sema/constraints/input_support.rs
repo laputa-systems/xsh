@@ -44,14 +44,32 @@ impl TypeConstraints {
     ) -> Result<UnresolvedVariables, ConstraintResolutionError> {
         if !component.contains(&owner) { return Err(ConstraintResolutionError::ForeignVariable); }
         let mut supported = self.unresolved_input_variables(formals)?;
+        let mut scopes = component.iter().copied().map(CallableApplicationScope::Declaration).collect::<BTreeSet<_>>();
+        let mut guards = scopes.iter().flat_map(|owner| self.wrappers.guard_owners.get(owner).into_iter().flatten().copied()).collect::<Vec<_>>();
+        let mut visited_guards = BTreeSet::new();
         let mut visited = BTreeSet::new();
         let mut operations = BTreeSet::new();
         let mut methods = BTreeSet::new();
         let mut wrappers = BTreeSet::new();
         loop {
             let mut changed = false;
+            let mut next = 0;
+            while let Some(&id) = guards.get(next) {
+                next += 1;
+                if visited_guards.contains(&id) { continue; }
+                let Some(guard) = self.wrappers.guards.get(&id) else { continue; };
+                let inputs = std::iter::once(guard.source.clone()).chain(guard.reads.iter().map(|read| read.source.clone())).collect::<Vec<_>>();
+                if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
+                let views = std::iter::once(guard.view.clone()).chain(guard.reads.iter().map(|read| read.view.clone())).collect::<Vec<_>>();
+                supported.extend(self.unresolved_input_variables(&views)?);
+                visited_guards.insert(id);
+                let scope = CallableApplicationScope::Guard(id);
+                scopes.insert(scope);
+                guards.extend(self.wrappers.guard_owners.get(&scope).into_iter().flatten().copied());
+                changed = true;
+            }
             for (&id, entry) in &self.operations.entries {
-                if operations.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
+                if operations.contains(&id) || !scopes.contains(&entry.owner) { continue; }
                 let inputs = self.unresolved_input_variables(&entry.operation.inputs().cloned().collect::<Vec<_>>())?;
                 if !inputs.is_subset(&supported) { continue; }
                 operations.insert(id);
@@ -61,7 +79,7 @@ impl TypeConstraints {
                 changed = true;
             }
             for (&id, entry) in &self.methods.entries {
-                if methods.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
+                if methods.contains(&id) || !scopes.contains(&entry.owner) { continue; }
                 let inputs = std::iter::once(entry.requirement.receiver.clone()).chain(entry.requirement.arguments.iter().cloned()).collect::<Vec<_>>();
                 if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
                 methods.insert(id);
@@ -69,7 +87,7 @@ impl TypeConstraints {
                 changed = true;
             }
             for (&id, entry) in &self.wrappers.entries {
-                if wrappers.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
+                if wrappers.contains(&id) || !scopes.contains(&entry.owner) { continue; }
                 use crate::sema::wrapper_operation::{WrapperRequirementKind, WrapperErrorContribution, WrapperCompletionContribution, WrapperCompletionContributions};
                 let (inputs, outputs) = match &entry.requirement.kind {
                     WrapperRequirementKind::Field { source, result, .. } => (vec![source.clone()], vec![result.clone()]),
@@ -153,7 +171,7 @@ impl TypeConstraints {
             }
             for (&id, entry) in &self.applications.entries {
                 if visited.contains(&id)
-                    || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source))
+                    || !scopes.contains(&entry.owner)
                 { continue; }
                 let application = &entry.application;
                 if let crate::sema::callable_application::CallableApplication::KnownArguments(application) = application {

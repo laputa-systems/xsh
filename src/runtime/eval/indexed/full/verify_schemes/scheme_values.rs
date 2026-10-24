@@ -57,12 +57,13 @@ fn normalize_scope(scope: &SchemeScope, types: &[u32], rows: &[u32], effects: &[
         }
         Ok(())
     }
-    ids(types, normalized.type_parameters.len(), |index, id| normalized.type_parameters[index].id = id)?;
-    ids(rows, normalized.row_parameters.len(), |index, id| normalized.row_parameters[index].id = id)?;
-    ids(effects, normalized.effects.parameters.len(), |index, id| normalized.effects.parameters[index].id = id)?;
-    normalized.type_binders = normalized.type_parameters.iter().enumerate().map(|(ordinal, parameter)| (parameter.id, ordinal)).collect();
-    normalized.row_binders = normalized.row_parameters.iter().enumerate().map(|(ordinal, parameter)| (parameter.id, ordinal)).collect();
-    normalized.effects.binders = normalized.effects.parameters.iter().enumerate().map(|(ordinal, parameter)| (parameter.id, ordinal)).collect();
+    let bindings = std::sync::Arc::make_mut(&mut normalized.bindings);
+    ids(types, bindings.type_parameters.len(), |index, id| bindings.type_parameters[index].id = id)?;
+    ids(rows, bindings.row_parameters.len(), |index, id| bindings.row_parameters[index].id = id)?;
+    ids(effects, bindings.effects.parameters.len(), |index, id| bindings.effects.parameters[index].id = id)?;
+    bindings.type_binders = bindings.type_parameters.iter().enumerate().map(|(ordinal, parameter)| (parameter.id, ordinal)).collect();
+    bindings.row_binders = bindings.row_parameters.iter().enumerate().map(|(ordinal, parameter)| (parameter.id, ordinal)).collect();
+    bindings.effects.binders = bindings.effects.parameters.iter().enumerate().map(|(ordinal, parameter)| (parameter.id, ordinal)).collect();
     Ok(normalized)
 }
 

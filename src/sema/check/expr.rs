@@ -386,31 +386,45 @@ impl Checker {
         if name == "_" {
             return self.report_missing_identifier(name, span);
         }
-        let selected = match binding_id {
-            Some(binding_id) => self.scopes.iter().rev().find_map(|scope| {
-                scope
-                    .get(&name)
-                    .filter(|binding| binding.id == Some(binding_id))
-            }),
-            None => self
-                .scopes
-                .iter()
-                .rev()
-                .find_map(|scope| scope.get(&name))
-                .filter(|binding| binding.recovery),
-        };
+        let selected = self.scopes.iter().rev().find_map(|scope| {
+            scope.get(&name).filter(|binding| match binding_id {
+                Some(id) => binding.id == Some(id),
+                None => binding.recovery,
+            }).map(|binding| (binding, scope.guard))
+        });
         if binding_id.is_some() && selected.is_none() {
             return self.report_missing_identifier(name, span);
         }
-        let binding = selected.map(|binding| {
+        let source_guard = selected.and_then(|(binding, guard)| guard.map(|guard| (guard, binding.ty.clone())));
+        let guarded_binding = selected.and_then(|(binding, owner)| {
+            let guard = self.scopes.last()?.guard?;
+            (owner != Some(guard) && binding.ty.contains_inference()).then(|| (guard, binding.clone()))
+        });
+        let mut binding = selected.map(|(binding, _)| {
             let alias = binding.callable_alias.clone();
             let latent_stream_error = binding.latent_stream_error;
-            let ty = self
-                .type_constraints
-                .resolve(&binding.ty)
-                .unwrap_or(Type::Invalid);
+            let ty = self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
             (ty, alias, latent_stream_error)
         });
+        if let Some((guard, ty)) = source_guard
+            && let Err(error) = self.type_constraints.note_guard_view_read(guard, &ty) {
+            self.error(span, &format!("guarded view read is invalid: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
+            return Type::Invalid;
+        }
+        if let Some((guard, mut captured)) = guarded_binding {
+            match self.type_constraints.register_guard_read(guard, captured.ty.clone(), span, self.callable_solver_level()) {
+                Ok(view) => {
+                    if captured.unrefined_ty.is_none() { captured.unrefined_ty = Some(captured.ty.clone()); }
+                    captured.ty = view.clone();
+                    self.current_scope_mut().insert(name, captured);
+                    binding.as_mut().expect("guarded read has a source binding").0 = view;
+                }
+                Err(error) => {
+                    self.error(span, &format!("guarded read source is invalid: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            }
+        }
         self.lookup_expr_ident_from_binding(name, span, binding)
     }
 
@@ -697,6 +711,7 @@ impl Checker {
         id: ExprId,
         expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
+        self.record_guarded_node(arena.arena.expr(id).span);
         let expectation = expectation.filter(|expectation| !matches!(expectation, super::types::TypeExpectation::BranchCandidate(Type::Null)));
         let expected = expectation.map(super::types::TypeExpectation::context);
         let previous = self.boundary.expected_schema.clone();
@@ -3282,7 +3297,7 @@ impl Checker {
         if self.diagnostics[diagnostics..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
             self.binary_operators.remove(&expression);
         } else {
-            let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+            let owner = self.constraint_scope();
             let operation = span.and_then(|span| self.type_constraints.sealed_operation_at(owner, span));
             self.binary_operators.insert(expression, super::CheckedBinaryOperator { operator, operation });
         }
@@ -3516,7 +3531,7 @@ impl Checker {
                 let Ok(left_ty) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
                 if matches!(right_ty.unvalidated(), Type::Inference(_)) {
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
-                    let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+                    let owner = self.constraint_scope();
                     let operation = crate::sema::sealed_operation::SealedOperation::Membership { needle: left_ty, container: right_ty, span };
                     let operation = match self.type_constraints.register_source_sealed_operation(owner, operation).and_then(|id| {
                         self.type_constraints.solve_sealed_operations()?;
@@ -3589,7 +3604,7 @@ impl Checker {
                 let operator = crate::sema::sealed_operation::arithmetic_operator(op).expect("arithmetic syntax has a sealed operator");
                 if left_source.contains_inference() || right_source.contains_inference() {
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
-                    let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+                    let owner = self.constraint_scope();
                     let result = match self.type_constraints.source_sealed_operation(owner, span) {
                         Some(operation) => operation.result().expect("arithmetic operations have a value result").clone(),
                         None => {
@@ -4055,12 +4070,12 @@ impl Checker {
     }
 
     fn wrapper_result_type(&mut self, span: Span) -> Type {
-        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let owner = self.constraint_scope();
         self.type_constraints.wrapper_result_at(owner, span).cloned().unwrap_or_else(|| self.fresh_wrapper_type(span))
     }
 
     pub(super) fn check_wrapper_requirement(&mut self, kind: crate::sema::wrapper_operation::WrapperRequirementKind<Type, crate::sema::constraints::EffectVariableId>, span: Span, code: DiagnosticCode, result: Type) -> Type {
-        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let owner = self.constraint_scope();
         let requirement = crate::sema::wrapper_operation::WrapperRequirement { kind, span };
         if let Err(error) = self.type_constraints.register_source_wrapper(owner, requirement).and_then(|_| self.type_constraints.solve_wrapper_operations()) {
             self.error(span, &error.to_string(), code);
@@ -4337,7 +4352,7 @@ impl Checker {
         code: DiagnosticCode,
         build: impl FnOnce(Type) -> crate::sema::sealed_operation::SealedOperation<Type>,
     ) -> Type {
-        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let owner = self.constraint_scope();
         let result = match self.type_constraints.source_sealed_operation(owner, span) {
             Some(operation) => operation.result().expect("postfix operations have a value result").clone(),
             None => {
@@ -4375,7 +4390,7 @@ impl Checker {
             let constant_key = crate::sema::projection::constant_string_key(&arena.arena, &self.prepared_constants, index);
             self.from_end_indexes.remove(&span);
             let result = self.check_sealed_postfix_operation(span, DiagnosticCode::CheckIndexType, |result| crate::sema::sealed_operation::SealedOperation::Index { receiver: base_ty, key, result, syntax, constant_key, span });
-            let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+            let owner = self.constraint_scope();
             let validation = self.type_constraints.source_sealed_operation(owner, span).and_then(|operation| match operation {
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. }
                     if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) => self.type_constraints.source_sealed_operation_id(owner, span),
@@ -4402,7 +4417,7 @@ impl Checker {
                 );
                 self.expect_type(&key, &index_ty, index_span);
                 if crate::sema::sealed_operation::requires_uint_key_validation(&Type::Map(key.clone(), item.clone()), &index_ty) {
-                    let operation_owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+                    let operation_owner = self.constraint_scope();
                     let operation = crate::sema::sealed_operation::SealedOperation::Index {
                         receiver: Type::Map(key.clone(), item.clone()),
                         key: index_ty.clone(),

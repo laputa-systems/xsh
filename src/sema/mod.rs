@@ -7,6 +7,7 @@ pub mod constants;
 pub mod constraints;
 pub(crate) mod inference_work;
 pub(crate) mod effects;
+pub(crate) mod guarded_requirements;
 pub mod projection;
 pub mod records;
 pub(crate) mod schemes;

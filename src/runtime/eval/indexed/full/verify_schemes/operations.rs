@@ -156,7 +156,7 @@ pub(super) fn verify_key_domain(
 }
 
 pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &SchemeScope, substitution: ApplicationSubstitution<'_>, caller: Option<(&FullScheme, &SchemeScope)>, bindings: &[FullOperationBinding], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
-    let operations = bounded(callee.operations, &store.scheme_operations, "scheme operation range is invalid")?;
+    let operations = bounded(scope.owned_requirements(callee)?.operations, &store.scheme_operations, "scheme operation range is invalid")?;
     if operations.len() != bindings.len() { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
     for (encoded, binding) in operations.iter().zip(bindings) {
         let operation = decode(store, scope, *encoded, &substitution, budget)?;
@@ -166,7 +166,7 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
             }
             FullOperationBinding::Forwarded(ordinal) => {
                 let Some((caller, caller_scope)) = caller else { return Err(IrVerifyError::new("ground operation has no forwarding owner")); };
-                let encoded = bounded(caller.operations, &store.scheme_operations, "caller operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded operation ordinal is out of scope"))?;
+                let encoded = bounded(caller_scope.owned_requirements(caller)?.operations, &store.scheme_operations, "caller operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded operation ordinal is out of scope"))?;
                 let required = decode(store, caller_scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
                 if !operation.same_kind(&required) || !operation.types().zip(required.types()).all(|(actual, required)| body_types_equal(actual, required)) {
                     return Err(IrVerifyError::new("forwarded operation differs from its actual caller requirement"));

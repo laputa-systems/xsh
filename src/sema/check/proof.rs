@@ -47,13 +47,13 @@ impl BindingProof {
             refinement: Refinement::Type(ty),
         }
     }
-    pub(super) fn non_null_fact(&self, name: Name, path: Vec<Name>, source: TypeVariableId) -> Narrowing {
+    pub(super) fn non_null_fact(&self, name: Name, path: Vec<Name>, source: TypeVariableId, subject: crate::source::Span, comparison: crate::source::Span) -> Narrowing {
         Narrowing {
             name,
             path: path.into(),
             identity: Arc::clone(&self.identity),
             revision: self.revision,
-            refinement: Refinement::NonNull(source),
+            refinement: Refinement::NonNull { source, subject, comparison },
         }
     }
     pub(super) fn accepts(&self, fact: &Narrowing) -> bool {
@@ -94,11 +94,22 @@ pub(super) struct Narrowing {
     pub(super) refinement: Refinement,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(super) enum Refinement {
     Type(Type),
-    NonNull(TypeVariableId),
+    NonNull { source: TypeVariableId, subject: crate::source::Span, comparison: crate::source::Span },
 }
+
+impl PartialEq for Refinement {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Type(left), Self::Type(right)) => left == right,
+            (Self::NonNull { source: left, .. }, Self::NonNull { source: right, .. }) => left == right,
+            _ => false,
+        }
+    }
+}
+impl Eq for Refinement {}
 
 impl PartialEq for Narrowing {
     fn eq(&self, other: &Self) -> bool {

@@ -205,7 +205,7 @@ impl Checker {
                     self.error(span, "callable application has no declaration inference scope", DiagnosticCode::CheckLocalInference);
                     return Some(Type::Invalid);
                 };
-                (CallableApplicationScope::Declaration(owner), declaration.solver_level())
+                (self.constraint_scope(), declaration.solver_level())
             }
             None => (CallableApplicationScope::Invocation, 0),
         };

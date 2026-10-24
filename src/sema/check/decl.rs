@@ -178,6 +178,7 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) callable: Arc<CallableScheme>,
     pub(super) scope: crate::sema::constraints::CallableGeneralizationScope,
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
+    guard_scopes: crate::sema::guarded_requirements::GuardBodyScopes,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     constructor_instances: BTreeMap<ExprId, crate::sema::constants::CheckedRecordConstructor<crate::sema::schemes::SchemeType>>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
@@ -760,11 +761,37 @@ impl Checker {
             )
             .ok()?,
         );
+        let guard_scopes = (|| {
+            let expressions = generalized_body_types.keys().filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr(expression).span).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
+            let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt(statement).span).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
+            let by_span = generalized_body_types.keys().map(|&expression| (program.arena.expr(expression).span, expression)).collect::<BTreeMap<_, _>>();
+            let mut sites = BTreeMap::<ExprId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
+            let mut pending = callable.requirements().guards.iter().rev().collect::<Vec<_>>();
+            while let Some(guard) = pending.pop() {
+                let mut record = |span, site| {
+                    let expression = by_span.get(&span).copied().ok_or(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                    sites.entry(expression).or_default().push(site);
+                    Ok::<_, crate::sema::constraints::SchemeOperationError>(())
+                };
+                record(guard.subject, crate::sema::guarded_requirements::GuardBodySite::Source(guard.scope))?;
+                record(guard.comparison, crate::sema::guarded_requirements::GuardBodySite::Comparison(guard.scope))?;
+                for (ordinal, read) in guard.reads.iter().enumerate() {
+                    let ordinal = u32::try_from(ordinal).map_err(|_| crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                    record(read.subject, crate::sema::guarded_requirements::GuardBodySite::Read { scope: guard.scope, ordinal })?;
+                }
+                pending.extend(guard.requirements.guards.iter().rev());
+            }
+            Ok::<_, crate::sema::constraints::SchemeOperationError>(crate::sema::guarded_requirements::GuardBodyScopes { expressions, statements, sites })
+        })();
+        let guard_scopes = match guard_scopes {
+            Ok(scopes) => scopes,
+            Err(error) => { self.error(body_span, &format!("body guard scope is not owned by its callable: {error:?}"), DiagnosticCode::CheckLocalInference); return None; }
+        };
         Some(PreparedFunctionGeneralization {
             definition: def_id,
             callable,
             scope: generalized.generalization_scope,
-            body_types: generalized_body_types,
+            body_types: generalized_body_types, guard_scopes,
             constructor_producers,
             constructor_instances,
             tail_types: generalized_tail_types,
@@ -782,7 +809,7 @@ impl Checker {
         prepared: PreparedFunctionGeneralization,
     ) {
         let PreparedFunctionGeneralization {
-            definition, callable, scope, body_types: generalized_body_types,
+            definition, callable, scope, body_types: generalized_body_types, guard_scopes,
             constructor_producers, constructor_instances,
             tail_types: generalized_tail_types, calls: generalized_calls,
             registered_calls, read_bindings, local_statements, expression_spans: _,
@@ -851,7 +878,7 @@ impl Checker {
         self.declaration_inference
             .pending_mut(declaration)
             .expect("a prepared function retains its provisional declaration")
-            .generalize(callable, scope, generalized_body_types, constructor_producers, constructor_instances, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, scope, generalized_body_types, constructor_producers, constructor_instances, generalized_tail_types, registered_calls, read_bindings, guard_scopes);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -1096,10 +1123,11 @@ impl Checker {
             None
         } else {
             let constructor_instances = pending.generalized_constructor_instances()?.clone();
-            match super::super::schemes::SchemeBodyFacts::new(
+            match super::super::schemes::SchemeBodyFacts::new_scoped(
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
+                pending.generalized_guard_scopes()?.clone(),
             ).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
                 Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {

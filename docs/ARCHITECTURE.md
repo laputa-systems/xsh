@@ -576,9 +576,25 @@ schema, source child, type identity, and exact optional payload; failed queries
 never supply evidence. Source, storage, and callee proofs remain independent.
 Checker null-comparison facts distinguish known replacement types from symbolic
 non-null source variables. Symbolic facts retain their binding identity, path,
-and mutation revision through Boolean proof composition. They do not choose an
-Optional input or a payload type. Retaining a symbolic fact does not itself
-authorize a narrowed value read.
+mutation revision, source read, and comparison through Boolean proof composition.
+They establish a private guard-local view without choosing an Optional input.
+Callable requirements partition every symbolic type, row, and effect parameter
+between the root and one guard scope. A scope can reference the root and its
+ancestors; sibling and forward references are invalid. Body facts retain that
+lexical scope. Existing root binding and unused-parameter checks remain total.
+The wrapper worklist and transaction journal also own guarded read relationships.
+A closed source selects its identity type, its exact Optional payload, or Null
+absence. Only live scopes allocate local requirement arguments. Null carries no
+local payload, row, or effect arguments, and unresolved sources remain pending.
+Reads of other ancestor bindings use local identity relationships; sharing a type
+variable never transfers another value's non-null proof.
+Full retains one callable-local binder census with disjoint root and guard ranges.
+Type-graph verification records each node's deepest required guard, so cached
+nodes cannot escape through root or sibling references. Existing body fact rows
+record guard membership. Cold guard metadata identifies the physical source,
+comparison, and identity reads. Each live call packet owns only its local dense
+arguments and refers to its authenticated ancestor packet. Null supplies no
+local arguments. Root argument evidence remains independently total.
 Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the

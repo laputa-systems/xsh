@@ -140,6 +140,7 @@ pub(crate) struct CallableRequirements {
     pub(crate) operations: Vec<super::sealed_operation::SealedOperation<SchemeType>>,
     pub(crate) methods: Vec<MethodFamilyRequirement<SchemeType>>,
     pub(crate) wrappers: Vec<super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>>,
+    pub(crate) guards: Vec<Arc<super::guarded_requirements::GuardRequirements>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -249,6 +250,7 @@ pub(crate) struct CallInstantiation {
     operation_bindings: Vec<SealedOperationBinding>,
     method_bindings: Vec<SealedMethodBinding>,
     wrapper_bindings: Vec<super::wrapper_operation::WrapperBinding>,
+    guard_bindings: Vec<super::guarded_requirements::GuardBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -322,6 +324,7 @@ pub(crate) struct SchemeBodyFacts {
     operation_sites: BTreeMap<ExprId, u32>,
     method_sites: BTreeMap<ExprId, u32>,
     wrapper_sites: BTreeMap<ExprId, u32>,
+    guard_scopes: super::guarded_requirements::GuardBodyScopes,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -331,6 +334,7 @@ pub(crate) enum SchemeBuildError {
     UnsupportedMethodFamily,
     AmbiguousMethodFamily,
     UnresolvedWrapper,
+    UnresolvedGuardScope,
     RecoveryType,
     UnresolvedType,
     UnresolvedRow,
@@ -541,47 +545,12 @@ impl CallableScheme {
             &mut row_requirements,
         )?;
         if let Some(schema) = &return_schema { validate_schema_types(schema, &mut |ty| ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements))?; }
-        for (parameter, iteration) in &requirements.iteration_parameters {
-            if !type_ids.contains(parameter) { return Err(SchemeBuildError::UnboundTypeParameter); }
-            for ty in iteration.types() {
-                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
-            }
-        }
-        for application in &requirements.applications {
-            for ty in application.types() {
-                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
-            }
-            if let Some(application) = application.invocation() {
-                validate_effect_contract(&application.effects, &effect_ids, &mut used_effects)?;
-            }
-        }
-        for wrapper in &requirements.wrappers {
-            for ty in wrapper.types() { ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?; }
-            if let super::wrapper_operation::WrapperRequirementKind::Field { effects, .. } = &wrapper.kind { validate_effect_contract(effects, &effect_ids, &mut used_effects)?; }
-        }
-        validate_wrapper_group_contracts(&requirements.wrappers)?;
-        for operation in &requirements.operations {
-            for ty in operation.types() {
-                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
-            }
-        }
-        for method in &requirements.methods {
-            if method.argument_slots.len() != method.arguments.len() {
-                return Err(SchemeBuildError::UnresolvedMethodFamily);
-            }
-            for ty in std::iter::once(&method.receiver)
-                .chain(method.arguments.iter())
-                .chain(std::iter::once(&method.result))
-            {
-                if let Some(error) = ty.body_build_error() { return Err(error); }
-                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
-            }
-        }
-        for predicate in &requirements.effect_predicates {
-            for contract in predicate.contracts() {
-                validate_effect_contract(contract, &effect_ids, &mut used_effects)?;
-            }
-        }
+        visit_requirement_terms(&requirements, |term| match term {
+            RequirementTerm::Type(ty) => ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements),
+            RequirementTerm::Effects(contract) => validate_effect_contract(contract, &effect_ids, &mut used_effects),
+            RequirementTerm::Parameter(parameter) => if type_ids.contains(&parameter) { Ok(()) } else { Err(SchemeBuildError::UnboundTypeParameter) },
+        })?;
+        validate_guard_requirements(&requirements.guards, &type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
         if used_types != type_ids {
             return Err(SchemeBuildError::UnusedTypeParameter);
         }
@@ -614,6 +583,7 @@ impl CallableScheme {
     pub(crate) fn is_quantified(&self) -> bool {
         !self.type_parameters.is_empty() || !self.row_parameters.is_empty()
             || !self.requirements.effect_parameters.is_empty()
+            || !self.requirements.guards.is_empty()
     }
 
     pub(crate) fn type_parameters(&self) -> &[SchemeTypeParameterId] {
@@ -672,6 +642,108 @@ impl CallableScheme {
             requirements: self.requirements.map_ground_types(map),
         }
     }
+}
+
+pub(super) enum RequirementTerm<'a> {
+    Type(&'a SchemeType),
+    Effects(&'a EffectContract<SchemeEffectParameterId>),
+    Parameter(SchemeTypeParameterId),
+}
+
+pub(super) fn visit_requirement_terms(requirements: &CallableRequirements, mut visit: impl FnMut(RequirementTerm<'_>) -> Result<(), SchemeBuildError>) -> Result<(), SchemeBuildError> {
+    let CallableRequirements { map_key_parameters, conversion_parameters, iteration_parameters, effect_parameters: _, effect_predicates, applications, operations, methods, wrappers, guards: _ } = requirements;
+    for parameter in map_key_parameters.iter().chain(conversion_parameters.keys()) { visit(RequirementTerm::Parameter(*parameter))?; }
+    for (parameter, iteration) in iteration_parameters {
+        visit(RequirementTerm::Parameter(*parameter))?;
+        for ty in iteration.types() { visit(RequirementTerm::Type(ty))?; }
+    }
+    for application in applications {
+        for ty in application.types() { visit(RequirementTerm::Type(ty))?; }
+        if let Some(application) = application.invocation() { visit(RequirementTerm::Effects(&application.effects))?; }
+    }
+    for wrapper in wrappers {
+        for ty in wrapper.types() { visit(RequirementTerm::Type(ty))?; }
+        if let super::wrapper_operation::WrapperRequirementKind::Field { effects, .. } = &wrapper.kind { visit(RequirementTerm::Effects(effects))?; }
+    }
+    validate_wrapper_group_contracts(wrappers)?;
+    for operation in operations {
+        for ty in operation.types() { visit(RequirementTerm::Type(ty))?; }
+    }
+    for method in methods {
+        if method.argument_slots.len() != method.arguments.len() { return Err(SchemeBuildError::UnresolvedMethodFamily); }
+        for ty in std::iter::once(&method.receiver).chain(method.arguments.iter()).chain(std::iter::once(&method.result)) {
+            if let Some(error) = ty.body_build_error() { return Err(error); }
+            visit(RequirementTerm::Type(ty))?;
+        }
+    }
+    for predicate in effect_predicates {
+        for contract in predicate.contracts() { visit(RequirementTerm::Effects(contract))?; }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct GuardUsage {
+    types: BTreeSet<SchemeTypeParameterId>,
+    rows: BTreeSet<SchemeRowParameterId>,
+    effects: BTreeSet<SchemeEffectParameterId>,
+}
+
+fn validate_guard_type(
+    ty: &SchemeType, scope: Option<super::guarded_requirements::GuardScopeId>, ownership: &super::guarded_requirements::GuardOwnership<'_>, usage: &mut GuardUsage,
+    row_requirements: &mut BTreeMap<SchemeRowParameterId, BTreeSet<Name>>,
+) -> Result<(), SchemeBuildError> {
+    let mut types = BTreeSet::new();
+    let mut rows = BTreeSet::new();
+    let mut effects = BTreeSet::new();
+    ty.validate(ownership.types(), ownership.rows(), ownership.effects(), &mut effects, &mut types, &mut rows, row_requirements)?;
+    ownership.check_types(scope, &types)?;
+    ownership.check_rows(scope, &rows)?;
+    ownership.check_effects(scope, &effects)?;
+    usage.types.extend(types);
+    usage.rows.extend(rows);
+    usage.effects.extend(effects);
+    Ok(())
+}
+
+fn validate_guard_requirements(
+    guards: &[Arc<super::guarded_requirements::GuardRequirements>],
+    root_types: &BTreeSet<SchemeTypeParameterId>, root_rows: &BTreeSet<SchemeRowParameterId>, root_effects: &BTreeSet<SchemeEffectParameterId>,
+    used_effects: &mut BTreeSet<SchemeEffectParameterId>, used_types: &mut BTreeSet<SchemeTypeParameterId>, used_rows: &mut BTreeSet<SchemeRowParameterId>,
+    row_requirements: &mut BTreeMap<SchemeRowParameterId, BTreeSet<Name>>,
+) -> Result<(), SchemeBuildError> {
+    let mut ownership = super::guarded_requirements::GuardOwnership::new(root_types, root_rows, root_effects);
+    ownership.collect(guards)?;
+    let mut usage = GuardUsage::default();
+    let mut pending = guards.iter().rev().map(|guard| (guard, None)).collect::<Vec<_>>();
+    while let Some((guard, parent)) = pending.pop() {
+        validate_guard_type(&guard.source, parent, &ownership, &mut usage, row_requirements)?;
+        validate_guard_type(&guard.view, Some(guard.scope), &ownership, &mut usage, row_requirements)?;
+        for read in &guard.reads {
+            validate_guard_type(&read.source, parent, &ownership, &mut usage, row_requirements)?;
+            validate_guard_type(&read.view, Some(guard.scope), &ownership, &mut usage, row_requirements)?;
+        }
+        visit_requirement_terms(&guard.requirements, |term| match term {
+            RequirementTerm::Type(ty) => validate_guard_type(ty, Some(guard.scope), &ownership, &mut usage, row_requirements),
+            RequirementTerm::Parameter(parameter) => ownership.check_type(Some(guard.scope), parameter),
+            RequirementTerm::Effects(contract) => {
+                let mut effects = BTreeSet::new();
+                validate_effect_contract(contract, ownership.effects(), &mut effects)?;
+                ownership.check_effects(Some(guard.scope), &effects)?;
+                usage.effects.extend(effects);
+                Ok(())
+            },
+        })?;
+        let map_keys = guard.requirements.map_key_parameters.iter().copied().collect::<BTreeSet<_>>();
+        if map_keys.len() != guard.requirements.map_key_parameters.len() { return Err(SchemeBuildError::MapKey); }
+        if guard.requirements.conversion_parameters.iter().any(|(parameter, conversions)| conversions.is_empty() || !conversions.is_satisfiable(map_keys.contains(parameter))) { return Err(SchemeBuildError::Conversion); }
+        pending.extend(guard.requirements.guards.iter().rev().map(|child| (child, Some(guard.scope))));
+    }
+    ownership.check_used(&usage.types, &usage.rows, &usage.effects, row_requirements)?;
+    used_types.extend(usage.types.into_iter().filter(|parameter| root_types.contains(parameter)));
+    used_rows.extend(usage.rows.into_iter().filter(|parameter| root_rows.contains(parameter)));
+    used_effects.extend(usage.effects.into_iter().filter(|parameter| root_effects.contains(parameter)));
+    Ok(())
 }
 
 fn validate_effect_contract(
@@ -754,6 +826,18 @@ impl CallableRequirements {
                 _ => {}
             }
         }
+        bytes = bytes.saturating_add(self.guards.capacity() * size_of::<Arc<super::guarded_requirements::GuardRequirements>>());
+        for guard in &self.guards {
+            bytes = bytes.saturating_add(size_of::<super::guarded_requirements::GuardRequirements>());
+            bytes = bytes.saturating_add(guard.source.retained_bytes().saturating_sub(size_of::<SchemeType>()))
+                .saturating_add(guard.view.retained_bytes().saturating_sub(size_of::<SchemeType>()))
+                .saturating_add(guard.type_parameters.capacity() * size_of::<SchemeTypeParameterId>())
+                .saturating_add(guard.row_parameters.capacity() * size_of::<SchemeRowParameter>())
+                .saturating_add(guard.reads.capacity() * size_of::<super::guarded_requirements::GuardReadRequirement>())
+                .saturating_add(guard.requirements.retained_bytes());
+            for row in &guard.row_parameters { bytes = bytes.saturating_add(row.lacks.len() * size_of::<Name>()); }
+            for read in &guard.reads { bytes = bytes.saturating_add(read.source.retained_bytes().saturating_sub(size_of::<SchemeType>())).saturating_add(read.view.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
+        }
         for predicate in &self.effect_predicates {
             for contract in predicate.contracts() {
                 bytes = bytes.saturating_add(contract.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
@@ -778,6 +862,13 @@ impl CallableRequirements {
 
     fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
         let mut mapped = self.clone();
+        for guard in &mut mapped.guards {
+            let guard = Arc::make_mut(guard);
+            guard.source.map_ground_types(map);
+            guard.view.map_ground_types(map);
+            for read in &mut guard.reads { read.source.map_ground_types(map); read.view.map_ground_types(map); }
+            guard.requirements = Box::new(guard.requirements.map_ground_types(map));
+        }
         for operation in &mut mapped.operations {
             for ty in operation.types_mut() { ty.map_ground_types(map); }
         }
@@ -872,6 +963,13 @@ impl CallableMonotype {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct SchemeBindingScope<'a> {
+    pub(super) types: &'a [SchemeTypeParameterId],
+    pub(super) rows: &'a [SchemeRowParameter],
+    pub(super) requirements: &'a CallableRequirements,
+}
+
 impl CallInstantiation {
     #[cfg(test)]
     pub(crate) fn new(
@@ -893,7 +991,7 @@ impl CallInstantiation {
     ) -> Result<Self, SchemeBuildError> {
         Self::with_method_bindings(
             callable, type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings,
-            Vec::new(), wrapper_bindings, caller_types, caller_rows, caller_effects, caller_applications, caller_operations, &[], caller_wrappers, caller_map_keys, caller_conversions,
+            Vec::new(), wrapper_bindings, Vec::new(), caller_types, caller_rows, caller_effects, caller_applications, caller_operations, &[], caller_wrappers, caller_map_keys, caller_conversions,
         )
     }
 
@@ -906,6 +1004,30 @@ impl CallInstantiation {
         operation_bindings: Vec<SealedOperationBinding>,
         method_bindings: Vec<SealedMethodBinding>,
         wrapper_bindings: Vec<super::wrapper_operation::WrapperBinding>,
+        guard_bindings: Vec<super::guarded_requirements::GuardBinding>,
+        caller_types: &[SchemeTypeParameterId],
+        caller_rows: &[SchemeRowParameter],
+        caller_effects: &[SchemeEffectParameterId],
+        caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
+        caller_operations: &[super::sealed_operation::SealedOperation<SchemeType>],
+        caller_methods: &[MethodFamilyRequirement<SchemeType>],
+        caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
+        caller_map_keys: &[SchemeTypeParameterId],
+        caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
+    ) -> Result<Self, SchemeBuildError> {
+        Self::with_scope_bindings(SchemeBindingScope { types: callable.type_parameters(), rows: callable.row_parameters(), requirements: callable.requirements() }, type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings, method_bindings, wrapper_bindings, guard_bindings, caller_types, caller_rows, caller_effects, caller_applications, caller_operations, caller_methods, caller_wrappers, caller_map_keys, caller_conversions)
+    }
+
+    pub(super) fn with_scope_bindings(
+        scope: SchemeBindingScope<'_>,
+        type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
+        row_arguments: BTreeMap<SchemeRowParameterId, RowEvidence>,
+        effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
+        application_bindings: Vec<CallableApplicationBinding>,
+        operation_bindings: Vec<SealedOperationBinding>,
+        method_bindings: Vec<SealedMethodBinding>,
+        wrapper_bindings: Vec<super::wrapper_operation::WrapperBinding>,
+        guard_bindings: Vec<super::guarded_requirements::GuardBinding>,
         caller_types: &[SchemeTypeParameterId],
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
@@ -917,21 +1039,22 @@ impl CallInstantiation {
         caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
     ) -> Result<Self, SchemeBuildError> {
         if type_arguments.keys().copied().collect::<BTreeSet<_>>()
-            != callable.type_parameters.iter().copied().collect()
+            != scope.types.iter().copied().collect()
         {
             return Err(SchemeBuildError::UnboundTypeParameter);
         }
-        for parameter in &callable.requirements.map_key_parameters {
+        if guard_bindings.len() != scope.requirements.guards.len() { return Err(SchemeBuildError::UnresolvedGuardScope); }
+        for parameter in &scope.requirements.map_key_parameters {
             let actual = type_arguments.get(parameter).ok_or(SchemeBuildError::UnboundTypeParameter)?;
             if !actual.is_map_key_with(caller_map_keys) { return Err(SchemeBuildError::MapKey); }
         }
-        for (parameter, conversions) in &callable.requirements.conversion_parameters {
+        for (parameter, conversions) in &scope.requirements.conversion_parameters {
             let actual = type_arguments.get(parameter).ok_or(SchemeBuildError::UnboundTypeParameter)?;
             if !actual.satisfies_conversions(*conversions, caller_conversions) { return Err(SchemeBuildError::Conversion); }
         }
         if row_arguments.keys().copied().collect::<BTreeSet<_>>()
-            != callable
-                .row_parameters
+            != scope
+                .rows
                 .iter()
                 .map(|parameter| parameter.id)
                 .collect()
@@ -939,21 +1062,21 @@ impl CallInstantiation {
             return Err(SchemeBuildError::UnboundRowParameter);
         }
         if effect_arguments.keys().copied().collect::<BTreeSet<_>>()
-            != callable.requirements.effect_parameters.iter().copied().collect()
+            != scope.requirements.effect_parameters.iter().copied().collect()
         {
             return Err(SchemeBuildError::UnboundEffectParameter);
         }
         if application_bindings.iter().any(|binding| matches!(binding, CallableApplicationBinding::Forwarded(ordinal) if caller_applications.get(*ordinal as usize).is_none())) {
             return Err(SchemeBuildError::UnresolvedCallableApplication);
         }
-        if application_bindings.len() != callable.requirements.applications.len() {
+        if application_bindings.len() != scope.requirements.applications.len() {
             return Err(SchemeBuildError::UnresolvedCallableApplication);
         }
-        if operation_bindings.len() != callable.requirements.operations.len()
+        if operation_bindings.len() != scope.requirements.operations.len()
             || operation_bindings.iter().any(|binding| matches!(binding, SealedOperationBinding::Forwarded(ordinal) if caller_operations.get(*ordinal as usize).is_none()))
         { return Err(SchemeBuildError::UnresolvedSealedOperation); }
-        if method_bindings.len() != callable.requirements.methods.len()
-            || method_bindings.iter().zip(&callable.requirements.methods).any(|(binding, method)| match binding {
+        if method_bindings.len() != scope.requirements.methods.len()
+            || method_bindings.iter().zip(&scope.requirements.methods).any(|(binding, method)| match binding {
                 SealedMethodBinding::Forwarded(ordinal) => caller_methods.get(*ordinal as usize)
                     .is_none_or(|caller| caller.family != method.family),
                 SealedMethodBinding::Selected(id) => xsh_registry::signature::api_spec()
@@ -962,7 +1085,7 @@ impl CallInstantiation {
                         .method_family_id(receiver, name, overload) != Some(method.family)),
             })
         { return Err(SchemeBuildError::UnresolvedMethodFamily); }
-        if wrapper_bindings.len() != callable.requirements.wrappers.len()
+        if wrapper_bindings.len() != scope.requirements.wrappers.len()
             || wrapper_bindings.iter().any(|binding| matches!(binding, super::wrapper_operation::WrapperBinding::Forwarded(ordinal) if caller_wrappers.get(*ordinal as usize).is_none()))
         { return Err(SchemeBuildError::UnresolvedWrapper); }
         let caller_effect_ids = caller_effects.iter().copied().collect::<BTreeSet<_>>();
@@ -990,7 +1113,7 @@ impl CallInstantiation {
                 &mut row_requirements,
             )?;
         }
-        for parameter in callable.row_parameters() {
+        for parameter in scope.rows {
             let evidence = &row_arguments[&parameter.id];
             for ty in evidence.fields.values() {
                 if let Some(error) = ty.body_build_error() {
@@ -1036,11 +1159,18 @@ impl CallInstantiation {
         }
         Ok(Self {
             type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings, method_bindings, wrapper_bindings,
+            guard_bindings,
         })
     }
 
     pub(crate) fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
         let mut mapped = self.clone();
+        for guard in &mut mapped.guard_bindings {
+            match guard {
+                super::guarded_requirements::GuardBinding::NonNull(binding) | super::guarded_requirements::GuardBinding::Optional(binding) => **binding = binding.map_ground_types(map),
+                super::guarded_requirements::GuardBinding::Null => {},
+            }
+        }
         for ty in mapped.type_arguments.values_mut() { ty.map_ground_types(map); }
         for row in mapped.row_arguments.values_mut() {
             for ty in row.fields.values_mut() { ty.map_ground_types(map); }
@@ -1059,6 +1189,7 @@ impl CallInstantiation {
     pub(crate) fn operation_bindings(&self) -> &[SealedOperationBinding] { &self.operation_bindings }
     pub(crate) fn method_bindings(&self) -> &[SealedMethodBinding] { &self.method_bindings }
     pub(crate) fn wrapper_bindings(&self) -> &[super::wrapper_operation::WrapperBinding] { &self.wrapper_bindings }
+    pub(crate) fn guard_bindings(&self) -> &[super::guarded_requirements::GuardBinding] { &self.guard_bindings }
 
     pub(crate) fn type_arguments(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeType> {
         &self.type_arguments
@@ -1075,6 +1206,8 @@ impl CallInstantiation {
             .saturating_add(self.effect_arguments.values().map(EffectContract::retained_bytes).sum::<usize>())
             .saturating_add(self.operation_bindings.capacity() * size_of::<SealedOperationBinding>())
             .saturating_add(self.method_bindings.capacity() * size_of::<SealedMethodBinding>())
+            .saturating_add(self.guard_bindings.capacity() * size_of::<super::guarded_requirements::GuardBinding>())
+            .saturating_add(self.guard_bindings.iter().map(|binding| match binding { super::guarded_requirements::GuardBinding::NonNull(binding) | super::guarded_requirements::GuardBinding::Optional(binding) => binding.retained_bytes(), super::guarded_requirements::GuardBinding::Null => 0 }).sum::<usize>())
             .saturating_add(self.wrapper_bindings.capacity() * size_of::<super::wrapper_operation::WrapperBinding>())
             .saturating_add(self.application_bindings.capacity() * size_of::<CallableApplicationBinding>())
             .saturating_add(self.application_bindings.iter().map(|binding| {
@@ -1136,6 +1269,15 @@ impl SchemeBodyFacts {
         expression_types: BTreeMap<ExprId, SchemeType>,
         tail_types: BTreeMap<StmtId, SchemeType>,
     ) -> Result<Self, SchemeBuildError> {
+        Self::new_scoped(scheme, expression_types, tail_types, super::guarded_requirements::GuardBodyScopes::default())
+    }
+
+    pub(crate) fn new_scoped(
+        scheme: Arc<TypeScheme>,
+        expression_types: BTreeMap<ExprId, SchemeType>,
+        tail_types: BTreeMap<StmtId, SchemeType>,
+        guard_scopes: super::guarded_requirements::GuardBodyScopes,
+    ) -> Result<Self, SchemeBuildError> {
         let type_ids = scheme.type_parameters().iter().copied().collect::<BTreeSet<_>>();
         let row_ids = scheme
             .row_parameters()
@@ -1147,16 +1289,20 @@ impl SchemeBodyFacts {
         let mut row_requirements = BTreeMap::new();
         let effect_ids = scheme.callable().requirements().effect_parameters.iter().copied().collect();
         let mut used_effects = BTreeSet::new();
-        for ty in expression_types.values().chain(tail_types.values()) {
-            ty.validate(
-                &type_ids,
-                &row_ids,
-                &effect_ids,
-                &mut used_effects,
-                &mut used_types,
-                &mut used_rows,
-                &mut row_requirements,
-            )?;
+        let mut ownership = super::guarded_requirements::GuardOwnership::new(&type_ids, &row_ids, &effect_ids);
+        ownership.collect(&scheme.callable().requirements().guards)?;
+        for scope in guard_scopes.expressions.values().chain(guard_scopes.statements.values()) { ownership.check_scope(*scope)?; }
+        if guard_scopes.expressions.keys().chain(guard_scopes.sites.keys()).any(|expression| !expression_types.contains_key(expression)) { return Err(SchemeBuildError::UnresolvedGuardScope); }
+        for site in guard_scopes.sites.values().flatten() {
+            ownership.check_scope(match site { super::guarded_requirements::GuardBodySite::Source(scope) | super::guarded_requirements::GuardBodySite::Comparison(scope) | super::guarded_requirements::GuardBodySite::Read { scope, .. } => *scope })?;
+        }
+        for (ty, guard) in expression_types.iter().map(|(expression, ty)| (ty, guard_scopes.expressions.get(expression).copied()))
+            .chain(tail_types.iter().map(|(statement, ty)| (ty, guard_scopes.statements.get(statement).copied()))) {
+            let mut usage = GuardUsage::default();
+            validate_guard_type(ty, guard, &ownership, &mut usage, &mut row_requirements)?;
+            used_effects.extend(usage.effects);
+            used_types.extend(usage.types);
+            used_rows.extend(usage.rows);
         }
         Ok(Self {
             scheme,
@@ -1169,9 +1315,11 @@ impl SchemeBodyFacts {
             proc_return_sites: BTreeMap::new(),
             operation_sites: BTreeMap::new(),
             method_sites: BTreeMap::new(),
-            wrapper_sites: BTreeMap::new(),
+            wrapper_sites: BTreeMap::new(), guard_scopes,
         })
     }
+
+    pub(crate) fn guard_scopes(&self) -> &super::guarded_requirements::GuardBodyScopes { &self.guard_scopes }
 
     pub(crate) fn with_proc_return_sites(mut self, sites: BTreeMap<Span, SchemeProcReturnSite>) -> Result<Self, SchemeBuildError> {
         for site in sites.values() {
@@ -1373,6 +1521,10 @@ impl SchemeBodyFacts {
             .saturating_add(self.operation_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.method_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.wrapper_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.guard_scopes.expressions.len() * size_of::<(ExprId, super::guarded_requirements::GuardScopeId)>())
+            .saturating_add(self.guard_scopes.statements.len() * size_of::<(StmtId, super::guarded_requirements::GuardScopeId)>())
+            .saturating_add(self.guard_scopes.sites.len() * size_of::<(ExprId, Vec<super::guarded_requirements::GuardBodySite>)>())
+            .saturating_add(self.guard_scopes.sites.values().map(|sites| sites.capacity() * size_of::<super::guarded_requirements::GuardBodySite>()).sum::<usize>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())
             .saturating_add(self.registered_calls.values().map(|plan| plan.retained_bytes()).sum::<usize>())
             .saturating_add(self.tail_types.len() * size_of::<(StmtId, SchemeType)>())
@@ -1887,6 +2039,7 @@ mod tests {
             let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
             let requirements = CallableRequirements {
                 map_key_parameters: Vec::new(),
+                guards: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![effect],
                 iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),

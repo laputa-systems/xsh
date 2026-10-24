@@ -56,6 +56,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::UnsupportedMethodFamily => "generic method has no registered member for its input",
                 SchemeBuildError::AmbiguousMethodFamily => "generic method inputs select multiple registered family members",
                 SchemeBuildError::UnresolvedWrapper => "wrapper relationship has no complete call evidence",
+                SchemeBuildError::UnresolvedGuardScope => "guarded requirement scope remains unresolved",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
@@ -1460,7 +1461,7 @@ impl Checker {
             let callable = signature.generalized()?;
             let instantiated = self
                 .type_constraints
-                .instantiate_callable(callable, signature.solver_level(), span, self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration))
+                .instantiate_callable(callable, signature.solver_level(), span, self.constraint_scope())
                 .expect("a checked pending callable scheme instantiates");
             let instantiation = callable.is_quantified()
                 .then(|| (Arc::clone(callable), instantiated.clone()));
@@ -1526,7 +1527,7 @@ impl Checker {
         let callable = Arc::clone(scheme.callable());
         let instantiated = self
             .type_constraints
-            .instantiate_callable(&callable, 1, span, self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration))
+            .instantiate_callable(&callable, 1, span, self.constraint_scope())
             .expect("a checked function scheme instantiates");
         let call_instantiation = callable.is_quantified()
             .then(|| (callable, instantiated.clone()));
@@ -1765,7 +1766,7 @@ impl Checker {
     }
 
     fn constructor_error_default(&mut self, error: Type, span: Span) -> Type {
-        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let owner = self.constraint_scope();
         match self.type_constraints.record_constructor_error_default(owner, &error, span) {
             Ok(()) => error,
             Err(error) => {
