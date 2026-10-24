@@ -55,13 +55,25 @@ Generated docs are refreshed from matching tools. Their check exposes six
 snippet discrepancies, with a separate expert distinguishing obsolete diagnostic
 expectations from compiler defects before making changes.
 
-Guard-local requirements and formatted-path producer evidence remain active
-inference work. A separate ListBuild repair now prepares Laputa's unchanged
-43-file module and passes its four discovery controls on both routes in a
-focused evaluator check. That later source still needs its final cold checks,
-integration and matching native CLI qualification. Complete interface/migration
-qualification and inherited performance/deployment gates remain required.
-No mandatory item is waived.
+Immutable `abb1c8b82` passes fifteen combined integration controls and builds
+matching verification products with ListBuild, interpolation and exit-effect
+repairs. Expanded strict native qualification runs 215 selectors per route:
+212 pass and the same three checker-control-flow cases fail in both modes;
+all prior 205 and both ListBuild cases pass. Six API selectors pass. Retry
+result proof, safe-stream reassignment and sort-after-return inference each
+have an expert owner; this boundary remains incomplete.
+
+Laputa's four prepared-discovery controls pass natively in both modes against
+these matching products. The reviewed four-file slice is committed and integrated
+in isolated Laputa `campaign/pyramid-integration` at `9fa862c`. The bounded PM
+fresh/reuse/root case also passes against `cc79637f3`, with one fresh package,
+two reused dependencies, rerun reuse, inventory/link/payload checks and cleanup.
+Neither result establishes world, VM, P0 or timing qualification.
+
+Guard-local requirements, optional callable views and inferred-alias dispatch
+remain active inference work. Set producer and variant diagnostic repairs are
+integrated provisionally. Complete interface/migration qualification and inherited
+performance/deployment gates remain required. No mandatory item is waived.
 
 Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
 verification products. With the precise native-input correction `1c9694a3c`,
@@ -137,7 +149,11 @@ normal and forced execution, alongside unused-binder and resource negatives.
 Complete F6 scaling and timing qualification remain pending. Raw binder-clone
 counts are 8,704, 33,792, 133,120 and 528,384 at sizes 64, 128, 256 and 512.
 These counts are not timing results or F6 acceptance; the substitution repair
-does not establish a bound on the separate cloning cost.
+does not establish a bound on the separate cloning cost. Nine canonical
+counter inputs on `cc79637f3` have zero diagnostics. A valid scalar-output size-512
+control retains the same 528,384 binder clones with only 16,008 output/evidence
+nodes, separating whole-scope copying from aggregate result size. This is a
+source-bound work diagnosis, not a timing result or F6 acceptance.
 
 The previous `50f4552aa` product boundary passes six API selectors. Each native
 route runs 161 cases: 159 pass and two fixture defects fail. The corrected
