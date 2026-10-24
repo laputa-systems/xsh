@@ -7970,6 +7970,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self.program.arena.expr(id).kind,
             ArenaExprKind::Capture(_) | ArenaExprKind::Retry { .. }
         );
+        if matches!(self.program.arena.expr(id).kind, ArenaExprKind::Retry { .. })
+            && let Type::Result(ok, error) = &ty
+            && **ok == Type::Unknown
+            && compact_checked_type_is_concrete(error) && !error.contains_recovery()
+        {
+            let error = self.canonicalize_checked_type((**error).clone());
+            return self.scratch.borrow_mut().record_captured_error_contract(lowered, error).then_some(lowered);
+        }
         if capture_or_retry
             && *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations)) == super::ProducerDemand::Needed
             && matches!(ty.unvalidated(), Type::Result(_, _))

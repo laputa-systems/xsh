@@ -2015,6 +2015,88 @@ mod tests {
     }
 
     #[test]
+    fn retry_no_completion_accepts_the_original_imperative_source() {
+        prepare("proc spin() { loop { let attempt = retry [] { assert false }; break } }\n");
+    }
+
+    #[test]
+    fn retry_no_completion_requires_cold_termination_and_delay_contracts() {
+        use super::super::super::{ExecutableOwner, FullCallableContract, FullCheckedExprPurpose, IrFunctionId};
+        let mut program = prepare("proc spin() { let spare: Any = true; loop { let attempt = retry [0ms] { assert false }; break } }\nproc empty() [] {}\npure broad_error() -> Error { error.failure(\"spare\") }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        let fact = program.store.checked_expr_types.iter().position(|fact| matches!(fact.purpose, FullCheckedExprPurpose::CapturedErrorContract(_))).unwrap();
+        let retry = program.store.checked_expr_types[fact].instruction;
+        assert!(super::super::checked_expression_type_id(&program.store, retry).is_none());
+        let mut missing = program.clone();
+        missing.store.checked_expr_types.remove(fact);
+        assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "capture or retry has no checked Result contract");
+        let mut wrong_role = program.clone();
+        wrong_role.store.checked_expr_types[fact].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false };
+        let error = FullVerifier::verify(&wrong_role).unwrap_err();
+        assert_eq!(error.message, "checked expression type row is neither callable, a structured error, nor a With error source");
+        let broad = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == "broad_error").unwrap();
+        let FullCallableContract::Ground(signature) = broad.contract else { panic!("broad error is ground") };
+        let mut wrong_error = program.clone();
+        wrong_error.store.checked_expr_types[fact].type_id = program.store.semantic.signature_return_type(signature).unwrap();
+        assert_eq!(FullVerifier::verify(&wrong_error).unwrap_err().message, "captured error contract disagrees with its actual retry errors");
+        let condition = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| (matches!(tag, super::super::super::FullTag::BoolBool | super::super::super::FullTag::ExprBool) && program.store.payload(program.store.data[instruction].range()).unwrap() == [0]).then_some(instruction)).unwrap();
+        let mut completing = program.clone();
+        let words = completing.store.data[condition].range().bounds(completing.store.extra.len()).unwrap();
+        assert_eq!(&completing.store.extra[words.clone()], &[0]);
+        completing.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&completing).unwrap_err();
+        assert_eq!(error.message, "capture or retry has no checked Result contract");
+        let delay = program.store.tags.iter().position(|tag| *tag == super::super::super::FullTag::ExprDuration).unwrap();
+        let boolean = program.store.tags.iter().position(|tag| *tag == super::super::super::FullTag::ExprBool).unwrap();
+        assert!(!program.store.checked_expr_types.iter().any(|fact| [delay, boolean].contains(&(fact.instruction as usize))));
+        let mut wrong_delay = program.clone();
+        wrong_delay.store.tags.swap(delay, boolean);
+        wrong_delay.store.data.swap(delay, boolean);
+        let error = FullVerifier::verify(&wrong_delay).unwrap_err();
+        assert!(error.message.contains("producer") && error.message.contains("contract"), "{error:?}");
+        let function = (0..program.store.functions.len()).find(|index| program.store.function_instruction_range(*index).unwrap().contains(&delay)).unwrap();
+        let empty = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "empty").unwrap();
+        let mut foreign = program.clone();
+        foreign.store.checked_expr_types[fact].purpose = FullCheckedExprPurpose::CapturedErrorContract(ExecutableOwner::Function(IrFunctionId::new(empty).unwrap()));
+        assert_eq!(FullVerifier::verify(&foreign).unwrap_err().message, "captured error contract belongs to another owner");
+        let mut wrong_source = program.clone();
+        wrong_source.store.checked_expr_types[fact].instruction = boolean as u32;
+        wrong_source.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        assert_eq!(FullVerifier::verify(&wrong_source).unwrap_err().message, "captured error contract has no physical retry");
+        let mut duplicate = program.clone();
+        duplicate.store.checked_expr_types.push(program.store.checked_expr_types[fact]);
+        duplicate.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        assert_eq!(FullVerifier::verify(&duplicate).unwrap_err().message, "checked expression type rows are not strictly ordered expression facts");
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.functions[function].contract = program.store.functions[empty].contract;
+        let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+        assert!(error.message.contains("effect") && error.message.contains("owner"), "{error:?}");
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn retry_no_completion_preserves_error_cleanup_and_frames_after_disposal() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/retry-no-completion.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("retry-no-completion.xsh", crate::loader::entry_source_from_text("retry-no-completion.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("retry_no_completion", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "{:?}", result.output.diagnostics);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
     fn fresh_result_context_accepts_written_return_consumers() {
         prepare("error Failure = Rejected(message: Str)\npure expected_failure() -> Result[Int, Error] { Err(Failure.Rejected(message: \"closed callback failed\"), cause: error.failure(\"closed cause\")).context(\"closed-observer\", \"closed callback\") }\n");
     }

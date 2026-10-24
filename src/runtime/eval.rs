@@ -853,6 +853,7 @@ enum CheckedExprPurpose {
         with_error_source: bool,
     },
     ProducerContext,
+    CapturedErrorContract,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1133,6 +1134,15 @@ impl BuildScratch {
                 *fact = Some(CheckedExprType { ty, purpose: CheckedExprPurpose::ProducerContext });
                 true
             }
+        }
+    }
+
+    fn record_captured_error_contract(&mut self, id: BuildExprId, ty: Type) -> bool {
+        let Some(fact) = self.checked_expr_types.get_mut(id.index()) else { return false };
+        let checked = CheckedExprType { ty, purpose: CheckedExprPurpose::CapturedErrorContract };
+        match fact {
+            Some(existing) => *existing == checked,
+            None => { *fact = Some(checked); true }
         }
     }
 

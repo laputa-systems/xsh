@@ -413,6 +413,7 @@ enum FullCheckedExprPurpose {
         with_error_source: bool,
     },
     ProducerContext(ExecutableOwner),
+    CapturedErrorContract(ExecutableOwner),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -435,7 +436,7 @@ impl FullCheckedExprType {
     fn function_ref(self) -> Option<(FunctionName, CallableKind)> {
         match self.purpose {
             FullCheckedExprPurpose::CheckedContract { function_ref, .. } => function_ref,
-            FullCheckedExprPurpose::ProducerContext(_) => None,
+            FullCheckedExprPurpose::ProducerContext(_) | FullCheckedExprPurpose::CapturedErrorContract(_) => None,
         }
     }
 
@@ -1728,10 +1729,10 @@ impl FullProgram {
             .map_err(|_| IrVerifyError::new("checked expression contract is missing"))?;
         let fact = self.store.checked_expr_types[index];
         match fact.purpose {
-            FullCheckedExprPurpose::CheckedContract { .. } => {}
-            _ => return Err(IrVerifyError::new("checked expression fact has no authenticated owner")),
+            FullCheckedExprPurpose::CheckedContract { .. } => self.store.semantic.is_generic_error_result(fact.type_id),
+            FullCheckedExprPurpose::CapturedErrorContract(candidate) if candidate == owner => Ok(self.store.semantic.type_tag(fact.type_id)? == super::semantic::TypeTag::Error),
+            _ => Err(IrVerifyError::new("checked expression fact has no authenticated owner")),
         }
-        self.store.semantic.is_generic_error_result(fact.type_id)
     }
 
     pub(in crate::runtime::eval) fn stream_origin_item_type(
@@ -18990,6 +18991,24 @@ impl FullVerifier {
                 previous_checked_expression = Some(instruction);
                 continue;
             }
+            if let FullCheckedExprPurpose::CapturedErrorContract(owner) = fact.purpose {
+                if store.tags[instruction] != FullTag::ExprRetry {
+                    return Err(IrVerifyError::new("captured error contract has no physical retry"));
+                }
+                let range = match owner {
+                    ExecutableOwner::Function(function) => {
+                        if !matches!(store.functions.get(function.index()).map(|function| function.contract), Some(FullCallableContract::Ground(_))) {
+                            return Err(IrVerifyError::new("captured error contract has no ground owner"));
+                        }
+                        store.function_instruction_range(function.index())?
+                    }
+                    ExecutableOwner::Driver(driver) => store.driver_instruction_range(driver)?,
+                };
+                if !range.contains(&instruction) { return Err(IrVerifyError::new("captured error contract belongs to another owner")); }
+                verify_schemes::ensure_closed_type(&ty)?;
+                previous_checked_expression = Some(instruction);
+                continue;
+            }
             let structured_error = matches!(ty, Type::ErrorVariant { .. });
             let generic_call_result = store
                 .checked_call_targets
@@ -21432,6 +21451,11 @@ macro_rules! impl_build_id_codec {
                     }
                     let purpose = match ty.purpose {
                         crate::runtime::eval::CheckedExprPurpose::CheckedContract { function_ref, with_error_source } => Some(FullCheckedExprPurpose::CheckedContract { function_ref, with_error_source }),
+                        crate::runtime::eval::CheckedExprPurpose::CapturedErrorContract => {
+                            let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("captured_error_owner", None, 0, instruction))?;
+                            let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("captured_error_owner", None, 0, instruction).with_detail(Some(error.message)))?;
+                            Some(FullCheckedExprPurpose::CapturedErrorContract(owner))
+                        }
                         crate::runtime::eval::CheckedExprPurpose::ProducerContext => {
                             let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("producer_context_owner", None, 0, instruction))?;
                             let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("producer_context_owner", None, 0, instruction).with_detail(Some(error.message)))?;

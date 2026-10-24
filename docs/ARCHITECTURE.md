@@ -972,6 +972,11 @@ Generalized captured runs, retry attempts, error contexts, and restored context
 scopes use the existing command and scoped-block executor. Retry preserves an
 actual Result body and wraps other completing values; its delays remain outside
 the attempt's error boundary. Error contexts preserve the body's value type.
+An imperative retry that cannot complete normally retains only its actual closed
+error contract in the existing checked-expression table. This purpose is not an
+expression type or producer context. Full verifies the physical retry, complete
+noncompletion proof, delays, error provenance, and owner; runtime reads that
+error domain only to normalize captured errors. No success type is published.
 Context scopes wrap the body in Result without flattening nested Results. They
 retain the ordinary static escape rule and check symbolic values before resource
 transfer and context restoration.

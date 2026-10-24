@@ -2146,6 +2146,8 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
             if super::super::driver_owner_index(owner).is_none()
                 && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_))
             { continue; }
+            let decoder = proof.owner(owner)?;
+            if proof.verify_noncompleting_retry(&decoder, instruction)? { continue; }
             return Err(IrVerifyError::new("capture or retry has no checked Result contract"));
         };
         let expected = proof.contract_type(type_id)?;
@@ -5893,6 +5895,28 @@ impl<'a> ProducerProof<'a> {
             }
         }
         Ok(events)
+    }
+
+    fn verify_noncompleting_retry(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::Retry { delays, mut body, .. } = decoder.expression_view(instruction)? else { return Ok(false); };
+        let Ok(fact) = self.store.checked_expr_types.binary_search_by_key(&(instruction as u32), |fact| fact.instruction) else { return Ok(false); };
+        let fact = self.store.checked_expr_types[fact];
+        if !matches!(fact.purpose, super::super::FullCheckedExprPurpose::CapturedErrorContract(owner) if owner == super::super::ExecutableOwner::from_raw(decoder.owner)?) { return Ok(false); }
+        self.budget.charge(body.len())?;
+        if !matches!(decoder.checked_value_block_result(&mut body)?, super::super::CheckedValueBlockResult::DoesNotComplete) { return Ok(false); }
+        for delay in delays {
+            self.budget.charge(1)?;
+            self.expression(decoder.owner, delay?.raw() as usize, Arc::new(Type::Duration), false);
+        }
+        let errors = self.captured_error_types(decoder, instruction)?;
+        for error in errors.iter() {
+            self.budget.charge_clone(error)?;
+            super::ensure_closed_type(error)?;
+        }
+        let actual = self.join_captured_errors(&errors)?;
+        if self.contract_type(fact.type_id)?.as_ref() != &actual { return Err(IrVerifyError::new("captured error contract disagrees with its actual retry errors")); }
+        self.producer_owner_contract(decoder.owner)?;
+        Ok(true)
     }
 
     fn verify_block_value<'view>(&mut self, decoder: &FullDecoder<'view>, mut body: super::super::decode::ListView<'view, super::super::BuildStmtId>, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
