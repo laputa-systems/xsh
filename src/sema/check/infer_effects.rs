@@ -1719,6 +1719,16 @@ impl Checker {
         }
     }
 
+    fn record_finite_effect(&mut self, effect: Effect, captured: bool, name: &str, span: Span) -> Result<(), SchemeOperationError> {
+        let scope = self.boundary.effect_owner.map_or_else(|| self.constraint_scope(), |owner| self.constraint_scope_at(owner, span));
+        if matches!(scope, crate::sema::constraints::CallableApplicationScope::Guard(_)) {
+            self.record_scoped_effect_contract(&EffectContract::finite(EffectSet::singleton(effect)), captured, name, span)
+        } else {
+            self.effect_graph.require(self.boundary.effect_owner, effect, captured);
+            Ok(())
+        }
+    }
+
     fn record_scoped_effect_contract(&mut self, effects: &EffectContract<EffectVariableId>, captured: bool, name: &str, span: Span) -> Result<(), SchemeOperationError> {
         let scope = self.boundary.effect_owner.map_or_else(|| self.constraint_scope(), |owner| self.constraint_scope_at(owner, span));
         let captures = captured || self.boundary.in_pure && matches!(scope, crate::sema::constraints::CallableApplicationScope::Guard(_));
@@ -1982,7 +1992,7 @@ impl Checker {
 
     pub(super) fn record_required_effect(&mut self, effect: Effect, span: Span) {
         if (self.record_effects || self.collecting_effects)
-            && let Err(error) = self.record_scoped_effect_contract(&EffectContract::finite(EffectSet::singleton(effect)), self.boundary.retry_attempt_depth > 0, "required operation", span)
+            && let Err(error) = self.record_finite_effect(effect, self.boundary.retry_attempt_depth > 0, "required operation", span)
         { self.error(span, &format!("required operation effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference); }
     }
 
@@ -1992,7 +2002,7 @@ impl Checker {
         }
         let captured = self.boundary.retry_attempt_depth > 0;
         if (self.record_effects || self.collecting_effects)
-            && let Err(error) = self.record_scoped_effect_contract(&EffectContract::finite(EffectSet::singleton(effect.clone())), captured, subject, span)
+            && let Err(error) = self.record_finite_effect(effect.clone(), captured, subject, span)
         { self.error(span, &format!("required operation effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference); }
         if self.defer_effect_diagnostics {
             self.defer_required_effect(effect, span, subject);
