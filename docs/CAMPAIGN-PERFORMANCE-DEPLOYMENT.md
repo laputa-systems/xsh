@@ -1,6 +1,7 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: active, 2026-10-17. The owner authorized bounded isolated edits,
+Status: winding down, 2026-10-24. Start no new items or launches.
+The owner authorized bounded isolated edits,
 local commits and integration, pinned fetches, and owned Docker/KVM operations.
 Pushing remains forbidden.
 
