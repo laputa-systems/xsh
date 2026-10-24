@@ -30,70 +30,63 @@ repairs continue on their own branches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration includes all 35 pipeline stages, membership,
-record `if let` and guard continuations, bare Proc completion, canonical fixed
-fields, conditional List data and intrinsic arithmetic results. The integrated
-UInt and guard source at `9df3bf21e` passes the combined full-library run:
-2,547 passes, zero failures and three ignored tests, including all fourteen
-independent solver controls. Its immutable checkout and terminal log remain in
-`.work/wt/full-inference-guard-uint-qualification/` and
-`.work/tmp/guard-uint-full-library.log`. Later changes need matching evidence.
-Fresh comprehension argument evidence and direct Env conversion bounds are now
-integrated provisionally. The Env slice passes eleven focused checks and
-independent review; guarded nullable values remain a separate open relationship.
-Guard argument evidence, correlated Path method results and the fresh
-`Err.context` consumer proof are now integrated at `cc79637f3`. Independent
-combined-source review is clear and matching verification products build.
-The full library run finishes with 2,574 passes, one failure and three ignored
-tests: the existing Length-family diagnostic assertion expected the later error
-category. The unchanged invalid inputs now require the precise earlier callable
-domain rejection, and five focused controls pass. The original full run remains
-failed; final combined qualification remains required. These products pass all
-205 native selectors in normal and forced modes and all six API selectors,
-retaining all prior 197 cases with clean source/product guards and cleanup.
-Generated docs are refreshed from matching tools. Their check exposes six
-snippet discrepancies, with a separate expert distinguishing obsolete diagnostic
-expectations from compiler defects before making changes.
+The latest combined inference source is `65629e7cf`, tree
+`199a430cf1af76d573878eb4a27b4c7ec3ff1c33`. All 48 selected integration
+controls pass after reconciling the four reviewed guard checkpoints with
+pipeline noncompletion, imported aliases and managed resource cleanup. The
+source is frozen in `.work/wt/full-inference-guarded-wave-qualification/` for
+matching tool products and the full library boundary. Focused evidence is in
+`.work/tmp/guard-integrated-reconciled-focus.log`; it does not qualify the
+complete campaign or a master merge.
 
-Immutable `abb1c8b82` passes fifteen combined integration controls and builds
-matching verification products with ListBuild, interpolation and exit-effect
-repairs. Expanded strict native qualification runs 215 selectors per route:
-212 pass and the same three checker-control-flow cases fail in both modes;
-all prior 205 and both ListBuild cases pass. Six API selectors pass. Retry result proof, safe-stream reassignment and sort-after-return inference
-now have focused repairs. Matching native replay remains required.
+Guard requirements now execute imported rendering, Env preload, arithmetic,
+Path methods and closed records with opaque fields. Generic relays, repeated
+relays, and calls using local or ancestor guard binders execute on both routes
+after frontend disposal. Cold controls cover source, polarity, stale reads,
+post-guard writes, row data, sibling scopes and same-numbered foreign callable
+packets. Root binder requirements remain total. Conditional callback effects,
+error propagation relationships, output joins, captures and complete exported
+signature rendering remain open. Those implementation classes are mandatory.
 
-Laputa's four prepared-discovery controls pass natively in both modes against
-these matching products. The reviewed four-file slice is committed and integrated
-in isolated Laputa `campaign/pyramid-integration` at `9fa862c`. The bounded PM
-fresh/reuse/root case also passes against `cc79637f3`, with one fresh package,
-two reused dependencies, rerun reuse, inventory/link/payload checks and cleanup.
-Neither result establishes world, VM, P0 or timing qualification.
+The latest completed full library run is the earlier `dd32a29d6`: 2,623 passes,
+five failures and three ignored tests. All five now have reviewed focused
+repairs or corrected test protocols on the combined source. Compatible typed
+callable replacement is tested by executing its actual target; incompatible
+writers still fail. Generic host-entry tests now use authored checked wrappers
+rather than inventing runtime generic bindings. The full run remains failed;
+matching combined qualification must replace it. The last fully green library
+source remains `9df3bf21e` with 2,547 passes and three ignored tests.
 
-The later immutable `6e8be3eb4` library run has 2,606 passes, six failures
-and three ignored tests. All six failures have reviewed focused repairs:
-monomorphic root-alias signatures, canonical alias/rest expectations, the
-exit-hook effect fixture, and two precise cold-rejection expectations. This
-full run remains failed. Optional callable views, inferred-alias dispatch,
-retry error contracts, stream summaries, set producers and variant diagnostics
-are integrated provisionally through `c65107dc3`.
+Matching early Pyramid source `c7b9b7b29` passes 64 focused Python controls,
+five exact event/selection CLI tests, and verification product builds. Strict
+native replay runs 234 selectors on each route: 232 pass, with the same two
+failures in both modes; API replay passes all six selectors. All nineteen added
+cases pass. The remaining diagnostic-oracle and resource-return causes are
+repaired on `65629e7cf`, but native credit does not transfer to that source.
 
-Generic pipelines with no normal completion are integrated at `6d1d3bdb7`.
-Nine focused checks and independent review pass: Int/Str, both execution routes,
-empty/nonempty Count, authored storage contracts, effects, cleanup and genuine
-cold rejection controls. Matching native and combined-library evidence remain
-required. Guard-local requirements now execute imported rendering and Env
-preload on both routes after frontend disposal; six focused controls pass.
-Generic forwarding, prepared local consumers, effect/capture export and guarded
-cold evidence remain open. Neither milestone establishes campaign acceptance.
+The public Pyramid PM adapter passes its schema-1 fresh/reuse/root case with
+those matching products and clean Laputa source `6830500`: selected one,
+passed one, complete coverage, child status zero, no unresolved result. Actual
+package builds, dependency reuse, root inventory, ownership, links, payloads and
+cleanup are checked. Laputa's four prepared kernel-discovery cases also pass
+on both routes against earlier `abb1c8b82` products and are integrated into its
+isolated Pyramid branch at `9fa862c`. Neither result establishes world, VM,
+performance, P0 or deployment acceptance.
 
-Independent Pyramid integration now merges `c65107dc3` into its isolated branch
-at `c7b9b7b29`. All 27 lease and 22 inference-measurement Python controls pass;
-matching tool products and the public Laputa PM adapter are next. This is an
-early integration experiment, not P0 qualification. Corpus/interface replay and
-capability-boundary probes prepare alongside the builds. The next scaling repair
-is planned read-only until guard scope structures settle, avoiding competing
-writers in the constraint owner. Complete inference and inherited deployment
-gates remain required. No mandatory item is waived.
+The current 926-retainer corpus proposal still has no new removal credit.
+The last replay on `c7b9b7b29` stops in the original annotated view before
+runtime or interface comparison. Captured imported callable publication is
+repaired and original `dev/internal.xsh` prepares; original `dev/main.xsh`
+exposes a separate compound Boolean guard relationship. Its diagnosed ordering
+fix closes the full entry, while the faithful small witness still exhausts the
+unchanged proof-work bound. An expert owns that remaining common proof cost.
+No annotation restoration or classification excludes the defect.
+
+Independent Pyramid qualification remains provisional until accepted inference
+is integrated. Scaling preparation has identified repeated generalization map
+copies; implementation waits for settled guard contracts. Final canonical
+warnings, documentation, corpus/interface parity, performance and inherited
+Laputa world/Asterinas acceptance remain required. No mandatory item is waived.
 
 Immutable `4c8d0d323` passes 13 combined regression controls and builds matching
 verification products. With the precise native-input correction `1c9694a3c`,
