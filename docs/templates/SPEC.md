@@ -3354,6 +3354,14 @@ checked value is already `Unit`. A generic proc's early value return uses the
 same success-envelope rule as its terminal value. Instantiating that value
 with a `Result` preserves the nested result as data.
 
+A pipeline that necessarily returns from a required callback has no completed
+result value. Its owner can generalize without inventing a result or item type
+for that expression. The input, stages, callback returns, and effects remain
+checked. Sort materializes its upstream stages even when a later `take(0)`
+discards the sorted output. A callback that may be skipped, including on a
+possibly empty input, does not establish this completion property. An ordinary
+unresolved value still needs enough type information.
+
 At a generic call, a plain value or `null` may fill an inferred fallback
 source through the ordinary Optional injection for the same checked payload
 type. An existing `Result` or Optional keeps its envelope. The callable's

@@ -16761,6 +16761,7 @@ impl IndexedReturnAnalysis {
 /// metadata that is absent from raw programs.
 struct IndexedCardinalityQuery<'d, 'a> {
     decoder: &'d FullDecoder<'a>,
+    prefix: Option<verify_schemes::ProducerPrefixContext<'d>>,
     memo: FxHashMap<usize, Option<IndexedCardinality>>,
 }
 
@@ -16768,8 +16769,13 @@ impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
     fn new(decoder: &'d FullDecoder<'a>) -> Self {
         Self {
             decoder,
+            prefix: None,
             memo: FxHashMap::default(),
         }
+    }
+
+    fn with_prefix(decoder: &'d FullDecoder<'a>, prefix: Option<verify_schemes::ProducerPrefixContext<'d>>) -> Self {
+        Self { decoder, prefix, memo: FxHashMap::default() }
     }
 
     fn expression(&mut self, instruction: usize) -> Result<IndexedCardinality, IrVerifyError> {
@@ -16791,6 +16797,18 @@ impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
         use IndexedCardinality::{Empty, Maybe, NonEmpty};
 
         match self.decoder.expression_view(instruction)? {
+            schema::ExprView::Param(slot) if self.prefix.is_some() => {
+                match self.prefix.as_ref().unwrap().snapshot_value_initializer(self.decoder, instruction, slot)? {
+                    Some(initializer) => self.expression(initializer),
+                    None => Ok(Maybe),
+                }
+            }
+            schema::ExprView::ValueBlock { mut body, .. } if self.prefix.is_some() => {
+                match self.decoder.derive_checked_block_tail_expression(&mut body)? {
+                    Some(value) => self.expression(value),
+                    None => Ok(Maybe),
+                }
+            }
             schema::ExprView::Str(value) => Ok(if value.is_empty() { Empty } else { NonEmpty }),
             schema::ExprView::Bytes(value) => {
                 Ok(if value.is_empty() { Empty } else { NonEmpty })
@@ -17630,19 +17648,27 @@ impl IndexedPullSummary {
     };
 }
 
-fn indexed_pipeline_can_complete(
-    decoder: &FullDecoder<'_>,
+fn indexed_pipeline_can_complete<'a>(
+    decoder: &FullDecoder<'a>,
     input: u32,
-    stages: &mut decode::ListView<'_, LoweredPipelineStage>,
+    stages: &mut decode::ListView<'a, LoweredPipelineStage>,
+) -> Result<bool, IrVerifyError> {
+    let mut cardinality_query = IndexedCardinalityQuery::new(decoder);
+    indexed_pipeline_can_complete_with_query(decoder, input, stages, &mut cardinality_query)
+}
+
+fn indexed_pipeline_can_complete_with_query<'d, 'a>(
+    decoder: &'d FullDecoder<'a>, input: u32,
+    stages: &mut decode::ListView<'a, LoweredPipelineStage>,
+    cardinality_query: &mut IndexedCardinalityQuery<'d, 'a>,
 ) -> Result<bool, IrVerifyError> {
     let mut stage_ids = Vec::with_capacity(stages.len());
     while let Some(stage) = stages.next_with_id() {
         stage_ids.push(stage?.id.raw());
     }
 
-    let mut cardinality_query = IndexedCardinalityQuery::new(decoder);
     let suffix_pulls =
-        indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality_query)?;
+        indexed_pipeline_downstream_pulls(decoder, &stage_ids, cardinality_query)?;
     let input_completes = indexed_expr_can_complete(decoder, input as usize, 0)?;
     if !input_completes {
         return Ok(false);
@@ -21327,6 +21353,7 @@ macro_rules! impl_build_id_codec {
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
+                let noncompleting = $checked_expr_type && scratch.scheme_noncompleting.contains(&self.index());
                 let constructor = if $checked_expr_type {
                     scratch.scheme_constructors.get(&self.index()).copied()
                 } else { None };
@@ -21383,6 +21410,7 @@ macro_rules! impl_build_id_codec {
                     || checked_call_result.is_some()
                     || registered_call.is_some()
                     || constructor.is_some()
+                    || noncompleting
                     || scheme_body_type.is_some()
                     || scheme_tail_type.is_some()
                     || scheme_local_declaration.is_some();
@@ -21601,6 +21629,12 @@ macro_rules! impl_build_id_codec {
                             builder.store.tags.len(),
                         ));
                     }
+                }
+                if noncompleting {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_completion_instruction", None, 0, self.index()))?;
+                    if scheme_body_type.is_some() || constructor.is_some() || builder.active_scheme.is_none() { return Err(IrBuildError::format("scheme_completion_contract", None, 0, instruction)); }
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("scheme_completion_owner", None, 0, instruction))?;
+                    builder.record_scheme_noncompletion_fact(function, instruction)?;
                 }
                 if let Some(kind) = constructor {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_constructor_instruction", None, 0, self.index()))?;

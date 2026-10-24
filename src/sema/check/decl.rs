@@ -178,6 +178,7 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) callable: Arc<CallableScheme>,
     pub(super) scope: crate::sema::constraints::CallableGeneralizationScope,
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
+    noncompleting_expressions: std::collections::BTreeSet<ExprId>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     constructor_instances: BTreeMap<ExprId, crate::sema::constants::CheckedRecordConstructor<crate::sema::schemes::SchemeType>>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
@@ -319,6 +320,11 @@ impl Checker {
                 |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
+        let noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
+            matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. })
+                && !self.stream_expr_may_complete(program, expression)
+        }).collect::<std::collections::BTreeSet<_>>();
+        for expression in &noncompleting_expressions { body_types.remove(expression); }
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
             Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
             _ => None,
@@ -688,13 +694,14 @@ impl Checker {
                 &registered_calls,
                 &generalized_body_types,
                 &constructor_producers,
+                &noncompleting_expressions,
                 &self.result_constructors,
                 &self.collect_yields,
                 match pending.kind() { crate::sema::types::CallableKind::Stream => super::scheme_body::BodyCompletion::Producer, crate::sema::types::CallableKind::Proc => super::scheme_body::BodyCompletion::Procedure, crate::sema::types::CallableKind::Pure => super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
                 program, pending.kind(), &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
                 &generalized_tail_types, &self.statement_positions, &checked_operations, &registered_calls,
-                &generalized_body_types, &constructor_producers, &self.result_constructors, &self.collect_yields, value,
+                &generalized_body_types, &constructor_producers, &noncompleting_expressions, &self.result_constructors, &self.collect_yields, value,
             )) {
                 let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
                 let reported = self.diagnostics.iter().any(|diagnostic| {
@@ -765,6 +772,7 @@ impl Checker {
             callable,
             scope: generalized.generalization_scope,
             body_types: generalized_body_types,
+            noncompleting_expressions,
             constructor_producers,
             constructor_instances,
             tail_types: generalized_tail_types,
@@ -783,7 +791,7 @@ impl Checker {
     ) {
         let PreparedFunctionGeneralization {
             definition, callable, scope, body_types: generalized_body_types,
-            constructor_producers, constructor_instances,
+            noncompleting_expressions, constructor_producers, constructor_instances,
             tail_types: generalized_tail_types, calls: generalized_calls,
             registered_calls, read_bindings, local_statements, expression_spans: _,
         } = prepared;
@@ -814,6 +822,7 @@ impl Checker {
                 ty.contains_parameter()
                     .then_some(program.arena.expr(expression).span)
             })
+            .chain(noncompleting_expressions.iter().map(|&expression| program.arena.expr(expression).span))
             .chain(generalized_tail_types.iter().filter_map(|(&statement, ty)| {
                 ty.contains_parameter()
                     .then_some(program.arena.stmt(statement).span)
@@ -823,7 +832,7 @@ impl Checker {
             .filter_map(|statement| match program.arena.stmt(statement).kind {
                 ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
                 | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
-                    if generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter())
+                    if (noncompleting_expressions.contains(&value) || generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter()))
                         && self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span).is_some_and(Type::contains_inference) => Some(program.arena.stmt(statement).span),
                 _ => None,
             }).collect::<std::collections::BTreeSet<_>>();
@@ -841,7 +850,7 @@ impl Checker {
                 self.expr_types.remove(&program.arena.expr(base).span);
             }
         }
-        let generalized_pipeline_stages = generalized_body_types.keys().filter_map(|&expression| {
+        let generalized_pipeline_stages = generalized_body_types.keys().chain(noncompleting_expressions.iter()).filter_map(|&expression| {
             match program.arena.expr(expression).kind {
                 crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
                 _ => None,
@@ -851,7 +860,7 @@ impl Checker {
         self.declaration_inference
             .pending_mut(declaration)
             .expect("a prepared function retains its provisional declaration")
-            .generalize(callable, scope, generalized_body_types, constructor_producers, constructor_instances, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, scope, generalized_body_types, noncompleting_expressions, constructor_producers, constructor_instances, generalized_tail_types, registered_calls, read_bindings);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -1097,11 +1106,12 @@ impl Checker {
         } else {
             let constructor_instances = pending.generalized_constructor_instances()?.clone();
             let constructor_producers = pending.generalized_constructor_producers()?.clone();
+            let noncompleting_expressions = pending.generalized_noncompleting_expressions()?.clone();
             match super::super::schemes::SchemeBodyFacts::new(
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
+            ).and_then(|facts| facts.with_noncompleting_expressions(noncompleting_expressions)).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

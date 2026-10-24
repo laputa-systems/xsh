@@ -1201,6 +1201,14 @@ impl FullBuilder {
         Ok(())
     }
 
+    pub(super) fn record_scheme_noncompletion_fact(&mut self, function: IrFunctionId, instruction: usize) -> Result<(), IrBuildError> {
+        self.store.scheme_body_facts.push(FullSchemeBodyFact {
+            instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("completion_fact_instruction", None, 0, instruction))?,
+            function, value: FullSchemeBodyFactValue::NoCompletion,
+        });
+        Ok(())
+    }
+
     pub(super) fn finish_scheme_body_facts(
         &mut self,
         scheme: FullSchemeId,

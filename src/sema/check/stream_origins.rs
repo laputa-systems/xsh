@@ -587,6 +587,7 @@ impl Checker {
     pub(super) fn validate_stream_expression_origins(&mut self, program: &ArenaProgram) {
         let mut generalized = BTreeMap::<Span, bool>::new();
         let mut nonmaterial = BTreeSet::new();
+        let mut noncompleting = BTreeSet::new();
         for (declaration, pending) in self.declaration_inference.pending_entries() {
             if pending.generalized_body_types().is_none() && pending.generalized_tail_types().is_none() {
                 continue;
@@ -596,6 +597,11 @@ impl Checker {
             let definition = program.arena.function_def(target.definition);
             assert_eq!(owner.namespace, target.namespace);
             assert_eq!(owner.body, program.arena.span(program.arena.block(definition.body).span));
+            for &expression in pending.generalized_noncompleting_expressions().into_iter().flatten() {
+                let span = program.arena.expr(expression).span;
+                assert!(owner.body.source_id == span.source_id && owner.body.start() <= span.start() && span.end() <= owner.body.end());
+                noncompleting.insert(span);
+            }
             for (&expression, &kind) in pending.generalized_constructor_producers().into_iter().flatten() {
                 assert!(super::scheme_body::matches_constructor_producer(program, expression, kind));
                 let span = program.arena.expr(expression).span;
@@ -620,7 +626,7 @@ impl Checker {
             }
         }
         let failures = self.stream_expr_origins.iter().filter_map(|(&span, origin)| {
-            if origin.0.is_empty() || nonmaterial.contains(&span) { return None; }
+            if origin.0.is_empty() || nonmaterial.contains(&span) || noncompleting.contains(&span) { return None; }
             let resource = self.expr_types.get(&span).map(Type::may_hold_resource)
                 .or_else(|| generalized.get(&span).copied());
             match resource {

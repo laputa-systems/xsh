@@ -5844,3 +5844,121 @@ test known_alias_lifecycle {
 }
 "#, "known_alias_lifecycle");
 }
+
+#[test]
+fn nonproducing_generic_pipelines_preserve_nonlocal_returns() {
+    for stages in ["", " |> sort |> take(0)"] {
+        let source = format!(r#"
+pure identity(value) {{ let ignored = [value] |> map {{ |item| return value }}{stages}; value }}
+pure fixed(value) -> Int {{ let ignored = [value] |> map {{ |item| return 11 }}{stages}; 0 }}
+pure number() -> Int {{ identity(7) + fixed("text") }}
+pure text() -> Str {{ identity("retained") }}
+"#);
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (name, expected) in [("number", Value::Int(18)), ("text", Value::Str(Arc::from("retained")))] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected, "{source} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_pipeline_completion_fixture_runs_on_both_routes() {
+    let source = include_str!("../../../../tests/fixtures/runtime/generic-pipeline-completion.xsh");
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-completion.xsh", crate::loader::entry_source_from_text("generic-pipeline-completion.xsh", source.to_owned()), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("generic_pipeline_completion", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+    }
+}
+
+#[test]
+fn completion_roles_do_not_default_ordinary_recovery_or_optional_demand() {
+    for source in [
+        "pure pending(value) -> Int { let ignored = [value] |> map { |item| return 1 } |> take(0); 0 }\n",
+        "pure pending(value, items: List[Int]) -> Int { let ignored = items |> map { |item| return 1 } |> sort |> take(0); 0 }\n",
+        "pure pending(value) { let ignored = []; value }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error && diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn noncompletion_preserves_authored_bindings_and_bare_statement_effects() {
+    for binding in ["let x: Any =", ""] {
+        let reference = if binding.is_empty() { "" } else { "let _ = x;" };
+        let source = format!(r#"
+pure preserve(value) {{ {binding} [value] |> map {{ |item| return item }}; {reference} value }}
+proc observed(value) -> Result[Int] {{ {binding} [value] |> map {{ |item| return 13 }}; {reference} 0 }}
+pure number() -> Int {{ preserve(7) }}
+pure text() -> Str {{ preserve("retained") }}
+"#);
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("retained")))] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected);
+            }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observed")));
+            for value in [Value::Int(1), Value::Str(Arc::from("marker"))] {
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Proc, &[value], Span::at(source_id, 0)).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Int(13)))));
+            }
+        }
+    }
+}
+
+#[test]
+fn completing_pipeline_statements_and_effectful_callbacks_keep_their_checks() {
+    for (source, code) in [
+        ("pure pending(items: List[Int]) -> Int { items |> map { |item| item }; 0 }\n", crate::diagnostic::DiagnosticCode::CheckIgnoredResult),
+        ("pure pending(value, items: List[Int]) -> Int { items |> map { |item| return 1 }; 0 }\n", crate::diagnostic::DiagnosticCode::CheckIgnoredResult),
+        ("proc pending(value) [] -> Result[Int] { [value] |> map { |item| error.fail(\"failed\")?; return 13 }; 0 }\n", crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error && diagnostic.code == Some(code)), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn nonproducing_callbacks_preserve_known_terminal_results_for_empty_sources() {
+    let source = r#"
+pure counted(marker, items: List[Int]) -> Int {
+  let ignored = items |> map { |item| return 23 } |> count
+  let _ = marker
+  0
+}
+pure empty_count() -> Int { counted("empty", []) }
+pure present_count() -> Int { counted(7, [1]) }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, expected) in [("empty_count", Value::Int(0)), ("present_count", Value::Int(23))] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected, "frames={force_frames}");
+        }
+    }
+}

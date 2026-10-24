@@ -242,6 +242,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 if owner.kind != CallableKind::Pure
                     && !proof.permits_direct(index, &Effect::Error)?
                     && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Abort { .. })
+                    && !super::verify_schemes::scoped_no_completion_fact(decoder.store, decoder, value.raw() as usize)?
                 {
                     let value = value.raw() as usize;
                     let result = if let Some(ty) = decoder.expression_checked_type_id(value)? {

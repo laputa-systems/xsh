@@ -802,6 +802,7 @@ struct BuildScratch {
     scheme_application_calls: Vec<Option<u32>>,
     scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
     scheme_completion_sources: BTreeMap<usize, SchemeCompletionSource>,
+    scheme_noncompleting: std::collections::BTreeSet<usize>,
     scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
     scheme_operations: BTreeMap<usize, u32>,
     scheme_methods: BTreeMap<usize, u32>,

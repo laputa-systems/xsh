@@ -401,6 +401,21 @@ impl ProducerPrefixContext<'_> {
         } else { Ok(None) }
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn snapshot_value_initializer(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize) -> Result<Option<usize>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range || !self.evidence.range.contains(&instruction) {
+            return Err(IrVerifyError::new("value snapshot context disagrees with its owner"));
+        }
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, slot)?;
+        let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None) };
+        let mut charge = |amount| self.evidence.work.borrow_mut().charge(amount);
+        charge(1)?;
+        if declared_slot != slot || !self.evidence.binding_path_is_snapshot(decoder, binding, slot, &mut charge)? { return Ok(None); }
+        match decoder.statement_view(declaration)? {
+            schema::StmtView::Let { slot: actual, value, .. } if actual == slot => Ok(Some(value.raw() as usize)),
+            _ => Ok(None),
+        }
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn snapshot_condition_initializer(&self, decoder: &FullDecoder<'_>,
         condition: usize, slot: usize, use_site: usize, target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,

@@ -3559,13 +3559,15 @@ impl Checker {
                 if !self.reject_bool_statement(source, &ty, stmt.span) {
                     self.record_statement_error(&ty, stmt.span);
                 }
-                self.reject_discarded_value(
+                if !matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::StructuredPipeline { .. }) || self.stream_expr_may_complete(arena, expr_id) {
+                    self.reject_discarded_value(
                     &ty,
                     stmt.span,
                     arena.arena.expr(expr_id).span,
                     true,
                     copy_update_mistake(arena, expr_id, &ty),
                 );
+                }
             }
             ArenaStmtKind::If {
                 branches,
@@ -6911,13 +6913,15 @@ impl Checker {
                 return;
             }
             self.record_statement_error(&ty, stmt.span);
-            self.reject_discarded_value(
+            if !matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::StructuredPipeline { .. }) || self.stream_expr_may_complete(arena, expr_id) {
+                self.reject_discarded_value(
                 &ty,
                 stmt.span,
                 arena.arena.expr(expr_id).span,
                 true,
                 copy_update_mistake(arena, expr_id, &ty),
             );
+            }
             return;
         }
         self.check_stmt_arena(arena, source, id);

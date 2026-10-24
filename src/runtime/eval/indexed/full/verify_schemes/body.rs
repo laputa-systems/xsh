@@ -193,6 +193,10 @@ fn application_return_origin(
     Ok(memo[&instruction])
 }
 
+fn pipeline_item_value(item: &Option<SchemeType>) -> Result<&SchemeType, IrVerifyError> {
+    item.as_ref().ok_or_else(|| IrVerifyError::new("generic pipeline stage requires a produced item"))
+}
+
 fn expression_type(types: &BTreeMap<usize, SchemeType>, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
     let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic expression has no checked body fact"))?;
     budget.charge_scheme_clone(ty)?;
@@ -952,6 +956,7 @@ fn scoped_block_value(store: &FullStore, statements: &[usize], payload: SchemeTy
 
 pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
+    noncompleting: &BTreeSet<usize>,
     constructors: &super::constructors::ConstructorFacts,
     operation_sites: &BTreeMap<usize, u32>,
     method_sites: &BTreeMap<usize, u32>,
@@ -1022,8 +1027,302 @@ pub(super) fn verify_body(
             Obligation::Expression(instruction, scope) => {
                 budget.charge(1)?;
                 expression_scopes.insert(instruction, scope);
-                let claimed = expression_type(types, instruction, budget)?;
+                let completion_only = noncompleting.contains(&instruction);
+                let claimed = if completion_only {
+                    budget.charge(decoder.instruction_range.len())?;
+                    let can_complete = match decoder.expression_view(instruction)? {
+                        schema::ExprView::ListPipeline { input, mut stages, .. } => {
+                            let prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
+                            let mut query = super::super::IndexedCardinalityQuery::with_prefix(decoder, prefix);
+                            let completes = super::super::indexed_pipeline_can_complete_with_query(decoder, input.raw(), &mut stages, &mut query)?;
+                            budget.charge(query.memo.len())?;
+                            completes
+                        }
+                        _ => super::super::indexed_expr_can_complete(decoder, instruction, 0)?,
+                    };
+                    if can_complete { return Err(IrVerifyError::new("generic completion fact can produce a value")); }
+                    None
+                } else { Some(expression_type(types, instruction, budget)?) };
                 match decoder.expression_view(instruction)? {
+                    schema::ExprView::ValueBlock { body, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: claimed });
+                    }
+                    schema::ExprView::ListPipeline { input, mut stages, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let source = expression_type(types, input.raw() as usize, budget)?;
+                        let position = super::super::decode::ListView::position(&stages);
+                        let first = stages.next_with_id().transpose()?;
+                        stages.resume(position)?;
+                        let adapter = first.is_some_and(|stage| matches!(stage.view, super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines));
+                        let (item, stream) = if adapter {
+                            budget.charge_scheme_clone(&source)?;
+                            (source.clone(), None)
+                        } else { pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)? };
+                        let mut item = Some(item);
+                        let mut terminal = None;
+                        let mut stage_ids = Vec::new();
+                        while let Some(stage) = stages.next_with_id() {
+                            budget.charge(1)?;
+                            if terminal.is_some() { return Err(IrVerifyError::new("generic pipeline continues after a terminal stage")); }
+                            let stage = stage?;
+                            stage_ids.push(stage.id.raw());
+                            let each = matches!(&stage.view, super::super::StageView::Each { .. });
+                            match stage.view {
+                                super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines => {
+                                    if stage_ids.len() != 1 { return Err(IrVerifyError::new("generic pipeline adapter is not the first stage")); }
+                                    let input_type = if matches!(stage.view, super::super::StageView::BytesChunks { .. }) { Type::Bytes } else { Type::Str };
+                                    if !body_type_matches(&source, &SchemeType::Ground(input_type), budget)? { return Err(IrVerifyError::new("generic pipeline adapter has the wrong source type")); }
+                                    if let super::super::StageView::BytesChunks { size } = stage.view {
+                                        if !body_type_matches(&expression_type(types, size.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic byte chunk size is not Int")); }
+                                        pending.push(Obligation::Expression(size.raw() as usize, scope));
+                                    }
+                                    item = Some(SchemeType::Ground(match stage.view { super::super::StageView::TextLines => Type::Str, super::super::StageView::BytesChunks { .. } => Type::Bytes, _ => Type::Any }));
+                                }
+                                super::super::StageView::Map { slot, value }
+                                | super::super::StageView::ParMap { slot, value, .. } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    if let super::super::StageView::ParMap { jobs: Some(jobs), .. } = stage.view {
+                                        if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic parallel pipeline jobs is not Int")); }
+                                        pending.push(Obligation::Expression(jobs.raw() as usize, scope));
+                                    }
+                                    item = if noncompleting.contains(&(value.raw() as usize)) {
+                                        None
+                                    } else { Some(expression_type(types, value.raw() as usize, budget)?) };
+                                    if item.as_ref().is_some_and(|item| matches!(BodyTypeRef::Scheme(item).unvalidated(), BodyTypeRef::Ground(Type::Unit))) { return Err(IrVerifyError::new("generic map callback has no value result")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::GroupBy { slot, key }
+                                | super::super::StageView::UniqueBy { slot, key }
+                                | super::super::StageView::SortBy { slot, key, .. }
+                                | super::super::StageView::CountBy { slot, key } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let key_type = expression_type(types, key.raw() as usize, budget)?;
+                                    match stage.view {
+                                        super::super::StageView::SortBy { descending, .. } => {
+                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &key_type, budget)?;
+                                            if let Some(descending) = descending {
+                                                if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
+                                                pending.push(Obligation::Expression(descending.raw() as usize, scope));
+                                            }
+                                        }
+                                        super::super::StageView::GroupBy { .. } => {
+                                            budget.charge_scheme_clone(pipeline_item_value(&item)?)?;
+                                            budget.charge(4)?;
+                                            item = Some(SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), key_type), (Name::intern("items"), SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())))]), tail: crate::sema::schemes::SchemeRowTail::Closed });
+                                        }
+                                        super::super::StageView::CountBy { .. } => {
+                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::CountKey, &key_type, budget)?;
+                                            budget.charge(3)?;
+                                            terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Int))));
+                                        }
+                                        _ => {}
+                                    }
+                                    pending.push(Obligation::Expression(key.raw() as usize, inner));
+                                }
+                                super::super::StageView::Each { slot, body }
+                                | super::super::StageView::Tee { slot, body } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                                    budget.charge(statements.len())?;
+                                    pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
+                                    if each { terminal = Some(SchemeType::Ground(Type::Unit)); }
+                                }
+                                super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
+                                    let accumulator = expression_type(types, initial.raw() as usize, budget)?;
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, acc_slot, &accumulator, slot_count, &mut writers, budget)?;
+                                    let inner = pipeline_callback_scope(&inner, &mut scopes, item_slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &accumulator, budget)? { return Err(IrVerifyError::new("generic fold callback disagrees with its accumulator")); }
+                                    pending.push(Obligation::Expression(initial.raw() as usize, scope));
+                                    if body.len() != 0 { return Err(IrVerifyError::new("generic fold callback has detached statements")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                    terminal = Some(accumulator);
+                                }
+                                super::super::StageView::ReduceBy { item_slot, ref body, value, .. }
+                                | super::super::StageView::ReduceByConfigured { item_slot, ref body, value, .. } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, item_slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let row = expression_type(types, value.raw() as usize, budget)?;
+                                    let row = BodyTypeRef::Scheme(&row).unvalidated();
+                                    if row.record_shape().is_none() || row.field(Name::intern("key")).is_none() { return Err(IrVerifyError::new("generic reduce-by callback has no key record")); }
+                                    let value_type = row.field(Name::intern("value")).ok_or_else(|| IrVerifyError::new("generic reduce-by callback has no value field"))?.materialize(budget)?;
+                                    match stage.view {
+                                        super::super::StageView::ReduceBy { jobs: Some(jobs), .. } => {
+                                            if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic reduce-by jobs is not Int")); }
+                                            pending.push(Obligation::Expression(jobs.raw() as usize, scope));
+                                        }
+                                        super::super::StageView::ReduceByConfigured { configuration, .. } => {
+                                            let ty = expression_type(types, configuration.raw() as usize, budget)?;
+                                            let configuration_type = BodyTypeRef::Scheme(&ty).unvalidated();
+                                            let Some((size, SchemeRowTail::Closed)) = configuration_type.record_shape() else { return Err(IrVerifyError::new("generic reduce-by configuration has no closed record")); };
+                                            let mut fields = 0;
+                                            for (name, expected) in [("sum", Type::Bool), ("min", Type::Bool), ("max", Type::Bool), ("jobs", Type::Int)] {
+                                                if let Some(field) = configuration_type.field(Name::intern(name)) {
+                                                    fields += 1;
+                                                    if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic reduce-by configuration field has the wrong type")); }
+                                                }
+                                            }
+                                            if fields != size { return Err(IrVerifyError::new("generic reduce-by configuration has an unknown field")); }
+                                            pending.push(Obligation::Expression(configuration.raw() as usize, scope));
+                                        }
+                                        _ => {}
+                                    }
+                                    if body.len() != 0 { return Err(IrVerifyError::new("generic reduce-by callback has detached statements")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                    terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(value_type)));
+                                }
+                                super::super::StageView::FlatMap { slot, value } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    let source = expression_type(types, value.raw() as usize, budget)?;
+                                    if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
+                                        return Err(IrVerifyError::new("generic flat-map callback has no list or stream contract"));
+                                    }
+                                    let (mapped, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(value.raw() as usize), budget)?;
+                                    item = Some(mapped);
+                                    if let Some(stream) = stream { stream_iterations.push((stream, propagation_boundary(&inner, &scopes).clone())); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::Where { slot, predicate }
+                                | super::super::StageView::Any { slot, predicate }
+                                | super::super::StageView::All { slot, predicate } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, pipeline_item_value(&item)?, slot_count, &mut writers, budget)?;
+                                    condition(types, predicate.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
+                                    if !matches!(stage.view, super::super::StageView::Where { .. }) { terminal = Some(SchemeType::Ground(Type::Bool)); }
+                                    pending.push(Obligation::Expression(predicate.raw() as usize, inner));
+                                }
+                                super::super::StageView::Enumerate => {
+                                    budget.charge(3)?;
+                                    item = Some(SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), pipeline_item_value(&item)?.clone())]), tail: crate::sema::schemes::SchemeRowTail::Closed });
+                                }
+                                super::super::StageView::Sort { descending } => {
+                                    if let Some(item) = &item { super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, item, budget)?; }
+                                    if let Some(descending) = descending {
+                                        if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
+                                        pending.push(Obligation::Expression(descending.raw() as usize, scope));
+                                    }
+                                }
+                                super::super::StageView::BatchCount { count }
+                                | super::super::StageView::BatchMaxBytes { max_bytes: count } => {
+                                    if !body_type_matches(&expression_type(types, count.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch limit is not Int")); }
+                                    if matches!(stage.view, super::super::StageView::BatchMaxBytes { .. }) && !scheme_conversion(pipeline_item_value(&item)?, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
+                                    pending.push(Obligation::Expression(count.raw() as usize, scope));
+                                    budget.charge(1)?;
+                                    item = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::BatchMaxArgv { max_argv } => {
+                                    if !scheme_conversion(pipeline_item_value(&item)?, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic argv-bounded batch item has no argv conversion")); }
+                                    if let Some(limit) = max_argv {
+                                        if !body_type_matches(&expression_type(types, limit.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch argv limit is not Int")); }
+                                        pending.push(Obligation::Expression(limit.raw() as usize, scope));
+                                    }
+                                    budget.charge(1)?;
+                                    item = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::BatchLimits { configuration } => {
+                                    let ty = expression_type(types, configuration.raw() as usize, budget)?;
+                                    let actual = BodyTypeRef::Scheme(&ty).unvalidated();
+                                    let Some((size, SchemeRowTail::Closed)) = actual.record_shape() else { return Err(IrVerifyError::new("generic batch configuration has no closed record")); };
+                                    let mut fields = 0;
+                                    let mut bytes = false;
+                                    let mut argv = false;
+                                    for (name, expected) in [("count", Type::Int), ("max_bytes", Type::Int), ("max_argv", Type::Bool)] {
+                                        if let Some(field) = actual.field(Name::intern(name)) {
+                                            fields += 1;
+                                            if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic batch configuration field has the wrong type")); }
+                                            bytes |= name == "max_bytes";
+                                            argv |= name == "max_argv";
+                                        }
+                                    }
+                                    if fields != size { return Err(IrVerifyError::new("generic batch configuration contains an unknown field")); }
+                                    if bytes && !scheme_conversion(pipeline_item_value(&item)?, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
+                                    if argv && !bytes { budget.charge_scheme_clone(pipeline_item_value(&item)?)?; batch_argv_checks.push((configuration.raw() as usize, pipeline_item_value(&item)?.clone())); }
+                                    pending.push(Obligation::Expression(configuration.raw() as usize, scope));
+                                    budget.charge(1)?;
+                                    item = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::Zip { other } => {
+                                    let source = expression_type(types, other.raw() as usize, budget)?;
+                                    let (right, stream) = pipeline_iteration_item(store, scheme_scope, &source, other.raw() as usize, budget)?;
+                                    if let Some(stream) = stream { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
+                                    budget.charge(3)?;
+                                    item = Some(SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), pipeline_item_value(&item)?.clone()), (Name::intern("right"), right)]), tail: SchemeRowTail::Closed });
+                                    pending.push(Obligation::Expression(other.raw() as usize, scope));
+                                }
+                                super::super::StageView::Range { start, end } => {
+                                    let start_type = expression_type(types, start.raw() as usize, budget)?;
+                                    for ty in [&start_type, &expression_type(types, end.raw() as usize, budget)?] {
+                                        if !body_type_matches(ty, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic range bound is not Int")); }
+                                    }
+                                    if let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(start.raw() as usize)? {
+                                        if !visited.insert(start.raw() as usize) { return Err(IrVerifyError::new("generic range configuration is shared or cyclic")); }
+                                        expression_scopes.insert(start.raw() as usize, scope);
+                                        let inner = branch_scope(&scope, &mut scopes, budget)?;
+                                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                                        budget.charge(statements.len())?;
+                                        pending.push(Obligation::Expression(end.raw() as usize, inner));
+                                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: Some(start_type) });
+                                    } else {
+                                        pending.push(Obligation::Expression(start.raw() as usize, scope));
+                                        pending.push(Obligation::Expression(end.raw() as usize, scope));
+                                    }
+                                    item = Some(SchemeType::Ground(Type::Int));
+                                }
+                                super::super::StageView::Shuffle { seed } => {
+                                    if let Some(seed) = seed {
+                                        if !body_type_matches(&expression_type(types, seed.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic shuffle seed is not Int")); }
+                                        pending.push(Obligation::Expression(seed.raw() as usize, scope));
+                                    }
+                                }
+                                super::super::StageView::Drop(value) | super::super::StageView::Take(value)
+                                | super::super::StageView::Repeat { count: value } => {
+                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
+                                        return Err(IrVerifyError::new("generic pipeline count is not Int"));
+                                    }
+                                    pending.push(Obligation::Expression(value.raw() as usize, scope));
+                                }
+                                super::super::StageView::TablePrint { .. } | super::super::StageView::TablePrintConfigured { .. } => {
+                                    if !BodyTypeRef::Scheme(pipeline_item_value(&item)?).is_record() { return Err(IrVerifyError::new("generic table print item is not a record")); }
+                                    if let super::super::StageView::TablePrintConfigured { columns } = stage.view {
+                                        if !body_type_matches(&expression_type(types, columns.raw() as usize, budget)?, &SchemeType::Ground(Type::List(Box::new(Type::Str))), budget)? { return Err(IrVerifyError::new("generic table columns are not List[Str]")); }
+                                        pending.push(Obligation::Expression(columns.raw() as usize, scope));
+                                    }
+                                    terminal = Some(SchemeType::Ground(Type::Unit));
+                                }
+                                super::super::StageView::Collect => {
+                                    budget.charge_scheme_clone(pipeline_item_value(&item)?)?;
+                                    terminal = Some(SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())));
+                                }
+                                super::super::StageView::Count => terminal = Some(SchemeType::Ground(Type::Int)),
+                                super::super::StageView::Sum => {
+                                    if !body_type_matches(pipeline_item_value(&item)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic pipeline sum item is not Int")); }
+                                    terminal = Some(SchemeType::Ground(Type::Int));
+                                }
+                                super::super::StageView::First | super::super::StageView::Last | super::super::StageView::Min | super::super::StageView::Max => {
+                                    if matches!(stage.view, super::super::StageView::Min | super::super::StageView::Max) {
+                                        super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::MinMaxItem, pipeline_item_value(&item)?, budget)?;
+                                    }
+                                    budget.charge_scheme_clone(pipeline_item_value(&item)?)?;
+                                    terminal = Some(SchemeType::Result(Box::new(pipeline_item_value(&item)?.clone()), Box::new(SchemeType::Ground(Type::Error))));
+                                }
+                                _ => return Err(IrVerifyError::new("generic pipeline contains an unsupported stage contract")),
+                            }
+                        }
+                        if let Some(claimed) = claimed {
+                            let expected = match terminal { Some(terminal) => terminal, None => SchemeType::List(Box::new(pipeline_item_value(&item)?.clone())) };
+                            if !body_type_matches(&expected, &claimed, budget)? { return Err(IrVerifyError::new("generic pipeline result disagrees with its stage contract")); }
+                        }
+                        if let Some(stream) = stream {
+                            let mut cardinality = super::super::IndexedCardinalityQuery::new(decoder);
+                            let pulls = super::super::indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality)?;
+                            budget.charge(cardinality.memo.len() + stage_ids.len())?;
+                            if !pulls[0].never { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
+                        }
+                        pending.push(Obligation::Expression(input.raw() as usize, scope));
+                    }
+                    view => {
+                        let claimed = claimed.ok_or_else(|| IrVerifyError::new("generic completion fact has an unsupported physical expression"))?;
+                        match view {
                     schema::ExprView::Field { base, name, .. }
                         if types.get(&(base.raw() as usize)).and_then(SchemeType::closed_ground_type).is_some_and(|ty| matches!(ty, Type::Module(_))) =>
                     {
@@ -1155,277 +1454,6 @@ pub(super) fn verify_body(
                         scopes.error_boundaries.push(wrappers::capture_boundary(store, scheme_scope, wrapper_sites.get(&instruction).copied(), instruction, if retry { captures.len().checked_sub(1) } else { None }, &error, budget)?);
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value });
                     }
-                    schema::ExprView::ValueBlock { body, .. } => {
-                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
-                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(statements.len())?;
-                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: Some(claimed) });
-                    }
-                    schema::ExprView::ListPipeline { input, mut stages, .. } => {
-                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
-                        let source = expression_type(types, input.raw() as usize, budget)?;
-                        let position = super::super::decode::ListView::position(&stages);
-                        let first = stages.next_with_id().transpose()?;
-                        stages.resume(position)?;
-                        let adapter = first.is_some_and(|stage| matches!(stage.view, super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines));
-                        let (mut item, stream) = if adapter {
-                            budget.charge_scheme_clone(&source)?;
-                            (source.clone(), None)
-                        } else { pipeline_iteration_item(store, scheme_scope, &source, input.raw() as usize, budget)? };
-                        let mut terminal = None;
-                        let mut stage_ids = Vec::new();
-                        while let Some(stage) = stages.next_with_id() {
-                            budget.charge(1)?;
-                            if terminal.is_some() { return Err(IrVerifyError::new("generic pipeline continues after a terminal stage")); }
-                            let stage = stage?;
-                            stage_ids.push(stage.id.raw());
-                            let each = matches!(&stage.view, super::super::StageView::Each { .. });
-                            match stage.view {
-                                super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines => {
-                                    if stage_ids.len() != 1 { return Err(IrVerifyError::new("generic pipeline adapter is not the first stage")); }
-                                    let input_type = if matches!(stage.view, super::super::StageView::BytesChunks { .. }) { Type::Bytes } else { Type::Str };
-                                    if !body_type_matches(&source, &SchemeType::Ground(input_type), budget)? { return Err(IrVerifyError::new("generic pipeline adapter has the wrong source type")); }
-                                    if let super::super::StageView::BytesChunks { size } = stage.view {
-                                        if !body_type_matches(&expression_type(types, size.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic byte chunk size is not Int")); }
-                                        pending.push(Obligation::Expression(size.raw() as usize, scope));
-                                    }
-                                    item = SchemeType::Ground(match stage.view { super::super::StageView::TextLines => Type::Str, super::super::StageView::BytesChunks { .. } => Type::Bytes, _ => Type::Any });
-                                }
-                                super::super::StageView::Map { slot, value }
-                                | super::super::StageView::ParMap { slot, value, .. } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    if let super::super::StageView::ParMap { jobs: Some(jobs), .. } = stage.view {
-                                        if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic parallel pipeline jobs is not Int")); }
-                                        pending.push(Obligation::Expression(jobs.raw() as usize, scope));
-                                    }
-                                    item = expression_type(types, value.raw() as usize, budget)?;
-                                    if matches!(BodyTypeRef::Scheme(&item).unvalidated(), BodyTypeRef::Ground(Type::Unit)) { return Err(IrVerifyError::new("generic map callback has no value result")); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                }
-                                super::super::StageView::GroupBy { slot, key }
-                                | super::super::StageView::UniqueBy { slot, key }
-                                | super::super::StageView::SortBy { slot, key, .. }
-                                | super::super::StageView::CountBy { slot, key } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    let key_type = expression_type(types, key.raw() as usize, budget)?;
-                                    match stage.view {
-                                        super::super::StageView::SortBy { descending, .. } => {
-                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &key_type, budget)?;
-                                            if let Some(descending) = descending {
-                                                if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
-                                                pending.push(Obligation::Expression(descending.raw() as usize, scope));
-                                            }
-                                        }
-                                        super::super::StageView::GroupBy { .. } => {
-                                            budget.charge_scheme_clone(&item)?;
-                                            budget.charge(4)?;
-                                            item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), key_type), (Name::intern("items"), SchemeType::List(Box::new(item.clone())))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
-                                        }
-                                        super::super::StageView::CountBy { .. } => {
-                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::CountKey, &key_type, budget)?;
-                                            budget.charge(3)?;
-                                            terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Int))));
-                                        }
-                                        _ => {}
-                                    }
-                                    pending.push(Obligation::Expression(key.raw() as usize, inner));
-                                }
-                                super::super::StageView::Each { slot, body }
-                                | super::super::StageView::Tee { slot, body } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                                    budget.charge(statements.len())?;
-                                    pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
-                                    if each { terminal = Some(SchemeType::Ground(Type::Unit)); }
-                                }
-                                super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
-                                    let accumulator = expression_type(types, initial.raw() as usize, budget)?;
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, acc_slot, &accumulator, slot_count, &mut writers, budget)?;
-                                    let inner = pipeline_callback_scope(&inner, &mut scopes, item_slot, &item, slot_count, &mut writers, budget)?;
-                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &accumulator, budget)? { return Err(IrVerifyError::new("generic fold callback disagrees with its accumulator")); }
-                                    pending.push(Obligation::Expression(initial.raw() as usize, scope));
-                                    if body.len() != 0 { return Err(IrVerifyError::new("generic fold callback has detached statements")); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                    terminal = Some(accumulator);
-                                }
-                                super::super::StageView::ReduceBy { item_slot, ref body, value, .. }
-                                | super::super::StageView::ReduceByConfigured { item_slot, ref body, value, .. } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, item_slot, &item, slot_count, &mut writers, budget)?;
-                                    let row = expression_type(types, value.raw() as usize, budget)?;
-                                    let row = BodyTypeRef::Scheme(&row).unvalidated();
-                                    if row.record_shape().is_none() || row.field(Name::intern("key")).is_none() { return Err(IrVerifyError::new("generic reduce-by callback has no key record")); }
-                                    let value_type = row.field(Name::intern("value")).ok_or_else(|| IrVerifyError::new("generic reduce-by callback has no value field"))?.materialize(budget)?;
-                                    match stage.view {
-                                        super::super::StageView::ReduceBy { jobs: Some(jobs), .. } => {
-                                            if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic reduce-by jobs is not Int")); }
-                                            pending.push(Obligation::Expression(jobs.raw() as usize, scope));
-                                        }
-                                        super::super::StageView::ReduceByConfigured { configuration, .. } => {
-                                            let ty = expression_type(types, configuration.raw() as usize, budget)?;
-                                            let configuration_type = BodyTypeRef::Scheme(&ty).unvalidated();
-                                            let Some((size, SchemeRowTail::Closed)) = configuration_type.record_shape() else { return Err(IrVerifyError::new("generic reduce-by configuration has no closed record")); };
-                                            let mut fields = 0;
-                                            for (name, expected) in [("sum", Type::Bool), ("min", Type::Bool), ("max", Type::Bool), ("jobs", Type::Int)] {
-                                                if let Some(field) = configuration_type.field(Name::intern(name)) {
-                                                    fields += 1;
-                                                    if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic reduce-by configuration field has the wrong type")); }
-                                                }
-                                            }
-                                            if fields != size { return Err(IrVerifyError::new("generic reduce-by configuration has an unknown field")); }
-                                            pending.push(Obligation::Expression(configuration.raw() as usize, scope));
-                                        }
-                                        _ => {}
-                                    }
-                                    if body.len() != 0 { return Err(IrVerifyError::new("generic reduce-by callback has detached statements")); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                    terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(value_type)));
-                                }
-                                super::super::StageView::FlatMap { slot, value } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    let source = expression_type(types, value.raw() as usize, budget)?;
-                                    if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
-                                        return Err(IrVerifyError::new("generic flat-map callback has no list or stream contract"));
-                                    }
-                                    let (mapped, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(value.raw() as usize), budget)?;
-                                    item = mapped;
-                                    if let Some(stream) = stream { stream_iterations.push((stream, propagation_boundary(&inner, &scopes).clone())); }
-                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
-                                }
-                                super::super::StageView::Where { slot, predicate }
-                                | super::super::StageView::Any { slot, predicate }
-                                | super::super::StageView::All { slot, predicate } => {
-                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
-                                    condition(types, predicate.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
-                                    if !matches!(stage.view, super::super::StageView::Where { .. }) { terminal = Some(SchemeType::Ground(Type::Bool)); }
-                                    pending.push(Obligation::Expression(predicate.raw() as usize, inner));
-                                }
-                                super::super::StageView::Enumerate => {
-                                    budget.charge(3)?;
-                                    item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
-                                }
-                                super::super::StageView::Sort { descending } => {
-                                    super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &item, budget)?;
-                                    if let Some(descending) = descending {
-                                        if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
-                                        pending.push(Obligation::Expression(descending.raw() as usize, scope));
-                                    }
-                                }
-                                super::super::StageView::BatchCount { count }
-                                | super::super::StageView::BatchMaxBytes { max_bytes: count } => {
-                                    if !body_type_matches(&expression_type(types, count.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch limit is not Int")); }
-                                    if matches!(stage.view, super::super::StageView::BatchMaxBytes { .. }) && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
-                                    pending.push(Obligation::Expression(count.raw() as usize, scope));
-                                    budget.charge(1)?;
-                                    item = SchemeType::List(Box::new(item));
-                                }
-                                super::super::StageView::BatchMaxArgv { max_argv } => {
-                                    if !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic argv-bounded batch item has no argv conversion")); }
-                                    if let Some(limit) = max_argv {
-                                        if !body_type_matches(&expression_type(types, limit.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic batch argv limit is not Int")); }
-                                        pending.push(Obligation::Expression(limit.raw() as usize, scope));
-                                    }
-                                    budget.charge(1)?;
-                                    item = SchemeType::List(Box::new(item));
-                                }
-                                super::super::StageView::BatchLimits { configuration } => {
-                                    let ty = expression_type(types, configuration.raw() as usize, budget)?;
-                                    let actual = BodyTypeRef::Scheme(&ty).unvalidated();
-                                    let Some((size, SchemeRowTail::Closed)) = actual.record_shape() else { return Err(IrVerifyError::new("generic batch configuration has no closed record")); };
-                                    let mut fields = 0;
-                                    let mut bytes = false;
-                                    let mut argv = false;
-                                    for (name, expected) in [("count", Type::Int), ("max_bytes", Type::Int), ("max_argv", Type::Bool)] {
-                                        if let Some(field) = actual.field(Name::intern(name)) {
-                                            fields += 1;
-                                            if !body_type_matches(&field.materialize(budget)?, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic batch configuration field has the wrong type")); }
-                                            bytes |= name == "max_bytes";
-                                            argv |= name == "max_argv";
-                                        }
-                                    }
-                                    if fields != size { return Err(IrVerifyError::new("generic batch configuration contains an unknown field")); }
-                                    if bytes && !scheme_conversion(&item, ValueConversion::Argv, scheme_scope, budget)? { return Err(IrVerifyError::new("generic byte-bounded batch item has no argv conversion")); }
-                                    if argv && !bytes { budget.charge_scheme_clone(&item)?; batch_argv_checks.push((configuration.raw() as usize, item.clone())); }
-                                    pending.push(Obligation::Expression(configuration.raw() as usize, scope));
-                                    budget.charge(1)?;
-                                    item = SchemeType::List(Box::new(item));
-                                }
-                                super::super::StageView::Zip { other } => {
-                                    let source = expression_type(types, other.raw() as usize, budget)?;
-                                    let (right, stream) = pipeline_iteration_item(store, scheme_scope, &source, other.raw() as usize, budget)?;
-                                    if let Some(stream) = stream { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
-                                    budget.charge(3)?;
-                                    item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), item), (Name::intern("right"), right)]), tail: SchemeRowTail::Closed };
-                                    pending.push(Obligation::Expression(other.raw() as usize, scope));
-                                }
-                                super::super::StageView::Range { start, end } => {
-                                    let start_type = expression_type(types, start.raw() as usize, budget)?;
-                                    for ty in [&start_type, &expression_type(types, end.raw() as usize, budget)?] {
-                                        if !body_type_matches(ty, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic range bound is not Int")); }
-                                    }
-                                    if let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(start.raw() as usize)? {
-                                        if !visited.insert(start.raw() as usize) { return Err(IrVerifyError::new("generic range configuration is shared or cyclic")); }
-                                        expression_scopes.insert(start.raw() as usize, scope);
-                                        let inner = branch_scope(&scope, &mut scopes, budget)?;
-                                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                                        budget.charge(statements.len())?;
-                                        pending.push(Obligation::Expression(end.raw() as usize, inner));
-                                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: Some(start_type) });
-                                    } else {
-                                        pending.push(Obligation::Expression(start.raw() as usize, scope));
-                                        pending.push(Obligation::Expression(end.raw() as usize, scope));
-                                    }
-                                    item = SchemeType::Ground(Type::Int);
-                                }
-                                super::super::StageView::Shuffle { seed } => {
-                                    if let Some(seed) = seed {
-                                        if !body_type_matches(&expression_type(types, seed.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic shuffle seed is not Int")); }
-                                        pending.push(Obligation::Expression(seed.raw() as usize, scope));
-                                    }
-                                }
-                                super::super::StageView::Drop(value) | super::super::StageView::Take(value)
-                                | super::super::StageView::Repeat { count: value } => {
-                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
-                                        return Err(IrVerifyError::new("generic pipeline count is not Int"));
-                                    }
-                                    pending.push(Obligation::Expression(value.raw() as usize, scope));
-                                }
-                                super::super::StageView::TablePrint { .. } | super::super::StageView::TablePrintConfigured { .. } => {
-                                    if !BodyTypeRef::Scheme(&item).is_record() { return Err(IrVerifyError::new("generic table print item is not a record")); }
-                                    if let super::super::StageView::TablePrintConfigured { columns } = stage.view {
-                                        if !body_type_matches(&expression_type(types, columns.raw() as usize, budget)?, &SchemeType::Ground(Type::List(Box::new(Type::Str))), budget)? { return Err(IrVerifyError::new("generic table columns are not List[Str]")); }
-                                        pending.push(Obligation::Expression(columns.raw() as usize, scope));
-                                    }
-                                    terminal = Some(SchemeType::Ground(Type::Unit));
-                                }
-                                super::super::StageView::Collect => {
-                                    budget.charge_scheme_clone(&item)?;
-                                    terminal = Some(SchemeType::List(Box::new(item.clone())));
-                                }
-                                super::super::StageView::Count => terminal = Some(SchemeType::Ground(Type::Int)),
-                                super::super::StageView::Sum => {
-                                    if !body_type_matches(&item, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic pipeline sum item is not Int")); }
-                                    terminal = Some(SchemeType::Ground(Type::Int));
-                                }
-                                super::super::StageView::First | super::super::StageView::Last | super::super::StageView::Min | super::super::StageView::Max => {
-                                    if matches!(stage.view, super::super::StageView::Min | super::super::StageView::Max) {
-                                        super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::MinMaxItem, &item, budget)?;
-                                    }
-                                    budget.charge_scheme_clone(&item)?;
-                                    terminal = Some(SchemeType::Result(Box::new(item.clone()), Box::new(SchemeType::Ground(Type::Error))));
-                                }
-                                _ => return Err(IrVerifyError::new("generic pipeline contains an unsupported stage contract")),
-                            }
-                        }
-                        let expected = terminal.unwrap_or_else(|| SchemeType::List(Box::new(item)));
-                        if !body_type_matches(&expected, &claimed, budget)? { return Err(IrVerifyError::new("generic pipeline result disagrees with its stage contract")); }
-                        if let Some(stream) = stream {
-                            let mut cardinality = super::super::IndexedCardinalityQuery::new(decoder);
-                            let pulls = super::super::indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality)?;
-                            budget.charge(cardinality.memo.len() + stage_ids.len())?;
-                            if !pulls[0].never { stream_iterations.push((stream, PropagationBoundary::PipelineTransport { owner: decoder.owner, instruction })); }
-                        }
-                        pending.push(Obligation::Expression(input.raw() as usize, scope));
-                    }
                     schema::ExprView::ListComp { value, qualifiers, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
@@ -1499,6 +1527,8 @@ pub(super) fn verify_body(
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
+                    }
+                }
             }
             Obligation::Block { statements, position, scope, value: value_contract } => {
                 let Some(&instruction) = statements.get(position) else {
@@ -1510,6 +1540,16 @@ pub(super) fn verify_body(
                 let mut nested = Vec::new();
                 match decoder.statement_view(instruction)? {
                     schema::StmtView::Let { slot, value, annotation } => {
+                        if noncompleting.contains(&(value.raw() as usize)) {
+                            let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic noncompleting declaration has no permission fact"))?;
+                            let authored = annotation.ok_or_else(|| IrVerifyError::new("generic noncompleting declaration has no authored storage contract"))?.materialize()?;
+                            if !body_types_equal(&declared, &SchemeType::Ground(authored)) { return Err(IrVerifyError::new("generic noncompleting declaration changes its authored storage contract")); }
+                            if slot >= slot_count || writers.insert(slot, declared.clone()).is_some() { return Err(IrVerifyError::new("generic declaration slot is duplicated or out of bounds")); }
+                            let initializer = value.raw() as usize;
+                            pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, bindings: vec![(slot, declared, mutable, Some(initializer))] });
+                            pending.push(Obligation::Expression(initializer, scope));
+                            continue;
+                        }
                         let actual = expression_type(types, value.raw() as usize, budget)?;
                         let stored = scheme_stored_type(actual, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
                         let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic local declaration has no permission fact"))?;
@@ -1660,7 +1700,7 @@ pub(super) fn verify_body(
                         expressions.push(value.raw() as usize);
                     }
                     schema::StmtView::Expr { value, .. } => {
-                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                        if completion_group.is_some() && scope.error_boundary.is_none() && !noncompleting.contains(&(value.raw() as usize)) {
                             let actual = expression_type(types, value.raw() as usize, budget)?;
                             if let Some(error) = completion_result_error(&actual, budget)? {
                                 push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
@@ -1779,7 +1819,7 @@ pub(super) fn verify_body(
                         if !store.function_metadata.get(owner.index()).is_some_and(|metadata| matches!(metadata.callable_kind, crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)) {
                             return Err(IrVerifyError::new("generic defer has no cleanup-capable owner"));
                         }
-                        if completion_group.is_some() && scope.error_boundary.is_none() {
+                        if completion_group.is_some() && scope.error_boundary.is_none() && !noncompleting.contains(&(value.raw() as usize)) {
                             let actual = expression_type(types, value.raw() as usize, budget)?;
                             if let Some(error) = completion_result_error(&actual, budget)? {
                                 push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
@@ -6871,6 +6911,148 @@ mod structured_pipeline_tests {
         let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn generic_noncompletion_requires_actual_callbacks_cardinality_and_owners() {
+        use super::super::super::schemes::FullSchemeBodyFactValue as Fact;
+        for (input, callback_write) in [("[1]", ""), ("[@[1], @other]", ""), ("[1]", "written = other;")] {
+            let declaration = if callback_write.is_empty() { "pure" } else { "proc" };
+            let source = format!(r#"
+{declaration} target(marker, other: List[Int], flag: Bool) -> Int {{
+  var written = [1]
+  let empty: List[Int] = []
+  let ignored = {input} |> map {{ |item| {callback_write} return 1 }} |> sort |> take(0)
+  written = [1]
+  let _ = empty
+  let _ = marker
+  let _ = flag
+  0
+}}
+pure foreign(marker) -> Int {{ let ignored = [1] |> map {{ |item| return 2 }}; let _ = marker; 0 }}
+"#);
+            let mut program = prepare(&source);
+            assert_eq!(super::super::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "target").unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let pipeline = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ListPipeline { .. }))).unwrap();
+            let schema::ExprView::ListPipeline { input: source_input, mut stages, .. } = decoder.expression_view(pipeline).unwrap() else { unreachable!() };
+            let stage_block = stages.block_identity_for_test();
+            let super::super::super::StageView::Map { value: callback, .. } = stages.next().unwrap().unwrap() else { panic!("the actual first stage is the map") };
+            assert_eq!(stages.count(), 2);
+            let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(callback.raw() as usize).unwrap() else { panic!("the callback preserves its physical return block") };
+            let returned = body.by_ref().map(|statement| statement.unwrap().raw() as usize).find(|&instruction| program.store.tags[instruction] == FullTag::StmtReturn).unwrap();
+            let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(source_input.raw() as usize).unwrap() else { panic!("actual input is an ANF value block") };
+            let statements = body.by_ref().map(|statement| statement.unwrap().raw() as usize).collect::<Vec<_>>();
+            let schema::StmtView::Value { value: source_read } = decoder.statement_view(*statements.last().unwrap()).unwrap() else { unreachable!() };
+            let source_read = source_read.raw() as usize;
+            let schema::ExprView::Param(source_slot) = decoder.expression_view(source_read).unwrap() else { unreachable!() };
+            let source_declaration = statements.iter().copied().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Let { slot, .. }) if slot == source_slot)).unwrap();
+            let flag = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let actual_member = statements.iter().copied().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { value, .. }) if program.store.tags[value.raw() as usize] == FullTag::ExprInt => Some(value.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let written = range.clone().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::Assign { slot, .. }) => Some(slot), _ => None }).unwrap();
+            let empty = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot, value, .. }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::List(values)) if values.len() == 0) => Some(slot),
+                _ => None,
+            }).expect("the actual empty initializer is present in the same owner");
+            let declaration_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == source_declaration && matches!(fact.value, Fact::LocalImmutable(_))).unwrap();
+            let mut mutable_snapshot = program.clone();
+            let Fact::LocalImmutable(ty) = mutable_snapshot.store.scheme_body_facts[declaration_fact].value else { unreachable!() };
+            mutable_snapshot.store.scheme_body_facts[declaration_fact].value = Fact::LocalMutable(ty);
+            assert!(mutable_snapshot.store.in_place.get().is_none());
+            FullVerifier::verify(&mutable_snapshot).expect("an actual single writer remains a stable snapshot without later writes");
+            if callback_write.is_empty() {
+            let mut completing_callback = program.clone();
+            completing_callback.store.tags[returned] = FullTag::StmtValue;
+            assert!(completing_callback.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&completing_callback).expect_err("a completing callback cannot claim NoCompletion");
+            assert_eq!(failure.message, "generic completion fact can produce a value");
+            }
+            for slot in [1, written, empty] {
+                let mut changed_input = program.clone();
+                changed_input.store.extra[program.store.data[source_read].range().start as usize] = slot as u32;
+                assert!(changed_input.store.in_place.get().is_none());
+                let failure = FullVerifier::verify(&changed_input).expect_err("header, written, or empty actual sources cannot manufacture required demand");
+                assert_eq!(failure.message, "generic completion fact can produce a value");
+            }
+            let mut wrong_member = program.clone();
+            wrong_member.store.tags[actual_member] = FullTag::ExprParam;
+            wrong_member.store.data[actual_member] = program.store.data[flag];
+            assert!(wrong_member.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&wrong_member).expect_err("completion-only permission does not replace actual member type proof");
+            assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+            let mut skipped_callback = program.clone();
+            let words = program.store.blocks[stage_block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[words.start], 3);
+            skipped_callback.store.extra[words.start + 1..words.start + 4].rotate_right(1);
+            assert!(skipped_callback.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&skipped_callback).expect_err("take zero before the map prevents required callback demand");
+            assert_eq!(failure.message, "generic completion fact can produce a value");
+            let foreign_owner = program.store.scheme_body_facts.iter().find(|fact| matches!(fact.value, Fact::NoCompletion) && !range.contains(&(fact.instruction as usize))).unwrap().function;
+            let mut foreign = program;
+            let fact = foreign.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == pipeline && matches!(fact.value, Fact::NoCompletion)).unwrap();
+            fact.function = foreign_owner;
+            assert!(foreign.store.in_place.get().is_none());
+            let failure = FullVerifier::verify(&foreign).expect_err("completion fact must belong to the actual owner");
+            assert_eq!(failure.message, "generic body fact has invalid ownership");
+        }
+    }
+
+    #[test]
+    fn noncompleting_bindings_keep_their_actual_authored_contracts() {
+        use super::super::super::schemes::FullSchemeBodyFactValue as Fact;
+        let source = "pure authored(value, flag: Bool) { let x: Any = [value] |> map { |item| return item }; let spare: Bool = flag; let _ = x; let _ = spare; value }\n";
+        let mut program = prepare(source);
+        assert_eq!(super::super::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        program.store.in_place.take();
+        assert!(program.store.in_place.get().is_none());
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "authored").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let mut authored = None;
+        let mut spare = None;
+        for instruction in range.clone() {
+            if let Ok(schema::StmtView::Let { value, annotation: Some(annotation), .. }) = decoder.statement_view(instruction) {
+                match annotation.materialize().unwrap() {
+                    Type::Any if program.store.scheme_body_facts.iter().any(|fact| fact.instruction == value.raw() && matches!(fact.value, Fact::NoCompletion)) => authored = Some(instruction),
+                    Type::Bool => spare = Some(instruction),
+                    _ => {}
+                }
+            }
+        }
+        let authored = authored.unwrap();
+        let spare = spare.unwrap();
+        let authored_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == authored && matches!(fact.value, Fact::LocalImmutable(_))).unwrap();
+        let spare_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == spare && matches!(fact.value, Fact::LocalImmutable(_))).unwrap();
+        let mut wrong_contract = program.clone();
+        let previous = wrong_contract.store.scheme_body_facts[authored_fact].value;
+        wrong_contract.store.scheme_body_facts[authored_fact].value = wrong_contract.store.scheme_body_facts[spare_fact].value;
+        wrong_contract.store.scheme_body_facts[spare_fact].value = previous;
+        assert!(wrong_contract.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_contract).expect_err("no completion does not authorize changing a physical authored contract");
+        assert_eq!(failure.message, "generic noncompleting declaration changes its authored storage contract");
+        let first = program.store.data[authored].range().bounds(program.store.extra.len()).unwrap();
+        let second = program.store.data[spare].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(first.len(), second.len());
+        assert!(first.len() > 2);
+        let mut wrong_annotation = program.clone();
+        for offset in 2..first.len() { wrong_annotation.store.extra.swap(first.start + offset, second.start + offset); }
+        let changed = super::super::decoder_for_function(&wrong_annotation.store, owner).unwrap();
+        let schema::StmtView::Let { annotation: Some(annotation), .. } = changed.statement_view(authored).unwrap() else { panic!("the mutated authored annotation remains physical") };
+        assert_eq!(annotation.materialize().unwrap(), Type::Bool);
+        assert!(wrong_annotation.store.in_place.get().is_none());
+        let failure = FullVerifier::verify(&wrong_annotation).expect_err("the exact physical annotation must agree with declared storage");
+        assert_eq!(failure.message, "annotated local has no checked slot type");
     }
 
     #[test]

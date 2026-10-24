@@ -745,6 +745,24 @@ A separate `NoCompletion` body fact carries neither a type payload nor a scheme
 binder. Completion-only expressions remain outside ordinary value lookup and
 require independent physical completion proof before acceptance. Their ownership
 and producer demand remain explicit in the existing body-fact framework.
+The collector records the role only from canonical whole-expression completion
+analysis. Lowering preserves actual callback returns and lowers an initializer
+that cannot complete as an existing discard binding when no named read depends
+on it. An authored named storage contract remains a real declaration; completion
+proof must finish before its declared binding is published to later unreachable
+reads. No type is invented for the initializer. The verifier rechecks physical pipeline demand and callback
+completion, then verifies every input, stage, callback, return, and effect while
+omitting only the nonexistent result-type obligation. The same actual-owner
+completion role settles implicit-discard classification without bypassing the
+remaining effect checks. Cardinality queries can
+borrow the same lexical producer prefix to follow a visible single-writer value
+initializer through ANF temporaries. Header and captured storage do not supply
+initializer evidence, and cycles retain unknown cardinality. Authored identifier
+cardinality remains outside source completion recognition. A callback that cannot
+complete does not by itself make the entire pipeline noncompleting: a possibly
+empty input followed by `count` retains its ordinary `Int` result. Required
+callback demand is necessary for the whole-pipeline completion claim, not for
+that independent terminal result.
 
 Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
