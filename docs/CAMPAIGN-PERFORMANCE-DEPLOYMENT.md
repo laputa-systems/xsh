@@ -12,14 +12,14 @@ The owner's 2026-10-23 closeout order retains inference qualification, local
 `master` integration and cleanup before Pyramid closes. The subsequent request
 expands independent Pyramid implementation now, alongside inference, using five
 expert lanes initially. The repeated acceleration request now widens this to
-eight expert lanes plus the coordinator, retaining the shared two-build and
+eight expert lanes plus the coordinator, retaining the shared three-build and
 single-native limits. Generic pipeline support has a separate expert so it
 does not wait behind pattern and record-constructor support. Independent checker repairs proceed while lowering owns
 their earlier prerequisites; ready reviews run alongside implementation.
 Approvals and next assignments use the follow-up operation that resumes idle
 lanes. Experts run focused checks within their assigned scope through the
 existing physical leases without a separate coordinator grant for each check.
-Each expert owns at most one job. The shared limits remain two Cargo jobs and
+Each expert owns at most one job. The shared limits are three Cargo jobs and
 one native job. A busy lease is unavailable evidence, not a test failure;
 retry after an actual completion, without spinning. The coordinator reserves
 larger qualification waves and consumes their completions before resuming
@@ -80,7 +80,15 @@ actual producer/type-context cause. Recheck with the repaired matching compiler
 before committing or claiming behavioral, Scenario or P0 acceptance. Pyramid closure still follows inference
 acceptance, local master integration and completed-worktree cleanup.
 
-Physical limits remain two ordinary Cargo jobs and one native job. Canonical
+The 2026-10-24 acceleration changes ordinary Cargo capacity from two to three
+disjoint outputs. Nineteen lease controls pass, including fourth-build rejection,
+same-output exclusion, signal cleanup and exclusive-final exclusion. Activation
+held the old exclusive Cargo lease until both helper revisions matched; no old
+Cargo holder survived the protocol change. Three 8-GiB builds plus a 4-GiB
+native lane preserve the 12-GiB host reserve. This supersedes the earlier
+two-build iteration limit; it changes no final-gate allocation.
+
+Physical limits are three ordinary Cargo jobs and one native job. Canonical
 12-CPU/24-GiB gates run alone; timing windows require readiness on both sides
 and exclude competing work. All pushes remain forbidden.
 
@@ -3326,7 +3334,7 @@ was performed during planning.
 
 ### Resource and ownership limits
 
-Ordinary iteration allows at most two compiler builds, each at two jobs and
+Ordinary iteration allows at most three compiler builds, each at two jobs and
 8 GiB. The isolated Laputa Deno link may use 12 GiB with two CPUs and no extra
 swap: its 8-GiB container OOM was reproduced, and the 12-GiB node build passed. Inherited release-profile builds keep their 12 jobs, 12 CPUs, and 24 GiB
 and run alone. A full native observer keeps its existing 12-CPU, 24-GiB allocation.
