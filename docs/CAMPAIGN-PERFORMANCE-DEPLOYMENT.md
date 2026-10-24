@@ -1,5 +1,238 @@
 # Make XSH fast to run and dependable in Laputa
 
+Status: paused 2026-10-24. The owner requested a clean stop, not campaign completion.
+
+## Resume
+
+Prompt: “Resume `full-inference-campaign.md` from the paused 2026-10-24 handoff.
+Keep bounded isolated edits, local commits/integration and owned offline Docker
+operations authorized; do not push.”
+
+First command:
+
+```sh
+git -C /home/josh/d/laputa-systems/xsh/.work/wt/full-inference-integration status --short --branch
+```
+
+Re-read current instructions, this handoff and the full-inference charter, then
+perform the parent steering checkpoint before dispatch. All previous agents have
+stopped. Do not restart the old queue or rebaseline unchanged inputs. Recreate
+only the checkout needed for the next parked item from its named branch.
+
+## State and evidence
+
+The integration branch is `campaign/full-inference-integration`. Executable code
+checkpoint `7187237f7` includes the completed in-flight slices below; later
+commits preserve documentation and recovery information. It is provisional.
+Local `master` remains clean at `c1237e3a6`; nothing was pushed. Its two
+master-only commits (`4f47f9ec7`, `c1237e3a6`) still need ancestry/diff review
+before combined qualification and eventual master integration.
+
+The latest complete library/native checkpoint remains `853b7c829`: **2,694 Rust
+library passes, zero failures, three ignored; 249 exact native cases pass in
+both normal and forced modes; all six API cases and documentation checks pass**.
+Its canonical bootstrap passes, but root integration stops at **197 passes,
+35 failures and one filter**. Later canonical stages and supplemental warnings
+do not run. The failed run stays failed.
+
+Completed repairs are integrated locally:
+
+- All fifteen failing network/TLS controls pass after six mocks declare the actual
+  `NetResponse` schema; seven native mock/schema cases also pass.
+- All ten annotation/signal policy controls pass. Public return hints use the
+  authored declaration visibility; only exit-calling hooks gain `process`.
+- Nine producer-proof controls and all five original map/stream/record integration
+  failures pass. Missing stream proofs share one bounded producer proof rather
+  than repeatedly scanning the program or resetting semantic budgets.
+- Ten procedure-body controls pass: actual checked fallthrough, empty/loop/if
+  bodies, command-valued bindings and data-only literal admission preserve
+  cleanup, physical type evidence and NoCompletion distinctions.
+- Guard value outputs pass sixteen focused controls; imported forwarding passes
+  eleven. Actual Null/present/Optional branches retain precision and physical
+  scope evidence without runtime inference. Seventeen API controls cover the
+  corresponding scoped input/effect/output display.
+- Independent guarded callable correspondence passes twelve controls, followed by
+  five checking parent-output binder propagation. Actual target origins and
+  owned binder packs are rebuilt through existing ranges; target rows remain
+  28 bytes and hot instruction/frame layouts remain 48/8 bytes.
+- Known nominal patterns pass four controls; generic predicate admission passes
+  six. They use the resolved family and existing Bool/Match proof, preserving
+  dynamic and leading-dot boundaries and List/Map indexing relationships.
+- The owned closed-record Null input repair passes strict execution on both
+  routes and its existing authority controls. The reviewed frozen selector
+  protocol passes eighteen Python tests.
+
+After integration, a pinned-image check on `7187237f7` passes these **four**
+exact tests, with no warnings: independent guarded target correspondence,
+discarded-output binder correspondence, exported guarded-handler execution
+after frontend/module disposal, and known-tag execution after disposal.
+This is the winddown integration check, not a whole-library or canonical run.
+SPEC generation was reconciled with its template; its registry inputs remain
+unchanged from the pinned `853` tools used for generation.
+
+All thirty-five canonical failures have focused primary-cause repairs; five
+stack failures were poisoned-lock followers. They still require a fresh
+combined canonical run. **The new combined source has not passed the complete
+library/native/canonical/performance/deployment boundary and is not eligible
+for a compiler-prefix merge to master.**
+
+## Direction and next delivery
+
+The limiting stage is the remaining functional relationships and their combined
+acceptance. Keep one owner for coupled Guard success/error/capture metadata.
+Independent pattern and splice work has useful evidence, but do not replace
+real input evidence with caller training, guessed types or annotation churn.
+Ordinary focused work uses the existing three disjoint Cargo slots (2 CPUs,
+2 jobs, 8 GiB each) and one native slot (2 CPUs, 4 GiB), with a 12 GiB host
+reserve. No manual idle-slot reservations or per-check approval barrier remains.
+A busy lease is unavailable evidence; wait for an actual completion, not a loop.
+Exclusive final/performance allocations remain unchanged.
+
+Finish the parked statement-scope and Proc/capture cases, then the fresh-record
+input relationship. Revisit the next concrete corpus boundary once those causes
+are closed. Perform the next steering checkpoint after that functional group
+and its matching corpus replay. Only then optimize the measured generalization
+map-copy growth; no performance result has been accepted on this source.
+
+## Open lanes: committed and parked
+
+| Branch and checkpoint | Finding and next step |
+|---|---|
+| `campaign/full-inference-statement-scope-completion-wip` — `51f2a0b18` | **Unverified replacement.** Ordinary false-mode `env` tails with `Result[Unit]` are promoted before the default no-value completion is established. The rejected owner-recheck design duplicated one guard into two and scanned whole sources repeatedly. It is removed from the parked working content. Review/test the one-pass typed tail-purpose replacement, preserve explicit nested Result data and written return goals, and require one actual guard plus exact cleanup/error behavior. Do not integrate this commit as a finished repair. |
+| `campaign/full-inference-guarded-requirements` — `e1afc3634` | Value-output checkpoints `56e774942` and `2e550e6fe` are integrated. The following observable fixtures are parked: typed reference passes both routes, inferred Proc fails at `let missing_result: Null = guarded.invoke(null, argument(4))?` with unresolved Optional output. Replay the two `*_guarded_observables_preserve_callback_results_errors_and_retained_values` tests, then extend actual ProcCompletion success/error contributions and captures. Do not default missing payload/error/effect variables. |
+| `campaign/full-inference-splice-relationships` — `56c0ea0fe` | **Whole branch parked.** The declaration-local List relationship, wrong-source/invariance negatives, cold producers and nonempty/authored-empty Int/Str executions pass. The unchanged fresh inline empty record test remains Full RED: `generic call argument has no closed checked type`. Trace actual sender `check_record_arena` field context using existing `contextual_record_fields`; never treat expected types as actual evidence. The valid reduced recipe publishes its splice-dependent scheme, then reaches separate `raw.get(...).require()` overload ambiguity. |
+
+These branches contain their witnesses and findings. Reapply only their new
+reviewed deltas onto current integration; their older ancestors include copies
+of already integrated work. Their checkouts were reclaimed. Code or plans needed
+to resume are committed; archived ignored data is evidence/cache, not its only
+copy. No current lane or launch is in flight.
+
+The reduced tour now passes checking after the known-tag/body repairs, but Full
+preparation reaches `generic module call disagrees with its selected registry
+signature`. That next boundary has not been diagnosed. The recipe `raw.get`
+overloads also remain unclassified; distinguish a real residual relationship
+from genuinely absent domain information before retaining another annotation.
+
+## Corpus reconstruction
+
+The next candidate retains **927** annotations and jointly removes **1,956**
+(**499 local + 1,457 internal**), with historical denominators unchanged. Site
+3209 retains the exact `ctx: context.Context` family selector; it adds seventeen
+bytes relative to the earlier 926 proposal. This is demonstrated semantic
+retention, not a new late enum-selection feature or fresh removal credit.
+The historical 926 replay on `853` passes all eleven original roots and twenty-one
+original runtime cases, then fails in the reduced view. No r2 parity credit exists.
+
+The committed generator reconstructs r2 without a disposable checkout or an
+untracked launch script. Run this only to reconstruct inputs, not as a parity gate:
+
+```sh
+R=/home/josh/d/laputa-systems/xsh/.work/wt/full-inference-integration
+X=/home/josh/d/laputa-systems/xsh
+L=/home/josh/d/laputa-systems/laputa
+S=$(mktemp -d "$R/.work/tmp/resume-r2.XXXXXX")
+mkdir -p "$S/archive/original/xsh" "$S/archive/original/laputa"
+git -C "$X" archive ddc17d3d53c819c343f9ecaa738ac67d59e9033a | tar -x -C "$S/archive/original/xsh"
+git -C "$L" archive ca658ce1da9d89c55209c25268dfdf687ff4fdc6 | tar -x -C "$S/archive/original/laputa"
+git -C "$R" show 15243e97f6fd751016ab28690ada2cadb6fc973a:dev/consolidation/typing-corpus/retained.tsv > "$S/accepted.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/cohort.py" "$S/archive/original" --reduced "$S/archive/reduced-1040" --retain "$S/accepted.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/apply_witness_fixture.py" "$S/archive/original/xsh" "$S/archive/reduced-1040/xsh"
+python3 -B "$R/dev/performance/corpus/frozen_witnesses.py" "$S/archive" --prepare-semantic-candidate > "$S/retained927.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/cohort.py" "$S/archive/original" --reduced "$S/reduced927" --retain "$S/retained927.tsv"
+python3 -B "$R/dev/consolidation/typing-corpus/validate.py" "$S/archive/original" "$S/reduced927" --retain "$S/retained927.tsv"
+```
+
+Expected validation: 927 retainers, 1,956 removals. Keep annotation-only erasure
+separate from source rewrites. Use the existing frozen `check_views.sh` owner,
+its complete runtime selectors and semantic interface/effect comparison on a
+named matching compiler before granting new corpus credit.
+
+## Cleanup and retained worktrees
+
+**312 of 316 XSH checkouts were removed normally; about 63 GiB was recovered.**
+No branch was deleted, no worktree was force-removed, and no ignored cache or
+failed-run record was blanket-deleted. Fifteen pre-existing dirty diagnostic,
+scheduler or draft checkouts were saved on separate parked refs before removal.
+Archived ignored payloads live under the common checkout's
+`.work/winddown/2026-10-24/worktrees/`.
+
+The [checkout recovery appendix](../dev/consolidation/winddown/evidence/20261024-worktrees.md)
+records every original path, original HEAD, protected source/recovery ref and
+archive path. Original retired paths in older records below are no longer live;
+use this appendix when reproducing an old path-bound receipt. Restore the exact
+original checkout and its selected archived payload before running such a receipt.
+Pre-existing dirty scheduler snapshots must be reconstructed from their original
+HEAD plus saved-ref difference, not relabeled as qualified new commits.
+The [unmerged-ref snapshot](../dev/consolidation/winddown/evidence/20261024-parked-branches.txt)
+names all 1,388 unmerged refs: master and the Pyramid baseline are distinct;
+other historical or parked refs are preserved without an integration claim.
+
+Only these XSH checkouts remain, all clean at audit:
+
+| Path under `/home/josh/d/laputa-systems/xsh` | Branch / HEAD | Concrete consumer |
+|---|---|---|
+| `.` | `master` / `c1237e3a6` | Main checkout; unchanged local baseline. |
+| `.work/wt/full-inference-integration` | `campaign/full-inference-integration` | Paused source, committed handoff and next implementation/qualification. |
+| `.work/wt/perf-baseline-r13` | detached `0dfebb001` | Existing release baseline products/receipts for remaining performance and scheduler gates. |
+| `.work/wt/pyramid-integration` | `campaign/pyramid-integration` / `c7b9b7b29` | Matching early Pyramid products and public-adapter comparison baseline for post-inference P0. |
+
+Sibling Laputa main remains clean at `f7da5b523`. Its isolated
+`.work/wt/pyramid-integration` (`9fa862cd7`) and `.work/wt/pyramid-cases`
+(`683050033`) also remain clean; their prepared cases and saved deployment
+inputs remain available. Winddown made no sibling source, live root or package
+store changes.
+
+## Not started or not accepted
+
+1. Finish the mandatory functional/corpus boundaries above and complete matching
+   combined regression/documentation qualification. Review master ancestry,
+   qualify the canonical/warning boundary, then integrate to local master.
+2. Run honest cold/scaling/memory/runtime measurements and repair the known
+   repeated generalization-map copying. The prepared 512-unit witness recorded
+   528,384 copied entries even for independently small scalar output; no timing
+   speedup or performance acceptance is claimed.
+3. Complete inherited normal/timed/forced/comparative/scheduler/resource gates,
+   followed by actual Laputa world and Asterinas acceptance on the qualified
+   source. Older boot artifacts bind older XSH and cannot be relabeled.
+4. Complete post-consolidation infrastructure cleanup. Reclaiming checkouts here
+   does not retire every superseded implementation/harness.
+5. Finish Pyramid after full inference is accepted/integrated and its cleanup
+   completes. Early isolated Pyramid correctness is not P0, world, VM or
+   performance acceptance. Keep existing Lean trust checks as maintenance;
+   they do not establish Rust compiler or native-code correspondence.
+
+The previously approved narrow `lsipc` reference-crash exceptions remain explicit
+XSH behavior tests without parity credit; winddown adds no exceptions.
+
+The owner owes no new decision to resume the existing bounded scope. Pushing,
+publishing, host installation and live-root changes remain outside the grant.
+
+## Verified winddown audit
+
+- All agents stopped; owned jobs and cleanup were consumed. No campaign cron
+  entry exists and no Cargo/rustc/kache/VM process remains.
+- Worktree prune/list, source-ref preservation and ignored-data inspection ran.
+  `.work/` is ignored through `.git/info/exclude` and resides on ext4, not tmpfs.
+- Four merged integration tests pass. Focused lane evidence is preserved above;
+  no whole-suite or new performance/deployment run occurred during winddown.
+- Resume command and the complete r2 reconstruction ran successfully under a
+  clean environment: 927 retainers, 1,956 removals. All 316 recovery records,
+  312 retired paths, three current parked source branches and all 1,388 unmerged
+  refs were checked against the repository and archive.
+- Installed Stop command and existing trust entries were reviewed. Interactive
+  `/hooks` is unavailable in this API session; the configured guard is exercised
+  directly instead. It correctly blocked unaccounted checkouts before allowances.
+  Final retained-checkout allowances and guard completion: pending final audit.
+
+Campaign log, 2026-10-24: owner-requested winddown; completed coherent slices
+integrated, unsafe/incomplete work committed on parked refs, checkout data
+preserved and no push performed.
+
+<details>
+<summary>Earlier campaign record (retired checkout paths)</summary>
+
+
 Status: winding down, 2026-10-24. Start no new items or launches.
 The owner authorized bounded isolated edits,
 local commits and integration, pinned fetches, and owned Docker/KVM operations.
@@ -4043,3 +4276,5 @@ duplicate per-commit copies of controllers solely to record provenance.
 - Review source-level behavior/API changes, inference classes and retained sites, individual workload results, and the artifact experiment decision.
 - Review the exact finite/formal distinction for the selected transformation.
 - Inspect local XSH and Laputa integration branches. Merge only reviewed accepted commits under the launch grant. Nothing is pushed by this campaign.
+
+</details>
