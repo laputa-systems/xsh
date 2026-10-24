@@ -5641,3 +5641,109 @@ fn inferred_stream_reassignment_preserves_pull_and_cleanup_on_both_routes() {
         }
     });
 }
+
+fn verify_known_alias_splice_program(source: &'static str, test: &'static str) {
+    on_scoped_body_test_stack(move || {
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("known-alias-splice.xsh", crate::loader::entry_source_from_text("known-alias-splice.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test(test, Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.stdout.is_empty(), "frames={force_frames}: {:?}", result.output.stdout);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "frames={force_frames}: {:?}", result.result);
+        }
+    });
+}
+
+#[test]
+fn inferred_known_alias_literal_splices_execute_on_both_routes() {
+    verify_known_alias_splice_program(r#"pure identity(value: Int) -> Int { value }
+pure through_alias(value: Int) -> Int {
+    let action = identity
+    action(@[value])
+}
+pure through_name(value: Int) -> Int { identity(@[value]) }
+pure target() -> Int { 7 }
+pure empty_alias() -> Int { let action = target; action(@[]) }
+pure empty_name() -> Int { target(@[]) }
+pure suffix_alias() -> Int { let action = identity; action(7, @[]) }
+pure suffix_name() -> Int { identity(8, @[]) }
+pure combined_alias() -> Int { let action = identity; action(@[9], @[]) }
+pure combined_name() -> Int { identity(@[10], @[]) }
+test known_alias_splice {
+    assert through_alias(7) == 7
+    assert through_name(8) == 8
+    assert empty_alias() == 7
+    assert empty_name() == 7
+    assert suffix_alias() == 7
+    assert suffix_name() == 8
+    assert combined_alias() == 9
+    assert combined_name() == 10
+}
+"#, "known_alias_splice");
+}
+
+#[test]
+fn inferred_known_alias_splices_preserve_capture_defaults_order_and_cleanup() {
+    verify_known_alias_splice_program(r#"let prefix = "capture:"
+var trace = 0
+var defaults = 0
+var closed = 0
+proc digit(value: Int) [] -> Str { trace = trace * 10 + value; f"{value}" }
+proc suffix() [] -> Str { defaults = defaults + 1; digit(3) }
+proc close() [] { closed = closed + 1 }
+proc render(value: Str, ending: Str = suffix()) [error] -> Str {
+  defer close()
+  assert value != "bad"
+  prefix + value + ending
+}
+proc relay(value: Str) [error] -> Str {
+  let selected = render
+  let again = selected
+  again(@[{ let _ = digit(1); value }])
+}
+proc relay_method(value: Str) [error] -> Str {
+  let selected = render
+  selected.call(@[{ let _ = digit(1); value }])
+}
+proc generic_relay(payload, value: Str) [error] {
+  let selected = render
+  let result = selected(@[{ let _ = digit(1); value }])
+  {payload, result}
+}
+pure count(...values: List[Int]) -> Int { values.len() }
+pure relay_count(values: List[Int]) -> Int { let selected = count; selected(@values) }
+test known_alias_lifecycle {
+  trace = 0
+  defaults = 0
+  closed = 0
+  assert relay("value") == "capture:value3"
+  assert trace == 13
+  assert defaults == 1
+  assert closed == 1
+  let failed = try { relay("bad") }
+  match failed {
+    Err(AssertionError.Failed {message}) => assert !message.is_empty()
+    _ => assert false
+  }
+  assert trace == 1313
+  assert defaults == 2
+  assert closed == 2
+  assert relay_method("method") == "capture:method3"
+  let generic = generic_relay(7, "generic")?
+  assert generic.payload == 7
+  assert generic.result == "capture:generic3"
+  assert trace == 13131313
+  assert defaults == 4
+  assert closed == 4
+  assert relay_count([]) == 0
+  assert relay_count([1, 2, 3]) == 3
+}
+"#, "known_alias_lifecycle");
+}

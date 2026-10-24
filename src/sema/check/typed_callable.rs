@@ -361,6 +361,7 @@ impl Checker {
         let ArenaExprKind::Ident(_) = arena.arena.expr(callee).kind else {
             return None;
         };
+        if self.resolve_callable_alias_call(arena, callee).is_some() { return None; }
         let binding = match self.lookup_value_binding_for_expr(arena, callee) {
             super::ValueBindingLookup::Found(binding) => binding,
             super::ValueBindingLookup::Missing | super::ValueBindingLookup::NoSite => {
@@ -506,6 +507,19 @@ mod inferred_callable_tests {
     }
 
     #[test]
+    fn known_alias_splices_keep_arity_types_and_effect_boundaries() {
+        for (source, code) in [
+            ("pure target(value: Int) -> Int { value }\npure wrong() -> Int { let action = target; action(@[]) }\n", DiagnosticCode::CheckArity),
+            ("pure target(value: Int) -> Int { value }\npure wrong() -> Int { let action = target; action(@[1, 2]) }\n", DiagnosticCode::CheckArity),
+            ("pure count(...values: List[Int]) -> Int { values.len() }\npure wrong(values: List[Str]) -> Int { let action = count; action(@values) }\n", DiagnosticCode::CheckTypeMismatch),
+            ("proc emit(value: Int) [io] -> Int { print $value; value }\npure wrong() -> Int { let action = emit; action(@[7]) }\n", DiagnosticCode::CheckPureEffect),
+        ] {
+            let output = checked(source);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
     fn authored_callable_contracts_reject_splices_and_field_spreads() {
         for source in [
             "type Action = pure(root: Path) -> Path\npure identity(root: Path) -> Path { root }\npure invoke(roots: List[Path]) -> Path { let action: Action = identity; action(@roots) }\n",
@@ -513,6 +527,7 @@ mod inferred_callable_tests {
             "type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path { action(@[p\".\"]) }\n",
             "type Action = pure(root: Path) -> Path\ntype Fields = {root: Path}\npure invoke(action: Action, fields: Fields) -> Path { action(...fields) }\n",
             "type Action = pure(root: Path) -> Path\ntype Holder = {action: Action}\npure invoke(holder: Holder, roots: List[Path]) -> Path { holder.action(@roots) }\n",
+            "type Action = pure() -> Int\npure target() -> Int { 7 }\npure wrong() -> Int { let action: Action = target; action(@[]) }\n",
         ] {
             let output = checked(source);
             assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch) && diagnostic.message.contains("requires explicit arguments")), "{source}\n{:?}", output.diagnostics);
