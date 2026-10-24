@@ -424,6 +424,18 @@ impl Checker {
         span: Span,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
+        if !callable.sig.params.iter().any(|parameter| parameter.rest)
+            && self.resolve_callable_alias_call(arena, callee).is_none()
+            && args.iter().any(|argument| matches!(argument.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }))
+        {
+            for argument in args {
+                if matches!(argument.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }) {
+                    self.error(super::args::call_arg_span_arena(arena, &argument.kind), "a call through a fixed-arity callable type requires explicit arguments, without splices or field spreads", DiagnosticCode::CheckCallableMismatch);
+                }
+                self.check_call_arg_arena(arena, source, &argument.kind, None);
+            }
+            return Type::Invalid;
+        }
         let return_ty = callable.sig.return_ty.as_ref().clone();
         let kind = callable.kind;
         let effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(kind));
@@ -491,6 +503,25 @@ mod inferred_callable_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
         Checker::check_arena(&parsed.arena, source)
+    }
+
+    #[test]
+    fn authored_callable_contracts_reject_splices_and_field_spreads() {
+        for source in [
+            "type Action = pure(root: Path) -> Path\npure identity(root: Path) -> Path { root }\npure invoke(roots: List[Path]) -> Path { let action: Action = identity; action(@roots) }\n",
+            "type Action = pure(root: Path) -> Path\npure invoke(action: Action, roots: List[Path]) -> Path { action(@roots) }\n",
+            "type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path { action(@[p\".\"]) }\n",
+            "type Action = pure(root: Path) -> Path\ntype Fields = {root: Path}\npure invoke(action: Action, fields: Fields) -> Path { action(...fields) }\n",
+            "type Action = pure(root: Path) -> Path\ntype Holder = {action: Action}\npure invoke(holder: Holder, roots: List[Path]) -> Path { holder.action(@roots) }\n",
+        ] {
+            let output = checked(source);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch) && diagnostic.message.contains("requires explicit arguments")), "{source}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
+    fn callable_contracts_preserve_explicit_and_known_alias_arguments() {
+        accepts("type Action = pure(root: Path) -> Path\npure identity(root: Path) -> Path { root }\npure explicit(action: Action) -> Path { action(root: p\".\") }\npure named() -> Path { let action = identity; action(@[p\".\"]) }\npure count(...roots: List[Path]) -> Int { roots.len() }\npure rest(roots: List[Path]) -> Int { let action = count; action(@roots) }\n");
     }
 
     #[test]

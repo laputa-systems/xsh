@@ -6186,7 +6186,11 @@ impl<'a> ProducerProof<'a> {
                         None => false,
                     };
                     if let (Some(actual), Some(expected)) = (types.get(&value), expected.get(&name))
-                        && !self.checked_record_field_fits(decoder, value, actual, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
+                        && !self.checked_record_field_fits(decoder, value, actual, expected)? {
+                            if !self.contextual_list_argument(decoder, value, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
+                            self.budget.charge_clone(expected)?;
+                            self.expression(decoder.owner, value, Arc::new(expected.clone()), false);
+                        }
                     if unresolved.remove(&value) {
                         let ty = expected.get(&name).ok_or_else(|| IrVerifyError::new("checked record field has no producer contract"))?;
                         if !contextual && !matches!(self.store.tags[value], FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprRecord | FullTag::ExprMethod) {

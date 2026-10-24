@@ -2899,6 +2899,62 @@ test namespace_borrow {
     }
 
     #[test]
+    fn record_constructors_preserve_union_list_field_producers() {
+        prepare("type Word = Union[Str, Path]\n\ntype Task = {tool: Str, args: List[Word]}\n\n\nproc build(root: Path) [process, error] {\n  let task = Task(tool: \"make\", args: [\"-C\", root, \"all\"])\n\n  for word in task.args {\n    if word is Path {\n      print f\"in {word}\"\n      continue\n    }\n\n    print f\"word {word}\"\n  }\n}\n\n\nbuild(p\".\")\n");
+    }
+
+    #[test]
+    fn union_record_literal_fields_require_actual_children_sources_and_owners() {
+        let program = prepare("type Word = Union[Str, Path]\ntype Task = {tool: Str, args: List[Word]}\nproc foreign(root: Path) [] { let _ = root }\nproc build(root: Path, raw: List[Any], bad: Int, words: List[Word]) [process, error] {\n  let _ = raw\n  let _ = bad\n  let task = Task(tool: \"make\", args: [\"-C\", root, @words])\n  for word in task.args {\n    if word is Path { print f\"in {word}\"; continue }\n    print f\"word {word}\"\n  }\n}\nbuild(p\".\", [\"spare\"], 7, [\"all\"])\n");
+        let _symbols = program.symbol_owner().enter();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "build").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (list, root, splice) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListBuild(entries)) => {
+                let entries = entries.collect::<Result<Vec<_>, _>>().unwrap();
+                let root = entries.iter().find_map(|(splice, value, _)| (!splice && matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(0))).then_some(value.raw() as usize)).unwrap();
+                let splice = entries.iter().find_map(|(splice, value, _)| splice.then_some(value.raw() as usize)).unwrap();
+                Some((instruction, root, splice))
+            }
+            _ => None,
+        }).unwrap();
+        let field = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut fields)) => decoder.checked_record_entries(&mut fields).unwrap().into_iter().find_map(|entry| match entry {
+                super::super::super::CheckedRecordEntry::Field(name, value) if name == "args" => Some(value),
+                _ => None,
+            }),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(field).unwrap(), schema::ExprView::Param(_)));
+        assert!(matches!(decoder.expression_view(splice).unwrap(), schema::ExprView::Param(3)));
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); assert!(changed.store.in_place.get().is_none()); changed };
+        FullVerifier::verify(&cold()).unwrap();
+        for (label, instruction, slot) in [("literal member", root, 1), ("nonlist splice", splice, 2), ("written Any list", field, 1)] {
+            let mut changed = cold();
+            let words = changed.store.data[instruction].range().bounds(changed.store.extra.len()).unwrap();
+            assert_eq!(words.len(), 1);
+            changed.store.extra[words.start] = slot;
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+            assert!(error.message.starts_with("ground producer value disagrees with its checked contract")
+                || error.message == "checked record field disagrees with its contract"
+                || error.message.contains("list splice"), "{label}: {error:?}");
+        }
+        let foreign_decoder = decoder_for_function(&program.store, foreign).unwrap();
+        let foreign_value = program.store.function_instruction_range(foreign).unwrap().find(|instruction| matches!(foreign_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut wrong_owner = cold();
+        let schema::ExprView::ListBuild(entries) = decoder.expression_view(list).unwrap() else { unreachable!() };
+        let block = entries.block_identity_for_test();
+        let words = wrong_owner.store.blocks[block.index()].instructions.bounds(wrong_owner.store.extra.len()).unwrap();
+        let references = words.filter(|word| wrong_owner.store.extra[*word] == root as u32).collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        wrong_owner.store.extra[references[0]] = foreign_value as u32;
+        assert_eq!(FullVerifier::verify(&wrong_owner).unwrap_err().message, "full IR instruction belongs to another function");
+    }
+
+    #[test]
     fn path_method_results_authenticate_receivers_members_and_consumers() {
         let program = prepare(r#"
 pure parent_transform(location, other: Int) { let _ = other; let _ = "unknown"; location.parent() }

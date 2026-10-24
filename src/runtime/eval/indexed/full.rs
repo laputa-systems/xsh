@@ -23658,14 +23658,18 @@ assert result.links[0].driver == null
             FullVerifier::verify(&with_source_fact).unwrap();
             let payload = with_source_fact.store.data[read].range().bounds(with_source_fact.store.extra.len()).unwrap();
             let mut lying_source_fact = with_source_fact.clone();
+            lying_source_fact.store.in_place.take();
+            assert!(lying_source_fact.store.in_place.get().is_none());
             lying_source_fact.store.extra[payload.start] = 1;
             lying_source_fact.store.slot_type_facts[facts.start + 1] = state.raw();
             let error = FullVerifier::verify(&lying_source_fact).unwrap_err();
-            assert_eq!(error.message, "checked record field disagrees with its contract");
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
             let mut wrong_nominal = with_source_fact;
+            wrong_nominal.store.in_place.take();
+            assert!(wrong_nominal.store.in_place.get().is_none());
             wrong_nominal.store.extra[payload.start] = 1;
             let error = FullVerifier::verify(&wrong_nominal).unwrap_err();
-            assert_eq!(error.message, "checked record field disagrees with its contract");
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
         });
     }
 
