@@ -559,8 +559,15 @@ impl Checker {
         self.stream_origin_outputs.declarations.entry(owner).or_default().defaults.insert(parameter, origin);
     }
 
-    pub(super) fn record_stream_producer_error(&mut self, owner: EffectDeclarationId) {
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&StreamOrigins::error());
+    pub(super) fn record_stream_producer_effects(&mut self, owner: EffectDeclarationId) {
+        let origin = match self.signature_declaration_effects(Some(owner)) {
+            super::DeclarationEffects::Pending(target) => StreamOrigins::pending(target),
+            super::DeclarationEffects::Checked(effects) => match effects.concrete() {
+                Ok(Some(effects)) if !effects.contains(&super::Effect::Error) => return,
+                _ => StreamOrigins::error(),
+            },
+        };
+        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
     }
 
     pub(super) fn settle_stream_origin_dependencies(&mut self, external: &StreamOriginSummaries) {

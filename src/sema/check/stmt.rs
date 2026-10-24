@@ -5065,9 +5065,7 @@ impl Checker {
             self.define(name, binding, span);
         }
         self.check_value_block_arena(arena, source, def.body, &Type::Unit);
-        if self.boundary.current_effects.as_ref().is_none_or(|effects| effects.contains(&super::Effect::Error)) {
-            self.record_stream_producer_error(stream_owner);
-        }
+        self.record_stream_producer_effects(stream_owner);
         self.finish_local_body_constraints(arena, body_span, local_constraints);
         self.finish_stream_producer_summary(arena, def, &return_ty);
         if let Some(signature) = self.declaration_inference.pending_mut(declaration) { signature.mark_body_checked(); }
@@ -8471,6 +8469,55 @@ mod capture_stream_pull_tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn safe_stream_reassignment_preserves_inferred_producer_effects() {
+        for effects in ["[]", ""] {
+            let source = format!("stream ready() {effects} -> Stream[Int] {{ yield 1 }}\nproc spin() [] {{ var rows = ready(); rows = ready(); loop {{ for item in rows {{}} }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(), vec![Some(DiagnosticCode::CheckLoopNoBreak)], "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn stream_reassignment_preserves_safe_and_fallible_writer_boundaries() {
+        let declarations = "stream ready() -> Stream[Int] { yield 1 }\nstream fallible() -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nstream permitted() [error] -> Stream[Int] { yield 1 }\ntype Action = proc() -> Int\nstream unresolved(action: Action) -> Stream[Int] { yield action() }\n";
+        for (body, rejected) in [
+            ("proc read() [] { var rows = ready(); rows = ready(); for item in rows { let _ = item } }", false),
+            ("proc read(flag: Bool) [] { var rows = ready(); if flag { rows = ready() } else { rows = ready() }; for item in rows { let _ = item } }", false),
+            ("proc read() [error] { var rows = ready(); rows = fallible(); for item in rows { let _ = item } }", false),
+            ("proc read() [] { var rows = ready(); rows = fallible(); for item in rows { let _ = item } }", true),
+            ("proc read() [] { var rows = ready(); rows = permitted(); for item in rows { let _ = item } }", true),
+            ("proc read(flag: Bool) [] { var rows = ready(); if flag { rows = fallible() }; for item in rows { let _ = item } }", true),
+            ("proc read(incoming: Stream[Int]) [] { var rows = ready(); rows = incoming; for item in rows { let _ = item } }", true),
+            ("proc read(action: Action) [] { var rows = ready(); rows = unresolved(action); for item in rows { let _ = item } }", true),
+        ] {
+            let source = format!("{declarations}{body}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if rejected {
+                assert!(!errors.is_empty(), "{body}");
+                assert!(errors.iter().all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{body}\n{errors:?}");
+            } else { assert!(errors.is_empty(), "{body}\n{errors:?}"); }
+        }
+        for body in [
+            "let rows = ready(); loop { for item in rows {} }",
+            "loop { for item in ready() {} }",
+            "var rows = ready(); loop { rows = ready(); for item in rows {} }",
+        ] {
+            let source = format!("stream ready() -> Stream[Int] {{ yield 1 }}\nproc spin() [] {{ {body} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(), vec![Some(DiagnosticCode::CheckLoopNoBreak)], "{body}\n{errors:?}");
+        }
+    }
 
     #[test]
     fn solved_iteration_sources_retain_item_types_and_resolution_failures() {

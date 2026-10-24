@@ -216,6 +216,13 @@ proof derives both operands independently, checks the resulting set against its
 consumer, and verifies both sources before execution. A membership predicate
 cannot supply the type of a set operation used as its container.
 
+Stream producer error origins use the canonical declaration effect contract.
+An inferred producer whose effects are pending retains a pending origin through
+the existing effect probe and stream-origin settlement. Only a settled concrete
+contract without `error` contributes no error origin; unknown, symbolic, and
+fallible contracts stay conservative. Safe mutable reassignment preserves this
+proof while existing writer, loop, and capture invalidation remains in force.
+
 Callable application requirements distinguish invocations from known argument
 relationships. An invocation owns its actual callee, kind, result and effects.
 A known argument relationship retains the real formal layout and the original
