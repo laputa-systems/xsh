@@ -132,7 +132,7 @@ impl TypeConstraints {
         if methods.len() != callable.requirements().methods.len() {
             return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedMethodFamily));
         }
-        let mut generalization = TypeConstraints::callable_generalization(callable, scope);
+        let mut generalization = self.callable_generalization(callable, scope);
         for (index, &(ordinal, id)) in methods.iter().enumerate() {
             let entry = self.methods.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if index != ordinal as usize

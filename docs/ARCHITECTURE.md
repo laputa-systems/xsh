@@ -724,6 +724,15 @@ expression spans. A semantic body comparison uses the same retained callable
 instance as its header comparison. Raw effect-term equality proves only equality
 within one owner scope.
 
+Frontend inference-work metrics count generalization and instantiation type
+function entries, schema argument slots visited by mapping, scoped constructor
+generalizations, and constructor template binder normalization iterations.
+`generalization_binding_clones` counts entries copied from scope maps and
+parameter vectors, including nested row-lacks sets. These counters are active
+only in measurement and test mode; they measure neither CPU time nor allocations.
+Output type and evidence sizes retain their independent emitted-fact census.
+Artifacts without the new metric fields are unavailable for this measurement.
+
 Pending recursive invocation permissions constrain the actual shared effect
 cells in their declaration's inference scope before generalization. An invocation
 rejected during argument checking retains its owned permission check without

@@ -1149,9 +1149,8 @@ async fn h12_send(
         .request_with_options(h12_request(request)?, h12_request_options(config))
         .await
         .map_err(|error| {
-            if request.url.scheme == "https" {
-                if let Err(trust_error) = client.trust.check() { return trust_error; }
-            }
+            if request.url.scheme == "https"
+                && let Err(trust_error) = client.trust.check() { return trust_error; }
             h12_error(error)
         })
 }

@@ -14,10 +14,12 @@ FAMILIES = (
     'recursive-effect-component',
     'module-diamond',
     'finite-overload-chain',
+    'named-generic-constructors',
 )
 
 
 EXPECTED_STDOUT = {
+    'named-generic-constructors': {shape: {size: output for size in SCALING_SIZES} for shape, output in (('independent', b'7\n'), ('shared-default', b'9\n'), ('ground-carrier', b'7\n'), ('phantom-context', b'7\n'))},
     'alias-chain': {'chain': {64: b'42\n', 128: b'42\n', 256: b'42\n', 512: b'42\n'}},
     'dependency-chain': {'chain': {64: b'64\n', 128: b'128\n', 256: b'256\n', 512: b'512\n'}},
     'records': {
@@ -33,6 +35,7 @@ EXPECTED_STDOUT = {
 
 
 OUTPUT_SHAPES = {
+    'named-generic-constructors': {'independent': 'size independently parameterized Box fields', 'shared-default': 'size Box fields with shared input and checked defaults', 'ground-carrier': 'size Branded fields carrying a closed Brand', 'phantom-context': 'Int payload after size context-anchored Phantom constructors'},
     'alias-chain': {'chain': 'Int'},
     'dependency-chain': {'chain': 'Int'},
     'records': {'wide': 'Int field projection', 'deep': 'Int leaf projection'},
@@ -45,6 +48,7 @@ OUTPUT_SHAPES = {
 
 
 EVIDENCE_SHAPES = {
+    'named-generic-constructors': {'independent': 'size independent generic parameters and size Box constructor instances', 'shared-default': 'one shared generic parameter and size defaulted Box constructor instances', 'ground-carrier': 'one generic parameter and size Branded instances with ground return schema carriers', 'phantom-context': 'one generic payload parameter and size context-anchored Phantom[Int] instances'},
     'alias-chain': {'chain': 'size callable aliases and one Int specialization'},
     'dependency-chain': {'chain': 'size direct function dependencies'},
     'records': {
@@ -281,6 +285,52 @@ def _finite_overload_chain(size):
     return _workload('finite-overload-chain', 'chain', size, source(True), source(False))
 
 
+def _named_generic_constructors(size, shape):
+    def source(annotated):
+        if shape == 'independent':
+            types = ['Int' if index % 2 == 0 else 'Str' for index in range(size)]
+            values = ['7' if ty == 'Int' else '"kept"' for ty in types]
+            parameters = ', '.join(f'value_{index}' + (f': {ty}' if annotated else '')
+                                   for index, ty in enumerate(types))
+            lines = ['type Box[T] = {value: T}', f'pure build({parameters}) {{']
+            lines.extend(f'  let box_{index} = Box(value: value_{index})' for index in range(size))
+            lines.extend(('  {' + ', '.join(f'box_{index}' for index in range(size)) + '}', '}'))
+            lines.append('let result = build(' + ', '.join(values) + ')')
+            lines.extend(f'assert result.box_{index}.value == {value}' for index, value in enumerate(values))
+            lines.append('print $result.box_0.value')
+        elif shape == 'phantom-context':
+            lines = ['type Phantom[T] = {value: Int}', f'pure build(payload{": Int" if annotated else ""}) {{']
+            for index in range(size):
+                lines.extend((f'  let item_{index}: Phantom[Int] = Phantom(value: {index})',
+                              f'  assert item_{index}.value == {index}'))
+            lines.extend(('  Ok(payload)', '}', 'let result = build(7)?', 'assert result == 7', 'print $result'))
+        else:
+            if shape == 'shared-default':
+                lines = ['type Box[T] = {value: T, extra: Int = 9, items: List[T] = []}']
+                constructor = 'Box(value:)'
+            else:
+                lines = ['nominal type Brand = {value: Int}', 'type Tagged[T] = Brand',
+                         'type Branded[T] = {payload: T, tag: Tagged[T]}',
+                         'pure closed_brand() -> Brand { Brand(value: 7) }']
+                constructor = 'Branded(payload: value, tag: closed_brand())'
+            lines.append(f'pure build(value{": Int" if annotated else ""}) {{')
+            lines.extend(f'  let box_{index} = {constructor}' for index in range(size))
+            lines.extend(('  {' + ', '.join(f'box_{index}' for index in range(size)) + '}', '}',
+                          'let result = build(7)'))
+            for index in range(size):
+                if shape == 'shared-default':
+                    lines.extend((f'assert result.box_{index}.value == 7',
+                                  f'assert result.box_{index}.extra == 9',
+                                  f'assert result.box_{index}.items.len() == 0'))
+                else:
+                    lines.extend((f'assert result.box_{index}.payload == 7',
+                                  f'assert result.box_{index}.tag.value == 7'))
+            lines.append('print $result.box_0.' + ('extra' if shape == 'shared-default' else 'tag.value'))
+        return {'main.xsh': '\n'.join((*lines, ''))}
+
+    return _workload('named-generic-constructors', shape, size, source(True), source(False))
+
+
 def fixed_inference_workloads():
     workloads = []
     for size in SCALING_SIZES:
@@ -295,4 +345,6 @@ def fixed_inference_workloads():
             _module_diamond(size),
             _finite_overload_chain(size),
         ))
+        workloads.extend(_named_generic_constructors(size, shape) for shape in
+                         ('independent', 'shared-default', 'ground-carrier', 'phantom-context'))
     return tuple(workloads)

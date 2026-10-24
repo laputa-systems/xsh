@@ -72,12 +72,19 @@ def frontend_result(entry='/src/main.xsh', *, counters=True, retained=7, active=
 
 
 class InferenceMeasurementTests(unittest.TestCase):
+    def test_old_artifact_missing_schema_work_is_unavailable(self):
+        value = {'files': [{'semantic_retained_bytes': 1, 'function_body_check_entries': 1,
+                            'inference_work': {name: 0 for name in METRIC_FIELDS
+                                               if name != 'generalization_binding_clones'}}]}
+        with self.assertRaisesRegex(ValueError, 'unavailable.*generalization_binding_clones'):
+            canonical_inference_metrics(value)
+
     def test_candidate_counter_reader_requires_canonical_entry_and_full_solver_shape(self):
         with self.assertRaisesRegex(ValueError, 'one entry-root'):
             canonical_inference_metrics({'totals': {'semantic_type_count': 4}})
         incomplete = {'files': [{'path': '/src/main.xsh', 'semantic_retained_bytes': 7,
                                 'function_body_check_entries': 1,
-                                'inference_work': {name: 0 for name in METRIC_FIELDS[:-1]}}]}
+                                'inference_work': {name: 0 for name in METRIC_FIELDS if name != 'evidence_nodes'}}]}
         with self.assertRaisesRegex(ValueError, 'evidence_nodes'):
             canonical_inference_metrics(incomplete)
         complete = frontend_result()
