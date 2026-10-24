@@ -771,6 +771,8 @@ impl Checker {
             let expressions = generalized_body_types.keys().chain(&noncompleting_expressions).filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr(expression).span).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
             let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt(statement).span).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
             let by_span = generalized_body_types.keys().chain(&noncompleting_expressions).map(|&expression| (program.arena.expr(expression).span, expression)).collect::<BTreeMap<_, _>>();
+            let statements_by_span = generalized_tail_types.keys().map(|&statement| (program.arena.stmt(statement).span, statement)).collect::<BTreeMap<_, _>>();
+            let mut statement_sites = BTreeMap::<crate::syntax::arena::StmtId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
             let mut sites = BTreeMap::<ExprId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
             let mut pending = callable.requirements().guards.iter().rev().collect::<Vec<_>>();
             while let Some(guard) = pending.pop() {
@@ -785,9 +787,19 @@ impl Checker {
                     let ordinal = u32::try_from(ordinal).map_err(|_| crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
                     record(read.subject, crate::sema::guarded_requirements::GuardBodySite::Read { scope: guard.scope, ordinal })?;
                 }
+                if let Some(output) = &guard.output {
+                    let site = crate::sema::guarded_requirements::GuardBodySite::Output(guard.scope);
+                    match output.site {
+                        crate::sema::guarded_requirements::GuardOutputSite::Expression(span) => record(span, site)?,
+                        crate::sema::guarded_requirements::GuardOutputSite::Statement(span) => {
+                            let statement = statements_by_span.get(&span).copied().ok_or(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                            statement_sites.entry(statement).or_default().push(site);
+                        }
+                    }
+                }
                 pending.extend(guard.requirements.guards.iter().rev());
             }
-            Ok::<_, crate::sema::constraints::SchemeOperationError>(crate::sema::guarded_requirements::GuardBodyScopes { expressions, statements, sites })
+            Ok::<_, crate::sema::constraints::SchemeOperationError>(crate::sema::guarded_requirements::GuardBodyScopes { expressions, statements, sites, statement_sites })
         })();
         let guard_scopes = match guard_scopes {
             Ok(scopes) => scopes,

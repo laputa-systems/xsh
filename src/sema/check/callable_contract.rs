@@ -644,6 +644,7 @@ impl BoundEquivalence<'_> {
     }
 
     fn guard(&self, left: &crate::sema::guarded_requirements::GuardRequirements, right: &crate::sema::guarded_requirements::GuardRequirements) -> bool {
+        let mut parent = self.clone();
         let mut local = self.clone();
         local.ty(&left.source, &right.source)
             && left.type_parameters.len() == right.type_parameters.len()
@@ -655,6 +656,11 @@ impl BoundEquivalence<'_> {
             && match (&left.effects, &right.effects) {
                 (None, None) => true,
                 (Some(left), Some(right)) => local.effects(&left.outward, &right.outward) && local.effects(&left.local, &right.local),
+                _ => false,
+            }
+            && match (&left.output, &right.output) {
+                (None, None) => true,
+                (Some(left), Some(right)) => parent.ty(&left.outward, &right.outward) && parent.ty(&left.absent, &right.absent) && local.ty(&left.present, &right.present),
                 _ => false,
             }
             && local.ty(&left.view, &right.view)

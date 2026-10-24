@@ -1281,7 +1281,7 @@ impl Checker {
             ArenaExprKind::If {
                 branches,
                 else_value,
-            } => self.check_if_expr_arena(arena, source, *branches, *else_value, expectation, super::stmt::TailCheckingPurpose::Value),
+            } => self.check_if_expr_arena(arena, source, id, *branches, *else_value, expectation, super::stmt::TailCheckingPurpose::Value),
             ArenaExprKind::Unary { op, expr: inner } => {
                 let operand = self.check_unary_arena(arena, source, *op, *inner);
                 // `-5` where a bounded integer is wanted is a literal with
@@ -2394,12 +2394,17 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        expression: ExprId,
         branches: ArenaRange,
         else_value: ExprId,
         expectation: Option<super::types::TypeExpectation<'_>>,
         purpose: super::stmt::TailCheckingPurpose,
     ) -> Type {
         let expectation = expectation.filter(|expectation| expectation.context() != &Type::Unknown);
+        let output_parent = self.constraint_scope();
+        let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && expectation.is_none() && arena.arena.if_expr_branches(branches).len() == 1).then(|| arena.arena.if_expr_branches(branches)[0].condition)
+            .and_then(|condition| self.guard_output_condition_arena(arena, condition).map(|polarity| (condition, polarity)));
+        let mut output_branch = None;
         let mut inferred = None;
         let mut inferred_from_empty_list = true;
         let initial_stream_state = self.stream_mutable_state();
@@ -2430,6 +2435,7 @@ impl Checker {
             let actual = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
                 self.check_proc_completion_expression_arena(arena, source, branch.value, branch_expectation)
             } else { self.check_expr_with_expectation_arena(arena, source, branch.value, branch_expectation) };
+            if output_condition.is_some() { output_branch = Some((self.constraint_scope(), actual.clone())); }
             let contextual_error = self.diagnostics.len() != diagnostics_before;
             let value_span = arena.arena.expr(branch.value).span;
             let empty_list = list_literal_is_empty(arena, branch.value) == Some(true)
@@ -2497,9 +2503,25 @@ impl Checker {
         let contextual_error = self.diagnostics.len() != diagnostics_before;
         let else_span = arena.arena.expr(else_value).span;
         if self.stream_expr_may_complete(arena, else_value) { stream_reaching.push(self.stream_mutable_state()); }
+        let output_else = self.constraint_scope();
         self.pop_scope();
         self.restore_stream_mutable_state(&initial_stream_state);
         self.join_stream_mutable_states(&stream_reaching);
+        if let (Some((condition, nonnull_when)), Some((branch_scope, branch_type))) = (output_condition, output_branch) {
+            let (live_scope, present, absent) = if nonnull_when { (branch_scope, branch_type, else_ty.clone()) } else { (output_else, else_ty.clone(), branch_type) };
+            if let crate::sema::constraints::CallableApplicationScope::Guard(guard) = live_scope
+                && present != Type::Unknown && absent != Type::Unknown
+            {
+                match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr(condition).span, crate::sema::guarded_requirements::GuardOutputSite::Expression(arena.arena.expr(expression).span), present, absent, nonnull_when, self.callable_solver_level()) {
+                    Ok(Some(outward)) => return outward,
+                    Ok(None) => {},
+                    Err(error) => {
+                        self.error(arena.arena.expr(expression).span, &format!("guarded output relationship is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                }
+            }
+        }
         let merged = if else_ty != Type::Unknown && !contextual_error && !infer_branches {
             inferred.as_ref().and_then(|previous| {
                 if inferred_from_empty_list

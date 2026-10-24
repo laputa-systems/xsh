@@ -65,6 +65,21 @@ pub(crate) struct GuardEffects<V> {
     pub(crate) local: super::effects::EffectContract<V>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GuardOutputSite {
+    Expression(crate::source::Span),
+    Statement(crate::source::Span),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GuardOutput<T> {
+    pub(crate) outward: T,
+    pub(crate) present: T,
+    pub(crate) absent: T,
+    pub(crate) site: GuardOutputSite,
+    pub(crate) nonnull_when: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GuardRequirements {
     pub(crate) scope: GuardScopeId,
@@ -73,6 +88,7 @@ pub(crate) struct GuardRequirements {
     pub(crate) subject: crate::source::Span,
     pub(crate) comparison: crate::source::Span,
     pub(crate) reads: Vec<GuardReadRequirement>,
+    pub(crate) output: Option<GuardOutput<SchemeType>>,
     pub(crate) effects: Option<GuardEffects<SchemeEffectParameterId>>,
     pub(crate) type_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) row_parameters: Vec<SchemeRowParameter>,
@@ -142,6 +158,11 @@ impl GuardRequirements {
             if let Some(effects) = &guard.effects { dependencies.add_effects(&effects.outward); dependencies.add_effects(&effects.local); }
             dependencies.add_type(&guard.source);
             dependencies.add_type(&guard.view);
+            if let Some(output) = &guard.output {
+                dependencies.add_type(&output.outward);
+                dependencies.add_type(&output.present);
+                dependencies.add_type(&output.absent);
+            }
             for read in &guard.reads { dependencies.add_type(&read.source); dependencies.add_type(&read.view); }
             super::schemes::visit_requirement_terms(&guard.requirements, |term| {
                 match term {
@@ -166,12 +187,14 @@ pub(crate) struct GuardBodyScopes {
     pub(crate) expressions: BTreeMap<crate::syntax::arena::ExprId, GuardScopeId>,
     pub(crate) statements: BTreeMap<crate::syntax::arena::StmtId, GuardScopeId>,
     pub(crate) sites: BTreeMap<crate::syntax::arena::ExprId, Vec<GuardBodySite>>,
+    pub(crate) statement_sites: BTreeMap<crate::syntax::arena::StmtId, Vec<GuardBodySite>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GuardBodySite {
     Source(GuardScopeId),
     Comparison(GuardScopeId),
+    Output(GuardScopeId),
     Read { scope: GuardScopeId, ordinal: u32 },
 }
 
@@ -335,7 +358,7 @@ mod tests {
         let mut conversions = super::super::schemes::ValueConversionSet::default();
         conversions.insert(super::super::schemes::ValueConversion::Display);
         requirements.conversion_parameters.insert(view, conversions);
-        GuardRequirements { scope: GuardScopeId::from_index(scope).unwrap(), source, view: SchemeType::Parameter(view), subject: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), comparison: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), reads: Vec::new(), effects: None, type_parameters: vec![view], row_parameters: Vec::new(), requirements: Box::new(requirements) }
+        GuardRequirements { scope: GuardScopeId::from_index(scope).unwrap(), source, view: SchemeType::Parameter(view), subject: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), comparison: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), reads: Vec::new(), output: None, effects: None, type_parameters: vec![view], row_parameters: Vec::new(), requirements: Box::new(requirements) }
     }
 
     fn callable(guards: Vec<GuardRequirements>, returned: SchemeType) -> Result<super::super::schemes::CallableScheme, SchemeBuildError> {

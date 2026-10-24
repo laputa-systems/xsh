@@ -934,7 +934,7 @@ fn return_type_is_concrete(ty: &Type) -> bool {
     }
 }
 
-fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
+pub(super) fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     if left == right {
         return Some(left.clone());
     }

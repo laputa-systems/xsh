@@ -30,6 +30,7 @@ pub(super) struct GuardCensus {
     pub(super) scopes: Vec<GuardPack>,
     pub(super) memberships: BTreeMap<usize, GuardScopeId>,
     pub(super) children: BTreeMap<Option<GuardScopeId>, Vec<GuardScopeId>>,
+    pub(super) outputs: BTreeMap<usize, GuardScopeId>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -40,6 +41,11 @@ pub(super) enum GuardScopes {
 }
 
 impl GuardScopes {
+    pub(super) fn parent_scope(&self, scope: &SchemeScope, id: GuardScopeId) -> Result<SchemeScope, IrVerifyError> {
+        let Self::Scoped(census) = self else { return Err(IrVerifyError::new("guarded output has no owning census")); };
+        scope.with_guard(census.parent(id)?)
+    }
+
     #[cfg(test)]
     pub(super) fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
@@ -47,6 +53,7 @@ impl GuardScopes {
             Self::Root => 0,
             Self::Scoped(census) => size_of::<GuardCensus>() + 2 * size_of::<usize>()
                 + census.scopes.capacity() * size_of::<GuardPack>()
+                + census.outputs.len() * size_of::<(usize, GuardScopeId)>()
                 + census.memberships.len() * size_of::<(usize, GuardScopeId)>()
                 + census.children.len() * size_of::<(Option<GuardScopeId>, Vec<GuardScopeId>)>()
                 + census.children.values().map(|children| children.capacity() * size_of::<GuardScopeId>()).sum::<usize>(),
@@ -79,6 +86,14 @@ impl GuardCensus {
 }
 
 impl SchemeScope {
+    pub(super) fn guard_output_at(&self, instruction: usize) -> Result<Option<(GuardScopeId, super::super::guard_schemes::FullGuardOutput)>, IrVerifyError> {
+        let GuardScopes::Scoped(census) = &self.guards else { return Ok(None); };
+        let Some(&id) = census.outputs.get(&instruction) else { return Ok(None); };
+        let output = census.scope(id)?.metadata.output.ok_or_else(|| IrVerifyError::new("guarded output index has no relation"))?;
+        if output.instruction as usize != instruction || census.parent(id)? != self.at_instruction(instruction)?.active_guard { return Err(IrVerifyError::new("guarded output is outside its actual parent")); }
+        Ok(Some((id, output)))
+    }
+
     pub(super) fn owned_requirements(&self, root: &super::FullScheme) -> Result<super::super::schemes::FullRequirementRanges, IrVerifyError> {
         if let GuardScopes::Scoped(census) = &self.guards {
             if root.applications != census.root_applications || root.operations != census.root_operations
@@ -193,6 +208,14 @@ pub(super) fn verify_body_sources(
         if types.get(&source).is_none_or(|actual| !super::body_types_equal(actual, &expected)) {
             return Err(IrVerifyError::new("guard source disagrees with its checked producer"));
         }
+        if let Some(output) = pack.metadata.output {
+            let instruction = output.instruction as usize;
+            let super::schema::ExprView::IfExpr { mut branches, .. } = decoder.expression_view(instruction)? else { return Err(IrVerifyError::new("guarded output is not its physical conditional")); };
+            let (condition, _) = branches.next().transpose()?.ok_or_else(|| IrVerifyError::new("guarded output has no physical condition"))?;
+            if branches.next().is_some() || !prefix.guard_output_condition(decoder, condition.raw() as usize, comparison, source, output.nonnull_when, &mut |amount| budget.charge(amount))? { return Err(IrVerifyError::new("guarded output condition does not exactly classify its source")); }
+            let expected = super::decode_scheme_type(store, &parent_scope, output.outward, budget, 0)?;
+            if types.get(&instruction).is_none_or(|actual| !super::body_types_equal(actual, &expected)) { return Err(IrVerifyError::new("guarded output has no matching parent body type")); }
+        }
         if !prefix.actual_null_comparison(decoder, comparison, source, &mut |amount| budget.charge(amount))? {
             return Err(IrVerifyError::new("guard comparison does not test its actual source for null"));
         }
@@ -281,12 +304,14 @@ pub(super) fn verify_ground_bindings(
     arguments: super::super::schemes::FullInstantiation, substitution: &super::CallSubstitution,
     type_coverage: &mut [bool], row_coverage: &mut [bool], field_coverage: &mut [bool],
     budget: &mut super::SchemeInstantiationBudget,
-) -> Result<(), IrVerifyError> {
+) -> Result<super::SchemeBinderEvidence, IrVerifyError> {
     let GuardScopes::Scoped(census) = &scope.guards else {
-        return if arguments.guard_bindings.len == 0 && arguments.guard_call_bindings.len == 0 { Ok(()) } else { Err(IrVerifyError::new("unguarded callable has guard bindings")) };
+        return if arguments.guard_bindings.len == 0 && arguments.guard_call_bindings.len == 0 { Ok(super::SchemeBinderEvidence::default()) } else { Err(IrVerifyError::new("unguarded callable has guard bindings")) };
     };
     scope.owned_requirements(root)?;
     budget.charge(substitution.types.len() + substitution.rows.iter().map(BTreeMap::len).sum::<usize>() + substitution.effects.len())?;
+    let original_owner = census.owner;
+    let mut computed = super::SchemeBinderEvidence::default();
     let mut pending = vec![(census.owner, None, arguments, Arc::new(substitution.clone()))];
     while let Some((owner, parent_id, arguments, parent)) = pending.pop() {
         budget.charge(1)?;
@@ -311,12 +336,18 @@ pub(super) fn verify_ground_bindings(
         if children.len() != bindings.len() { return Err(IrVerifyError::new("guard call bindings are incomplete")); }
         for (&id, binding) in children.iter().zip(bindings) {
             let metadata = census.scope(id)?.metadata;
-            if let Some((arguments, local)) = verify_ground_slot(store, root, scope, id, metadata, *binding, Arc::clone(&parent), type_coverage, row_coverage, field_coverage, budget)? {
-                pending.push((owner, Some(id), arguments, local));
+            let local = verify_ground_slot(store, root, scope, id, metadata, *binding, Arc::clone(&parent), type_coverage, row_coverage, field_coverage, budget)?;
+            if let Some(output) = metadata.output {
+                if owner == original_owner && parent_id.is_none() {
+                    let (types, rows) = super::scheme_type_binders(store, output.outward, budget)?;
+                    computed.types.extend(types);
+                    computed.rows.extend(rows);
+                }
             }
+            if let Some((arguments, local)) = local { pending.push((owner, Some(id), arguments, local)); }
         }
     }
-    Ok(())
+    Ok(computed)
 }
 
 fn verify_ground_slot(
@@ -340,6 +371,7 @@ fn verify_ground_slot(
                 let outward = super::effects::instantiate_prepared_contract(store, exports.outward, &parent, budget)?;
                 if outward.closed() != Some(crate::sema::effects::EffectSet::default()) { return Err(IrVerifyError::new("absent guard exports executable effects")); }
             }
+            if let Some(output) = metadata.output { verify_output(store, metadata, output, &parent, None, budget)?; }
             return Ok(None);
         },
         (NonNullSource::NonNull(payload), FullGuardBinding::NonNull(local))
@@ -358,6 +390,7 @@ fn verify_ground_slot(
             }
             let actual_view = super::instantiate_bound_type(store, metadata.view, &local, budget, 0)?;
             if &actual_view != payload { return Err(IrVerifyError::new("guard local payload disagrees with its actual source")); }
+            if let Some(output) = metadata.output { verify_output(store, metadata, output, &parent, Some(&local), budget)?; }
             let mut evidence = super::SchemeBinderEvidence::default();
             let mut ancestor = parent_id;
             evidence.types.extend(census.root.types.clone());
@@ -390,4 +423,21 @@ fn verify_ground_slot(
                 || !pack.bindings.rows.clone().all(|binder| evidence.rows.contains(&binder))
             { return Err(IrVerifyError::new("guard local substitution has no independently checked input evidence")); }
     Ok(Some((local_arguments, Arc::new(local))))
+}
+
+fn verify_output(store: &super::FullStore, metadata: FullGuardScope, output: super::super::guard_schemes::FullGuardOutput, parent: &super::CallSubstitution, local: Option<&super::CallSubstitution>, budget: &mut super::SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    use crate::sema::guarded_requirements::{non_null_source, NonNullSource};
+    let source = super::instantiate_bound_type(store, metadata.source, parent, budget, 0)?;
+    let outward = super::instantiate_bound_type(store, output.outward, parent, budget, 0)?;
+    let actual = match non_null_source(&source).map_err(|_| IrVerifyError::new("guard output has no actual source classification"))? {
+        NonNullSource::Null => super::instantiate_bound_type(store, output.absent, parent, budget, 0)?,
+        NonNullSource::NonNull(_) => super::instantiate_bound_type(store, output.present, local.ok_or_else(|| IrVerifyError::new("live guard output has no local pack"))?, budget, 0)?,
+        NonNullSource::Optional(_) => {
+            let present = super::instantiate_bound_type(store, output.present, local.ok_or_else(|| IrVerifyError::new("optional guard output has no local pack"))?, budget, 0)?;
+            let absent = super::instantiate_bound_type(store, output.absent, parent, budget, 0)?;
+            crate::sema::check::join_guarded_output(&present, &absent).ok_or_else(|| IrVerifyError::new("guard output branches have no canonical join"))?
+        }
+    };
+    if outward != actual { return Err(IrVerifyError::new("guard output disagrees with its actual selected branch types")); }
+    Ok(())
 }

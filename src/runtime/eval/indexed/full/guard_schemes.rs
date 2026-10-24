@@ -26,6 +26,16 @@ pub(super) struct FullGuardScope {
     pub(super) wrappers: IrRange,
     pub(super) guard_calls: IrRange,
     pub(super) effects: Option<FullGuardEffects>,
+    pub(super) output: Option<FullGuardOutput>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct FullGuardOutput {
+    pub(super) outward: SchemeTypeId,
+    pub(super) present: SchemeTypeId,
+    pub(super) absent: SchemeTypeId,
+    pub(super) instruction: u32,
+    pub(super) nonnull_when: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -112,7 +122,13 @@ impl FullBuilder {
             let reads = super::table_range(start, self.store.scheme_guard_reads.len())?;
             let FullRequirementRanges { effect_predicates, applications, operations, methods, wrappers, guard_calls } = self.intern_requirement_tables(&guard.requirements, types, rows, effects)?;
             let effect_exports = guard.effects.as_ref().map(|exports| Ok(FullGuardEffects { outward: self.intern_effect_contract(&exports.outward, effects)?, local: self.intern_effect_contract(&exports.local, effects)? })).transpose()?;
-            encoded.push(FullGuardScope { id: guard.scope.raw(), parent, binding_ordinal: u32::try_from(binding_ordinal).map_err(|_| IrBuildError::format("guard_binding_ordinal", None, 0, binding_ordinal))?, binding_starts: [u32::try_from(binding_starts[0]).map_err(|_| IrBuildError::format("guard_type_ordinal", None, 0, binding_starts[0]))?, u32::try_from(binding_starts[1]).map_err(|_| IrBuildError::format("guard_row_ordinal", None, 0, binding_starts[1]))?, u32::try_from(binding_starts[2]).map_err(|_| IrBuildError::format("guard_effect_ordinal", None, 0, binding_starts[2]))?], source, view, source_instruction: IR_NONE, comparison_instruction: IR_NONE, reads, type_parameters, row_parameters, effect_parameters, effect_predicates, applications, operations, methods, wrappers, guard_calls, effects: effect_exports });
+            let output = guard.output.as_ref().map(|output| Ok(FullGuardOutput {
+                outward: self.intern_scheme_type(&output.outward, types, rows, effects)?,
+                present: self.intern_scheme_type(&output.present, types, rows, effects)?,
+                absent: self.intern_scheme_type(&output.absent, types, rows, effects)?,
+                instruction: IR_NONE, nonnull_when: output.nonnull_when,
+            })).transpose()?;
+            encoded.push(FullGuardScope { id: guard.scope.raw(), parent, binding_ordinal: u32::try_from(binding_ordinal).map_err(|_| IrBuildError::format("guard_binding_ordinal", None, 0, binding_ordinal))?, binding_starts: [u32::try_from(binding_starts[0]).map_err(|_| IrBuildError::format("guard_type_ordinal", None, 0, binding_starts[0]))?, u32::try_from(binding_starts[1]).map_err(|_| IrBuildError::format("guard_row_ordinal", None, 0, binding_starts[1]))?, u32::try_from(binding_starts[2]).map_err(|_| IrBuildError::format("guard_effect_ordinal", None, 0, binding_starts[2]))?], source, view, source_instruction: IR_NONE, comparison_instruction: IR_NONE, reads, type_parameters, row_parameters, effect_parameters, effect_predicates, applications, operations, methods, wrappers, guard_calls, effects: effect_exports, output });
             binding_starts[0] += guard.type_parameters.len();
             binding_starts[1] += guard.row_parameters.len();
             binding_starts[2] += guard.requirements.effect_parameters.len();
@@ -152,12 +168,13 @@ impl FullBuilder {
 
     pub(super) fn record_guard_site(&mut self, site: crate::sema::guarded_requirements::GuardBodySite, instruction: usize) -> Result<(), IrBuildError> {
         use crate::sema::guarded_requirements::GuardBodySite;
-        let scope = match site { GuardBodySite::Source(scope) | GuardBodySite::Comparison(scope) | GuardBodySite::Read { scope, .. } => scope };
+        let scope = match site { GuardBodySite::Source(scope) | GuardBodySite::Comparison(scope) | GuardBodySite::Output(scope) | GuardBodySite::Read { scope, .. } => scope };
         let index = self.guard_row(scope)?;
         let instruction = u32::try_from(instruction).ok().filter(|instruction| *instruction != IR_NONE).ok_or_else(|| IrBuildError::format("guard_source_instruction", None, 0, instruction))?;
         let target = match site {
             GuardBodySite::Source(_) => &mut self.store.scheme_guards[index].source_instruction,
             GuardBodySite::Comparison(_) => &mut self.store.scheme_guards[index].comparison_instruction,
+            GuardBodySite::Output(_) => &mut self.store.scheme_guards[index].output.as_mut().ok_or_else(|| IrBuildError::format("guard_output_missing", None, 0, index))?.instruction,
             GuardBodySite::Read { ordinal, .. } => {
                 let range = self.store.scheme_guards[index].reads.bounds(self.store.scheme_guard_reads.len()).ok_or_else(|| IrBuildError::format("guard_read_range", None, 0, index))?;
                 let read = range.start.checked_add(ordinal as usize).filter(|index| range.contains(index)).ok_or_else(|| IrBuildError::format("guard_read_index", None, 0, index))?;

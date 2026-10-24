@@ -6,6 +6,17 @@ pure guarded_parent_output(value) {
   if value == null { null } else { value.parent() }
 }
 
+pure guarded_bound_output(value) {
+  let result = if value != null { value + 1 } else { null }
+  result
+}
+
+type GuardedOutputRow = {name: Str, opaque: Any}
+
+pure guarded_name_output(value) {
+  if value != null { value.name } else { null }
+}
+
 proc verify_guarded_outputs() [error] -> Result[Unit, Error] {
   let present: Int? = 7
   let missing: Int? = null
@@ -30,5 +41,22 @@ proc verify_guarded_outputs() [error] -> Result[Unit, Error] {
   assert selected_parent == p"/guarded"
   assert skipped_parent == null
   assert relative_parent == p"relative"
+  let bound: Int = guarded_bound_output(4)
+  let absent_bound: Null = guarded_bound_output(null)
+  let optional_bound: Int? = guarded_bound_output(present)
+  assert bound == 5
+  assert absent_bound == null
+  assert optional_bound == 8
+  let row: GuardedOutputRow = {name: "present", opaque: {hidden: [1, 2]}}
+  let optional_row: GuardedOutputRow? = row
+  let missing_row: GuardedOutputRow? = null
+  let name: Str = guarded_name_output(row)
+  let absent_name: Null = guarded_name_output(null)
+  let selected_name: Str? = guarded_name_output(optional_row)
+  let missing_name: Str? = guarded_name_output(missing_row)
+  assert name == "present"
+  assert absent_name == null
+  assert selected_name == "present"
+  assert missing_name == null
   Ok()
 }

@@ -657,6 +657,24 @@ impl ProducerPrefixContext<'_> {
         Ok(self.guard_value_expression(decoder, source, source, &target, charge)? == Some(instruction))
     }
 
+    pub(super) fn guard_output_condition(&self, decoder: &FullDecoder<'_>, condition: usize, comparison: usize, source: usize, nonnull_when: bool,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(target) = self.guard_source_binding_path(decoder, source, condition, charge)? else { return Ok(false); };
+        let Some(comparison) = self.guard_value_expression(decoder, comparison, condition, &target, charge)? else { return Ok(false); };
+        if self.guard_value_expression(decoder, condition, condition, &target, charge)? != Some(comparison) { return Ok(false); }
+        let schema::ExprView::Binary { op: op @ (crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne), left, right, .. } = decoder.expression_view(comparison)? else { return Ok(false); };
+        if (op == crate::syntax::node::BinaryOp::Ne) != nonnull_when { return Ok(false); }
+        let left = self.guard_value_expression(decoder, left.raw() as usize, condition, &target, charge)?;
+        let right = self.guard_value_expression(decoder, right.raw() as usize, condition, &target, charge)?;
+        let (Some(left), Some(right)) = (left, right) else { return Ok(false); };
+        let left_null = matches!(decoder.expression_view(left)?, schema::ExprView::Null);
+        let right_null = matches!(decoder.expression_view(right)?, schema::ExprView::Null);
+        if left_null == right_null { return Ok(false); }
+        let value = if left_null { right } else { left };
+        Ok(self.guard_value_binding_path(decoder, value, condition, &target, charge)? == Some(target))
+    }
+
     pub(super) fn actual_null_comparison(&self, decoder: &FullDecoder<'_>, comparison: usize, source: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {

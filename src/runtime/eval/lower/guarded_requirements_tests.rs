@@ -158,6 +158,12 @@ fn typed_guarded_outputs_preserve_their_written_optional_domains() {
         let source = std::fs::read_to_string(&path).unwrap()
             .replace("pure guarded_add_output(value)", "pure guarded_add_output(value: Int?) -> Int?")
             .replace("pure guarded_parent_output(value)", "pure guarded_parent_output(value: Path?) -> Path?")
+            .replace("pure guarded_bound_output(value)", "pure guarded_bound_output(value: Int?) -> Int?")
+            .replace("pure guarded_name_output(value)", "pure guarded_name_output(value: GuardedOutputRow?) -> Str?")
+            .replace("let bound: Int =", "let bound: Int? =")
+            .replace("let absent_bound: Null =", "let absent_bound: Int? =")
+            .replace("let name: Str =", "let name: Str? =")
+            .replace("let absent_name: Null =", "let absent_name: Str? =")
             .replace("let exact: Int =", "let exact: Int? =")
             .replace("let absent: Null =", "let absent: Int? =")
             .replace("let exact_parent: Path =", "let exact_parent: Path? =")
@@ -170,4 +176,54 @@ fn typed_guarded_outputs_preserve_their_written_optional_domains() {
 #[test]
 fn inferred_guarded_outputs_preserve_actual_null_optional_and_selected_results() {
     on_scoped_body_test_stack(|| verify_imported_guarded_program("guarded-requirements-outputs.xsh", "verify_guarded_outputs"));
+}
+
+#[test]
+fn guarded_outputs_keep_compound_conditions_as_ordinary_joins() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp/guard-output-compound.xsh");
+        let source = r#"
+pure gated(value, flag: Bool) { if value != null and flag { value + 1 } else { null } }
+proc verify_compound() [error] -> Result[Unit, Error] {
+    let present: Int? = 4
+    let selected: Int? = gated(2, true)
+    let skipped: Int? = gated(2, false)
+    let optional: Int? = gated(present, true)
+    let absent: Int? = gated(null, true)
+    assert selected == 3
+    assert skipped == null
+    assert optional == 5
+    assert absent == null
+    Ok()
+}
+"#;
+        verify_guarded_source(&path, source.to_owned(), "verify_compound");
+        let source = format!("{source}\nlet invalid: Int = gated(2, false)\n");
+        let mut sources = crate::source::SourceMap::default();
+        let source_id = sources.add_file(path.to_str().unwrap(), source.clone());
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{:?}", checked.diagnostics);
+    });
+}
+
+#[test]
+fn benign_guarded_outputs_do_not_create_payload_requirements_for_opaque_inputs() {
+    on_scoped_body_test_stack(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp/guard-output-benign.xsh");
+        let source = r#"
+pure constant(value) { if value != null { 1 } else { null } }
+proc verify_benign_output() [error] -> Result[Unit, Error] {
+    let present: Any = {hidden: [1, 2]}
+    let missing: Any = null
+    let selected: Int? = constant(present)
+    let absent: Int? = constant(missing)
+    assert selected == 1
+    assert absent == null
+    Ok()
+}
+"#;
+        verify_guarded_source(&path, source.to_owned(), "verify_benign_output");
+    });
 }

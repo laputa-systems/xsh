@@ -61,6 +61,7 @@ pub(super) struct ScopedGuard {
     view_used: bool,
     pub(super) selection: Option<GuardSelection>,
     pub(super) reads: Vec<GuardRead>,
+    pub(super) output: Option<crate::sema::guarded_requirements::GuardOutput<Type>>,
     pub(super) effects: Option<crate::sema::guarded_requirements::GuardEffects<EffectVariableId>>,
 }
 
@@ -76,7 +77,7 @@ pub(super) enum GuardInstanceState {
     Pending(std::sync::Arc<super::InstantiatedRequirements>),
     NonNull(std::sync::Arc<super::InstantiatedRequirements>),
     Optional(std::sync::Arc<super::InstantiatedRequirements>),
-    Null,
+    Null(std::sync::Arc<super::InstantiatedRequirements>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,6 +110,7 @@ pub(super) struct WrapperOperations {
 #[derive(Clone, Debug)]
 pub(super) enum WrapperChange {
     Fresh(WrapperOperationId), GuardInstanceFresh(WrapperOperationId), GuardInstanceState(WrapperOperationId, GuardInstanceState), GuardFresh(WrapperOperationId), GuardRead(WrapperOperationId), GuardViewUsed(WrapperOperationId), GuardSelection(WrapperOperationId, Option<GuardSelection>), Source((CallableApplicationScope, Span)),
+    GuardOutput(WrapperOperationId),
     GuardEffects(WrapperOperationId, Option<crate::sema::guarded_requirements::GuardEffects<EffectVariableId>>),
     Requirement(WrapperOperationId, WrapperRequirement<Type, EffectVariableId>),
     Selection(WrapperOperationId, Option<WrapperSelection>), Watcher(WrapperDependency, WrapperOperationId),
@@ -124,12 +126,13 @@ impl WrapperOperations {
             + self.guards.len() * size_of::<(WrapperOperationId, ScopedGuard)>()
             + self.guards.values().map(|guard| super::type_owned_payload_bytes(&guard.source) + super::type_owned_payload_bytes(&guard.view)).sum::<usize>()
             + self.guards.values().map(|guard| guard.reads.capacity() * size_of::<GuardRead>() + guard.reads.iter().map(|read| super::type_owned_payload_bytes(&read.source) + super::type_owned_payload_bytes(&read.view)).sum::<usize>()).sum::<usize>()
+            + self.guards.values().filter_map(|guard| guard.output.as_ref()).map(|output| [&output.outward, &output.present, &output.absent].into_iter().map(super::type_owned_payload_bytes).sum::<usize>()).sum::<usize>()
             + self.guards.values().filter_map(|guard| guard.effects.as_ref()).map(|effects| effects.outward.retained_bytes().saturating_sub(size_of::<EffectContract<EffectVariableId>>()) + effects.local.retained_bytes().saturating_sub(size_of::<EffectContract<EffectVariableId>>())).sum::<usize>()
             + self.guard_instances.len() * size_of::<(WrapperOperationId, GuardInstance)>()
             + self.guard_instances.values().map(|instance| super::type_owned_payload_bytes(&instance.source) + match &instance.state {
                 GuardInstanceState::Pending(bindings) => bindings.retained_bytes() + 2 * size_of::<usize>(),
                 GuardInstanceState::NonNull(bindings) | GuardInstanceState::Optional(bindings) => bindings.retained_bytes() + 2 * size_of::<usize>(),
-                GuardInstanceState::Null => 0,
+                GuardInstanceState::Null(bindings) => bindings.retained_bytes() + 2 * size_of::<usize>(),
             }).sum::<usize>()
             + self.guard_owners.len() * size_of::<(CallableApplicationScope, Vec<WrapperOperationId>)>()
             + self.guard_owners.values().map(|ids| ids.capacity() * size_of::<WrapperOperationId>()).sum::<usize>()
@@ -165,6 +168,7 @@ impl WrapperOperations {
                 if owned.is_empty() { self.guard_owners.remove(&entry.owner); }
             }
             WrapperChange::GuardViewUsed(id) => self.guards.get_mut(&id).unwrap().view_used = false,
+            WrapperChange::GuardOutput(id) => self.guards.get_mut(&id).unwrap().output = None,
             WrapperChange::GuardEffects(id, previous) => self.guards.get_mut(&id).unwrap().effects = previous,
             WrapperChange::GuardRead(id) => { self.guards.get_mut(&id).unwrap().reads.pop().expect("guarded read belongs to its journal"); }
             WrapperChange::GuardSelection(id, previous) => self.guards.get_mut(&id).unwrap().selection = previous,
@@ -233,7 +237,7 @@ impl TypeConstraints {
         let dependencies = self.application_type_dependencies([&source, &view].into_iter())?;
         let id = WrapperOperationId(NonZeroU64::new(NEXT_WRAPPER.fetch_add(1, Ordering::Relaxed)).expect("wrapper identities are nonzero"));
         self.apply_journaled(|this, changes| {
-            assert!(this.wrappers.guards.insert(id, ScopedGuard { owner, source, view, subject, comparison, view_used: false, selection: None, reads: Vec::new(), effects: None }).is_none());
+            assert!(this.wrappers.guards.insert(id, ScopedGuard { owner, source, view, subject, comparison, view_used: false, selection: None, reads: Vec::new(), output: None, effects: None }).is_none());
             this.wrappers.guard_owners.entry(owner).or_default().push(id);
             changes.push(ConstraintChange::Wrapper(WrapperChange::GuardFresh(id)));
             for dependency in dependencies {
@@ -281,6 +285,29 @@ impl TypeConstraints {
         })
     }
 
+    pub(crate) fn register_guard_output(&mut self, id: WrapperOperationId, owner: CallableApplicationScope, comparison: Span, site: crate::sema::guarded_requirements::GuardOutputSite, present: Type, absent: Type, nonnull_when: bool, level: u32) -> Result<Option<Type>, ConstraintResolutionError> {
+        let guard = self.wrappers.guards.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        if guard.owner != owner || guard.comparison != comparison || !guard.view_used { return Ok(None); }
+        if guard.output.is_some() { return Err(ConstraintResolutionError::ForeignVariable); }
+        self.commit_constraint_transaction(|this| {
+            let outward = this.fresh_at_level(comparison, level);
+            let dependencies = this.application_type_dependencies([&outward, &present, &absent].into_iter())?;
+            this.apply_journaled(|this, changes| {
+                this.wrappers.guards.get_mut(&id).unwrap().output = Some(crate::sema::guarded_requirements::GuardOutput { outward: outward.clone(), present, absent, site, nonnull_when });
+                changes.push(ConstraintChange::Wrapper(WrapperChange::GuardOutput(id)));
+                for dependency in dependencies {
+                    this.wrappers.watch(match dependency {
+                        super::application_constraints::ApplicationDependency::Type(id) => WrapperDependency::Type(id),
+                        super::application_constraints::ApplicationDependency::Row(id) => WrapperDependency::Row(id),
+                    }, id, changes);
+                }
+                this.wrappers.enqueue(id, changes);
+                Ok::<_, ConstraintResolutionError>(())
+            })?;
+            Ok(Some(outward))
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn non_null_guard_view(&self, id: WrapperOperationId) -> Result<&Type, ConstraintResolutionError> {
         self.wrappers.guards.get(&id).map(|guard| &guard.view).ok_or(ConstraintResolutionError::ForeignVariable)
@@ -314,6 +341,19 @@ impl TypeConstraints {
                 let source = self.resolve_with_changes(&read.source, 0, changes)?;
                 self.constrain_wrapper_projection(&read.view, &source, read.subject, changes)?;
             }
+        }
+        if let Some(output) = &guard.output {
+            let actual = match classification {
+                crate::sema::guarded_requirements::NonNullSource::Null => self.resolve_with_changes(&output.absent, 0, changes)?,
+                crate::sema::guarded_requirements::NonNullSource::NonNull(_) => self.resolve_with_changes(&output.present, 0, changes)?,
+                crate::sema::guarded_requirements::NonNullSource::Optional(_) => {
+                    let present = self.resolve_with_changes(&output.present, 0, changes)?;
+                    let absent = self.resolve_with_changes(&output.absent, 0, changes)?;
+                    if present.contains_inference() || absent.contains_inference() { return Ok(()); }
+                    crate::sema::check::join_guarded_output(&present, &absent).ok_or(WrapperConstraintError::Guard(crate::sema::schemes::SchemeBuildError::UnresolvedType))?
+                }
+            };
+            if !actual.contains_inference() && !actual.contains_recovery() { self.constrain_wrapper_projection(&output.outward, &actual, guard.comparison, changes)?; }
         }
         let entry = self.wrappers.guards.get_mut(&id).unwrap();
         if entry.selection != Some(selection) {
@@ -371,7 +411,7 @@ impl TypeConstraints {
             let instance = self.wrappers.guard_instances.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if instance.template != *template { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)); }
             match &instance.state {
-                GuardInstanceState::Null => Ok(GuardBinding::Null),
+                GuardInstanceState::Null(_) => Ok(GuardBinding::Null),
                 GuardInstanceState::Pending(_) => forwarding.and_then(|scope| scope.guard_calls.get(id)).copied().map(GuardBinding::Call)
                     .ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)),
                 GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) => {
@@ -443,7 +483,12 @@ impl TypeConstraints {
         if let GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) = &entry.state {
             let (template, pack, level, origin) = (std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(pack), entry.level, entry.origin);
             self.solve_guard_identity_reads(id, &template, &pack, level, origin)?;
-            return self.solve_guard_effects(id, &template, &pack, true);
+            self.solve_guard_effects(id, &template, &pack, true)?;
+            return self.solve_guard_output(id, &self.wrappers.guard_instances.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.source.clone(), &template, &pack, true, level, origin);
+        }
+        if let GuardInstanceState::Null(inherited) = &entry.state {
+            let (source, template, inherited, level, origin) = (entry.source.clone(), std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(inherited), entry.level, entry.origin);
+            return self.solve_guard_output(id, &source, &template, &inherited, false, level, origin);
         }
         let GuardInstanceState::Pending(inherited) = &entry.state else { return Ok(()); };
         let (source, template, inherited, origin, level) = (entry.source.clone(), std::sync::Arc::clone(&entry.template), std::sync::Arc::clone(inherited), entry.origin, entry.level);
@@ -458,7 +503,8 @@ impl TypeConstraints {
         let next = match classification {
             crate::sema::guarded_requirements::NonNullSource::Null => {
                 self.solve_guard_effects(id, &template, &inherited, false)?;
-                GuardInstanceState::Null
+                self.solve_guard_output(id, &source, &template, &inherited, false, level, origin)?;
+                GuardInstanceState::Null(std::sync::Arc::clone(&inherited))
             },
             crate::sema::guarded_requirements::NonNullSource::NonNull(payload) | crate::sema::guarded_requirements::NonNullSource::Optional(payload) => {
                 let instance = self.instantiate_requirement_pack(&template.type_parameters, &template.row_parameters, &template.requirements, inherited.as_ref().clone(), level, origin, CallableApplicationScope::Guard(id))
@@ -487,8 +533,43 @@ impl TypeConstraints {
         if let Some(pack) = live {
             self.solve_guard_identity_reads(id, &template, &pack, level, origin)?;
             self.solve_guard_effects(id, &template, &pack, true)?;
+            self.solve_guard_output(id, &source, &template, &pack, true, level, origin)?;
         }
         Ok(())
+    }
+
+    fn solve_guard_output(&mut self, id: WrapperOperationId, source: &Type, template: &crate::sema::guarded_requirements::GuardRequirements, pack: &super::InstantiatedRequirements, live: bool, level: u32, origin: Span) -> Result<(), WrapperConstraintError> {
+        let Some(output) = &template.output else { return Ok(()); };
+        let outward = self.instantiate_scheme_type(&output.outward, &pack.type_arguments, &pack.row_arguments, &pack.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
+        let absent = self.instantiate_scheme_type(&output.absent, &pack.type_arguments, &pack.row_arguments, &pack.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?;
+        let present = if live { Some(self.instantiate_scheme_type(&output.present, &pack.type_arguments, &pack.row_arguments, &pack.effect_arguments, level, origin, 0).map_err(|error| WrapperConstraintError::Instantiation(Box::new(error)))?) } else { None };
+        self.solve_guard_output_types(id, source, &outward, present.as_ref(), &absent, origin)
+    }
+
+    fn solve_guard_output_types(&mut self, id: WrapperOperationId, source: &Type, outward: &Type, present: Option<&Type>, absent: &Type, origin: Span) -> Result<(), WrapperConstraintError> {
+        self.apply_journaled(|this, changes| {
+            for dependency in this.application_type_dependencies([source, outward, absent].into_iter().chain(present))? {
+                this.wrappers.watch(match dependency {
+                    super::application_constraints::ApplicationDependency::Type(id) => WrapperDependency::Type(id),
+                    super::application_constraints::ApplicationDependency::Row(id) => WrapperDependency::Row(id),
+                }, id, changes);
+            }
+            let source = this.resolve_with_changes(source, 0, changes)?;
+            if source.contains_inference() { return Ok(()); }
+            let actual = match crate::sema::guarded_requirements::non_null_source(&source).map_err(WrapperConstraintError::Guard)? {
+                crate::sema::guarded_requirements::NonNullSource::Null => this.resolve_with_changes(absent, 0, changes)?,
+                crate::sema::guarded_requirements::NonNullSource::NonNull(_) => this.resolve_with_changes(present.ok_or(ConstraintResolutionError::ForeignVariable)?, 0, changes)?,
+                crate::sema::guarded_requirements::NonNullSource::Optional(_) => {
+                    let present = this.resolve_with_changes(present.ok_or(ConstraintResolutionError::ForeignVariable)?, 0, changes)?;
+                    let absent = this.resolve_with_changes(absent, 0, changes)?;
+                    if present.contains_inference() || absent.contains_inference() { return Ok(()); }
+                    crate::sema::check::join_guarded_output(&present, &absent).ok_or(WrapperConstraintError::Guard(crate::sema::schemes::SchemeBuildError::UnresolvedType))?
+                }
+            };
+            if actual.contains_inference() { return Ok(()); }
+            if actual.contains_recovery() { return Err(WrapperConstraintError::Guard(crate::sema::schemes::SchemeBuildError::RecoveryType)); }
+            this.constrain_wrapper_projection(outward, &actual, origin, changes)
+        })
     }
 
     fn solve_guard_effects(&mut self, id: WrapperOperationId, template: &crate::sema::guarded_requirements::GuardRequirements, pack: &super::InstantiatedRequirements, live: bool) -> Result<(), WrapperConstraintError> {
@@ -1282,8 +1363,10 @@ impl TypeConstraints {
                 let scope = crate::sema::guarded_requirements::GuardScopeId::from_index(generalization.guards.len()).map_err(SchemeOperationError::Build)?;
                 if generalization.guards.insert(id, scope).is_some() { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)); }
                 let outward = guard.effects.as_ref().map(|effects| self.generalize_effect_contract(&effects.outward, level, generalization)).transpose()?;
+                let output_parent = guard.output.as_ref().map(|output| Ok::<_, SchemeOperationError>((self.generalize_type(&output.outward, level, generalization, 0)?, self.generalize_type(&output.absent, level, generalization, 0)?))).transpose()?;
                 let counts = (generalization.type_parameters.len(), generalization.row_parameters.len(), generalization.effect_parameters.len());
                 let effects = guard.effects.as_ref().zip(outward).map(|(effects, outward)| self.generalize_effect_contract(&effects.local, level, generalization).map(|local| crate::sema::guarded_requirements::GuardEffects { outward, local })).transpose()?;
+                let output = guard.output.as_ref().zip(output_parent).map(|(output, (outward, absent))| self.generalize_type(&output.present, level, generalization, 0).map(|present| crate::sema::guarded_requirements::GuardOutput { outward, absent, present, site: output.site, nonnull_when: output.nonnull_when })).transpose()?;
                 let view = self.generalize_type(&guard.view, level, generalization, 0)?;
                 let reads = guard.reads.iter().zip(read_sources).map(|(read, source)| Ok(crate::sema::guarded_requirements::GuardReadRequirement { source, view: self.generalize_type(&read.view, level, generalization, 0)?, subject: read.subject })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
                 let previous = super::GuardRequirementOrdinals {
@@ -1304,7 +1387,7 @@ impl TypeConstraints {
                 local.map_key_parameters.retain(|parameter| owned.contains(parameter));
                 local.conversion_parameters.retain(|parameter, _| owned.contains(parameter));
                 local.iteration_parameters.retain(|parameter, _| owned.contains(parameter));
-                if effects.is_none() && !guard.view_used && reads.is_empty() && row_parameters.is_empty() && local == crate::sema::schemes::CallableRequirements::default()
+                if output.is_none() && effects.is_none() && !guard.view_used && reads.is_empty() && row_parameters.is_empty() && local == crate::sema::schemes::CallableRequirements::default()
                     && let crate::sema::schemes::SchemeType::Parameter(parameter) = &view
                     && type_parameters.as_slice() == [*parameter]
                     && let Type::Inference(variable) = guard.view {
@@ -1315,7 +1398,7 @@ impl TypeConstraints {
                     generalization.guard_ordinals.remove(&scope);
                     continue;
                 }
-                requirements.push(std::sync::Arc::new(crate::sema::guarded_requirements::GuardRequirements { scope, source, view, subject: guard.subject, comparison: guard.comparison, reads, effects, type_parameters, row_parameters, requirements: Box::new(local) }));
+                requirements.push(std::sync::Arc::new(crate::sema::guarded_requirements::GuardRequirements { scope, source, view, subject: guard.subject, comparison: guard.comparison, reads, output, effects, type_parameters, row_parameters, requirements: Box::new(local) }));
             }
         }
         Ok(requirements)
@@ -1488,6 +1571,50 @@ mod tests {
     use crate::symbol::{Name, SymbolOwner};
 
     #[test]
+    fn guarded_outputs_select_actual_results_without_absent_payloads_and_rollback() {
+        SymbolOwner::new().with_current(|| {
+            use crate::sema::schemes::{CallableRequirements, CallableScheme, SchemeParameter, SchemeType, SchemeTypeParameterId};
+            use crate::sema::guarded_requirements::{GuardOutput, GuardOutputSite, GuardRequirements, GuardScopeId};
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let source = SchemeTypeParameterId(0);
+            let outward = SchemeTypeParameterId(1);
+            let payload = SchemeTypeParameterId(2);
+            let template = std::sync::Arc::new(GuardRequirements {
+                scope: GuardScopeId::from_index(0).unwrap(), source: SchemeType::Parameter(source), view: SchemeType::Parameter(payload),
+                subject: span, comparison: span, reads: Vec::new(), effects: None,
+                output: Some(GuardOutput { outward: SchemeType::Parameter(outward), present: SchemeType::Ground(Type::Int), absent: SchemeType::Ground(Type::Null), site: GuardOutputSite::Statement(span), nonnull_when: true }),
+                type_parameters: vec![payload], row_parameters: Vec::new(), requirements: Box::new(CallableRequirements::default()),
+            });
+            let callable = CallableScheme::new(vec![source, outward], Vec::new(), vec![SchemeParameter { name: Name::intern("source"), ty: SchemeType::Parameter(source), schema_expectation: None, defaulted: false, rest: false }], SchemeType::Parameter(outward), None, false, CallableRequirements { guards: vec![template], ..CallableRequirements::default() }).unwrap();
+            for actual in [Type::Null, Type::Int, Type::Optional(Box::new(Type::Int))] {
+                let mut constraints = TypeConstraints::default();
+                let instance = constraints.instantiate_callable(&callable, 1, span, CallableApplicationScope::Invocation).unwrap();
+                let variables = constraints.variables.len();
+                let before = constraints.wrappers.clone();
+                let rejected = constraints.commit_constraint_transaction(|trial| {
+                    trial.constrain(&Type::Str, &instance.return_type, span).map_err(WrapperConstraintError::Constraint)?;
+                    trial.constrain_checked_call_argument(&instance, &instance.params[0], &actual, span).map_err(WrapperConstraintError::Constraint)?;
+                    trial.solve_wrapper_operations()
+                });
+                assert!(rejected.is_err());
+                assert_eq!(constraints.wrappers, before);
+                assert_eq!(constraints.variables.len(), variables);
+                constraints.constrain_checked_call_argument(&instance, &instance.params[0], &actual, span).unwrap();
+                constraints.solve_callable_applications().unwrap();
+                let expected = match actual { Type::Null => Type::Null, Type::Int => Type::Int, Type::Optional(_) => Type::Optional(Box::new(Type::Int)), _ => unreachable!() };
+                assert_eq!(constraints.resolve(&instance.return_type).unwrap(), expected);
+                let evidence = constraints.resolve_call_instantiation(&callable, &instance).unwrap();
+                if actual == Type::Null {
+                    assert_eq!(constraints.variables.len(), variables);
+                    assert!(matches!(evidence.guard_bindings()[0], crate::sema::guarded_requirements::GuardBinding::Null));
+                } else {
+                    assert!(constraints.variables.len() > variables);
+                }
+            }
+        });
+    }
+
+    #[test]
     fn nested_guard_effect_exports_omit_absent_local_packs_and_rollback() {
         SymbolOwner::new().with_current(|| {
             let span = Span::at(crate::source::SourceId::new(0), 0);
@@ -1591,7 +1718,7 @@ mod tests {
             let mut conversions = ValueConversionSet::default();
             conversions.insert(ValueConversion::Display);
             let template = std::sync::Arc::new(crate::sema::guarded_requirements::GuardRequirements {
-                scope: crate::sema::guarded_requirements::GuardScopeId::from_index(0).unwrap(), source: SchemeType::Parameter(source_id), view: SchemeType::Parameter(payload_id), subject: origin, comparison: origin, reads: Vec::new(), effects: None,
+                scope: crate::sema::guarded_requirements::GuardScopeId::from_index(0).unwrap(), source: SchemeType::Parameter(source_id), view: SchemeType::Parameter(payload_id), subject: origin, comparison: origin, reads: Vec::new(), output: None, effects: None,
                 type_parameters: vec![payload_id], row_parameters: Vec::new(), requirements: Box::new(CallableRequirements { conversion_parameters: BTreeMap::from([(payload_id, conversions)]), ..CallableRequirements::default() }),
             });
             let callable = CallableScheme::new(vec![source_id], Vec::new(), vec![SchemeParameter { name: crate::symbol::Name::intern("source"), ty: SchemeType::Parameter(source_id), schema_expectation: None, defaulted: false, rest: false }], SchemeType::Ground(Type::Str), None, true, CallableRequirements { guards: vec![template], ..CallableRequirements::default() }).unwrap();

@@ -743,6 +743,11 @@ fn validate_guard_requirements(
                 usage.effects.extend(effects);
             }
         }
+        if let Some(output) = &guard.output {
+            validate_guard_type(&output.outward, parent, &ownership, &mut usage, row_requirements)?;
+            validate_guard_type(&output.absent, parent, &ownership, &mut usage, row_requirements)?;
+            validate_guard_type(&output.present, Some(guard.scope), &ownership, &mut usage, row_requirements)?;
+        }
         validate_guard_type(&guard.source, parent, &ownership, &mut usage, row_requirements)?;
         validate_guard_type(&guard.view, Some(guard.scope), &ownership, &mut usage, row_requirements)?;
         for read in &guard.reads {
@@ -880,6 +885,7 @@ impl CallableRequirements {
                 .saturating_add(guard.requirements.retained_bytes());
             if let Some(effects) = &guard.effects { bytes = bytes.saturating_add(effects.outward.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())).saturating_add(effects.local.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())); }
             for row in &guard.row_parameters { bytes = bytes.saturating_add(row.lacks.len() * size_of::<Name>()); }
+            if let Some(output) = &guard.output { for ty in [&output.outward, &output.present, &output.absent] { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); } }
             for read in &guard.reads { bytes = bytes.saturating_add(read.source.retained_bytes().saturating_sub(size_of::<SchemeType>())).saturating_add(read.view.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
         }
         bytes = bytes.saturating_add(self.guard_calls.capacity() * size_of::<Arc<super::guarded_requirements::GuardCallRequirement>>());
@@ -920,6 +926,7 @@ impl CallableRequirements {
             let guard = Arc::make_mut(guard);
             guard.source.map_ground_types(map);
             guard.view.map_ground_types(map);
+            if let Some(output) = &mut guard.output { output.outward.map_ground_types(map); output.present.map_ground_types(map); output.absent.map_ground_types(map); }
             for read in &mut guard.reads { read.source.map_ground_types(map); read.view.map_ground_types(map); }
             guard.requirements = Box::new(guard.requirements.map_ground_types(map));
         }
@@ -1360,8 +1367,9 @@ impl SchemeBodyFacts {
         ownership.collect(&scheme.callable().requirements().guards)?;
         for scope in guard_scopes.expressions.values().chain(guard_scopes.statements.values()) { ownership.check_scope(*scope)?; }
         if guard_scopes.expressions.keys().chain(guard_scopes.sites.keys()).any(|expression| !expression_types.contains_key(expression) && !noncompleting_expressions.contains(expression)) { return Err(SchemeBuildError::UnresolvedGuardScope); }
-        for site in guard_scopes.sites.values().flatten() {
-            ownership.check_scope(match site { super::guarded_requirements::GuardBodySite::Source(scope) | super::guarded_requirements::GuardBodySite::Comparison(scope) | super::guarded_requirements::GuardBodySite::Read { scope, .. } => *scope })?;
+        if guard_scopes.statement_sites.keys().any(|statement| !tail_types.contains_key(statement)) { return Err(SchemeBuildError::UnresolvedGuardScope); }
+        for site in guard_scopes.sites.values().chain(guard_scopes.statement_sites.values()).flatten() {
+            ownership.check_scope(match site { super::guarded_requirements::GuardBodySite::Source(scope) | super::guarded_requirements::GuardBodySite::Comparison(scope) | super::guarded_requirements::GuardBodySite::Output(scope) | super::guarded_requirements::GuardBodySite::Read { scope, .. } => *scope })?;
         }
         for (ty, guard) in expression_types.iter().map(|(expression, ty)| (ty, guard_scopes.expressions.get(expression).copied()))
             .chain(tail_types.iter().map(|(statement, ty)| (ty, guard_scopes.statements.get(statement).copied()))) {
@@ -1609,6 +1617,8 @@ impl SchemeBodyFacts {
             .saturating_add(self.wrapper_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.guard_scopes.expressions.len() * size_of::<(ExprId, super::guarded_requirements::GuardScopeId)>())
             .saturating_add(self.guard_scopes.statements.len() * size_of::<(StmtId, super::guarded_requirements::GuardScopeId)>())
+            .saturating_add(self.guard_scopes.statement_sites.len() * size_of::<(StmtId, Vec<super::guarded_requirements::GuardBodySite>)>())
+            .saturating_add(self.guard_scopes.statement_sites.values().map(|sites| sites.capacity() * size_of::<super::guarded_requirements::GuardBodySite>()).sum::<usize>())
             .saturating_add(self.guard_scopes.sites.len() * size_of::<(ExprId, Vec<super::guarded_requirements::GuardBodySite>)>())
             .saturating_add(self.guard_scopes.sites.values().map(|sites| sites.capacity() * size_of::<super::guarded_requirements::GuardBodySite>()).sum::<usize>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())

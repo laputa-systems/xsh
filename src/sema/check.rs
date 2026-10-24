@@ -370,6 +370,12 @@ mod infer_effects;
 mod infer_param;
 #[path = "check/infer_return.rs"]
 mod infer_return;
+
+pub(crate) fn join_guarded_output(left: &Type, right: &Type) -> Option<Type> {
+    if left.contains_inference() || right.contains_inference() || left.contains_recovery() || right.contains_recovery() { return None; }
+    infer_return::unify_return_shapes(left, right)
+}
+
 #[path = "check/inferred_variant.rs"]
 mod inferred_variant;
 #[path = "check/local_inference.rs"]
