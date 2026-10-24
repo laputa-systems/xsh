@@ -23,16 +23,26 @@ Each expert owns at most one job. The shared limits are three Cargo jobs and
 one native job. A busy lease is unavailable evidence, not a test failure;
 retry after an actual completion, without spinning. The coordinator reserves
 larger qualification waves and consumes their completions before resuming
-focused launches. Pyramid qualification still waits
+focused launches. Independent Laputa binder diagnosis, native qualification preparation and F6
+configuration preparation overlap the remaining compiler repairs. Matching
+product qualification starts from a coherent batch while later independent
+repairs continue on their own branches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
 Current provisional integration includes all 35 pipeline stages, membership,
 record `if let` and guard continuations, bare Proc completion, canonical fixed
 fields, conditional List data and intrinsic arithmetic results. The integrated
-UInt and guard source is frozen at `9df3bf21e` for a combined full-library run.
-Remaining corpus causes are fresh comprehension argument evidence, correlated
-Path method results and a fresh `Err.context` consumer proof. Complete
+UInt and guard source at `9df3bf21e` passes the combined full-library run:
+2,547 passes, zero failures and three ignored tests, including all fourteen
+independent solver controls. Its immutable checkout and terminal log remain in
+`.work/wt/full-inference-guard-uint-qualification/` and
+`.work/tmp/guard-uint-full-library.log`. Later changes need matching evidence.
+Fresh comprehension argument evidence and direct Env conversion bounds are now
+integrated provisionally. The Env slice passes eleven focused checks and
+independent review; guarded nullable values remain a separate open relationship.
+Remaining corpus causes include guard argument evidence, correlated Path method
+results and a fresh `Err.context` consumer proof. Complete
 interface/migration qualification and inherited performance/deployment gates
 remain required. No mandatory item is waived.
 
