@@ -2251,7 +2251,7 @@ mod tests {
         assert_ne!(wrong_resource.store.extra[payload.start], 1);
         wrong_resource.store.extra[payload.start] = 1;
         let error = FullVerifier::verify(&wrong_resource).unwrap_err();
-        assert_eq!(error.message, "ground native operation arguments have no matching contract");
+        assert_eq!(error.message, "managed release has no canonical resource scope");
 
         let foreign = decoder_for_function(&program.store, 1).unwrap();
         let foreign_value = foreign.instruction_range.clone().find_map(|instruction| match foreign.statement_view(instruction) {

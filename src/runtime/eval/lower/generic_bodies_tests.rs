@@ -5944,6 +5944,8 @@ pure preserve(value) {{ {binding} [value] |> map {{ |item| return item }}; {refe
 proc observed(value) -> Result[Int] {{ {binding} [value] |> map {{ |item| return 13 }}; {reference} 0 }}
 pure number() -> Int {{ preserve(7) }}
 pure text() -> Str {{ preserve("retained") }}
+proc observed_number() -> Result[Int] {{ observed(1) }}
+proc observed_text() -> Result[Int] {{ observed("marker") }}
 "#);
         let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
@@ -5954,9 +5956,9 @@ pure text() -> Str {{ preserve("retained") }}
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
                 assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), expected);
             }
-            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observed")));
-            for value in [Value::Int(1), Value::Str(Arc::from("marker"))] {
-                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Proc, &[value], Span::at(source_id, 0)).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Int(13)))));
+            for name in ["observed_number", "observed_text"] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Int(13)))));
             }
         }
     }
