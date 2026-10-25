@@ -3717,6 +3717,11 @@ impl<'a> ProducerProof<'a> {
         })
     }
 
+    fn is_erased_record_field(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::Field { base, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        Ok(self.need_context(decoder, base.raw() as usize)?.is_some_and(|base| base.unvalidated() == &Type::ErasedRecord))
+    }
+
     fn need_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         if let Some(ty) = self.declared_type(decoder, instruction)? { return self.declared_read_type(decoder, instruction, ty).map(Some); }
         self.contextual_producer_type(decoder, instruction)
@@ -4910,6 +4915,12 @@ impl<'a> ProducerProof<'a> {
             let record_branches = actual.as_ref() == &Type::ErasedRecord && matches!(container, Type::Record(_))
                 && self.is_conditional_record_source(&decoder, instruction)?;
             let checked_comprehension = self.runtime_checked_comprehension(&decoder, instruction, container)?;
+            let branch_verified_source = !fits && match self.store.tags[instruction] {
+                FullTag::ExprValueBlock => !returned,
+                FullTag::ExprIf | FullTag::ExprPatternIf | FullTag::ExprMatch | FullTag::ExprStrMatch | FullTag::ExprTagMatch =>
+                    matches!(actual.unvalidated(), Type::Optional(payload) if payload.matches_expected(container)),
+                _ => false,
+            };
             let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
                 if decoder.checked_guarded_record_read_matches_type(instruction, actual, container, &mut |amount| self.budget.charge(amount))? {
                     true
@@ -4930,7 +4941,7 @@ impl<'a> ProducerProof<'a> {
             let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
             let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
-            if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !branch_verified_source && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())
@@ -5149,7 +5160,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 let left_type = self.need_context(&decoder, left.raw() as usize)?;
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;
-                let left_type = left_type.or_else(|| right_type.clone()).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
+                let dynamic_fields = left_type.is_none() && right_type.is_none()
+                    && self.is_erased_record_field(&decoder, left.raw() as usize)?
+                    && self.is_erased_record_field(&decoder, right.raw() as usize)?;
+                let left_type = left_type.or_else(|| right_type.clone()).or_else(|| dynamic_fields.then(|| Arc::new(Type::Any))).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
                 let right_type = right_type.unwrap_or_else(|| Arc::clone(&left_type));
                 self.budget.charge_clone(&left_type)?;
                 self.budget.charge_clone(&right_type)?;
