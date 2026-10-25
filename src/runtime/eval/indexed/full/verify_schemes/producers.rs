@@ -6326,6 +6326,15 @@ impl<'a> ProducerProof<'a> {
             self.verify_operands(&decoder, instruction)
         } else {
             let ty = self.need_context(&decoder, instruction)?.ok_or_else(|| IrVerifyError::new(format!("condition producer has no checked contract at owner {owner}, instruction {instruction} {:?}", self.store.tags[instruction])))?;
+            let ty = match ty.unvalidated() {
+                Type::Optional(payload) if !role.accepts(&ty)
+                    && (self.optional_read_is_narrowed(&decoder, instruction, &ty)? || self.pushes_expected_to_results(&decoder, instruction, payload, true)?) =>
+                {
+                    self.budget.charge_clone(payload)?;
+                    Arc::new((**payload).clone())
+                }
+                _ => ty,
+            };
             if !role.accepts(&ty) { return Err(IrVerifyError::new("condition producer disagrees with its control role")); }
             self.expression(owner, instruction, ty, false);
             Ok(())

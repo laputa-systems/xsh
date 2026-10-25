@@ -173,3 +173,25 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "a\nunknown\n"
 }
+
+test test_narrowed_optional_conditions_are_boolean_controls { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    let flag: Bool? = if true { true } else { false }
+    if flag != null {
+      let direct: Int = if flag { 1 } else { 2 }
+      let chosen: Int = if if false { flag } else { true } { 15 } else { 12 }
+      out += [f"{direct}", f"{chosen}"]
+    }
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n15\n"
+}
