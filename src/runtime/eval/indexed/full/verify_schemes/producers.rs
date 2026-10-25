@@ -5983,6 +5983,9 @@ impl<'a> ProducerProof<'a> {
                 self.budget.charge_clone(&error)?;
                 self.budget.charge_clone(&expected)?;
                 let boundary = super::PropagationBoundary::for_function(self.store, decoder.owner, &crate::sema::schemes::SchemeType::Ground((*expected).clone()), &mut self.budget)?;
+                if matches!(boundary, super::PropagationBoundary::Unavailable)
+                    && self.store.function_metadata[function].callable_kind == CallableKind::Proc
+                { return Ok(Some(error)); }
                 super::body_propagated_error_matches_owner(
                     self.store,
                     None,
@@ -6062,7 +6065,8 @@ impl<'a> ProducerProof<'a> {
                             self.budget.charge(1)?;
                             recorded_transfers.insert(value);
                             None
-                        } else { Some((value, CapturedResultUse::Discard)) }
+                        } else if self.store.tags[value] == FullTag::ExprAbort { None }
+                        else { Some((value, CapturedResultUse::Discard)) }
                     }
                     FullTag::StmtFor | FullTag::StmtForRecord => {
                         let (schema::StmtView::For { iter, .. } | schema::StmtView::ForRecord { iter, .. }) = decoder.statement_view(instruction)? else { unreachable!() };
