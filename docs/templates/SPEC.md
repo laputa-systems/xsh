@@ -1494,6 +1494,10 @@ comprehensions, pipeline sources, method calls, spread operands, `?`,
 `attempt`, and `wait` require validation first. A `List[Any]` or `Map[Any]`
 is a concrete container whose elements remain opaque.
 
+Matching an `Any` value against `Err(error)` leaves its payload as `Any`.
+Validate that payload before propagating it into a concrete error boundary;
+matching the tag alone does not establish an `Error` contract.
+
 Passive generic calls preserve an explicitly checked `Any` argument as opaque
 data, including checked list-splice items. An explicit callable signature can
 also select an `Any` instance of a generic function (9.4). Operations on that

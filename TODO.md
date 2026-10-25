@@ -98,15 +98,6 @@ Next: 35
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-34 · P3 · Diagnose unvalidated dynamic error propagation
-
-- **Area:** Errors
-- **Where:** `src/sema/check/types.rs:54`, `src/runtime/eval/indexed/full/verify_schemes/producers.rs:6354`
-- **Problem:** `pure value() -> Result[Int] { Ok(1) }; let dynamic: Pure = value; match dynamic.call() { Ok(_) => {}; Err(error) => Err(error)? }` passes checking but fails indexed verification with `direct error transfer has no actual error contract`. The matched error remains `Any`; validating it with `.require(Error)` makes the intended error transfer valid. Pre-XSH-25 products reproduce the rejection. The RelPath fixture now validates its payload, but the checker still misses this boundary diagnostic.
-- **Recommendation:** Reject an unvalidated dynamic payload at a concrete error boundary in the checker. Preserve documented Any-to-Any data flow and keep the verifier's authenticated error-contract requirement.
-- **Fix with:** error-model
-- **Effort:** M
-
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
 - **Deferred:** The owner is not interested in this evaluation at present. Exclude it from the active backlog run until the owner reopens it, even after a baseline becomes available.

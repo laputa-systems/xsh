@@ -114,6 +114,20 @@ impl Checker {
             );
             return Type::Unknown;
         };
+        if matches!(err.unvalidated(), Type::Any) && self.boundary.with_initializer_errors.is_none() {
+            let target = match &self.boundary.current_return {
+                Some(super::ReturnContext::Function(Type::Result(_, error))) => Some((**error).clone()),
+                Some(super::ReturnContext::Function(Type::Unknown)) if self.inferred_returns.is_some() => None,
+                _ => Some(Type::Error),
+            };
+            if let Some(target) = target
+                && !matches!(target.unvalidated(), Type::Any | Type::Unknown)
+                && !target.contains_inference()
+            {
+                self.reject_dynamic_use("a propagated error", Some(&target), span);
+                return ok;
+            }
+        }
         self.propagating_error_spans.insert(span);
         let allowed = self.propagation_effect_is_permitted()
             || self
