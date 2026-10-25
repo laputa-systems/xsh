@@ -987,6 +987,12 @@ impl Checker {
                         arena, source, callee, args, &callable, span, checked_argument,
                     );
                 }
+                ModuleExportType::Value { ty: Type::Invalid, .. } => {
+                    for arg in args {
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    }
+                    return Type::Invalid;
+                }
                 ModuleExportType::Value { .. } => {}
                 ModuleExportType::GenericCallable { .. } => {
                     self.error(
