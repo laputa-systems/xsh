@@ -65,3 +65,27 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "4\nnone\nnull\n"
 }
+
+test test_noncompleting_block_statements_discard_no_value { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    var count = 0
+    while count < 3 {
+      count += 1
+      {
+        break when count == 2
+      }
+    }
+    out += [f"{count}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n"
+}

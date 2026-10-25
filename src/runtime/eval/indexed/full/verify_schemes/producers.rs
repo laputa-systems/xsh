@@ -6177,19 +6177,25 @@ impl<'a> ProducerProof<'a> {
                     _ => None,
                 };
                 if let Some((value, use_kind)) = result {
-                    let source = self.need_context(decoder, value)?.ok_or_else(|| IrVerifyError::new("captured propagation has no executable source contract"))?;
-                    if let Type::Result(ok, error) = source.unvalidated() {
-                        self.budget.charge_clone(error)?;
-                        errors.push((**error).clone());
-                        if use_kind == CapturedResultUse::Iterate && matches!(ok.unvalidated(), Type::Stream(_))
-                            && self.stream_may_propagate_error(decoder, StreamProducer::ResultSuccess(value))?
-                        { errors.push(Type::Error); }
-                        self.expression(decoder.owner, value, source, false);
-                    } else if use_kind == CapturedResultUse::Propagate || source.as_ref() == &Type::Any {
-                        return Err(IrVerifyError::new("captured propagation source has no Result contract"));
-                    } else if use_kind == CapturedResultUse::Iterate && matches!(source.unvalidated(), Type::Stream(_)) {
-                        if self.stream_may_propagate_error(decoder, StreamProducer::Value(value))? { errors.push(Type::Error); }
-                        self.expression(decoder.owner, value, source, false);
+                    let source = match self.need_context(decoder, value)? {
+                        Some(source) => Some(source),
+                        None if use_kind == CapturedResultUse::Discard && !super::super::indexed_expr_can_complete(decoder, value, 0)? => None,
+                        None => return Err(IrVerifyError::new("captured propagation has no executable source contract")),
+                    };
+                    if let Some(source) = source {
+                        if let Type::Result(ok, error) = source.unvalidated() {
+                            self.budget.charge_clone(error)?;
+                            errors.push((**error).clone());
+                            if use_kind == CapturedResultUse::Iterate && matches!(ok.unvalidated(), Type::Stream(_))
+                                && self.stream_may_propagate_error(decoder, StreamProducer::ResultSuccess(value))?
+                            { errors.push(Type::Error); }
+                            self.expression(decoder.owner, value, source, false);
+                        } else if use_kind == CapturedResultUse::Propagate || source.as_ref() == &Type::Any {
+                            return Err(IrVerifyError::new("captured propagation source has no Result contract"));
+                        } else if use_kind == CapturedResultUse::Iterate && matches!(source.unvalidated(), Type::Stream(_)) {
+                            if self.stream_may_propagate_error(decoder, StreamProducer::Value(value))? { errors.push(Type::Error); }
+                            self.expression(decoder.owner, value, source, false);
+                        }
                     }
                 }
             }

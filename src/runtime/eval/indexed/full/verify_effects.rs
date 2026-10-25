@@ -326,8 +326,11 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                     let result = if let Some(ty) = decoder.expression_checked_type_id(value)? {
                         matches!(decoder.store.semantic.type_tag(ty)?, super::super::semantic::TypeTag::Result | super::super::semantic::TypeTag::Any)
                     } else {
-                        let ty = decoder.derive_checked_expression_type(value)?.ok_or_else(|| IrVerifyError::new("implicit discard has no executable value contract"))?;
-                        ty.is_result() || ty == Type::Any
+                        match decoder.derive_checked_expression_type(value)? {
+                            Some(ty) => ty.is_result() || ty == Type::Any,
+                            None if !super::indexed_expr_can_complete(decoder, value, 0)? => false,
+                            None => return Err(IrVerifyError::new("implicit discard has no executable value contract")),
+                        }
                     };
                     if result { require(instruction, Some(&[Effect::Error]), true, &mut captured)?; }
                 }
