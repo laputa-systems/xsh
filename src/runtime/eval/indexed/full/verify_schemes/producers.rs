@@ -3,7 +3,7 @@ use super::{
     BTreeMap, BTreeSet, CheckedArgumentType, FullCallableContract, FullDecoder, FullStore, FullTag,
     IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
     checked_argument_type, checked_expression_type_id, decoder_for_driver_step,
-    decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
+    decoder_for_function, driver_owner, ensure_closed_type, ensure_producer_context_type, ensure_substitution_type, schema,
     merge_list_item_types, expected_list_item, PropagationBoundary, ProducerContextRole, producer_context_role,
 };
 use crate::sema::types::{CallableKind, ConditionRole, ModuleExportType, TypedCallable};
@@ -4876,7 +4876,7 @@ impl<'a> ProducerProof<'a> {
             }
             None => self.declared_type(&decoder, instruction)?,
         };
-        if matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _))
+        if (matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _)) || matches!(expected.as_ref(), Type::Record(_)) && actual.is_none())
             && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
             && let Some(source) = self.fresh_contextual_argument_source(&decoder, instruction)?
             && self.declared_type(&decoder, source)?.is_none()
@@ -6392,7 +6392,7 @@ impl<'a> ProducerProof<'a> {
         self.budget.charge(1)?;
         if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
         let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(instruction)? else { return Ok(None); };
-        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap) { return Ok(None); }
+        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
         self.checked_match_binding(decoder, instruction)
     }
 
@@ -6401,7 +6401,7 @@ impl<'a> ProducerProof<'a> {
         let key = (decoder.owner, argument);
         if let Some(source) = self.fresh_lists.get(&key) { return Ok(*source); }
         let source = match decoder.expression_view(argument)? {
-            schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap => Some(argument),
+            schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. } => Some(argument),
             schema::ExprView::Param(slot) => {
                 let binding = self.binding(decoder.owner, argument, slot)?;
                 match binding {
@@ -6426,14 +6426,15 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn contextual_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
-        if !matches!(expected, Type::List(_) | Type::Map(_, _)) { return Ok(false); }
+        if !matches!(expected, Type::List(_) | Type::Map(_, _) | Type::Record(_)) { return Ok(false); }
         let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(false) };
+        if matches!(expected, Type::Record(_)) && self.declared_type(decoder, argument)?.is_some() { return Ok(false); }
         let Some(source) = self.fresh_contextual_argument_source(decoder, argument)? else { return Ok(false) };
         if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
         if !matches!((self.store.tags[source], expected),
-            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap, Type::Map(_, _)))
+            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)))
         { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
-        ensure_substitution_type(expected)?;
+        ensure_producer_context_type(self.store.tags[source], expected)?;
         let binding = self.binding(decoder.owner, argument, slot)?;
         let key = (decoder.owner, binding);
         self.deferred_sources.insert(key, source);
