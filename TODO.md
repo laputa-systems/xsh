@@ -104,15 +104,6 @@ Next: 30
 - **Fix with:** isolate-effects
 - **Effort:** S
 
-### XSH-18 · P3 · Restore the ambient filesystem policy guard
-
-- **Area:** Tests
-- **Where:** `tests/ambient_fs_policy.rs:590`, `src/modules/linux/real/netlink.rs:1490`
-- **Problem:** Canonical verification ignores `ambient_filesystem_use_is_allowlisted` pending a netlink allowlist decision. Source review finds the netlink filesystem operations inside its test module, including opt-in capture and replay. The disabled guard supplies no policy-test coverage.
-- **Recommendation:** Scope the permitted fixture I/O to test code without allowing production filesystem access throughout the file. Remove the ignore and run the exact guard plus a rejection control for an unapproved production access.
-- **Fix with:** os-boundaries
-- **Effort:** S
-
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
