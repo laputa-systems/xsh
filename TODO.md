@@ -77,15 +77,6 @@ Next: 30
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-15 · P3 · Qualify or remove the regex-lite fork
-
-- **Area:** Dependencies
-- **Where:** `third_party/regex-lite/Cargo.toml:1`, `third_party/regex-lite/src/nfa.rs`
-- **Problem:** The vendored regex-lite 0.1.9 fork replaces a capture-name `HashMap` to avoid `getrandom`. Its build-time and binary-size costs remain unmeasured.
-- **Recommendation:** Measure the fork against upstream. Drop it when upstream avoids the dependency, or retain it with current cost evidence.
-- **Fix with:** benchmark-checklist
-- **Effort:** S
-
 ### XSH-16 · P3 · Make Laputa Linux package tests hermetic
 
 - **Area:** Tests

@@ -1,5 +1,35 @@
 # Inference audit for performance acceptance
 
+## Regex-lite fork qualification (2026-10-25)
+
+Retain the vendored `regex-lite` 0.1.9 fork. Upstream's `std` implementation
+uses a randomly seeded capture-name map. With `getrandom` returning `EIO`,
+the upstream consumer panics with status 101; the fork completes with status 0
+and makes no `getrandom` call. Upstream 0.1.9 rejects disabling `std` at compile
+time, so its non-`std` map definition cannot replace the fork.
+
+The comparison uses a standalone consumer that accepts a pattern argument,
+checks named captures, finds two matches, replaces both and rejects an invalid
+pattern. Both sides use release opt3, thin LTO, 16 codegen units and stripping
+with the pinned nightly. Five alternating cold builds per side run through
+`kache` with caching disabled. Every readiness bracket passes, and every built
+consumer produces the expected result. Compilation and linking dominate CPU
+cost. The measured build-cost difference is within the observed spread.
+
+| Consumer | Median build CPU | CPU range | Peak build RSS | Stripped bytes |
+|---|---:|---:|---:|---:|
+| Vendored fork | 5.24 s | 5.15–5.25 s | 298,180 KiB | 529,600 |
+| Upstream 0.1.9 | 5.21 s | 5.15–5.51 s | 299,848 KiB | 538,416 |
+
+These measurements cover the standalone regex consumer. Whole-XSH build,
+startup, runtime and memory qualification remains part of G1. The fork keeps
+the upstream MIT or Apache-2.0 licensing and adds no transitive dependencies.
+Its two source differences are the capture-name map and a current `usize::MAX`
+spelling for warning-deny builds. Reconsider removal when upstream can compile
+regexes without an entropy dependency in a supported configuration.
+
+## Historical inference acceptance
+
 The inference checkpoint is accepted as an isolated capability and corpus
 result. It is not an integration source. Commit
 `15243e97f6fd751016ab28690ada2cadb6fc973a` changes evidence and reproduction
