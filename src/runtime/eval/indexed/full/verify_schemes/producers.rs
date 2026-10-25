@@ -3531,7 +3531,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::SpawnRun(_) | schema::ExprView::SpawnCommand { .. } => Some(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError))),
             schema::ExprView::Wait { target, .. } => Some(self.process_wait_contract(decoder, target.raw() as usize)?.1),
             schema::ExprView::RunCapture(run) => match run.kind {
-                crate::syntax::node::RunKind::Status => Some(Type::Status),
+                crate::syntax::node::RunKind::Plain | crate::syntax::node::RunKind::Status => Some(Type::Status),
                 _ => Type::run_capture_result(run.kind),
             },
             schema::ExprView::RunPipeline { mut segments, .. } => {
