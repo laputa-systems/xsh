@@ -22,16 +22,6 @@ Next: 35
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-7 · P3 · Define record and JSON schema exactness
-
-- **Area:** Types
-- **Where:** `docs/SPEC.md:1990`, `src/sema`
-- **Problem:** Width-compatible records cannot express when dynamic validation must reject, strip, or preserve unknown fields. Adding exact record syntax would bind static typing to one boundary policy.
-- **Recommendation:** Choose the validation-boundary policy in the linked draft, then specify its interaction with defaults, encoding, and schema evolution.
-- **Fix with:** api-surface-and-module-boundaries
-- **Effort:** L
-- **Design:** [XSH-7 record and JSON exactness](docs/rfc/XSH-7-record-json-exactness.md)
-
 ### XSH-10 · P3 · Replace Laputa's manual command parser
 
 - **Area:** Navigability

@@ -1883,7 +1883,7 @@ impl Evaluator {
                 }
             }
             ExprViewKind::Require => {
-                let ExprView::Require { value, check, span } =
+                let ExprView::Require { value, check, span, .. } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
                 else {

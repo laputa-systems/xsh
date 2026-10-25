@@ -4550,6 +4550,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 path_from_bytes(bytes)
             }
             Conversion::IntToUInt | Conversion::IntToBounded => BuildExprRow::Require {
+                unknown_fields: crate::syntax::arena::UnknownFields::Preserve,
                 value,
                 check: LoweredTypeCheck {
                     schema: Some(self.prepared_schema(target_type.clone())), ty: target_type.clone(),
@@ -4564,7 +4565,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(value)
     }
 
-    fn lower_requirement_check(&mut self, expression: ExprId, schema: Option<TypeExprId>) -> Option<LoweredTypeCheck> {
+    fn lower_requirement_check(&mut self, expression: ExprId, schema: Option<TypeExprId>, unknown_fields: crate::syntax::arena::UnknownFields) -> Option<LoweredTypeCheck> {
         let (ty, name) = match schema {
             Some(schema) => {
                 lowered_arena_type(schema, self.declarations, self.current_namespace)?;
@@ -4575,7 +4576,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 (target.ty.clone(), target.name.clone())
             }
         };
-        Some(LoweredTypeCheck { schema: Some(self.prepared_schema(ty.clone())), ty, name })
+        let prepared = match unknown_fields {
+            crate::syntax::arena::UnknownFields::Preserve => self.prepared_schema(ty.clone()),
+            _ => super::require::PreparedSchema::compile_boundary(&ty, &self.declarations.wire_enums, unknown_fields),
+        };
+        Some(LoweredTypeCheck { schema: Some(prepared), ty, name })
     }
 
     fn lower_scheme_pipeline(
@@ -4922,10 +4927,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 self.lower_conversion_value(conversion, value, target, span, |value, ty| { lowered_types.insert(value, SchemeType::Ground(ty)); })?
             }
-            ArenaExprKind::Require { value, schema } => {
-                let check = self.lower_requirement_check(expression, schema)?;
+            ArenaExprKind::Require { value, schema, unknown_fields } => {
+                let check = self.lower_requirement_check(expression, schema, unknown_fields)?;
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
-                push_build_row!(self, expr, BuildExprRow::Require { value, check, span })
+                push_build_row!(self, expr, BuildExprRow::Require { value, check, span, unknown_fields })
             }
             ArenaExprKind::Field { .. } if self.bodies.inferred_variants.contains_key(&expression) => {
                 self.lower_inferred_variant(expression, slots, Some(current_function), None)?
@@ -8707,10 +8712,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 self.lower_conversion_value(conversion, value, target, span, |_, _| {})
             }
-            ArenaExprKind::Require { value, schema } => {
-                let check = self.lower_requirement_check(id, schema)?;
+            ArenaExprKind::Require { value, schema, unknown_fields } => {
+                let check = self.lower_requirement_check(id, schema, unknown_fields)?;
                 Some(push_build_row!(self, expr, BuildExprRow::Require {
-                    value: self.lower_expr(value, slots, current_function, item_slot)?, check, span,
+                    value: self.lower_expr(value, slots, current_function, item_slot)?, check, span, unknown_fields,
                 }))
             }
             // `0 - x` is only right for Int: a Float operand took the Int

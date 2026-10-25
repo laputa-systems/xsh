@@ -436,7 +436,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             name: Arc::from("UInt"),
             schema: None,
         };
-        let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
+        let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span, unknown_fields: crate::syntax::arena::UnknownFields::Preserve });
         push_build_row!(
             self,
             expr,

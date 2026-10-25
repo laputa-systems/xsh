@@ -1695,7 +1695,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "member_access",
             alt([
                 seq([
-                    w("require"),
+                    alt([w("require"), w("require_exact"), w("require_stripped")]),
                     t(T::LParen),
                     nl(),
                     opt(r("type_expr")),

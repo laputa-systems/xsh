@@ -178,7 +178,7 @@ impl Follow {
             TokenTag::Question => FollowToken::Question,
             TokenTag::Dot if next == Some(TokenTag::Dot) => FollowToken::DotDot,
             TokenTag::Dot
-                if tokens.get(1).is_some_and(|(_, name)| *name == "require")
+                if tokens.get(1).is_some_and(|(_, name)| matches!(*name, "require" | "require_exact" | "require_stripped"))
                     && tokens
                         .get(2)
                         .is_some_and(|(tag, _)| *tag == TokenTag::LParen) =>

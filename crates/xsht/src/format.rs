@@ -3120,10 +3120,10 @@ impl<'a> Writer<'a> {
                 output.push_str(" as ");
                 self.write_type(*target, output);
             }
-            ArenaExprKind::Require { value, schema } => {
+            ArenaExprKind::Require { value, schema, unknown_fields } => {
                 let start = output.len();
                 self.write_expr(*value, child(*value), output);
-                push_joined(output, start, ".require(");
+                push_joined(output, start, &format!(".{}(", unknown_fields.method()));
                 if let Some(schema) = schema {
                     self.write_type(*schema, output);
                 }

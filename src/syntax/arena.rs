@@ -4463,10 +4463,17 @@ impl<'a> ArenaProgramBuilder<'a> {
         schema: impl Into<Option<TypeExprId>>,
         span: Span,
     ) -> ExprId {
+        self.push_require_with_policy(value, schema.into(), UnknownFields::Preserve, span)
+    }
+
+    pub fn push_require_with_policy(
+        &mut self, value: ExprId, schema: Option<TypeExprId>, unknown_fields: UnknownFields, span: Span,
+    ) -> ExprId {
         self.lowerer.push_expr_kind(
             ArenaExprKind::Require {
                 value,
-                schema: schema.into(),
+                schema,
+                unknown_fields,
             },
             span,
         )
@@ -5083,7 +5090,7 @@ impl AstArena {
                 visit(Child::Expr(call));
                 visit(Child::BuilderBlock(block));
             }
-            ArenaExprKind::Require { value, schema } => {
+            ArenaExprKind::Require { value, schema, .. } => {
                 visit(Child::Expr(value));
                 if let Some(schema) = schema { visit(Child::TypeExpr(schema)); }
             }
@@ -6121,9 +6128,14 @@ impl AstArena {
                 block: BuilderBlockId::new(data.rhs as usize),
             },
             ArenaExprTag::Try => ArenaExprKind::Try(ExprId::new(data.lhs as usize)),
-            ArenaExprTag::Require => ArenaExprKind::Require {
+            ArenaExprTag::Require | ArenaExprTag::RequireExact | ArenaExprTag::RequireStripped => ArenaExprKind::Require {
                 value: ExprId::new(data.lhs as usize),
                 schema: optional_type_expr_id(data.rhs),
+                unknown_fields: match self.expr_tags[id.index()] {
+                    ArenaExprTag::RequireExact => UnknownFields::Reject,
+                    ArenaExprTag::RequireStripped => UnknownFields::Strip,
+                    _ => UnknownFields::Preserve,
+                },
             },
             ArenaExprTag::Convert => ArenaExprKind::Convert {
                 value: ExprId::new(data.lhs as usize),
@@ -7883,6 +7895,8 @@ pub enum ArenaExprTag {
     Try,
     Capture,
     Require,
+    RequireExact,
+    RequireStripped,
     Loop,
     Retry,
     ValueBlock,
@@ -7917,6 +7931,23 @@ impl ArenaExprData {
 
     const fn new(lhs: u32, rhs: u32) -> Self {
         Self { lhs, rhs }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnknownFields {
+    Preserve,
+    Reject,
+    Strip,
+}
+
+impl UnknownFields {
+    pub fn method(self) -> &'static str {
+        match self {
+            Self::Preserve => "require",
+            Self::Reject => "require_exact",
+            Self::Strip => "require_stripped",
+        }
     }
 }
 
@@ -8098,6 +8129,7 @@ pub enum ArenaExprKind {
     Require {
         value: ExprId,
         schema: Option<TypeExprId>,
+        unknown_fields: UnknownFields,
     },
     /// `value as TARGET`: the conversion the checker selects for the pair of
     /// types, propagating its failure as `?` would.
@@ -9407,8 +9439,12 @@ impl ArenaLowerer<'_> {
                 ArenaExprData::new(raw_expr_id(call), raw_builder_block_id(block)),
             ),
             ArenaExprKind::Try(id) => (ArenaExprTag::Try, ArenaExprData::new(raw_expr_id(id), 0)),
-            ArenaExprKind::Require { value, schema } => (
-                ArenaExprTag::Require,
+            ArenaExprKind::Require { value, schema, unknown_fields } => (
+                match unknown_fields {
+                    UnknownFields::Preserve => ArenaExprTag::Require,
+                    UnknownFields::Reject => ArenaExprTag::RequireExact,
+                    UnknownFields::Strip => ArenaExprTag::RequireStripped,
+                },
                 ArenaExprData::new(raw_expr_id(value), optional_raw_type_expr_id(schema)),
             ),
             ArenaExprKind::Convert { value, target } => (

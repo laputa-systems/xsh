@@ -1295,11 +1295,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Readiness does not itself erase the handle or turn a nonzero child exit into a runtime error.",
             &["process", "ownership", "status-data"],
         )),
-        ("record", "require") => Some((
-            "Validates a dynamic value against a named record schema.",
-            "Unknown fields and wrong field types are rejected before the value crosses into the requested record contract.",
-            &["record", "schema", "dynamic"],
-        )),
         ("regex", "compile") => Some((
             "Compiles a regular expression into a reusable Regex value.",
             "Dynamic patterns return structured regex-compile errors. Static patterns can use raw rx literals validated once during checked program preparation.",

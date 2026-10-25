@@ -1548,6 +1548,40 @@ an annotated binding, an annotated return or tail, or a uniquely selected
 parameter type. Each `?` peels one `Result` layer from that expectation. If no
 target is known, the checker reports `check.require-target`.
 
+`value.require_exact(T)` rejects fields not declared by a structural record
+schema; `value.require_stripped(T)` returns only its declared fields. Both
+return `Result[T, Error]` and allow an omitted target under the same independent
+expectations as `.require()`. These operations choose a policy for one dynamic
+boundary; record assignment, type tests, and patterns remain width-compatible.
+
+The chosen policy applies recursively through declared record fields, lists,
+map values, optional slots, ordered union alternatives, and validated bases.
+Maps keep their keys. `Any` and erased `Record` slots declare no field set and
+remain opaque, including records inside them. Policies cannot vary by nested
+schema within one call. Unknown fields preserved by `.require` are not validated
+or recursively transformed. Rejection reports the unexpected field's path as a
+`schema` error. If every union alternative fails, the error reports that union's
+path. Stripping occurs before the resulting value's refinement is
+tested once. A failed alternative or whole validation publishes no partial
+result and does not mutate its source.
+
+No policy fills missing fields, including nullable fields and fields with
+constructor defaults. All three operations retain the existing container
+admission and schema-directed wire conversion rules. Choosing a field policy
+does not add record-to-map coercion. JSON encoding writes the resulting runtime fields: preserved
+unknown fields are encoded, stripped fields are absent, and encoding never
+reapplies constructor defaults.
+
+```xsh
+type Config = {name: Str}
+let raw = json.decode(r"""{"name":"worker","future":1}""")?
+let forward = raw.require(Config)?
+let clean: Config = raw.require_stripped()?
+assert json.encode(forward)? == r"""{"future":1,"name":"worker"}"""
+assert json.encode(clean)? == r"""{"name":"worker"}"""
+assert raw.require_exact(Config) is Err(_)
+```
+
 Module contracts (4.9) are the dynamic boundary for runtime-loaded modules.
 
 ### 5.4 Narrowing

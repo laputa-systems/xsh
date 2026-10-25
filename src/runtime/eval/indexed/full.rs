@@ -7240,7 +7240,14 @@ impl<'a> FullDecoder<'a> {
             store: self.store,
             cursor: FullCursor::new(self.store.payload(self.store.data[instruction].range())?),
         };
-        schema::ExprView::decode_from_decoder(self, tag, payload)
+        let view = schema::ExprView::decode_from_decoder(self, tag, payload)?;
+        if !self.verified && let schema::ExprView::Require { check, unknown_fields, .. } = &view {
+            let policy = check.schema.map_or(crate::syntax::arena::UnknownFields::Preserve, |schema| schema.unknown_fields());
+            if *unknown_fields != policy {
+                return Err(IrVerifyError::new("require schema does not match its unknown-field policy"));
+            }
+        }
+        Ok(view)
     }
 
     fn statement_view<'e>(
@@ -7471,6 +7478,7 @@ impl<'a> FullDecoder<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
+        if tag == FullTag::ExprRequire { self.expression_view(index)?; }
         if let Some(proof) = &self.instruction_proof {
             let binding_dependent_value = if tag == FullTag::ExprCheckedValue {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(index)? else { unreachable!() };
@@ -20477,6 +20485,22 @@ impl FullCodec for crate::runtime::eval::EndDistance {
     ) -> Result<Self, IrVerifyError> {
         Self::new(input.raw()?)
             .ok_or_else(|| IrVerifyError::new("an index from the end counts from one"))
+    }
+}
+
+impl FullCodec for crate::syntax::arena::UnknownFields {
+    fn encode(&self, _builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        output.push(match self { Self::Preserve => 0, Self::Reject => 1, Self::Strip => 2 });
+        Ok(())
+    }
+
+    fn decode(_decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(Self::Preserve),
+            1 => Ok(Self::Reject),
+            2 => Ok(Self::Strip),
+            _ => Err(IrVerifyError::new("unknown-field policy is invalid")),
+        }
     }
 }
 
@@ -48682,7 +48706,8 @@ assert relay(nullable, 3) == null
                     PreparedSchema::Record(fields) => fields
                         .iter_mut()
                         .any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
-                    PreparedSchema::List(schema)
+                    PreparedSchema::UnknownFields(_, schema)
+                    | PreparedSchema::List(schema)
                     | PreparedSchema::Map(_, schema)
                     | PreparedSchema::Optional(schema)
                     | PreparedSchema::Validated(_, schema) => change_mapping(Arc::make_mut(schema)),
@@ -54374,9 +54399,97 @@ pure outer() -> Int { by_scale() + by_measure() }
         });
     }
 
-    // A union reaches the verified program as a type-pool row and, where a
-    // member converts wire strings, as a prepared schema that tries the
-    // member schemas in the order written. Corrupting either is rejected.
+    #[test]
+    fn record_unknown_field_policies_reject_cold_schema_forgery() {
+        use super::super::super::require::PreparedSchema;
+        use crate::syntax::arena::UnknownFields;
+        fn outcome(program: &FullProgram) -> Value {
+            let _symbols = program.symbol_owner().enter();
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::new(program.clone()));
+            let input = Value::Record(BTreeMap::from([(Arc::from("name"), Value::Str(Arc::from("ok"))), (Arc::from("extra"), Value::Int(1))]).into());
+            evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(program, "checked")), CallableKind::Pure, &[input], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap()
+        }
+        run_with_large_stack(|| {
+            for (method, policy) in [("require_exact", UnknownFields::Reject), ("require_stripped", UnknownFields::Strip)] {
+                let source = format!("type Entry = {{name: Str}}\npure checked(raw: Any) -> Result[Entry] {{ raw.{method}(Entry) }}\n");
+                let program = fixture("record-policy.xsh", &source);
+                FullVerifier::verify(&program).unwrap();
+                let clean = Value::ok(Value::Record(BTreeMap::from([(Arc::from("name"), Value::Str(Arc::from("ok")))]).into()));
+                if policy == UnknownFields::Strip { assert_eq!(outcome(&program), clean); }
+                else { assert!(matches!(outcome(&program), Value::Result(crate::runtime::value::ResultValue::Err(_)))); }
+                let required = function_instruction_indices(&program, "checked", FullTag::ExprRequire)[0];
+
+                let root = program.store.prepared_schemas.iter().position(|schema| matches!(schema.as_ref(), PreparedSchema::UnknownFields(_, _))).unwrap();
+                let PreparedSchema::UnknownFields(_, inner) = program.store.prepared_schemas[root].as_ref() else { unreachable!() };
+                let mut dropped = program.clone();
+                dropped.store.prepared_schemas[root] = inner.clone();
+                assert!(FullVerifier::verify(&dropped).unwrap_err().message.contains("unknown-field policy"));
+                let mut switched = program.clone();
+                switched.store.prepared_schemas[root] = Arc::new(PreparedSchema::UnknownFields(if policy == UnknownFields::Reject { UnknownFields::Strip } else { UnknownFields::Reject }, inner.clone()));
+                assert!(FullVerifier::verify(&switched).unwrap_err().message.contains("unknown-field policy"));
+                let decoder = return_analysis_decoder(&program, "checked");
+                let schema::ExprView::Require { check, .. } = decoder.expression_view(required).unwrap() else { unreachable!() };
+                let mut bypassed = program.clone();
+                bypassed.store.prepared_schemas[root] = Arc::new(PreparedSchema::UnknownFields(policy, Arc::new(PreparedSchema::Validate(check.ty.materialize().unwrap()))));
+                assert!(FullVerifier::verify(&bypassed).is_err());
+                let mut shadowed = program.clone();
+                shadowed.store.prepared_schemas[root] = Arc::new(PreparedSchema::UnknownFields(policy, Arc::new(PreparedSchema::UnknownFields(UnknownFields::Preserve, inner.clone()))));
+                assert!(FullVerifier::verify(&shadowed).is_err());
+                let mut invalid = program.clone();
+                let mode = payload_start(&program, required) + program.store.data[required].range().len as usize - 1;
+                invalid.store.extra[mode] = 9;
+                assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("unknown-field policy"));
+                let mut consistent = switched.clone();
+                consistent.store.extra[mode] = if policy == UnknownFields::Reject { 2 } else { 1 };
+                FullVerifier::verify(&consistent).unwrap();
+                if policy == UnknownFields::Reject { assert_eq!(outcome(&consistent), clean); }
+                else { assert!(matches!(outcome(&consistent), Value::Result(crate::runtime::value::ResultValue::Err(_)))); }
+                let mut truncated = program.clone();
+                let data = truncated.store.data[required];
+                truncated.store.data[required] = IrData::new(data.lhs, data.rhs - 1);
+                assert!(FullVerifier::verify(&truncated).is_err());
+                let mut missing = program.clone();
+                let mut words = missing.store.payload(missing.store.data[required].range()).unwrap().to_vec();
+                assert_eq!(words[3], 1);
+                words[3] = 0;
+                words.remove(4);
+                let start = missing.store.extra.len() as u32;
+                missing.store.extra.extend_from_slice(&words);
+                missing.store.data[required] = IrData::new(start, words.len() as u32);
+                assert!(FullVerifier::verify(&missing).unwrap_err().message.contains("unknown-field policy"));
+            }
+            let mut opaque = fixture("opaque-record-policy.xsh", "type Entry = {payload: Record}\npure checked(raw: Any) -> Result[Entry] { raw.require_stripped(Entry) }\n");
+            let root = opaque.store.prepared_schemas.iter().position(|schema| matches!(schema.as_ref(), PreparedSchema::UnknownFields(_, _))).unwrap();
+            let PreparedSchema::UnknownFields(_, inner) = Arc::make_mut(&mut opaque.store.prepared_schemas[root]) else { unreachable!() };
+            let PreparedSchema::Record(fields) = Arc::make_mut(inner) else { unreachable!() };
+            fields[0].1 = Arc::new(PreparedSchema::Record(Vec::new()));
+            assert!(FullVerifier::verify(&opaque).is_err());
+            let mut duplicated = fixture("duplicate-record-policy.xsh", "type Entry = {first: Str, second: Str}\npure checked(raw: Any) -> Result[Entry] { raw.require_stripped(Entry) }\n");
+            let root = duplicated.store.prepared_schemas.iter().position(|schema| matches!(schema.as_ref(), PreparedSchema::UnknownFields(_, _))).unwrap();
+            let PreparedSchema::UnknownFields(_, inner) = Arc::make_mut(&mut duplicated.store.prepared_schemas[root]) else { unreachable!() };
+            let PreparedSchema::Record(fields) = Arc::make_mut(inner) else { unreachable!() };
+            fields[1] = fields[0].clone();
+            assert!(FullVerifier::verify(&duplicated).is_err());
+            let _symbols = duplicated.symbol_owner().enter();
+            let evaluator = Evaluator::new_with_sources(Vec::new(), (*duplicated.sources).clone());
+            let empty = Type::Record(Arc::new(BTreeMap::new()));
+            let enums = crate::sema::wire_enums::PreparedWireEnums::default();
+            let span = Span::new(duplicated.store.source_id, 0, 0);
+            for policy in [UnknownFields::Preserve, UnknownFields::Reject, UnknownFields::Strip] {
+                let check = LoweredTypeCheck { schema: Some(PreparedSchema::compile_boundary(&empty, &enums, policy)), ty: empty.clone(), name: Arc::from("empty shape") };
+                let raw = LoweredValue::RecordVec(Arc::new(vec![(Name::intern("future"), LoweredValue::Int(1))]));
+                let checked = super::super::super::require::require_value(&evaluator, raw, &check, span);
+                match policy {
+                    UnknownFields::Preserve => assert!(matches!(checked, LoweredValue::ResultOk(value) if matches!(*value, LoweredValue::RecordVec(ref fields) if fields.len() == 1))),
+                    UnknownFields::Reject => assert!(matches!(checked, LoweredValue::ResultErr(_))),
+                    UnknownFields::Strip => assert!(matches!(checked, LoweredValue::ResultOk(value) if matches!(*value, LoweredValue::RecordVec(ref fields) if fields.is_empty()))),
+                }
+                assert!(matches!(super::super::super::require::require_value(&evaluator, LoweredValue::Int(1), &check, span), LoweredValue::ResultErr(_)));
+            }
+        });
+    }
+
     #[test]
     fn union_types_and_schemas_reject_corruption_in_a_lowered_program() {
         use super::super::super::require::PreparedSchema;

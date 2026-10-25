@@ -1050,6 +1050,7 @@ instruction_schema! {
             value: BuildExprId,
             check: LoweredTypeCheck,
             span: Span,
+            unknown_fields: crate::syntax::arena::UnknownFields,
         } => ExprRequire = 65 [0; Operands; FrameControl];
         CheckedValue {
             value: BuildExprId,

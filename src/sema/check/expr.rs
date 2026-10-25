@@ -1464,7 +1464,7 @@ impl Checker {
             ArenaExprKind::Convert { value, target } => {
                 self.check_conversion_arena(arena, source, *value, *target, expr.span)
             }
-            ArenaExprKind::Require { value, schema } => {
+            ArenaExprKind::Require { value, schema, .. } => {
                 self.requirement_targets.remove(&expr.span);
                 self.requirement_expected_targets.remove(&expr.span);
                 let inferred = super::expected::infer_requirement_target(

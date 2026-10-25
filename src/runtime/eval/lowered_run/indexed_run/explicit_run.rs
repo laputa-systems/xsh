@@ -7281,6 +7281,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     check,
                     span: value_span,
+                    ..
                 } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {

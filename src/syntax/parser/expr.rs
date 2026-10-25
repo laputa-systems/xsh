@@ -873,7 +873,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 self.bump();
                 let name = self.expect_member_name("expected field name after `?.`")?;
-                if name == "require" && self.consume(TokenKindMatch::LParen).is_some() {
+                if matches!(name.as_str().as_str(), "require" | "require_exact" | "require_stripped") && self.consume(TokenKindMatch::LParen).is_some() {
                     while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
                         self.bump();
                     }
@@ -889,7 +889,7 @@ impl<'a> Parser<'a> {
                     let try_span = self.span(left.span.start(), try_end);
                     let try_id = arena.push_try_expr(left.id, try_span);
                     let span = self.span(left.span.start(), self.previous_end());
-                    let id = arena.push_require_expr(try_id, schema, span);
+                    let id = arena.push_require_with_policy(try_id, schema, match name.as_str().as_str() { "require_exact" => crate::syntax::arena::UnknownFields::Reject, "require_stripped" => crate::syntax::arena::UnknownFields::Strip, _ => crate::syntax::arena::UnknownFields::Preserve }, span);
                     left = ArenaOnlyExpr {
                         id,
                         span,
@@ -948,7 +948,7 @@ impl<'a> Parser<'a> {
                 let is_contract_call = left
                     .bare_ident
                     .is_some_and(|module| matches!(module.as_str().as_str(), "record" | "module"));
-                if name == "require"
+                if matches!(name.as_str().as_str(), "require" | "require_exact" | "require_stripped")
                     && !is_contract_call
                     && self.consume(TokenKindMatch::LParen).is_some()
                 {
@@ -965,7 +965,7 @@ impl<'a> Parser<'a> {
                     }
                     self.expect(TokenKindMatch::RParen, "expected `)` after require schema");
                     let span = self.span(left.span.start(), self.previous_end());
-                    let id = arena.push_require_expr(left.id, schema, span);
+                    let id = arena.push_require_with_policy(left.id, schema, match name.as_str().as_str() { "require_exact" => crate::syntax::arena::UnknownFields::Reject, "require_stripped" => crate::syntax::arena::UnknownFields::Strip, _ => crate::syntax::arena::UnknownFields::Preserve }, span);
                     left = ArenaOnlyExpr {
                         id,
                         span,

@@ -236,7 +236,7 @@ scalar_field!(
     crate::sema::types::CallableKind, crate::runtime::eval::DeferKind, bool, usize, i64, u32, u64, FloatValue, DurationValue, Name, QualifiedName, Span,
     BinaryOp, AssignOp, RuntimeOp, LoweredStrPredicate, RedirectionKind, RunKind,
     HashAlgorithm, FormatSpec, ReduceByOp, crate::runtime::eval::EndDistance,
-    crate::syntax::arena::ContextScopeKind, crate::syntax::arena::RetrySchedule,
+    crate::syntax::arena::ContextScopeKind, crate::syntax::arena::RetrySchedule, crate::syntax::arena::UnknownFields,
 );
 
 macro_rules! text_field {

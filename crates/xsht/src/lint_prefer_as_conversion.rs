@@ -106,6 +106,7 @@ fn operation(arena: &AstArena, bytes_is_shadowed: bool, call: ExprId) -> Option<
         ArenaExprKind::Require {
             value,
             schema: Some(schema),
+            unknown_fields: xsh::frontend::syntax::arena::UnknownFields::Preserve,
         } if arena.type_expr_named(schema, "UInt") => Some(Operation {
             operand: value,
             target: "UInt",

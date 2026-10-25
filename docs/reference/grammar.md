@@ -289,7 +289,7 @@ postfix = "." member_access
         | ~"?" ~"[" index "]"
         | "(" call_arguments ")"
         | ~"?" ;
-member_access = "require" "(" NEWLINE* type_expr? NEWLINE* ")" | MEMBER ;
+member_access = ( "require" | "require_exact" | "require_stripped" ) "(" NEWLINE* type_expr? NEWLINE* ")" | MEMBER ;
 index = "." ~"." expression_item? | expression_item ( "." ~"." expression_item? )? ;
 call_arguments = list(argument) ;
 argument = "." ~"." ~"." NEWLINE* expression

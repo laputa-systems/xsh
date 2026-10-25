@@ -2929,7 +2929,7 @@ impl<'a> Linter<'a> {
 
     fn require_replacement(&self, expr: ExprId) -> Option<(Span, String)> {
         let expr_span = self.arena.expr(expr).span;
-        let ArenaExprKind::Require { value, .. } = self.arena.expr(expr).kind else {
+        let ArenaExprKind::Require { value, unknown_fields: xsh::frontend::syntax::arena::UnknownFields::Preserve, .. } = self.arena.expr(expr).kind else {
             return None;
         };
         let Some(Type::Result(ok, _)) = self.expr_types.get(&expr_span) else {
