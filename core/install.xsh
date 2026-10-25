@@ -127,7 +127,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   # touching the object it names, and leaves existing files intact if copying fails.
   let scratch = fs.tempfile()?
   defer scratch.root.close()
-  let staged_dir_name = fp".xsh-install-{scratch.root.host_path()?.name()}"
+  let staged_dir_name = fp".xsh-install-{scratch.root.host_path()?.name()}".require(RelPath)?
   if let Err(failure) = parent_root.mkdir(staged_dir_name, mode: 0o700.clear_bits(fs.umask()?)) {
     if existing and gnu.strerror(failure) in ["No such file or directory", "Permission denied", "Operation not permitted", "Read-only file system"] {
       gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")

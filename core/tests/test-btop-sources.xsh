@@ -35,10 +35,11 @@ pure observed_source(text: Str) -> src.SourceRead {
 }
 
 proc write_process(root: FsRoot, pid: Int, start_ticks: Int, ticks: Int, rss_pages: Int) [fs, error] {
-  root.mkdir(fp"proc/{pid}", parents: true)
-  root.write(fp"proc/{pid}/stat", process_stat(pid, start_ticks, ticks, 0, rss_pages))
-  root.write(fp"proc/{pid}/statm", f"65536 {rss_pages} 100 0 0 1 0\n")
-  root.write(fp"proc/{pid}/status", f"Name:\tsample\nUid:\t1000\t1000\t1000\t1000\n")
+  let process_path = fp"proc/{pid}".require(RelPath)?
+  root.mkdir(process_path, parents: true)
+  root.write(fp"{process_path}/stat", process_stat(pid, start_ticks, ticks, 0, rss_pages))
+  root.write(fp"{process_path}/statm", f"65536 {rss_pages} 100 0 0 1 0\n")
+  root.write(fp"{process_path}/status", f"Name:\tsample\nUid:\t1000\t1000\t1000\t1000\n")
 }
 
 test test_btop_cpu_source_reads_complete_aggregate_uptime_load_and_sparse_cores {

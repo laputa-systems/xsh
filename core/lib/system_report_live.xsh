@@ -197,15 +197,16 @@ pure issue_with_detail(
   }
 }
 
-proc read_value(root: FsRoot, source_path: Path, max_bytes: Int = 65536) [fs, error] -> collectors.SourceRead {
+proc read_value(root: FsRoot, source_path: RelPath, max_bytes: Int = 65536) [fs, error] -> collectors.SourceRead {
   src.read_source_text(root, source_path, max_bytes)
 }
 
 type DeviceTreeStringRead = {source: collectors.SourceRead, values: List[Str]}
+type NamedPathSource = {name: Str, source_path: RelPath}
 
 proc read_device_tree_strings(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   max_bytes: Int,
   single: Bool,
 ) [fs, error] -> DeviceTreeStringRead {
@@ -474,7 +475,8 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
   } else {
     fp"{mount_relative}/{relative}"
   }
-  let source = read_value(root, fp"{source_path}/cpuset.cpus.effective", max_bytes: 65536)
+  let source_relative = source_path.require(RelPath)?
+  let source = read_value(root, fp"{source_relative}/cpuset.cpus.effective", max_bytes: 65536)
   if source.observation.state != .Observed {
     return {cpus: [], state: source.observation.state, error_kind: source.error_kind, errno: source.errno}
   }
@@ -557,7 +559,7 @@ export type MonitorSources = {
   batteries: List[MonitorBattery],
 }
 
-type PowerCapSource = {path: Path, name: collectors.SourceRead}
+type PowerCapSource = {path: RelPath, name: collectors.SourceRead}
 
 ## Retains a route-netlink snapshot with its enumeration status and issues.
 export type NetworkCollection = {
@@ -986,14 +988,19 @@ proc collect_sensors(
       let attribute_name = attribute.name()
       continue unless attribute_name.ends_with("_input")
       let channel_name = attribute_name.split("") |> take(attribute_name.count_chars() - 6).join("")
+      let label_path = fp"{chip_path}/{channel_name}_label".require(RelPath)?
+      let minimum_path = fp"{chip_path}/{channel_name}_min".require(RelPath)?
+      let maximum_path = fp"{chip_path}/{channel_name}_max".require(RelPath)?
+      let critical_path = fp"{chip_path}/{channel_name}_crit".require(RelPath)?
+      let alarm_path = fp"{chip_path}/{channel_name}_alarm".require(RelPath)?
       let kind = sensor_kind(channel_name)
       let sensor_kind_name = kind ?? "unknown"
       let value = read_value(root, attribute, max_bytes: 4096)
-      let label = read_value(root, fp"{chip_path}/{channel_name}_label", max_bytes: 4096)
-      let minimum = read_value(root, fp"{chip_path}/{channel_name}_min", max_bytes: 4096)
-      let maximum = read_value(root, fp"{chip_path}/{channel_name}_max", max_bytes: 4096)
-      let critical = read_value(root, fp"{chip_path}/{channel_name}_crit", max_bytes: 4096)
-      let alarm = read_value(root, fp"{chip_path}/{channel_name}_alarm", max_bytes: 4096)
+      let label = read_value(root, label_path, max_bytes: 4096)
+      let minimum = read_value(root, minimum_path, max_bytes: 4096)
+      let maximum = read_value(root, maximum_path, max_bytes: 4096)
+      let critical = read_value(root, critical_path, max_bytes: 4096)
+      let alarm = read_value(root, alarm_path, max_bytes: 4096)
       issues = append_text_issue(issues, "sensors", f"hwmon.{chip_path.name()}.{channel_name}_label", label)
       let measured = collectors.bounded_number(value, false)
       let minimum_number = collectors.bounded_number(minimum, false)
@@ -1115,15 +1122,18 @@ proc collect_sensors(
 
     let trips: List[report.ThermalTrip] = collect {
       for trip_number in trip_indices |> sort-by . {
-        let trip_temp = read_value(root, fp"{zone_path}/trip_point_{trip_number}_temp", max_bytes: 4096)
-        let trip_type = read_value(root, fp"{zone_path}/trip_point_{trip_number}_type", max_bytes: 4096)
+        let temperature_path = fp"{zone_path}/trip_point_{trip_number}_temp".require(RelPath)?
+        let type_path = fp"{zone_path}/trip_point_{trip_number}_type".require(RelPath)?
+        let hysteresis_path = fp"{zone_path}/trip_point_{trip_number}_hyst".require(RelPath)?
+        let trip_temp = read_value(root, temperature_path, max_bytes: 4096)
+        let trip_type = read_value(root, type_path, max_bytes: 4096)
         issues = append_text_issue(
           issues,
           "sensors",
           f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_type",
           trip_type,
         )
-        let hysteresis = read_value(root, fp"{zone_path}/trip_point_{trip_number}_hyst", max_bytes: 4096)
+        let hysteresis = read_value(root, hysteresis_path, max_bytes: 4096)
         let trip_number_value = collectors.bounded_number(trip_temp, false)
         let hysteresis_number = collectors.bounded_number(hysteresis, true)
         issues = append_number_issue(
@@ -1356,8 +1366,10 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
       let limit = read_value(root, attribute, max_bytes: 4096)
       let limit_number = collectors.bounded_number(limit, true)
       issues = append_number_issue(issues, "power", f"cap_zones.{zone_path.name()}.{attribute.name()}", limit_number)
-      let name_source = read_value(root, fp"{zone_path}/constraint_{index}_name", max_bytes: 4096)
-      let window = read_value(root, fp"{zone_path}/constraint_{index}_time_window_us", max_bytes: 4096)
+      let name_path = fp"{zone_path}/constraint_{index}_name".require(RelPath)?
+      let window_path = fp"{zone_path}/constraint_{index}_time_window_us".require(RelPath)?
+      let name_source = read_value(root, name_path, max_bytes: 4096)
+      let window = read_value(root, window_path, max_bytes: 4096)
       let window_number = collectors.bounded_number(window, true)
       issues = append_text_issue(
         issues,
@@ -1520,7 +1532,7 @@ type ProcessRead = {
   issues: List[report.CollectionIssue],
 }
 
-proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: Int) [fs, error] -> ProcessRead {
+proc read_process(root: FsRoot, process_path: RelPath, pid: Int, page_size_bytes: Int) [fs, error] -> ProcessRead {
   var issues: List[report.CollectionIssue] = []
   let stat_before = read_value(root, fp"{process_path}/stat", max_bytes: 16384)
   if stat_before.observation.state != .Observed or stat_before.observation.value == null {
@@ -1821,7 +1833,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
   }
 
   var sysctls: List[report.KernelParameter] = []
-  for named_source in [
+  let named_sysctls: List[NamedPathSource] = [
     {
       name: "kernel.pid_max",
       source_path: p"proc/sys/kernel/pid_max",
@@ -1846,7 +1858,8 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
       name: "net.ipv6.conf.all.forwarding",
       source_path: p"proc/sys/net/ipv6/conf/all/forwarding",
     },
-  ] {
+  ]
+  for named_source in named_sysctls {
     let {name, source_path, ..} = named_source
     let value = read_value(root, source_path, max_bytes: 4096)
     sysctls += [{name: name, value: value.observation}]
@@ -1856,7 +1869,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
   }
 
   var parameters: List[report.KernelParameter] = []
-  for named_source in [
+  let named_parameters: List[NamedPathSource] = [
     {
       name: "usbcore.autosuspend",
       source_path: p"sys/module/usbcore/parameters/autosuspend",
@@ -1869,7 +1882,8 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
       name: "intel_pstate.no_turbo",
       source_path: p"sys/module/intel_pstate/parameters/no_turbo",
     },
-  ] {
+  ]
+  for named_source in named_parameters {
     let {name, source_path, ..} = named_source
     let value = read_value(root, source_path, max_bytes: 4096)
     parameters += [{name: name, value: value.observation}]
@@ -1920,7 +1934,7 @@ proc collect_device_classes(
   var issues: List[report.CollectionIssue] = []
   var available_classes = 0
   var enumerated_classes = 0
-  for class_source in [
+  let class_sources: List[NamedPathSource] = [
     {
       name: "drm",
       source_path: p"sys/class/drm",
@@ -1933,7 +1947,8 @@ proc collect_device_classes(
       name: "input",
       source_path: p"sys/class/input",
     },
-  ] {
+  ]
+  for class_source in class_sources {
     let {name: class_name, source_path, ..} = class_source
     let listing = root.children(source_path, max_entries: 4096)?
     if listing.state != "absent" {
@@ -1959,7 +1974,8 @@ proc collect_device_classes(
       var name = entry_name
       if class_name == "input" or class_name == "sound" {
         let name_field = if class_name == "input" { "name" } else { "id" }
-        let name_file = read_value(root, fp"{entry}/{name_field}", max_bytes: 4096)
+        let name_path = fp"{entry}/{name_field}".require(RelPath)?
+        let name_file = read_value(root, name_path, max_bytes: 4096)
         let observed_name = observed_source_text(name_file)
         if observed_name != null {
           name = observed_name
@@ -2002,7 +2018,8 @@ proc collect_device_classes(
       }
       let attributes: List[report.KernelParameter] = collect {
         for attribute_name in allowlisted_attributes {
-          let attribute = read_value(root, fp"{entry}/{attribute_name}", max_bytes: 16384)
+          let attribute_path = fp"{entry}/{attribute_name}".require(RelPath)?
+          let attribute = read_value(root, attribute_path, max_bytes: 16384)
           if attribute.observation.state == .Observed {
             yield {name: attribute_name, value: attribute.observation}
           } else {
@@ -2428,17 +2445,17 @@ export pure pci_address_in_target(target: Path) -> Str? {
 }
 
 ## Prefers a device link and keeps a class-entry link as independent parent evidence.
-export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
+export proc class_parent_target(root: FsRoot, entry: RelPath) [fs, error] -> ClassParentObservation {
   src.class_parent_target(root, entry)
 }
 
 ## Reads a USB bus-entry link and accepts direct directories in rooted fixtures.
-export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation {
+export proc usb_controller_address(root: FsRoot, device_path: RelPath) [fs, error] -> UsbControllerObservation {
   sys_usb.controller_address(root, device_path)
 }
 
 ## Reads an optional driver binding while retaining failures separate from an unbound device.
-export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> collectors.SourceRead {
+export proc optional_driver_name(root: FsRoot, source_path: RelPath) [fs, error] -> collectors.SourceRead {
   src.driver_name(root, source_path)
 }
 
@@ -2672,7 +2689,7 @@ proc collect_identity(root: FsRoot, base: report.SystemReport) [fs, error] -> re
   {...base, identity: identity, scope: scope, issues: issues}
 }
 
-proc namespace_observation(root: FsRoot, source_path: Path) [fs, error] -> Result[collectors.SourceRead] {
+proc namespace_observation(root: FsRoot, source_path: RelPath) [fs, error] -> Result[collectors.SourceRead] {
   let result = root.readlink_result(source_path)?
   let state = live_source_observation_state(result.state, false)
   var value = null
@@ -2859,7 +2876,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
   let cpu_info = cpu_info_read.infos
   for cpu_id in present {
     let info = cpu_info_for_id(cpu_info, cpu_id)
-    let cpu_path = fp"sys/devices/system/cpu/cpu{cpu_id}"
+    let cpu_path = fp"sys/devices/system/cpu/cpu{cpu_id}".require(RelPath)?
     let package = read_value(root, fp"{cpu_path}/topology/physical_package_id", max_bytes: 4096)
     let die = read_value(root, fp"{cpu_path}/topology/die_id", max_bytes: 4096)
     let core = read_value(root, fp"{cpu_path}/topology/core_id", max_bytes: 4096)
@@ -3155,7 +3172,8 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 
   var idle_states: List[report.CpuIdleState] = []
   for cpu_id in present {
-    let cpuidle = root.children(fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle", max_entries: 256)?
+    let cpuidle_path = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle".require(RelPath)?
+    let cpuidle = root.children(cpuidle_path, max_entries: 256)?
     if cpuidle.state != "complete" and cpuidle.state != "absent" {
       issues += [
         issue(
@@ -3533,7 +3551,7 @@ proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssu
   {policies: policies, issues: collected_issues}
 }
 
-proc read_huge_page_pool(root: FsRoot, huge_path: Path, node_id: Int?, field: Str) [fs, error] -> HugePageRead {
+proc read_huge_page_pool(root: FsRoot, huge_path: RelPath, node_id: Int?, field: Str) [fs, error] -> HugePageRead {
   let name = huge_path.name()
   let parts = name.split("-")
   if parts.len() != 2 or parts[0] != "hugepages" or ! parts[1].ends_with("kB") {
@@ -3751,7 +3769,8 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
   var transparent_huge_pages = []
   for name in ["enabled", "defrag"] {
-    let policy = read_value(root, fp"sys/kernel/mm/transparent_hugepage/{name}", max_bytes: 4096)
+    let policy_path = fp"sys/kernel/mm/transparent_hugepage/{name}".require(RelPath)?
+    let policy = read_value(root, policy_path, max_bytes: 4096)
     continue when policy.observation.state == .Absent
     if policy.observation.state != .Observed or policy.observation.value == null {
       issues += [
@@ -3771,7 +3790,8 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
   var pressure: List[report.PressureLine] = []
   for resource in ["cpu", "memory", "io"] {
-    let pressure_source = read_value(root, fp"proc/pressure/{resource}", max_bytes: 16384)
+    let pressure_path = fp"proc/pressure/{resource}".require(RelPath)?
+    let pressure_source = read_value(root, pressure_path, max_bytes: 16384)
     if pressure_source.observation.state != .Observed or pressure_source.observation.value == null {
       issues += [
         issue(
@@ -4160,11 +4180,17 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
   var visited = 0
   var current_relative = relative
   while visited < 64 {
-    let source_path = if current_relative == "" {
-      fp"{mount_relative}"
+    let source_path = (if current_relative == "" {
+      if mount_relative == "" {
+        p"."
+      } else {
+        fp"{mount_relative}"
+      }
+    } else if mount_relative == "" {
+      fp"{current_relative}"
     } else {
       fp"{mount_relative}/{current_relative}"
-    }
+    }).require(RelPath)?
     let visible_path = if current_relative == "" {
       root_path
     } else if root_path == "/" {
@@ -4962,7 +4988,7 @@ pure source_error_kind(failure: Error) -> Str {
   }
 }
 
-proc network_link_target(root: FsRoot, source_path: Path, field: Str) [fs, error] -> NetworkLinkTarget {
+proc network_link_target(root: FsRoot, source_path: RelPath, field: Str) [fs, error] -> NetworkLinkTarget {
   if let Ok(observed) = root.readlink_result(source_path) {
     if observed.state == "observed" {
       guard observed.target == null else {
@@ -5008,9 +5034,10 @@ export proc link_network_device_sources(
     var parent_usb_device_index = null
     if link.name.value != null {
       let name = link.name.value
+      let interface_path = fp"sys/class/net/{name}".require(RelPath)?
       let driver_link = network_link_target(
         root,
-        fp"sys/class/net/{name}/device/driver",
+        fp"{interface_path}/device/driver",
         f"links.{link.ifindex}.driver",
       )
       issues += driver_link.issues
@@ -5018,7 +5045,7 @@ export proc link_network_device_sources(
         driver = driver_link.target.name()
       }
 
-      let device_link = network_link_target(root, fp"sys/class/net/{name}/device", f"links.{link.ifindex}.parent")
+      let device_link = network_link_target(root, fp"{interface_path}/device", f"links.{link.ifindex}.parent")
       issues += device_link.issues
       if device_link.target != null {
         let target = device_link.target
@@ -5370,9 +5397,9 @@ export type SystemReportLiveCollector = module {
   export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report.SystemReport, Error]
   export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report.SystemReport, Error]
   export proc link_network_device_sources(root: FsRoot, assembled: NetworkCollection, pci_functions: List[report.PciFunction], usb_devices: List[report.UsbDevice]) [fs, error] -> NetworkCollection
-  export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> collectors.SourceRead
-  export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation
-  export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation
+  export proc optional_driver_name(root: FsRoot, source_path: RelPath) [fs, error] -> collectors.SourceRead
+  export proc usb_controller_address(root: FsRoot, device_path: RelPath) [fs, error] -> UsbControllerObservation
+  export proc class_parent_target(root: FsRoot, entry: RelPath) [fs, error] -> ClassParentObservation
 }
 
 ## Collects the current process-visible Linux view and eligible local mount capacity.

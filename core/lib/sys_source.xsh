@@ -105,7 +105,7 @@ export pure with_section(section: Str, issues: List[Issue]) -> List[report.Colle
 ## A partial read retains its state but cannot expose its prefix as a complete value.
 export proc read_source_text(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   max_bytes: Int = 65536,
   preserve_whitespace: Bool = false,
 ) [fs, error] -> SourceRead {
@@ -251,7 +251,7 @@ export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumb
 }
 
 ## Reports whether a path is a directory, treating any metadata failure as no.
-export proc is_directory(root: FsRoot, entry: Path) [fs, error] -> Bool {
+export proc is_directory(root: FsRoot, entry: RelPath) [fs, error] -> Bool {
   if let Ok(metadata) = root.metadata(entry) {
     metadata.kind == "dir"
   } else {
@@ -260,7 +260,7 @@ export proc is_directory(root: FsRoot, entry: Path) [fs, error] -> Bool {
 }
 
 ## Reads a symlink target, accepting a plain directory where rooted fixtures stand in for links.
-export proc class_entry_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
+export proc class_entry_target(root: FsRoot, entry: RelPath) [fs, error] -> ClassParentObservation {
   if let Ok(observed) = root.readlink_result(entry) {
     if observed.state == "observed" {
       return {target: observed.target, state: report.Observed, errno: observed.errno, error_kind: observed.error_kind}
@@ -286,7 +286,7 @@ export proc class_entry_target(root: FsRoot, entry: Path) [fs, error] -> ClassPa
 }
 
 ## Prefers a device link and keeps a class-entry link as independent parent evidence.
-export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
+export proc class_parent_target(root: FsRoot, entry: RelPath) [fs, error] -> ClassParentObservation {
   let fallback = class_entry_target(root, entry)
   if let Ok(observed) = root.readlink_result(fp"{entry}/device") {
     if observed.state == "observed" {
@@ -316,7 +316,7 @@ export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassP
 }
 
 ## Reads an optional driver binding while retaining failures separate from an unbound device.
-export proc driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead {
+export proc driver_name(root: FsRoot, source_path: RelPath) [fs, error] -> SourceRead {
   if let Ok(observed) = root.readlink_result(source_path) {
     let state = source_state(observed.state, false)
     var value = null

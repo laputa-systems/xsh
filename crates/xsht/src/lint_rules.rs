@@ -15,7 +15,7 @@ use xsh::frontend::syntax::grammar::RunOption;
 use super::nested_pipeline_index_tests;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RuleOption { InferredPrivateEffects, EnvString, ItemShorthand, TempdirScope, InferredPureReturns, InferredProcReturns, TextPattern, RelPath }
+enum RuleOption { InferredPrivateEffects, EnvString, ItemShorthand, TempdirScope, InferredPureReturns, InferredProcReturns, TextPattern }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RuleSetting { Always, AlwaysWithOptInAdvice, Configured(RuleOption), OptIn(RuleOption), DeadCode, Runless, NativeTestFile, Migration }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -274,7 +274,6 @@ lint_rules! {
     LintPreferNegativeIndex: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferNonEmptyArgv: (RuleSetting::Always, [UnvalidatedCommandVectors], FixPolicy::NoFix, [RuleHook::RunCheck(RunCheckSite::SegmentChecks, run_segment_checks)]);
     LintPreferAsConversion: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
-    LintPreferRelPath: (RuleSetting::OptIn(RuleOption::RelPath), [ExpressionTypes], FixPolicy::NoFix, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferArgumentLabel: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintEmptySentinel: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, [RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::EmptyFallbacks, |linter, expr| { let findings = linter.empty_fallbacks.visit_expr(linter.arena, linter.source, expr); linter.diagnostics.extend(findings); }), RuleHook::StatementSequence(StatementSequenceSite::EmptySentinel, super::lint_empty_sentinel::lint_empty_fallback_then_test)]);
     LintPreferSet: (RuleSetting::AlwaysWithOptInAdvice, [], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::SetLikeBindings, |linter, statement, _| linter.set_like_bindings.visit_stmt(linter.arena, linter.source, statement)), RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::SetLikeBindings, |linter, expr| linter.set_like_bindings.visit_expr(linter.arena, linter.source, expr)), RuleHook::Root(RootStage::SetLike, run_set_like_finalizer)]);
@@ -656,7 +655,6 @@ impl RuleSetting {
                 RuleOption::InferredPureReturns => options.prefer_inferred_pure_returns,
                 RuleOption::InferredProcReturns => options.prefer_inferred_proc_returns,
                 RuleOption::TextPattern => options.prefer_text_pattern,
-                RuleOption::RelPath => options.prefer_rel_path,
             },
             Self::DeadCode => options.dead_code,
             Self::Runless => options.runless,
@@ -2853,7 +2851,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 147);
+        assert_eq!(codes.len(), 146);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());

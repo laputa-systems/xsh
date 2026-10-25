@@ -462,7 +462,7 @@ pub fn fs_root_children_result_type() -> Type {
     Type::Record(name_type_map(vec![
         ("state", Type::Str),
         ("enumeration_succeeded", Type::Bool),
-        ("children", Type::List(Box::new(Type::Path))),
+        ("children", Type::List(Box::new(Type::RelPath))),
         ("errno", Type::Optional(Box::new(Type::Int))),
         ("error_kind", Type::Optional(Box::new(Type::Str))),
     ]))

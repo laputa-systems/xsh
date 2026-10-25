@@ -23,6 +23,41 @@ fn on_large_stack(test: impl FnOnce() + Send + 'static) {
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
 }
 
+#[test]
+fn contextual_relative_path_arguments_authenticate_interpolation_parts() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"proc write(root: FsRoot, name: RelPath, plain: Path) [fs, error] {
+    let _ = plain
+    root.write(fp"nested/{name}", "data")
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let owner = function(&program, "write");
+        let decoder = function_view_decoder(&program.store, owner);
+        let format = program.store.function_instruction_range(owner).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprPathFmtString).unwrap();
+        let schema::ExprView::PathFmtString { mut parts, .. } = decoder.expression_view(format).unwrap() else { panic!("path interpolation") };
+        let hole = parts.find_map(|part| match part.unwrap() {
+            decode::FmtPartView::Expr(value, _, _) => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let text = program.store.strings.iter().find_map(|range| {
+            let range = range.bounds(program.store.string_bytes.len()).unwrap();
+            (program.store.string_bytes[range.clone()] == *b"nested/").then_some(range)
+        }).unwrap();
+        let mut escaping = program.clone();
+        escaping.store.in_place.take();
+        escaping.store.string_bytes[text].copy_from_slice(b"../bad/");
+        assert!(FullVerifier::verify(&escaping).is_err());
+        let mut plain_hole = program.clone();
+        plain_hole.store.in_place.take();
+        plain_hole.store.extra[program.store.data[hole].range().start as usize] = 2;
+        assert!(FullVerifier::verify(&plain_hole).is_err());
+    });
+}
+
 fn execute_both(program: &FullProgram) {
     let program = Arc::new(program.clone());
     for force_frames in [false, true] {

@@ -215,8 +215,9 @@ export proc compare_live_sensors_json(
   }
 
   let scratch = fs.tempdir()?
-    for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
-    scratch.write(fp"{name}", "")
+  for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
+    let output_name = fp"{name}".require(RelPath)?
+    scratch.write(output_name, "")
   }
 
   let scratch_path = scratch.host_path()?

@@ -663,7 +663,6 @@ diagnostic_codes! {
         LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", note, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";
         LintPreferAsConversion = "lint.prefer-as-conversion", warning, "Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names";
         LintPreferTextPattern = "lint.prefer-text-pattern", note, "Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in)";
-        LintPreferRelPath = "lint.prefer-rel-path", note, "Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot";
         LintPreferArgumentLabel = "lint.prefer-argument-label", warning, "Call `link.symlink(to: target)`, whose label says which path is the target, instead of `fs.symlink(target, link)`";
         LintEmptySentinel = "lint.empty-sentinel", note, "Note an optional bound through `?? \"\"` whose binding is then tested for emptiness, which an optional binding keeps apart from an empty value";
         LintPreferSet = "lint.prefer-set", warning, "Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in)";

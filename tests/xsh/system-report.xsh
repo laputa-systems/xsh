@@ -117,7 +117,7 @@ type SystemReportCollectors = module {
   export pure parse_pci_hex_value(value: Str) -> Result[Int, Error]
   export pure pci_parent_address(target: Path, child_address: Str) -> Str?
   export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord], Error]
-  export proc read_source_text(root: FsRoot, source_path: Path, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
+  export proc read_source_text(root: FsRoot, source_path: RelPath, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
   export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumericObservation
   export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumericObservation
   export pure bounded_size_bytes(source: SourceRead) -> BoundedNumericObservation
@@ -139,9 +139,9 @@ type SystemReportLiveCollector = module {
   export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report_model.SystemReport, Error]
   export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection
   export proc link_network_device_sources(root: FsRoot, assembled: NetworkCollection, pci_functions: List[report_model.PciFunction], usb_devices: List[report_model.UsbDevice]) [fs, error] -> NetworkCollection
-  export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead
-  export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation
-  export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation
+  export proc optional_driver_name(root: FsRoot, source_path: RelPath) [fs, error] -> SourceRead
+  export proc usb_controller_address(root: FsRoot, device_path: RelPath) [fs, error] -> UsbControllerObservation
+  export proc class_parent_target(root: FsRoot, entry: RelPath) [fs, error] -> ClassParentObservation
   export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error]
   export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error]
   export pure usb_parent_address(target: Path) -> Str?
@@ -305,9 +305,10 @@ test test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   let root = fs.tempdir()?
   defer root.close()
   for entry in ["card0", "card1"] {
-    root.mkdir(fp"sys/class/sound/{entry}", parents: true)
+    let entry_path: RelPath = fp"sys/class/sound/{entry}".require(RelPath)?
+    root.mkdir(entry_path, parents: true)
     root.write(
-      fp"sys/class/sound/{entry}/id",
+      fp"{entry_path}/id",
       """Shared card label
 """,
     )
@@ -912,7 +913,8 @@ test test_system_report_scope_keeps_all_process_visible_namespace_identities {
       target: "time:[108]",
     },
   ] {
-    root.symlink(target: fp"{namespace.target}", path: fp"proc/self/ns/{namespace.name}")
+    let namespace_path: RelPath = fp"proc/self/ns/{namespace.name}".require(RelPath)?
+    root.symlink(target: fp"{namespace.target}", path: namespace_path)
   }
 
   root.write(
@@ -1571,7 +1573,8 @@ test test_system_report_cpu_collection_preserves_128_present_ids {
   defer root.close()
   root.mkdir(p"sys/devices/system/cpu", parents: true)
   for cpu_id in range(128) {
-    root.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}")
+    let cpu_path: RelPath = fp"sys/devices/system/cpu/cpu{cpu_id}".require(RelPath)?
+    root.mkdir(cpu_path)
   }
 
   root.write(
@@ -1851,13 +1854,14 @@ test test_system_report_pci_and_usb_source_parsers {
 test test_system_report_pci_collection_links_a_child_to_its_bridge {
   let root = fs.tempdir()?
   defer root.close()
-  let parent_path = p"sys/devices/pci0001:02/0001:02:01.0"
-  let child_path = p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0"
+  let parent_path: RelPath = p"sys/devices/pci0001:02/0001:02:01.0"
+  let child_path: RelPath = p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0"
   root.mkdir(child_path, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
   root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0, path: p"sys/bus/pci/devices/0001:02:01.0")
   root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, path: p"sys/bus/pci/devices/0001:02:03.0")
-  for device_path in [parent_path, child_path] {
+  let device_paths: List[RelPath] = [parent_path, child_path]
+  for device_path in device_paths {
     root.write(
       fp"{device_path}/vendor",
       """0x1234
@@ -1911,11 +1915,12 @@ test test_system_report_pci_collection_reports_non_utf8_names_without_losing_val
 
   let root = fs.tempdir()?
   defer root.close()
-  let valid = p"sys/bus/pci/devices/0000:00:01.0"
-  let invalid = b"sys/bus/pci/devices/raw\xffname" as Path
+  let valid: RelPath = p"sys/bus/pci/devices/0000:00:01.0"
+  let invalid = (b"sys/bus/pci/devices/raw\xffname" as Path).require(RelPath)?
   root.mkdir(valid, parents: true)
   root.mkdir(invalid, parents: true)
-  for source in ["vendor", "device", "subsystem_vendor", "subsystem_device", "class", "revision"] {
+  let sources: List[RelPath] = [p"vendor", p"device", p"subsystem_vendor", p"subsystem_device", p"class", p"revision"]
+  for source in sources {
     root.write(
       fp"{valid}/{source}",
       """0x0001
@@ -1938,9 +1943,10 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
   let root = fs.tempdir()?
   defer root.close()
   root.mkdir(p"sys/bus/pci/devices", parents: true)
-  let first_path = p"sys/devices/pci0000:01/0000:01:02.0"
-  let second_path = p"sys/devices/pci0000:01/0000:01:02.1"
-  for source_path in [first_path, second_path] {
+  let first_path: RelPath = p"sys/devices/pci0000:01/0000:01:02.0"
+  let second_path: RelPath = p"sys/devices/pci0000:01/0000:01:02.1"
+  let source_paths: List[RelPath] = [first_path, second_path]
+  for source_path in source_paths {
     root.mkdir(source_path, parents: true)
     root.write(
       fp"{source_path}/vendor",
@@ -2244,7 +2250,7 @@ test test_system_report_usb_identity_read_failures_keep_field_issues {
 test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
   let root = fs.tempdir()?
   defer root.close()
-  let device = p"sys/bus/usb/devices/1-2"
+  let device: RelPath = p"sys/bus/usb/devices/1-2"
   root.mkdir(device, parents: true)
   root.mkdir(p"sys/bus/usb/devices/1-2/power", parents: true)
   var padding = " "
@@ -2275,7 +2281,7 @@ test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
     },
   ] {
     root.write(
-      fp"{device}/{field.name}",
+      fp"{device}/{field.name}".require(RelPath)?,
       f"""{field.prefix}
 {padding}""",
     )
@@ -3673,7 +3679,8 @@ Features: fp asimd
     """2
 """,
   )
-  for cpu_path in [p"sys/devices/system/cpu/cpu0/cache/index7", p"sys/devices/system/cpu/cpu2/cache/index7"] {
+  let cpu_paths: List[RelPath] = [p"sys/devices/system/cpu/cpu0/cache/index7", p"sys/devices/system/cpu/cpu2/cache/index7"]
+  for cpu_path in cpu_paths {
     root.write(
       fp"{cpu_path}/level",
       """2
@@ -3722,58 +3729,59 @@ Features: fp asimd
       governor: "unlisted-governor",
     },
   ] {
+    let policy_path: RelPath = policy.path.require(RelPath)?
     root.write(
-      fp"{policy.path}/related_cpus",
+      fp"{policy_path}/related_cpus",
       f"""{policy.related}
 """,
     )
     root.write(
-      fp"{policy.path}/affected_cpus",
+      fp"{policy_path}/affected_cpus",
       f"""{policy.affected}
 """,
     )
     root.write(
-      fp"{policy.path}/scaling_driver",
+      fp"{policy_path}/scaling_driver",
       f"""{policy.driver}
 """,
     )
     root.write(
-      fp"{policy.path}/scaling_governor",
+      fp"{policy_path}/scaling_governor",
       f"""{policy.governor}
 """,
     )
     root.write(
-      fp"{policy.path}/scaling_available_governors",
+      fp"{policy_path}/scaling_available_governors",
       """powersave performance
 """,
     )
     root.write(
-      fp"{policy.path}/cpuinfo_min_freq",
+      fp"{policy_path}/cpuinfo_min_freq",
       """800000
 """,
     )
     root.write(
-      fp"{policy.path}/cpuinfo_max_freq",
+      fp"{policy_path}/cpuinfo_max_freq",
       """4000000
 """,
     )
     root.write(
-      fp"{policy.path}/scaling_min_freq",
+      fp"{policy_path}/scaling_min_freq",
       """1000000
 """,
     )
     root.write(
-      fp"{policy.path}/scaling_max_freq",
+      fp"{policy_path}/scaling_max_freq",
       """3000000
 """,
     )
     root.write(
-      fp"{policy.path}/energy_performance_preference",
+      fp"{policy_path}/energy_performance_preference",
       """balance_performance
 """,
     )
     root.write(
-      fp"{policy.path}/energy_performance_available_preferences",
+      fp"{policy_path}/energy_performance_available_preferences",
       """performance balance_performance power
 """,
     )
@@ -3860,7 +3868,7 @@ Features: fp asimd
 test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes {
   let root = fs.tempdir()?
   defer root.close()
-  let policy_path = p"sys/devices/system/cpu/cpufreq/policy0"
+  let policy_path: RelPath = p"sys/devices/system/cpu/cpufreq/policy0"
   root.mkdir(policy_path, parents: true)
   root.mkdir(p"sys/devices/system/cpu/cpu0", parents: true)
   root.write(
@@ -3921,7 +3929,7 @@ test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes {
   ] {
     let suffix = if field.name == "scaling_available_frequencies" { long_padding } else { padding }
     root.write(
-      fp"{policy_path}/{field.name}",
+      fp"{policy_path}/{field.name}".require(RelPath)?,
       f"""{field.prefix}
 {suffix}""",
     )
@@ -4082,13 +4090,14 @@ test test_system_report_idle_and_affinity_reject_truncated_prefixes {
     f"""Cpus_allowed_list:	0
 {padding}""",
   )
-  for source_path in [
+  let source_paths: List[RelPath] = [
     p"sys/devices/system/cpu/cpuidle/current_driver",
     p"sys/devices/system/cpu/cpuidle/current_governor",
     p"sys/devices/system/cpu/cpuidle/available_governors",
     p"sys/devices/system/cpu/cpu0/cpuidle/state0/name",
     p"sys/devices/system/cpu/cpu0/cpuidle/state0/desc",
-  ] {
+  ]
+  for source_path in source_paths {
     root.write(
       source_path,
       f"""complete-looking prefix
@@ -4235,7 +4244,7 @@ model name: complete-looking prefix
 test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes {
   let root = fs.tempdir()?
   defer root.close()
-  let topology = p"sys/devices/system/cpu/cpu0/topology"
+  let topology: RelPath = p"sys/devices/system/cpu/cpu0/topology"
   root.mkdir(topology, parents: true)
   root.write(
     p"sys/devices/system/cpu/possible",
@@ -4277,7 +4286,7 @@ test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes {
     },
   ] {
     root.write(
-      fp"{topology}/{field.name}",
+      fp"{topology}/{field.name}".require(RelPath)?,
       f"""{field.prefix}
 {padding}""",
     )
@@ -4371,7 +4380,7 @@ test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation {
   let truncated = value.issues |> where .section == "cpu" and .field == "cpu0.cache.index8.size"
   assert truncated.len() == 1
   assert truncated[0].state == .Truncated
-  let incomplete_cache = p"sys/devices/system/cpu/cpu0/cache/index9"
+  let incomplete_cache: RelPath = p"sys/devices/system/cpu/cpu0/cache/index9"
   root.mkdir(incomplete_cache, parents: true)
   root.write(
     fp"{incomplete_cache}/level",
@@ -4425,7 +4434,7 @@ test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation {
 test test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list {
   let root = fs.tempdir()?
   defer root.close()
-  let cache_path = p"sys/devices/system/cpu/cpu0/cache/index7"
+  let cache_path: RelPath = p"sys/devices/system/cpu/cpu0/cache/index7"
   root.mkdir(cache_path, parents: true)
   root.write(
     p"sys/devices/system/cpu/possible",
@@ -4497,7 +4506,7 @@ test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing {
   )
   root.write(p"sys/devices/system/cpu/offline", "\n")
   for entry in [{index: 7, kernel_id: 9}, {index: 8, kernel_id: 10}] {
-    let base = fp"sys/devices/system/cpu/cpu0/cache/index{entry.index}"
+    let base: RelPath = fp"sys/devices/system/cpu/cpu0/cache/index{entry.index}".require(RelPath)?
     root.mkdir(base)
     root.write(
       fp"{base}/id",
@@ -5141,10 +5150,11 @@ test test_system_report_storage_links_layered_block_devices_by_identity {
   let root = fs.tempdir()?
   defer root.close()
   for name in ["sda", "dm-0"] {
-    root.mkdir(fp"sys/class/block/{name}/holders", parents: true)
-    root.mkdir(fp"sys/class/block/{name}/slaves", parents: true)
+    let device_path: RelPath = fp"sys/class/block/{name}".require(RelPath)?
+    root.mkdir(fp"{device_path}/holders", parents: true)
+    root.mkdir(fp"{device_path}/slaves", parents: true)
     root.write(
-      fp"sys/class/block/{name}/size",
+      fp"{device_path}/size",
       """16
 """,
     )
@@ -5185,7 +5195,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
   let root = fs.tempdir()?
   defer root.close()
   root.mkdir(p"sys/class/block", parents: true)
-  let disk_path = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
+  let disk_path: RelPath = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
   root.mkdir(fp"{disk_path}/holders", parents: true)
   root.mkdir(fp"{disk_path}/slaves", parents: true)
   root.write(
@@ -5201,7 +5211,8 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
   root.symlink(target: ../../devices/pci0000:00/0000:00:01.0/block/sda, path: p"sys/class/block/sda")
   for number in [1, 3] {
     let name = f"sda{number}"
-    let partition_path = fp"{disk_path}/{name}"
+    let name_path: RelPath = fp"{name}".require(RelPath)?
+    let partition_path: RelPath = fp"{disk_path}/{name_path}"
     root.mkdir(fp"{partition_path}/holders", parents: true)
     root.write(
       fp"{partition_path}/partition",
@@ -5218,7 +5229,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
       """128
 """,
     )
-    root.symlink(target: fp"../../devices/pci0000:00/0000:00:01.0/block/sda/{name}", path: fp"sys/class/block/{name}")
+    root.symlink(target: fp"../../devices/pci0000:00/0000:00:01.0/block/sda/{name}", path: fp"sys/class/block/{name_path}")
   }
 
   root.mkdir(p"proc/self", parents: true)
@@ -6258,20 +6269,21 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let root = fs.tempdir()?
   defer root.close()
   for entry in ["hwmon0", "hwmon1"] {
-    root.mkdir(fp"sys/class/hwmon/{entry}", parents: true)
+    let entry_path: RelPath = fp"sys/class/hwmon/{entry}".require(RelPath)?
+    root.mkdir(entry_path, parents: true)
     root.write(
-      fp"sys/class/hwmon/{entry}/name",
+      fp"{entry_path}/name",
       """same_chip
 """,
     )
     root.write(
-      fp"sys/class/hwmon/{entry}/temp1_input",
+      fp"{entry_path}/temp1_input",
       """42000
 """,
     )
   }
 
-  let pci_path = p"sys/devices/pci0000:00/0000:00:1f.3"
+  let pci_path: RelPath = p"sys/devices/pci0000:00/0000:00:1f.3"
   root.mkdir(pci_path, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
   root.symlink(target: ../../../devices/pci0000:00/0000:00:1f.3, path: p"sys/bus/pci/devices/0000:00:1f.3")
@@ -6307,7 +6319,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
 """,
     },
   ] {
-    root.write(fp"{pci_path}/{field.name}", field.value)
+    root.write(fp"{pci_path}/{field.name}".require(RelPath)?, field.value)
   }
 
   root.symlink(target: ../../../devices/pci0000:00/0000:00:1f.3, path: p"sys/class/hwmon/hwmon0/device")

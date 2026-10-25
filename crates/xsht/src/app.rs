@@ -786,7 +786,7 @@ mod tests {
             .copied()
             .filter(|code| code.family() != DiagnosticFamily::Lint && code.fixable())
             .collect::<Vec<_>>();
-        assert_eq!(lint_codes.len(), 147);
+        assert_eq!(lint_codes.len(), 146);
         assert_eq!(aliases.len(), 9);
         assert!(aliases.iter().all(|code| code.lint_selectable()));
 

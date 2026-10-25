@@ -6153,15 +6153,17 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   widths and total output to 64 KiB. Human and relative date grammar belongs
   to the XSH `lib.date_parse` module used by `date` and `touch`; it can take an
   explicit baseline and does not have a whole-parser native API.
-- `FsRoot` methods resolve relative paths against an open directory handle
-  and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
-  path resolution, not the process. Their path parameters are `Path`, so they
-  take a `RelPath` (4.13), the type of a path already known to be relative
-  and free of an escaping `..`; a function that passes a path on to a root
-  should declare it `RelPath`. The handle still resolves every path it is
-  given, because only resolution sees a symlink. `FsRoot.children` sorts
-  child paths by raw bytes by default; `ordered: false` preserves filesystem
-  enumeration order, including partial results. `max_entries` defaults to
+- `FsRoot` methods and `fs.root_install_file` resolve paths beneath open
+  directory handles. Their rooted path parameters take `RelPath` (4.13), which
+  excludes absolute paths and `..` that climbs above the starting point. A
+  function that passes a path to a rooted operation should declare it
+  `RelPath`. Filesystem resolution checks the actual path and rejects symlink
+  escapes. `FsRoot.symlink` keeps its
+  `target` as `Path` because it records link contents; only its `path` is
+  resolved beneath the root. `fs.root_install_file` takes `RelPath` source and
+  destination names beneath its respective roots. `FsRoot.children` returns
+  `RelPath` child paths, sorted by raw bytes by default; `ordered: false`
+  preserves filesystem enumeration order, including partial results. `max_entries` defaults to
   65536 and accepts 0 through 65536; truncated results retain a prefix in
   the selected order and report `enumeration_succeeded: false`.
 - Six methods take an argument whose label makes the call read as a

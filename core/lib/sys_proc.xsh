@@ -100,7 +100,7 @@ export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs
   var user_names: Map[Int, Str] = {}
   let displays: List[LocalProcessDisplay] = collect {
     for row in process_rows {
-      let process_path = fp"proc/{row.pid}"
+      let process_path = fp"proc/{row.pid}".require(RelPath)?
       let before = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
       let command = root.read_result(fp"{process_path}/cmdline", max_bytes: 4096)?
       let after = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
@@ -258,7 +258,7 @@ export pure process_read_from_tape(pid: Int, page_size_bytes: Int, tape: Process
   }
 }
 
-proc process_read(root: FsRoot, directory: Path, pid: Int, page_size_bytes: Int) [fs, error] -> ProcessRead {
+proc process_read(root: FsRoot, directory: RelPath, pid: Int, page_size_bytes: Int) [fs, error] -> ProcessRead {
   let before_source = src.read_source_text(root, fp"{directory}/stat", max_bytes: 16384)
   if before_source.observation.state != .Observed or before_source.observation.value == null {
     return {

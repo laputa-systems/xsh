@@ -4,7 +4,7 @@ use core.lib.system_report as report
 # Writes one function's identity attributes under its real sysfs device path and
 # links it from the bus listing the way the kernel does. The caller creates
 # `sys/bus/pci/devices` once.
-proc add_function(root: FsRoot, address: Str, device_path: Str, class_code: Str) [fs, error] {
+proc add_function(root: FsRoot, address: Str, device_path: RelPath, class_code: Str) [fs, error] {
   root.mkdir(fp"sys/devices/{device_path}", parents: true)
   for item in [
     {name: "vendor", value: "0x144d"},
@@ -14,10 +14,12 @@ proc add_function(root: FsRoot, address: Str, device_path: Str, class_code: Str)
     {name: "class", value: class_code},
     {name: "revision", value: "0x01"},
   ] {
-    root.write(fp"sys/devices/{device_path}/{item.name}", f"{item.value}\n")
+    let attribute_path = fp"sys/devices/{device_path}/{item.name}".require(RelPath)?
+    root.write(attribute_path, f"{item.value}\n")
   }
 
-  root.symlink(target: fp"../../../devices/{device_path}", path: fp"sys/bus/pci/devices/{address}")
+  let entry_path = fp"sys/bus/pci/devices/{address}".require(RelPath)?
+  root.symlink(target: fp"../../../devices/{device_path}", path: entry_path)
 }
 
 test test_sys_pci_address_and_identifier_parsers_keep_typed_boundaries {

@@ -4706,14 +4706,14 @@ fn generic_collect_delegation_rejects_non_list_sources_and_callback_yield_escape
 fn ground_resource_contracts_preserve_bounded_producer_verification() {
     let declarations = [
         "var argument_order = \"\"",
-        "proc selected_path(location: Path) [] -> Path { argument_order += \"p\"; location }",
+        "proc selected_path(location: RelPath) [] -> RelPath { argument_order += \"p\"; location }",
         "proc selected_order() [] -> Bool { argument_order += \"o\"; true }",
         "proc observed_order() [] -> Str { argument_order }",
         "proc closed(root: FsRoot) [fs] -> Result[Unit] { root.close() }",
-        "proc typed(root: FsRoot, location: Path) [fs, error] { root.children(ordered: selected_order(), path: selected_path(location))? }",
-        "proc listed(marker: Any, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.children(ordered: selected_order(), path: selected_path(location))? }",
-        "proc written(marker: Any, root: FsRoot, location: Path, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }",
-        "proc read(marker: Any, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.read_text(location)? }",
+        "proc typed(root: FsRoot, location: RelPath) [fs, error] { root.children(ordered: selected_order(), path: selected_path(location))? }",
+        "proc listed(marker: Any, root: FsRoot, location: RelPath) [fs, error] { let _ = marker; root.children(ordered: selected_order(), path: selected_path(location))? }",
+        "proc written(marker: Any, root: FsRoot, location: RelPath, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }",
+        "proc read(marker: Any, root: FsRoot, location: RelPath) [fs, error] { let _ = marker; root.read_text(location)? }",
     ];
     let cases = [
         ("children", vec![0, 1, 2, 5]),
@@ -4756,14 +4756,14 @@ fn generic_fsroot_methods_preserve_selected_named_arguments() {
 fn generic_fsroot_methods_preserve_resource_calls_and_argument_order_on_both_routes() {
     let directory = tempfile::Builder::new().prefix("generic-fsroot-").tempdir_in(".work/tmp").unwrap();
     let source = r#"var argument_order = ""
-proc selected_path(location: Path) [] -> Path { argument_order += "p"; location }
+proc selected_path(location: RelPath) [] -> RelPath { argument_order += "p"; location }
 proc selected_order() [] -> Bool { argument_order += "o"; true }
 proc observed_order() [] -> Str { argument_order }
 proc closed(root: FsRoot) [fs] -> Result[Unit] { root.close() }
-proc typed(root: FsRoot, location: Path) [fs, error] { root.children(ordered: selected_order(), path: selected_path(location))? }
-proc listed(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.children(ordered: selected_order(), path: selected_path(location))? }
-proc written(marker, root: FsRoot, location: Path, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }
-proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.read_text(location)? }
+proc typed(root: FsRoot, location: RelPath) [fs, error] { root.children(ordered: selected_order(), path: selected_path(location))? }
+proc listed(marker, root: FsRoot, location: RelPath) [fs, error] { let _ = marker; root.children(ordered: selected_order(), path: selected_path(location))? }
+proc written(marker, root: FsRoot, location: RelPath, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }
+proc read(marker, root: FsRoot, location: RelPath) [fs, error] { let _ = marker; root.read_text(location)? }
 "#;
     let typed = source.replace("marker,", "marker: Any,");
     let path = |text: &str| Value::Path(crate::runtime::value::PathValue::from_text(text).unwrap());
@@ -4771,9 +4771,9 @@ proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; ro
     for source in [typed.as_str(), source] {
         let mut source = source.to_owned();
         for (entry, marker_type) in [("integer", "Int"), ("text", "Str"), ("boolean", "Bool")] {
-            source.push_str(&format!("\nproc entry_written_{entry}(marker: {marker_type}, root: FsRoot, location: Path, text: Str) [fs, error] {{ written(marker, root, location, text) }}\nproc entry_read_{entry}(marker: {marker_type}, root: FsRoot, location: Path) [fs, error] {{ read(marker, root, location) }}\n"));
+            source.push_str(&format!("\nproc entry_written_{entry}(marker: {marker_type}, root: FsRoot, location: RelPath, text: Str) [fs, error] {{ written(marker, root, location, text) }}\nproc entry_read_{entry}(marker: {marker_type}, root: FsRoot, location: RelPath) [fs, error] {{ read(marker, root, location) }}\n"));
         }
-        source.push_str("\nproc entry_listed(marker: Bool, root: FsRoot, location: Path) [fs, error] { listed(marker, root, location) }\n");
+        source.push_str("\nproc entry_listed(marker: Bool, root: FsRoot, location: RelPath) [fs, error] { listed(marker, root, location) }\n");
         let (program, sources, source_id) = record_form_program(&source);
         for force_frames in [false, true] {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());

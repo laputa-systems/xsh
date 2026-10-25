@@ -38,7 +38,19 @@ pure occurrences(text: Str, needle: Str) -> Int {
 test test_api_fs_root_lists_native_receiver_operations {
   api(["method:FsRoot.read_bytes", "method:FsRoot.mkdir", "method:FsRoot.close"])? |> assert_contains(
     _,
-    ["method.FsRoot.read_bytes", "method.FsRoot.mkdir", "method.FsRoot.close", "root.write", "payload"],
+    [
+      "FsRoot.read_bytes(path: RelPath) -> Result[Bytes, Error]",
+      "method.FsRoot.mkdir",
+      "method.FsRoot.close",
+      "root.write",
+      "payload",
+    ],
+  )
+  api(["api:fs.root_install_file"])? |> assert_contains(
+    _,
+    [
+      "fs.root_install_file(source_root: FsRoot, source: RelPath, dest_root: FsRoot, dest: RelPath",
+    ],
   )
 }
 

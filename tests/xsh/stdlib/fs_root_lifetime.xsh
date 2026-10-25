@@ -9,8 +9,8 @@ proc root_from_result_match() [fs, io, process, error] -> FsRoot {
   }
 }
 
-proc write_root_marker(root: FsRoot, name: Str) [fs, error] {
-  root.write(fp"{name}", name)
+proc write_root_marker(root: FsRoot, name: RelPath) [fs, error] {
+  root.write(name, name.display())
 }
 
 test test_fs_root_returned_from_match_stays_live_through_borrowed_calls {

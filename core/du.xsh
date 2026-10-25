@@ -232,7 +232,7 @@ proc emit_usage(name: Str, size: Int, latest: Int, policy: Policy) [process, env
   gnu.write_text(f"{amount}{timestamp}\t{name}{policy.ending}")
 }
 
-proc entry_metadata(root: FsRoot, entry: Path, follow: Bool) [fs, error] -> Result[EntryMetadata, Error] {
+proc entry_metadata(root: FsRoot, entry: RelPath, follow: Bool) [fs, error] -> Result[EntryMetadata, Error] {
   match root.stat(entry, follow_symlinks: follow) {
     Ok(meta) => Ok({meta: meta, external_target: null})
     Err(failure) => {
@@ -281,7 +281,7 @@ pure children_failure(errno: Int?, state: Str) -> Str {
 
 # Account in bytes until printing, and track device/inode identity across all
 # operands. A link contributes once unless the caller requests link counting.
-proc disk_usage(root: FsRoot, entry: Path, name: Str, policy: Policy, depth: Int, device: Int, links: Map[Bool], ancestors: List[Str]) [fs, process, env, io, time, error] -> Usage {
+proc disk_usage(root: FsRoot, entry: RelPath, name: Str, policy: Policy, depth: Int, device: Int, links: Map[Bool], ancestors: List[Str]) [fs, process, env, io, time, error] -> Usage {
   for pattern in policy.excludes {
     if pattern.matches(name) {
       return {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: false, directory: false}
@@ -354,7 +354,7 @@ proc disk_usage_operand(target: Path, policy: Policy, links: Map[Bool]) [fs, pro
   # The operand's parent is the anchor for a lookup beneath it, and a lookup of ".."
   # escapes that anchor, so an operand named ".." is its own anchor.
   let anchor = if component == ".." { target } else { target.parent() }
-  let entry = if component == "/" or component == ".." { p"." } else { fp"{component}" }
+  let entry: RelPath = if component == "/" or component == ".." { p"." } else { fp"{component}".require(RelPath)? }
   match fs.open_root(anchor) {
     Ok(root) => {
       defer root.close()

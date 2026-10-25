@@ -94,8 +94,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   }
 
   defer input_root.close()
+  let input_name = input_path.name().require(RelPath)?
   guard let input = input_root.read_result(
-    fp"{input_path.name()}",
+    input_name,
     max_bytes: 16777216,
   ) else { |error|
     return Err(SystemReportCliError.InvalidInput(f"system-report: cannot read replay file: {error.message}"))

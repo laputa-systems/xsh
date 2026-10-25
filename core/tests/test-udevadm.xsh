@@ -49,7 +49,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # A device list in the shape sysfs presents: class links, a bus device link,
 # `dev` number links, a controller with a disk and a partition below it, a
 # network interface, and a character device, with database records for some.
-proc ensure_directory(root: FsRoot, directory: Path) [fs, error] {
+proc ensure_directory(root: FsRoot, directory: RelPath) [fs, error] {
   if ! root.exists(directory) {
     root.mkdir(directory, parents: true)
   }
@@ -59,13 +59,15 @@ proc build_tree(ctx: TestContext) [fs, error] -> Result[Path] {
   let base = test.temp_dir(ctx, name: "udev-tree")?
   let root = fs.open_root(base)?
   for item in TREE_FILES {
-    ensure_directory(root, fp"{item.path}".dirname())
-    root.write(fp"{item.path}", item.text)
+    let file_path = fp"{item.path}".require(RelPath)?
+    ensure_directory(root, file_path.parent())
+    root.write(file_path, item.text)
   }
 
   for item in TREE_LINKS {
-    ensure_directory(root, fp"{item.path}".dirname())
-    root.symlink(target: fp"{item.target}", path: fp"{item.path}")
+    let link_path = fp"{item.path}".require(RelPath)?
+    ensure_directory(root, link_path.parent())
+    root.symlink(target: fp"{item.target}", path: link_path)
   }
 
   ensure_directory(root, p"sys/bus/pci/drivers/ahci")

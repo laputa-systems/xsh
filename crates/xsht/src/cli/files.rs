@@ -336,7 +336,6 @@ pub struct LintConfig {
     pub prefer_set: bool,
     /// On only when `prefer-text-pattern = true`.
     pub prefer_text_pattern: bool,
-    pub prefer_rel_path: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -351,7 +350,6 @@ impl Default for LintConfig {
             prefer_inferred_proc_returns: false,
             prefer_set: false,
             prefer_text_pattern: false,
-            prefer_rel_path: false,
             runless_except: Vec::new(),
         }
     }
@@ -463,7 +461,7 @@ fn parse_config_ini(fields: &xsh::execution::value::RecordMap) -> Result<XshConf
         test_roots: ini_string_list(fields, "test_roots").unwrap_or_default(),
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,
-        lint: parse_lint_ini(fields),
+        lint: parse_lint_ini(fields)?,
         lint_rule_excludes: parse_lint_rule_excludes_ini(fields)?,
         dead_code: parse_dead_code_ini(fields),
         coverage: parse_coverage_ini(fields),
@@ -479,29 +477,47 @@ fn parse_check_ini(fields: &xsh::execution::value::RecordMap) -> CheckConfig {
     }
 }
 
-fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
+fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> Result<LintConfig, String> {
     let Some(xsh::execution::value::Value::Record(lint)) = fields.get("lint") else {
-        return LintConfig::default();
+        return Ok(LintConfig::default());
     };
-    LintConfig {
-        prefer_inferred_pure_returns: ini_string(lint, "prefer-inferred-pure-returns")
+    let mut remaining = lint
+        .iter()
+        .map(|(key, value)| (key.to_string(), value.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let config = LintConfig {
+        prefer_inferred_pure_returns: take_ini_string(
+            &mut remaining,
+            "prefer-inferred-pure-returns",
+        )
+        .is_some_and(|value| value == "true"),
+        prefer_inferred_private_effects: take_ini_string(
+            &mut remaining,
+            "prefer-inferred-private-effects",
+        )
+        .is_none_or(|value| value != "false"),
+        prefer_env_string: take_ini_string(&mut remaining, "prefer-env-string")
+            .is_none_or(|value| value != "false"),
+        prefer_item_shorthand: take_ini_string(&mut remaining, "prefer-item-shorthand")
+            .is_none_or(|value| value != "false"),
+        prefer_tempdir_scope: take_ini_string(&mut remaining, "prefer-tempdir-scope")
+            .is_none_or(|value| value != "false"),
+        prefer_inferred_proc_returns: take_ini_string(
+            &mut remaining,
+            "prefer-inferred-proc-returns",
+        )
+        .is_some_and(|value| value == "true"),
+        prefer_set: take_ini_string(&mut remaining, "prefer-set")
             .is_some_and(|value| value == "true"),
-        prefer_inferred_private_effects: ini_string(lint, "prefer-inferred-private-effects")
-            .is_none_or(|value| value != "false"),
-        prefer_env_string: ini_string(lint, "prefer-env-string")
-            .is_none_or(|value| value != "false"),
-        prefer_item_shorthand: ini_string(lint, "prefer-item-shorthand")
-            .is_none_or(|value| value != "false"),
-        prefer_tempdir_scope: ini_string(lint, "prefer-tempdir-scope")
-            .is_none_or(|value| value != "false"),
-        prefer_inferred_proc_returns: ini_string(lint, "prefer-inferred-proc-returns")
+        prefer_text_pattern: take_ini_string(&mut remaining, "prefer-text-pattern")
             .is_some_and(|value| value == "true"),
-        prefer_set: ini_string(lint, "prefer-set").is_some_and(|value| value == "true"),
-        prefer_text_pattern: ini_string(lint, "prefer-text-pattern")
-            .is_some_and(|value| value == "true"),
-        prefer_rel_path: ini_string(lint, "prefer-rel-path").is_some_and(|value| value == "true"),
-        runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
+        runless_except: take_ini_string_list(&mut remaining, "runless-except")
+            .unwrap_or_default(),
+    };
+    if let Some(key) = remaining.keys().next() {
+        return Err(format!("invalid {CONFIG_FILE_NAME} [lint] key '{key}'"));
     }
+    Ok(config)
 }
 
 /// Reads every `[lint.RULE]` section. The section name is the rule's
@@ -585,6 +601,24 @@ fn ini_string<'a>(fields: &'a xsh::execution::value::RecordMap, key: &str) -> Op
         return None;
     };
     Some(value)
+}
+
+fn take_ini_string(
+    fields: &mut std::collections::BTreeMap<String, xsh::execution::value::Value>,
+    key: &str,
+) -> Option<String> {
+    let xsh::execution::value::Value::Str(value) = fields.remove(key)? else {
+        return None;
+    };
+    Some(value.to_string())
+}
+
+fn take_ini_string_list(
+    fields: &mut std::collections::BTreeMap<String, xsh::execution::value::Value>,
+    key: &str,
+) -> Option<Vec<String>> {
+    let value = take_ini_string(fields, key)?;
+    Some(value.split('\n').map(str::to_string).collect())
 }
 
 fn ini_string_list(fields: &xsh::execution::value::RecordMap, key: &str) -> Option<Vec<String>> {
@@ -854,11 +888,12 @@ mod tests {
         let path = root.join(CONFIG_FILE_NAME);
         fs::write(
             &path,
-            "[lint]\nprefer-env-string = false\n\n[lint.prefer-inferred-variant]\nexclude = docs/snippets/**/*.xsh\n  examples/old/*.xsh\n",
+            "[lint]\nprefer-env-string = false\nrunless-except = docs/**\n\n[lint.prefer-inferred-variant]\nexclude = docs/snippets/**/*.xsh\n  examples/old/*.xsh\n",
         )
         .unwrap();
         let config = load_config_from(&path).unwrap();
         assert!(!config.lint.prefer_env_string);
+        assert_eq!(config.lint.runless_except, vec!["docs/**"]);
         assert_eq!(
             config.lint_rule_excludes,
             vec![LintRuleExclude {
@@ -879,6 +914,13 @@ mod tests {
             load_config_from(&path).unwrap_err(),
             "xsht-config.ini [lint.prefer-inferred-variants] does not name a lint rule"
         );
+        for key in ["prefer-rel-path", "prefer-env-strings"] {
+            fs::write(&path, format!("[lint]\n{key} = true\n")).unwrap();
+            assert_eq!(
+                load_config_from(&path).unwrap_err(),
+                format!("invalid xsht-config.ini [lint] key '{key}'")
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

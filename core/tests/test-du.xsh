@@ -302,7 +302,7 @@ test test_du_walks_long_paths_from_unreadable_cwd { |ctx|
   let first = fp"{tree}/{component}20"
   var deep_root = fs.open_root(tree)?
   for remaining in range(20) {
-    let name = fp"{component}{20 - remaining}"
+    let name = fp"{component}{20 - remaining}".require(RelPath)?
     deep_root.mkdir(name)
     let child = deep_root.open_root(name)?
     deep_root.close()

@@ -65,13 +65,15 @@ test test_storage_lsblk_rooted_json_preserves_partition_identity { |ctx|
   let root = fs.open_root(dir)?
   root.mkdir(p"sys/class/block", parents: true)
   for name in ["disk", "disk1"] {
-    root.mkdir(fp"sys/devices/disk/{if name == "disk" { "" } else { "disk1/" }}queue", parents: true)
-    let at = if name == "disk" { "sys/devices/disk" } else { "sys/devices/disk/disk1" }
+    let device_path = fp"sys/devices/disk/{if name == "disk" { "" } else { "disk1" }}".require(RelPath)?
+    root.mkdir(fp"{device_path}/queue", parents: true)
+    let device_name = fp"{name}".require(RelPath)?
+    let at: RelPath = if name == "disk" { p"sys/devices/disk" } else { p"sys/devices/disk/disk1" }
     root.write(fp"{at}/dev", if name == "disk" { "8:0\n" } else { "8:1\n" })
     root.write(fp"{at}/size", if name == "disk" { "100\n" } else { "50\n" })
     root.write(fp"{at}/ro", "0\n")
     root.write(fp"{at}/removable", "0\n")
-    root.symlink(target: fp"../../devices/disk/{if name == "disk" { "" } else { "disk1" }}", path: fp"sys/class/block/{name}")
+    root.symlink(target: fp"../../devices/disk/{if name == "disk" { "" } else { "disk1" }}", path: fp"sys/class/block/{device_name}")
   }
   root.write(p"sys/devices/disk/disk1/partition", "1\n")
   root.mkdir(p"proc/self", parents: true)

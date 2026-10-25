@@ -7871,6 +7871,23 @@ test joined { assert narrow("ready", true, false) == "ready" }
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert_eq!(error.message, "ground producer value disagrees with its checked contract");
     }
+
+    #[test]
+    fn contextual_relative_path_arguments_require_their_literal_bytes() {
+        let program = build(r#"proc check(root: FsRoot) [fs,error] { root.write(p"data", "x") }"#);
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "check").unwrap();
+        let path = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprPath).unwrap();
+        let raw = program.store.payload(program.store.data[path].range()).unwrap()[0];
+        let bytes = crate::runtime::eval::indexed::IrBytesId::from_raw(raw).unwrap();
+        let range = program.store.bytes[bytes.index()].bounds(program.store.byte_data.len()).unwrap();
+        assert_eq!(&program.store.byte_data[range.clone()], b"data");
+        let mut escaped = program.clone();
+        escaped.store.byte_data[range.start] = b'/';
+        let error = FullVerifier::verify(&escaped).unwrap_err();
+        assert_eq!(error.message, "ground native operation arguments have no matching contract");
+    }
+
 }
 
 #[cfg(test)]

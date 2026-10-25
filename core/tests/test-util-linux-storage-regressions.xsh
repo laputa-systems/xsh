@@ -15,7 +15,8 @@ proc rooted_storage_command(ctx: TestContext, source: Str, args: List[Str], name
 proc write_storage_fixture(root: FsRoot) [fs, error] {
   root.mkdir(p"sys/class/block", parents: true)
   for name in ["disk", "disk1"] {
-    let device_path = if name == "disk" { "sys/devices/disk" } else { "sys/devices/disk/disk1" }
+    let device_path: RelPath = if name == "disk" { p"sys/devices/disk" } else { p"sys/devices/disk/disk1" }
+    let device_name = fp"{name}".require(RelPath)?
     root.mkdir(fp"{device_path}/queue", parents: true)
     root.write(fp"{device_path}/dev", if name == "disk" { "8:0\n" } else { "8:1\n" })
     root.write(fp"{device_path}/size", if name == "disk" { "100\n" } else { "50\n" })
@@ -23,7 +24,7 @@ proc write_storage_fixture(root: FsRoot) [fs, error] {
     root.write(fp"{device_path}/removable", "0\n")
     root.symlink(
       target: if name == "disk" { p"../../devices/disk" } else { p"../../devices/disk/disk1" },
-      path: fp"sys/class/block/{name}",
+      path: fp"sys/class/block/{device_name}",
     )
   }
   root.write(p"sys/devices/disk/disk1/partition", "1\n")
@@ -39,9 +40,10 @@ proc write_cpu_fixture(root: FsRoot) [fs, error] {
   root.mkdir(p"proc", parents: true)
   root.write(p"proc/cpuinfo", "processor : 0\nvendor_id : Acme\nmodel name : Example CPU\n\nprocessor : 1\nvendor_id : Acme\nmodel name : Example CPU\n")
   for index in range(2) {
-    root.mkdir(fp"sys/devices/system/cpu/cpu{index}/topology", parents: true)
-    root.write(fp"sys/devices/system/cpu/cpu{index}/topology/physical_package_id", "0\n")
-    root.write(fp"sys/devices/system/cpu/cpu{index}/topology/core_id", f"{index}\n")
+    let cpu_path = fp"sys/devices/system/cpu/cpu{index}".require(RelPath)?
+    root.mkdir(fp"{cpu_path}/topology", parents: true)
+    root.write(fp"{cpu_path}/topology/physical_package_id", "0\n")
+    root.write(fp"{cpu_path}/topology/core_id", f"{index}\n")
   }
 }
 

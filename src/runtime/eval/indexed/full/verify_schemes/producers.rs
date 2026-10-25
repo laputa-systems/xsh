@@ -3991,6 +3991,7 @@ impl<'a> ProducerProof<'a> {
                         Some(FmtPartView::Expr(..)) => false,
                     };
                     if !confined || spec.is_some() || !written.last().is_none_or(|byte| *byte == b'/') || !next_starts_component { return Ok(false); }
+                    self.expression(decoder.owner, value.raw() as usize, ty, false);
                     written.push(b'.');
                 }
             }
@@ -5211,8 +5212,8 @@ impl<'a> ProducerProof<'a> {
             let validated_path_literal = !fits
                 && actual.as_ref() == &Type::Path
                 && matches!(literal_target, Type::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath)
-                && self.store.tags[instruction] == FullTag::ExprPath
-                && matches!(decoder.expression_view(instruction)?, schema::ExprView::Path(path) if crate::sema::validated::is_rel_path(path));
+                && matches!(self.store.tags[instruction], FullTag::ExprPath | FullTag::ExprParam)
+                && self.relative_path_literal_argument(&decoder, instruction, literal_target)?;
             let confined_path_format = !fits
                 && actual.as_ref() == &Type::Path
                 && matches!(literal_target, Type::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath)
@@ -6728,6 +6729,7 @@ impl<'a> ProducerProof<'a> {
                                 && !actual.matches_expected(&parameter.ty)
                                 && !NativeParameterDomain::declared(&original.params[position].ty).accepts(&parameter.ty, actual)
                                 && !self.contextual_list_argument(decoder, argument, &parameter.ty)?
+                                && !self.relative_path_literal_argument(decoder, argument, &parameter.ty)?
                             {
                                 fits = false;
                                 break;
@@ -6773,7 +6775,9 @@ impl<'a> ProducerProof<'a> {
                     };
                     let expected = if parameter == Type::Any { Arc::new(parameter) }
                     else if let Some(actual) = actual {
-                        if actual.matches_expected(&parameter) || domain.accepts(&parameter, &actual) {
+                        if actual.matches_expected(&parameter) || domain.accepts(&parameter, &actual)
+                            || self.relative_path_literal_argument(decoder, argument, &parameter)?
+                        {
                             actual
                         } else if self.contextual_list_argument(decoder, argument, &parameter)? {
                             Arc::new(parameter)
@@ -7055,6 +7059,27 @@ impl<'a> ProducerProof<'a> {
     fn contextual_list_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
         if !matches!(expected, Type::List(_)) { return Ok(false); }
         Ok(self.fresh_contextual_list_source(decoder, argument)?.is_some())
+    }
+
+    fn relative_path_literal_argument(&mut self, decoder: &FullDecoder<'a>, mut argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if !expected.validated().is_some_and(|validated| validated.validation() == crate::sema::validated::Validation::RelPath) { return Ok(false); }
+        for _ in decoder.instruction_range.clone() {
+            self.budget.charge(1)?;
+            let slot = match decoder.expression_view(argument)? {
+                schema::ExprView::Path(path) => return Ok(crate::sema::validated::is_rel_path(path)),
+                schema::ExprView::PathFmtString { .. } => return self.confined_path_format(decoder, argument),
+                schema::ExprView::Param(slot) => slot,
+                _ => return Ok(false),
+            };
+            let binding = self.binding(decoder.owner, argument, slot)?;
+            let ProducerBinding::ScopedDeclaration(result, _) = binding else { return Ok(false); };
+            let owner = &self.index.owners[&decoder.owner];
+            let Some(parent) = owner.parents[result - owner.range.start] else { return Ok(false); };
+            let Some((source_binding, source)) = self.checked_match_binding(decoder, parent)? else { return Ok(false); };
+            if source_binding != binding { return Ok(false); }
+            argument = source;
+        }
+        Err(IrVerifyError::new("relative path literal argument has a cyclic source"))
     }
 
     fn native_signature(&mut self, decoder: &FullDecoder<'a>, signature: &'static crate::modules::signature::ModuleFnSig, arguments: &[Option<usize>], expected: Option<&Type>) -> Result<Option<std::borrow::Cow<'static, crate::modules::signature::ModuleFnSig>>, IrVerifyError> {

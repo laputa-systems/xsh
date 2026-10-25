@@ -148,7 +148,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-non-empty-argv` | Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot |
 | `lint.prefer-as-conversion` | Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names |
 | `lint.prefer-text-pattern` | Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in) |
-| `lint.prefer-rel-path` | Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot |
 | `lint.prefer-argument-label` | Call `link.symlink(to: target)`, whose label says which path is the target, instead of `fs.symlink(target, link)` |
 | `lint.empty-sentinel` | Note an optional bound through `?? ""` whose binding is then tested for emptiness, which an optional binding keeps apart from an empty value |
 | `lint.prefer-set` | Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in) |

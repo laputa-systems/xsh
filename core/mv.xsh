@@ -70,7 +70,8 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
   let metadata = fs.stat(source)?
   if metadata.kind == "dir" {
     let parent = fs.open_root(target.parent().resolve()?)?
-    parent.mkdir(basename_path(target)?, mode: 0o700.clear_bits(fs.umask()?))
+    let name = basename_path(target)?.require(RelPath)?
+    parent.mkdir(name, mode: 0o700.clear_bits(fs.umask()?))
     var copied = copies
     for entry in fs.children(source)? {
       let name = basename_path(entry.path)?
@@ -147,7 +148,8 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   let staged_dir = fp"{target.parent()}/.xsh-move-{scratch.root.host_path()?.name()}"
   let parent = fs.open_root(staged_dir.parent().resolve()?)?
   defer parent.close()
-  let made = parent.mkdir(basename_path(staged_dir)?, mode: 0o700.clear_bits(fs.umask()?))
+  let staged_name = basename_path(staged_dir)?.require(RelPath)?
+  let made = parent.mkdir(staged_name, mode: 0o700.clear_bits(fs.umask()?))
   if let Err(failure) = made {
     # GNU unlinks an existing destination before copying across devices, and a
     # directory that refuses the staging entry refuses that unlink too.

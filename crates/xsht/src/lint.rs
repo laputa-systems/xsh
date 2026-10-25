@@ -117,8 +117,6 @@ mod lint_argument_label;
 mod lint_empty_sentinel;
 #[path = "lint_prefer_non_empty_argv.rs"]
 mod lint_prefer_non_empty_argv;
-#[path = "lint_prefer_rel_path.rs"]
-mod lint_prefer_rel_path;
 #[path = "lint_prefer_set.rs"]
 mod lint_prefer_set;
 #[path = "lint_prefer_typed_callable.rs"]
@@ -353,8 +351,6 @@ pub struct LintOptions {
     /// Opt in to `lint.prefer-text-pattern`, which has no fix: it notes
     /// where text is taken apart by position.
     pub prefer_text_pattern: bool,
-    /// Opt in to `lint.prefer-rel-path`.
-    pub prefer_rel_path: bool,
     /// The immutable baseline checked facts shared by lint rules in a workspace.
     /// When absent, the linter does not synthesize this result for fact-based rules.
     pub checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
@@ -487,7 +483,6 @@ impl Default for LintOptions {
             annotation_policy_writes_returns: false,
             prefer_set: false,
             prefer_text_pattern: false,
-            prefer_rel_path: false,
             checked_output: None,
             return_proof: None,
             runless: false,
@@ -5978,11 +5973,6 @@ impl<'a> Linter<'a> {
                 fs_is_shadowed,
                 expr,
             ));
-        }
-        if selected(self, DiagnosticCode::LintPreferRelPath) {
-            let rooted =
-                lint_prefer_rel_path::unvalidated_rooted_path(self.arena, &self.expr_types, expr);
-            self.diagnostics.extend(rooted);
         }
         if selected(self, DiagnosticCode::LintPreferIsEmpty) {
             self.diagnostics.extend(lint_prefer_is_empty::length_compared_with_zero(

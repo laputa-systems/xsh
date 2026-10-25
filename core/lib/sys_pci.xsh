@@ -148,7 +148,7 @@ export pure parse_decimal_value(value: Str) -> Result[Int, Error] {
 
 proc read_numeric_attribute(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   hexadecimal: Bool,
   allow_unknown_numa: Bool = false,
 ) [fs, error] -> NumericRead {
@@ -215,7 +215,7 @@ export pure parent_bridge_address(target: Path, child_address: Str) -> Str? {
   null
 }
 
-proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> src.SourceRead {
+proc optional_link_name(root: FsRoot, source_path: RelPath) [fs, error] -> src.SourceRead {
   let source = root.readlink_result(source_path)?
   let state = src.source_state(source.state, false)
   if state != .Observed {

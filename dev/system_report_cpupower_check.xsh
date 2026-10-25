@@ -214,6 +214,7 @@ export pure compare_cpupower(candidate_json: Str, reference: CpupowerReference) 
 
 proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs, process, error] -> Result[Str] {
   let scratch_path = root.host_path()?
+  let output_name = fp"{name}".require(RelPath)?
   let status = process.run(
     process.command_argv(
       executable,
@@ -228,7 +229,7 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
     return Err(cpupower_failure(f"cpupower {name} command failed"))
   }
 
-  let raw = root.read_result(fp"{name}", max_bytes: 65536)?
+  let raw = root.read_result(output_name, max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(cpupower_failure(f"cpupower {name} output is incomplete"))
   }

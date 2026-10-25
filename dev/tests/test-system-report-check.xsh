@@ -17,6 +17,8 @@ type ReportCoverageAssertion = {
 
 type ReportFixtureCase = {scenario: Str, tests: List[Str]}
 
+type BlockDeviceFixtureSource = {device: RelPath, dev: Str, size: Str}
+
 type KernelParameterReferenceFixture = {name: Str, source: Str, state: Str, value: Str?, raw_bytes_base64: Str?}
 
 type HugePageReferenceFixture = {
@@ -424,7 +426,7 @@ test test_system_report_usb_topology_rooted_reference_reads_devices_without_inte
       speed: "480",
     },
   ] {
-    let device_path = fp"sys/bus/usb/devices/{device.name}"
+    let device_path = fp"sys/bus/usb/devices/{device.name}".require(RelPath)?
     root.mkdir(device_path, parents: true)
     root.write(
       fp"{device_path}/busnum",
@@ -544,7 +546,7 @@ test test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels {
 test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values {
   let root = fs.tempdir()?
   defer root.close()
-  let device_path = p"sys/bus/usb/devices/4-2"
+  let device_path: RelPath = p"sys/bus/usb/devices/4-2"
   root.mkdir(device_path, parents: true)
   root.write(
     fp"{device_path}/idVendor",
@@ -662,7 +664,7 @@ test test_system_report_usb_power_number_reference_keeps_signed_autosuspend_dela
 test test_system_report_usb_power_rooted_reference_reads_runtime_and_configuration {
   let root = fs.tempdir()?
   defer root.close()
-  let device_path = p"sys/bus/usb/devices/4-2"
+  let device_path: RelPath = p"sys/bus/usb/devices/4-2"
   root.mkdir(fp"{device_path}/power", parents: true)
   root.write(
     fp"{device_path}/power/control",
@@ -835,8 +837,8 @@ test test_system_report_usb_interface_reference_selects_active_alternate_from_av
 test test_system_report_usb_interface_rooted_reference_reads_driver_active_class_and_descriptors {
   let root = fs.tempdir()?
   defer root.close()
-  let device_path = p"sys/bus/usb/devices/4-2"
-  let interface_path = p"sys/bus/usb/devices/4-2:1.0"
+  let device_path: RelPath = p"sys/bus/usb/devices/4-2"
+  let interface_path: RelPath = p"sys/bus/usb/devices/4-2:1.0"
   root.mkdir(device_path, parents: true)
   root.mkdir(interface_path, parents: true)
   root.write(
@@ -972,7 +974,7 @@ test test_system_report_power_supply_number_reference_keeps_signed_current_and_e
 test test_system_report_power_supply_rooted_reference_reads_signed_current_and_missing_fields {
   let root = fs.tempdir()?
   defer root.close()
-  let battery = p"sys/class/power_supply/BAT0"
+  let battery: RelPath = p"sys/class/power_supply/BAT0"
   root.mkdir(battery, parents: true)
   root.write(
     fp"{battery}/type",
@@ -1008,7 +1010,7 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let battery = p"sys/devices/platform/example/power_supply/BAT0"
+  let battery: RelPath = p"sys/devices/platform/example/power_supply/BAT0"
   source.mkdir(battery, parents: true)
   source.mkdir(p"sys/class/power_supply", parents: true)
   source.symlink(target: ../../devices/platform/example/power_supply/BAT0, path: p"sys/class/power_supply/BAT0")
@@ -1069,7 +1071,7 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
 """,
     },
   ] {
-    source.write(fp"{battery}/{item.name}", item.value)
+    source.write(fp"{battery}/{item.name}".require(RelPath)?, item.value)
   }
 
   report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")
@@ -1260,8 +1262,8 @@ test test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
 test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_constraint_indices {
   let root = fs.tempdir()?
   defer root.close()
-  let package = p"sys/class/powercap/intel-rapl:0"
-  let core = fp"{package}/intel-rapl:0:0"
+  let package: RelPath = p"sys/class/powercap/intel-rapl:0"
+  let core: RelPath = fp"{package}/intel-rapl:0:0"
   root.mkdir(core, parents: true)
   root.write(
     fp"{package}/name",
@@ -1327,8 +1329,8 @@ test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let package = p"sys/devices/virtual/powercap/intel-rapl/intel-rapl:0"
-  let core = fp"{package}/intel-rapl:0:0"
+  let package: RelPath = p"sys/devices/virtual/powercap/intel-rapl/intel-rapl:0"
+  let core: RelPath = fp"{package}/intel-rapl:0:0"
   source.mkdir(core, parents: true)
   source.mkdir(p"sys/class/powercap", parents: true)
   source.write(
@@ -1390,7 +1392,7 @@ test test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated
   assert "\"scoreable\": false" in metadata
   assert ! bundle.exists(p"sys/class/powercap")?
   test.error_kind(report_checks.validate_powercap_bundle(bundle), "SystemReportCheckError.Invalid")
-  let rogue = p"sys/devices/virtual/rogue"
+  let rogue: RelPath = p"sys/devices/virtual/rogue"
   source.mkdir(rogue, parents: true)
   source.mkdir(p"sys/devices/virtual/powercap", parents: true)
   source.write(
@@ -1413,7 +1415,7 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let device = p"sys/devices/pci0000:00/0000:00:1f.0"
+  let device: RelPath = p"sys/devices/pci0000:00/0000:00:1f.0"
   source.mkdir(device, parents: true)
   source.mkdir(p"sys/bus/pci/devices", parents: true)
   source.symlink(target: ../../../devices/pci0000:00/0000:00:1f.0, path: p"sys/bus/pci/devices/0000:00:1f.0")
@@ -1474,7 +1476,7 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
 """,
     },
   ] {
-    source.write(fp"{device}/{item.name}", item.value)
+    source.write(fp"{device}/{item.name}".require(RelPath)?, item.value)
   }
 
   source.symlink(target: ../../../bus/pci/drivers/example, path: fp"{device}/driver")
@@ -1505,7 +1507,7 @@ test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let chip = p"sys/devices/platform/example/hwmon/hwmon3"
+  let chip: RelPath = p"sys/devices/platform/example/hwmon/hwmon3"
   source.mkdir(chip, parents: true)
   source.mkdir(p"sys/class/hwmon", parents: true)
   source.symlink(target: ../../devices/platform/example/hwmon/hwmon3, path: p"sys/class/hwmon/hwmon3")
@@ -1597,9 +1599,9 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let disk = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
-  let partition = fp"{disk}/sda3"
-  let stacked = p"sys/devices/virtual/block/dm-0"
+  let disk: RelPath = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
+  let partition: RelPath = fp"{disk}/sda3"
+  let stacked: RelPath = p"sys/devices/virtual/block/dm-0"
   source.mkdir(p"sys/class/block", parents: true)
   for device in [disk, partition, stacked] {
     source.mkdir(fp"{device}/holders", parents: true)
@@ -1619,7 +1621,7 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   source.symlink(target: ../../devices/virtual/block/dm-0, path: p"sys/class/block/dm-0")
   source.symlink(target: ../../../../../virtual/block/dm-0, path: fp"{disk}/holders/dm-0")
   source.symlink(target: ../../../../pci0000:00/0000:00:01.0/block/sda, path: fp"{stacked}/slaves/sda")
-  for item in [
+  let devices: List[BlockDeviceFixtureSource] = [
     {
       device: disk,
       dev: """8:0
@@ -1641,7 +1643,8 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
       size: """512
 """,
     },
-  ] {
+  ]
+  for item in devices {
     source.write(fp"{item.device}/dev", item.dev)
     source.write(fp"{item.device}/size", item.size)
   }
@@ -1689,7 +1692,7 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
 """,
     },
   ] {
-    source.write(fp"{disk}/queue/{item.name}", item.value)
+    source.write(fp"{disk}/queue/{item.name}".require(RelPath)?, item.value)
   }
 
   source.write(
@@ -1849,7 +1852,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let device = p"sys/devices/pci0000:00/0000:00:1f.0"
+  let device: RelPath = p"sys/devices/pci0000:00/0000:00:1f.0"
   source.mkdir(device, parents: true)
   source.mkdir(p"sys/bus/pci/devices", parents: true)
   source.symlink(target: ../../../devices/pci0000:00/0000:00:1f.0, path: p"sys/bus/pci/devices/0000:00:1f.0")
@@ -1885,7 +1888,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
 """,
     },
   ] {
-    source.write(fp"{device}/{item.name}", item.value)
+    source.write(fp"{device}/{item.name}".require(RelPath)?, item.value)
   }
 
   report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture")
@@ -1910,9 +1913,9 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let device = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
-  let interface = p"sys/devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0"
-  let root_interface = p"sys/devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0"
+  let device: RelPath = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
+  let interface: RelPath = p"sys/devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0"
+  let root_interface: RelPath = p"sys/devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0"
   source.mkdir(interface, parents: true)
   source.mkdir(root_interface)
   source.mkdir(p"sys/bus/usb/devices", parents: true)
@@ -2002,7 +2005,7 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
 """,
     },
   ] {
-    source.write(fp"{device}/{item.name}", item.value)
+    source.write(fp"{device}/{item.name}".require(RelPath)?, item.value)
   }
 
   source.write(fp"{device}/descriptors", b"")
@@ -2056,7 +2059,7 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let device = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
+  let device: RelPath = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
   source.mkdir(device, parents: true)
   source.mkdir(p"sys/bus/usb/devices", parents: true)
   source.symlink(target: ../../../devices/pci0000:00/0000:00:14.0/usb1, path: p"sys/bus/usb/devices/usb1")
@@ -2134,9 +2137,10 @@ test test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity
   let root = fs.tempdir()?
   defer root.close()
   for entry in ["card0", "card1"] {
-    root.mkdir(fp"sys/class/sound/{entry}", parents: true)
+    let entry_path: RelPath = fp"sys/class/sound/{entry}".require(RelPath)?
+    root.mkdir(entry_path, parents: true)
     root.write(
-      fp"sys/class/sound/{entry}/id",
+      fp"{entry_path}/id",
       """Shared label
 """,
     )
@@ -2748,7 +2752,7 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy {
   let root = fs.tempdir()?
   defer root.close()
   for policy_name in ["policy3", "policy9"] {
-    let base = fp"sys/devices/system/cpu/cpufreq/{policy_name}"
+    let base: RelPath = fp"sys/devices/system/cpu/cpufreq/{policy_name}".require(RelPath)?
     root.mkdir(base, parents: true)
     root.write(
       fp"{base}/related_cpus",
@@ -2880,8 +2884,8 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let cpu_root = p"sys/devices/system/cpu"
-  let policy = p"sys/devices/system/cpu/cpufreq/policy0"
+  let cpu_root: RelPath = p"sys/devices/system/cpu"
+  let policy: RelPath = p"sys/devices/system/cpu/cpufreq/policy0"
   source.mkdir(policy, parents: true)
   for item in [
     {
@@ -2904,7 +2908,7 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
       value: "\n",
     },
   ] {
-    source.write(fp"{cpu_root}/{item.name}", item.value)
+    source.write(fp"{cpu_root}/{item.name}".require(RelPath)?, item.value)
   }
 
   for item in [
@@ -2969,7 +2973,7 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
 """,
     },
   ] {
-    source.write(fp"{policy}/{item.name}", item.value)
+    source.write(fp"{policy}/{item.name}".require(RelPath)?, item.value)
   }
 
   source.write(
@@ -3019,7 +3023,7 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let cpu_root = p"sys/devices/system/cpu"
+  let cpu_root: RelPath = p"sys/devices/system/cpu"
   source.mkdir(cpu_root, parents: true)
   for item in [
     {
@@ -3042,11 +3046,11 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
       value: "\n",
     },
   ] {
-    source.write(fp"{cpu_root}/{item.name}", item.value)
+    source.write(fp"{cpu_root}/{item.name}".require(RelPath)?, item.value)
   }
 
   for id in [0, 1] {
-    let cpu_path = fp"{cpu_root}/cpu{id}"
+    let cpu_path: RelPath = fp"{cpu_root}/cpu{id}".require(RelPath)?
     source.mkdir(fp"{cpu_path}/topology", parents: true)
     for item in [
       {
@@ -3070,7 +3074,7 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
 """,
       },
     ] {
-      source.write(fp"{cpu_path}/topology/{item.name}", item.value)
+      source.write(fp"{cpu_path}/topology/{item.name}".require(RelPath)?, item.value)
     }
 
     source.symlink(target: ../../node/node0, path: fp"{cpu_path}/node0")
@@ -3101,7 +3105,7 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link {
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let cpu_root = p"sys/devices/system/cpu"
+  let cpu_root: RelPath = p"sys/devices/system/cpu"
   source.mkdir(fp"{cpu_root}/cpu0/topology", parents: true)
   for item in [
     {
@@ -3124,7 +3128,7 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link {
       value: "\n",
     },
   ] {
-    source.write(fp"{cpu_root}/{item.name}", item.value)
+    source.write(fp"{cpu_root}/{item.name}".require(RelPath)?, item.value)
   }
 
   source.symlink(target: ../../node/../rogue, path: fp"{cpu_root}/cpu0/node0")
@@ -3240,7 +3244,7 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state {
   )
   for cpu_id in [0, 2] {
     for state_index in [0, 1] {
-      let base = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle/state{state_index}"
+      let base: RelPath = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle/state{state_index}".require(RelPath)?
       root.mkdir(base, parents: true)
       root.write(
         fp"{base}/name",
@@ -3512,7 +3516,7 @@ test test_system_report_cache_rooted_reference_reads_shared_instance_sources {
 """,
   )
   for cpu_id in [0, 2] {
-    let base = fp"sys/devices/system/cpu/cpu{cpu_id}/cache/index7"
+    let base: RelPath = fp"sys/devices/system/cpu/cpu{cpu_id}/cache/index7".require(RelPath)?
     root.mkdir(base, parents: true)
     root.write(
       fp"{base}/level",
@@ -4772,12 +4776,12 @@ test test_system_report_cpu_scope_reference_selects_visible_cgroup_mount {
   assert report_checks.visible_cgroup2_ancestors(selected)? == [
     {
       visible_path: "/tenant/team:blue",
-      source_path: "sys/fs/cgroup-alt/team:blue",
+      source_path: p"sys/fs/cgroup-alt/team:blue",
       hierarchy_level: 0,
     },
     {
       visible_path: "/tenant",
-      source_path: "sys/fs/cgroup-alt",
+      source_path: p"sys/fs/cgroup-alt",
       hierarchy_level: 1,
     },
   ]
@@ -5548,7 +5552,7 @@ test test_system_report_vulnerability_capture_validates_saved_files_and_oracle {
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let directory = p"sys/devices/system/cpu/vulnerabilities"
+  let directory: RelPath = p"sys/devices/system/cpu/vulnerabilities"
   source.mkdir(directory, parents: true)
   source.write(
     fp"{directory}/spectre_v1",
@@ -7816,8 +7820,8 @@ test test_system_report_pci_binding_parent_reference_requires_own_bdf_and_keeps_
 test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_numa {
   let root = fs.tempdir()?
   defer root.close()
-  let bridge = p"sys/devices/pci0001:02/0001:02:01.0"
-  let child = p"sys/devices/pci0001:02/0001:02:01.0/0001:03:00.0"
+  let bridge: RelPath = p"sys/devices/pci0001:02/0001:02:01.0"
+  let child: RelPath = p"sys/devices/pci0001:02/0001:02:01.0/0001:03:00.0"
   root.mkdir(child, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
   root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0, path: p"sys/bus/pci/devices/0001:02:01.0")
@@ -7900,7 +7904,7 @@ test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brac
 test test_system_report_thermal_rooted_reference_reads_indexed_sources {
   let root = fs.tempdir()?
   defer root.close()
-  let zone = p"sys/class/thermal/thermal_zone3"
+  let zone: RelPath = p"sys/class/thermal/thermal_zone3"
   root.mkdir(zone, parents: true)
   root.write(
     fp"{zone}/type",
@@ -7950,7 +7954,7 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering {
   defer source.close()
   let bundle = fs.tempdir()?
   defer bundle.close()
-  let zone = p"sys/class/thermal/thermal_zone3"
+  let zone: RelPath = p"sys/class/thermal/thermal_zone3"
   source.mkdir(zone, parents: true)
   source.write(
     fp"{zone}/type",
@@ -8012,8 +8016,8 @@ test test_system_report_thermal_capture_preserves_absent_class_without_scoring {
 test test_system_report_pci_link_rooted_reference_reads_bounded_attributes {
   let root = fs.tempdir()?
   defer root.close()
-  let first = p"sys/bus/pci/devices/0000:00:1f.6"
-  let second = p"sys/bus/pci/devices/0001:02:03.0"
+  let first: RelPath = p"sys/bus/pci/devices/0000:00:1f.6"
+  let second: RelPath = p"sys/bus/pci/devices/0001:02:03.0"
   root.mkdir(first, parents: true)
   root.mkdir(second, parents: true)
   root.write(

@@ -41,15 +41,6 @@ Next: 30
 - **Effort:** L
 - **Design:** [XSH-7 record and JSON exactness](docs/rfc/XSH-7-record-json-exactness.md)
 
-### XSH-8 · P3 · Require RelPath for rooted filesystem operations
-
-- **Area:** Security
-- **Where:** `docs/reference/stdlib.md:721`, `crates/xsh-registry/src/signature/modules.rs`
-- **Problem:** `FsRoot` operations accept `Path`, so callers can pass absolute paths or paths that climb above their lexical start. The opt-in lint reports 637 current call sites.
-- **Recommendation:** Migrate callers to `RelPath`, then change the public `FsRoot` signatures and generated reference together.
-- **Fix with:** api-surface-and-module-boundaries
-- **Effort:** L
-
 ### XSH-10 · P3 · Replace Laputa's manual command parser
 
 - **Area:** Navigability

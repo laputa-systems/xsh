@@ -111,7 +111,7 @@ export pure sysfs_relative(text: Str) -> Str {
 # A directory has a `uevent` file only when it is a device. Entries that are
 # not directories (such as `class/net/bonding_masters`) report ENOTDIR, which
 # is the same answer as absence here.
-proc has_uevent(root: FsRoot, directory: Str) [fs, error] -> Bool {
+proc has_uevent(root: FsRoot, directory: RelPath) [fs, error] -> Bool {
   root.stat(fp"{directory}/uevent") is Ok(_)
 }
 
@@ -137,7 +137,8 @@ export proc resolve(root: FsRoot, relative: Str) [fs, error] -> Result[Str?, Err
 
     var candidate = resolved
     candidate += [part]
-    let link = root.readlink_result(fp"{candidate.join("/")}")?
+    let candidate_path = fp"{candidate.join("/")}".require(RelPath)?
+    let link = root.readlink_result(candidate_path)?
     if link.state == "observed" {
       links += 1
       return Ok(null) when links > 40
@@ -188,7 +189,7 @@ pure database_name(
 ## Reads the device at a canonical device path, or null when the directory has
 ## no `uevent` file and is therefore not a device.
 export proc load(root: FsRoot, devpath: Str) [fs, error] -> Result[Device?, Error] {
-  let directory = f"sys{devpath}"
+  let directory = fp"sys{devpath}".require(RelPath)?
   return Ok(null) when ! has_uevent(root, directory)
 
   let sysname = fp"{devpath}".basename()
@@ -233,21 +234,24 @@ export proc load(root: FsRoot, devpath: Str) [fs, error] -> Result[Device?, Erro
   var link_priority = 0
   var initialized = null
   let record = database_name(subsystem, sysname, major, minor, ifindex)
-  if record != null and root.exists(fp"run/udev/data/{record}") {
-    for line in root.read_text(fp"run/udev/data/{record}")?.lines() {
-      let database_value = line.byte_slice(2)
-      if line.starts_with("S:") {
-        symlinks += [database_value]
-      } else if line.starts_with("G:") {
-        tags += [database_value]
-      } else if line.starts_with("L:") {
-        link_priority = src.parse_integer(database_value) ?? 0
-      } else if line.starts_with("I:") {
-        initialized = database_value
-      } else if line.starts_with("E:") {
-        let pair = database_value.split("=", maxsplit: 1)
-        if pair.len() == 2 and pair[0] != "" {
-          properties = upsert(properties, pair[0], pair[1])
+  if record != null {
+    let record_path = fp"run/udev/data/{record}".require(RelPath)?
+    if root.exists(record_path) {
+      for line in root.read_text(record_path)?.lines() {
+        let database_value = line.byte_slice(2)
+        if line.starts_with("S:") {
+          symlinks += [database_value]
+        } else if line.starts_with("G:") {
+          tags += [database_value]
+        } else if line.starts_with("L:") {
+          link_priority = src.parse_integer(database_value) ?? 0
+        } else if line.starts_with("I:") {
+          initialized = database_value
+        } else if line.starts_with("E:") {
+          let pair = database_value.split("=", maxsplit: 1)
+          if pair.len() == 2 and pair[0] != "" {
+            properties = upsert(properties, pair[0], pair[1])
+          }
         }
       }
     }
@@ -289,7 +293,8 @@ export proc parent_devpath(root: FsRoot, devpath: Str) [fs, error] -> Result[Str
   while parts.len() > 2 {
     parts = parts |> take(parts.len() - 1)
     let candidate = f"/{parts.join("/")}"
-    return Ok(candidate) when has_uevent(root, f"sys{candidate}")
+    let directory = fp"sys{candidate}".require(RelPath)?
+    return Ok(candidate) when has_uevent(root, directory)
   }
 
   Ok(null)
@@ -301,18 +306,20 @@ export proc parent_devpath(root: FsRoot, devpath: Str) [fs, error] -> Result[Str
 ## are sorted so the order does not depend on the directory.
 export proc attributes(root: FsRoot, devpath: Str) [fs, error] -> Result[List[Attribute], Error] {
   let printable = rx"^[ -~]*$"
-  let listing = root.children(fp"sys{devpath}", max_entries: 8192)?
-  let names = collect {
+  let directory = fp"sys{devpath}".require(RelPath)?
+  let listing = root.children(directory, max_entries: 8192)?
+  let entries = collect {
     for entry in listing.children {
-      yield entry.name()
+      yield {path: entry, name: entry.name()}
     }
   }
 
   let found: List[Attribute] = collect {
-    for name in names |> sort-by { |item| item } {
+    for entry in entries |> sort-by .name {
+      let name = entry.name
       continue when name == "uevent" or name == "dev"
 
-      let file = fp"sys{devpath}/{name}"
+      let file = entry.path
       let info = root.stat(file, follow_symlinks: false)
       continue when info is Err(_)
 
@@ -350,9 +357,10 @@ export proc enumerate(root: FsRoot) [fs, error] -> Result[List[Str], Error] {
   var seen: Set[Str] = set.empty()
   let devpaths = collect {
     for area in ["bus", "class"] {
-      let kinds = root.children(fp"sys/{area}", max_entries: 4096)?
+      let area_path = fp"sys/{area}".require(RelPath)?
+      let kinds = root.children(area_path, max_entries: 4096)?
       for kind in kinds.children {
-        let directory = if area == "bus" { fp"{kind}/devices" } else { kind }
+        let directory: RelPath = if area == "bus" { fp"{kind}/devices" } else { kind }
         let entries = root.children(directory, max_entries: 65536)?
         for entry in entries.children {
           let link = root.readlink_result(entry)?
@@ -366,7 +374,7 @@ export proc enumerate(root: FsRoot) [fs, error] -> Result[List[Str], Error] {
           let devpath = real.byte_slice(3)
           continue when devpath in seen
 
-          if has_uevent(root, real) {
+          if has_uevent(root, fp"{real}".require(RelPath)?) {
             seen = seen.add(devpath)
             yield devpath
           }
@@ -405,7 +413,8 @@ export proc find_by_name(root: FsRoot, name: Str) [fs, error] -> Result[Str?, Er
   return Ok(null) when name == ""
 
   for kind in ["block", "char"] {
-    let numbers = root.children(fp"sys/dev/{kind}", max_entries: 65536)?
+    let directory = fp"sys/dev/{kind}".require(RelPath)?
+    let numbers = root.children(directory, max_entries: 65536)?
     for entry in numbers.children |> sort-by { |item| item.display() } {
       let uevent = root.read_result(fp"{entry}/uevent", max_bytes: 65536)?
       var matched = false
@@ -418,7 +427,8 @@ export proc find_by_name(root: FsRoot, name: Str) [fs, error] -> Result[Str?, Er
       }
 
       if ! matched {
-        let record = root.read_result(fp"run/udev/data/{kind_prefix(kind)}{entry.name()}", max_bytes: 1048576)?
+        let record_path = fp"run/udev/data/{kind_prefix(kind)}{entry.name()}".require(RelPath)?
+        let record = root.read_result(record_path, max_bytes: 1048576)?
         if record.state == "observed" and record.data != null {
           for line in record.data.utf8() ?? "" |> lines() {
             if line == f"S:{name}" {

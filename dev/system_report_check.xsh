@@ -480,9 +480,9 @@ export type PowerSupplyComparison = {
   exact: Bool,
 }
 
-type PowerSupplyBundleEntry = {name: Str, class_target: Str?, storage_path: Str}
+type PowerSupplyBundleEntry = {name: Str, class_target: Str?, storage_path: RelPath}
 
-type PowerSupplyBundlePath = {path: Str, changing: Bool}
+type PowerSupplyBundlePath = {path: RelPath, changing: Bool}
 
 type PowerSupplyBundleLayout = {
   listing_state: Str,
@@ -492,7 +492,7 @@ type PowerSupplyBundleLayout = {
 }
 
 type PowerSupplyBundleSource = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -508,7 +508,7 @@ type PowerSupplyBundleCapture = {
   reference_adapter: Str,
   layout: PowerSupplyBundleLayout,
   stable_static: Bool,
-  changing_sources: List[Str],
+  changing_sources: List[RelPath],
   scoreable: Bool,
   sources: List[PowerSupplyBundleSource],
   reference: List[PowerSupplyReference]?,
@@ -533,17 +533,17 @@ export type PowerCapZoneReference = {
   constraints_complete: Bool,
 }
 
-type PowerCapBundleZone = {entry_name: Str, class_target: Str?, storage_path: Str}
+type PowerCapBundleZone = {entry_name: Str, class_target: Str?, storage_path: RelPath}
 
 type PowerCapBundleLayout = {
   listing_state: Str,
   zones: List[PowerCapBundleZone],
-  source_paths: List[Str],
+  source_paths: List[RelPath],
   complete: Bool,
 }
 
 type PowerCapSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -601,6 +601,8 @@ export type DeviceClassReference = {
 }
 
 type DeviceClassTextRead = {value: Str?, complete: Bool}
+
+type DeviceClassSource = {class_name: Str, path: RelPath}
 
 type DeviceClassParentRead = {target: Str?, complete: Bool}
 
@@ -694,12 +696,12 @@ export type HwmonComparison = {
   exact: Bool,
 }
 
-type HwmonBundleChip = {name: Str, class_target: Str?, storage_path: Str, device_target: Str?}
+type HwmonBundleChip = {name: Str, class_target: Str?, storage_path: RelPath, device_target: Str?}
 
-type HwmonBundleLayout = {listing_state: Str, chips: List[HwmonBundleChip], source_paths: List[Str], complete: Bool}
+type HwmonBundleLayout = {listing_state: Str, chips: List[HwmonBundleChip], source_paths: List[RelPath], complete: Bool}
 
 type HwmonSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -715,7 +717,7 @@ type HwmonBundleCapture = {
   reference_adapter: Str,
   layout: HwmonBundleLayout,
   stable_static: Bool,
-  changing_gauges: List[Str],
+  changing_gauges: List[RelPath],
   scoreable: Bool,
   sources: List[HwmonSourceObservation],
   reference: List[HwmonReference]?,
@@ -737,7 +739,7 @@ export type DmiIdentityReference = {
 }
 
 type DmiIdentitySourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -826,12 +828,12 @@ export type CpuIdleComparison = {
   exact: Bool,
 }
 
-type UsbBundleEntry = {name: Str, class_target: Str, storage_path: Str, driver_target: Str?}
+type UsbBundleEntry = {name: Str, class_target: Str, storage_path: RelPath, driver_target: Str?}
 
-type UsbBundleLayout = {listing_state: Str, entries: List[UsbBundleEntry], source_paths: List[Str], complete: Bool}
+type UsbBundleLayout = {listing_state: Str, entries: List[UsbBundleEntry], source_paths: List[RelPath], complete: Bool}
 
 type UsbSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -1169,15 +1171,15 @@ export type PciBindingComparison = {
 type PciBundleFunction = {
   address: Str,
   class_target: Str,
-  storage_path: Str,
+  storage_path: RelPath,
   driver_target: Str?,
   iommu_target: Str?,
 }
 
-type PciBundleLayout = {listing_state: Str, functions: List[PciBundleFunction], source_paths: List[Str], complete: Bool}
+type PciBundleLayout = {listing_state: Str, functions: List[PciBundleFunction], source_paths: List[RelPath], complete: Bool}
 
 type PciSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -1223,10 +1225,10 @@ export type ThermalZoneReference = {
   trips: List[ThermalTripReference],
 }
 
-type ThermalBundleLayout = {listing_state: Str, zone_paths: List[Str], source_paths: List[Str], complete: Bool}
+type ThermalBundleLayout = {listing_state: Str, zone_paths: List[RelPath], source_paths: List[RelPath], complete: Bool}
 
 type ThermalSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -1640,17 +1642,17 @@ type BlockBundleLink = {name: Str, target: Str?}
 type BlockBundleEntry = {
   name: Str,
   class_target: Str?,
-  storage_path: Str,
+  storage_path: RelPath,
   holders_state: Str,
   slaves_state: Str,
   holders: List[BlockBundleLink],
   slaves: List[BlockBundleLink],
 }
 
-type BlockBundleLayout = {listing_state: Str, entries: List[BlockBundleEntry], source_paths: List[Str], complete: Bool}
+type BlockBundleLayout = {listing_state: Str, entries: List[BlockBundleEntry], source_paths: List[RelPath], complete: Bool}
 
 type BlockSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -1666,7 +1668,7 @@ type BlockBundleCapture = {
   reference_adapter: Str,
   layout: BlockBundleLayout,
   stable_static: Bool,
-  changing_stats: List[Str],
+  changing_stats: List[RelPath],
   scoreable: Bool,
   sources: List[BlockSourceObservation],
   reference: BlockRawReference?,
@@ -1799,7 +1801,7 @@ export type KernelParameterReference = {
 }
 
 type KernelParameterSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -1953,7 +1955,7 @@ export type NamespaceComparison = {
 export type OsReleaseReference = {id: Str, version_id: Str?}
 
 type OsReleaseSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -1986,7 +1988,7 @@ export type OsReleaseComparison = {
 export type DeviceTreeReference = {model: Str?, compatible: List[Str]}
 
 type DeviceTreeSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -2070,7 +2072,7 @@ export type ProcessResourceSnapshot = {processes: List[ProcessResourceReference]
 
 type ProcessBundleRaw = {name: Str, max_bytes: Int, data: Bytes}
 
-type ProcessBundleSource = {path: Str, max_bytes: Int, byte_count: Int, sha256_hex: Str}
+type ProcessBundleSource = {path: RelPath, max_bytes: Int, byte_count: Int, sha256_hex: Str}
 
 type ProcessBundleSkip = {name: Str, source: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?}
 
@@ -2420,10 +2422,10 @@ type CpuSetCapture = {
   reference: CpuSetReference?,
 }
 
-type CpuFreqBundleLayout = {listing_state: Str, policies: List[Str], source_paths: List[Str], complete: Bool}
+type CpuFreqBundleLayout = {listing_state: Str, policies: List[Str], source_paths: List[RelPath], complete: Bool}
 
 type CpuFreqSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -2439,7 +2441,7 @@ type CpuFreqBundleCapture = {
   reference_adapter: Str,
   layout: CpuFreqBundleLayout,
   stable_static: Bool,
-  changing_gauges: List[Str],
+  changing_gauges: List[RelPath],
   scoreable: Bool,
   sources: List[CpuFreqSourceObservation],
   sets: CpuSetReference?,
@@ -2454,12 +2456,12 @@ type CpuTopologyNodeLink = {cpu_id: Int, name: Str, target: Str}
 type CpuTopologyBundleLayout = {
   cpu_ids: List[Int],
   node_links: List[CpuTopologyNodeLink],
-  source_paths: List[Str],
+  source_paths: List[RelPath],
   complete: Bool,
 }
 
 type CpuTopologySourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -2485,7 +2487,7 @@ type CpuTopologyBundleCapture = {
 export type CpuTopologyBundleComparison = {sets: CpuSetComparison, topology: CpuTopologyRawComparison}
 
 type MemorySourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -2517,7 +2519,7 @@ type MemoryCapture = {
 }
 
 type PressureSourceObservation = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -3076,7 +3078,7 @@ export pure parse_cpu_cache_size_reference(source: Str) -> Result[Int, Error] {
 
 proc reference_cache_text(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   required: Bool,
   max_bytes = 4096,
 ) [fs, error] -> Result[Str?] {
@@ -3094,7 +3096,7 @@ proc reference_cache_text(
   }
 }
 
-proc reference_cache_optional_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_cache_optional_number(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let raw = reference_cache_text(root, source_path, false)?
   guard raw != null else {
     return Ok(null)
@@ -3114,7 +3116,7 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
   let present = parse_reference_cpu_list(present_text ?? "", false)?
   let rows: List[CpuCacheReference] = collect {
     for cpu_id in present {
-      let cache_directory = fp"sys/devices/system/cpu/cpu{cpu_id}/cache"
+      let cache_directory = fp"sys/devices/system/cpu/cpu{cpu_id}/cache".require(RelPath)?
       let listing = root.children(cache_directory, max_entries: 64)?
       continue when listing.state == "absent"
       if listing.state != "complete" {
@@ -3655,7 +3657,7 @@ export pure compare_usb_topology(
   )
 }
 
-proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+proc reference_usb_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Str?] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok(null) when raw.state == "absent"
 
@@ -3671,7 +3673,7 @@ proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[S
   value
 }
 
-proc reference_usb_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_usb_number(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let value = reference_usb_text(root, source_path)?
   guard value != null else {
     return Ok(null)
@@ -3920,7 +3922,7 @@ pure usb_reference_hex(value: Str, width: Int) -> Result[Int] {
   f"0x{value}".parse_int()
 }
 
-proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Result[UsbTextReference] {
+proc reference_usb_attribute(root: FsRoot, source_path: RelPath) [fs, error] -> Result[UsbTextReference] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok({value: null, complete: true}) when raw.state == "absent"
 
@@ -3938,7 +3940,7 @@ proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Res
 
 proc reference_usb_hex_attribute(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   width: Int,
 ) [fs, error] -> Result[UsbNumberReference] {
   let raw = reference_usb_attribute(root, source_path)?
@@ -4021,7 +4023,7 @@ export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[I
 
 proc reference_usb_power_number(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   allow_negative: Bool,
 ) [fs, error] -> Result[UsbNumberReference] {
   let raw = reference_usb_attribute(root, source_path)?
@@ -4216,7 +4218,7 @@ pure parse_usb_interface_name(name: Str) -> Result[UsbInterfaceName] {
   {device_name: pair[0], configuration: configuration, number: number}
 }
 
-proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, error] -> Result[UsbTextReference] {
+proc reference_usb_interface_driver(root: FsRoot, interface_path: RelPath) [fs, error] -> Result[UsbTextReference] {
   let listing = root.children(interface_path, max_entries: 4096)?
   return Ok({value: null, complete: false}) when listing.state != "complete"
 
@@ -4562,7 +4564,7 @@ export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int, E
   number
 }
 
-proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result[PowerTextReference] {
+proc reference_power_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[PowerTextReference] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok({value: null, complete: true}) when raw.state == "absent"
 
@@ -4580,7 +4582,7 @@ proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result
 
 proc reference_power_number(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   signed: Bool,
   percent: Bool,
 ) [fs, error] -> Result[PowerNumberReference] {
@@ -4636,7 +4638,7 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
   supplies |> sort-by .name
 }
 
-pure power_supply_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+pure power_supply_bundle_storage_path(name: Str, target: Str) -> Result[RelPath] {
   let parts = target.split("/")
   if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[-1] != name {
     return Err(check_failure("power supply class link has an invalid devices target"))
@@ -4652,7 +4654,7 @@ pure power_supply_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
     components += [part]
   }
 
-  components.join("/")
+  fp"{components.join("/")}".require(RelPath)
 }
 
 # Selects every exported power supply attribute through its class entry.
@@ -4673,7 +4675,7 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
 
     let link = root.readlink_result(entry)?
     var class_target = null
-    var storage = entry.display()
+    var storage: RelPath = entry
     if link.state == "observed" {
       class_target = link.target.require(Path)?.display()
       storage = power_supply_bundle_storage_path(name, class_target ?? "")?
@@ -4728,7 +4730,7 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
         changing: true,
       },
     ] {
-      paths += [{path: f"{storage}/{attribute.name}", changing: attribute.changing}]
+      paths += [{path: fp"{storage}/{attribute.name}".require(RelPath)?, changing: attribute.changing}]
     }
 
     if paths.len() > 11264 {
@@ -4762,13 +4764,14 @@ export proc capture_power_supply_bundle(
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/power_supply", mode: 0o700, parents: true)
     for entry in layout.entries {
-      let storage = fp"{entry.storage_path}"
+      let storage = entry.storage_path
       if ! bundle.exists(storage) {
         bundle.mkdir(storage, mode: 0o700, parents: true)
       }
 
       if entry.class_target != null {
-        bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/class/power_supply/{entry.name}")
+        let class_path = fp"sys/class/power_supply/{entry.name}".require(RelPath)?
+        bundle.symlink(target: fp"{entry.class_target}", path: class_path)
       }
     }
   }
@@ -4777,12 +4780,12 @@ export proc capture_power_supply_bundle(
   var saved_bytes = []
   var complete = layout.complete
   for item in layout.paths {
-    let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
+    let raw = source.read_result(item.path, max_bytes: 4096)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{item.path}", data)
+      bundle.write(item.path, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -4807,10 +4810,10 @@ export proc capture_power_supply_bundle(
 
   let later_layout = power_supply_bundle_layout(source)?
   var stable_static = layout == later_layout
-  let changing_sources: List[Str] = collect {
+  let changing_sources: List[RelPath] = collect {
     for index in range(layout.paths.len()) {
       let item = layout.paths[index]
-      let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
+      let raw = source.read_result(item.path, max_bytes: 4096)?
       let first = sources[index]
       if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
         if item.changing {
@@ -4868,11 +4871,11 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
 
   var changed_seen: Set[Str] = set.empty()
   for relative in capture.changing_sources {
-    if relative in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
+    if relative.display() in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
       return Err(check_failure("power supply changing source metadata is invalid"))
     }
 
-    changed_seen = changed_seen.add(relative)
+    changed_seen = changed_seen.add(relative.display())
   }
 
   for index in range(layout.paths.len()) {
@@ -4882,7 +4885,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
       return Err(check_failure("power supply source identity differs"))
     }
 
-    let relative = fp"{item.path}"
+    let relative = item.path
     if expected.state == "absent" {
       if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"power supply absent source {item.path} differs"))
@@ -5148,7 +5151,7 @@ pure powercap_constraint_index(name: Str) -> Result[Int?] {
 
 proc reference_powercap_parent(
   root: FsRoot,
-  zone_path: Path,
+  zone_path: RelPath,
   zone_names: List[Str],
 ) [fs, error] -> Result[PowerTextReference] {
   let name = zone_path.name()
@@ -5215,11 +5218,11 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
         constraints += [
           {
             index: constraint_index,
-            name: reference_power_text(root, fp"{zone_path}/constraint_{constraint_index}_name")?,
+              name: reference_power_text(root, fp"{zone_path}/constraint_{constraint_index}_name".require(RelPath)?)?,
             power_limit_uw: reference_power_number(root, attribute, false, false)?,
             time_window_us: reference_power_number(
               root,
-              fp"{zone_path}/constraint_{constraint_index}_time_window_us",
+                fp"{zone_path}/constraint_{constraint_index}_time_window_us".require(RelPath)?,
               false,
               false,
             )?,
@@ -5245,9 +5248,9 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
 }
 
 # Resolves only class-local and sysfs device links without following arbitrary source paths.
-pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] {
+pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[RelPath] {
   guard let raw = target else {
-    return Ok(f"sys/class/powercap/{entry_name}")
+    return Ok(fp"sys/class/powercap/{entry_name}".require(RelPath)?)
   }
   if raw == "" or raw.starts_with("/") {
     return Err(check_failure("powercap class link has an invalid target"))
@@ -5274,14 +5277,14 @@ pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] 
     return Err(check_failure("powercap class link does not end at its entry name"))
   }
 
-  storage.join("/")
+  fp"{storage.join("/")}".require(RelPath)
 }
 
 # Lists only named powercap zones and the bounded attributes consumed by the collector.
 proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLayout] {
   let listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   var zones: List[PowerCapBundleZone] = []
-  var source_paths = []
+  var source_paths: List[RelPath] = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, zones: zones, source_paths: source_paths, complete: complete}
@@ -5304,8 +5307,11 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
 
     let storage = powercap_bundle_storage_path(entry.name(), target)?
     zones += [{entry_name: entry.name(), class_target: target, storage_path: storage}]
-    let prefix = entry.display()
-    source_paths += [f"{prefix}/name", f"{prefix}/energy_uj", f"{prefix}/max_energy_range_uj"]
+    source_paths += [
+      fp"{entry}/name".require(RelPath)?,
+      fp"{entry}/energy_uj".require(RelPath)?,
+      fp"{entry}/max_energy_range_uj".require(RelPath)?,
+    ]
     let attributes = root.children(entry, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
@@ -5324,9 +5330,9 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
 
       indices += [index]
       source_paths += [
-        f"{prefix}/constraint_{index}_power_limit_uw",
-        f"{prefix}/constraint_{index}_name",
-        f"{prefix}/constraint_{index}_time_window_us",
+        fp"{entry}/constraint_{index}_power_limit_uw".require(RelPath)?,
+        fp"{entry}/constraint_{index}_name".require(RelPath)?,
+        fp"{entry}/constraint_{index}_time_window_us".require(RelPath)?,
       ]
     }
 
@@ -5361,12 +5367,13 @@ export proc capture_powercap_bundle(
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/powercap", mode: 0o700, parents: true)
     for zone in layout.zones {
-      bundle.mkdir(fp"{zone.storage_path}", mode: 0o700, parents: true)
+      bundle.mkdir(zone.storage_path, mode: 0o700, parents: true)
     }
 
     for zone in layout.zones {
       if zone.class_target != null {
-        bundle.symlink(target: fp"{zone.class_target}", path: fp"sys/class/powercap/{zone.entry_name}")
+        let class_path = fp"sys/class/powercap/{zone.entry_name}".require(RelPath)?
+        bundle.symlink(target: fp"{zone.class_target}", path: class_path)
       }
     }
   }
@@ -5375,17 +5382,18 @@ export proc capture_powercap_bundle(
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+    let relative_text = relative.display()
+    let raw = source.read_result(relative, max_bytes: 4096)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
 
-    if raw.truncated or (raw.state != "observed" and raw.state != "absent") or (relative.ends_with("/name") and "/constraint_" not in relative and raw.state != "observed") or (relative.ends_with(
+    if raw.truncated or (raw.state != "observed" and raw.state != "absent") or (relative_text.ends_with("/name") and "/constraint_" not in relative_text and raw.state != "observed") or (relative_text.ends_with(
       "_power_limit_uw",
     ) and raw.state != "observed") {
       complete = false
@@ -5410,7 +5418,7 @@ export proc capture_powercap_bundle(
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
     continue when relative.ends_with("/energy_uj")
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = source.read_result(relative, max_bytes: 4096)?
     let first = observations[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -5461,7 +5469,7 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"powercap capture absent source {relative} differs from metadata"))
       }
 
@@ -5472,7 +5480,7 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
       return Err(check_failure(f"powercap capture cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -5768,13 +5776,14 @@ export pure compare_powercap(
 
 proc device_class_reference_name(
   root: FsRoot,
-  entry: Path,
+  entry: RelPath,
   class_name: Str,
 ) [fs, error] -> Result[DeviceClassTextRead] {
   return Ok({value: entry.name(), complete: true}) when class_name == "drm"
 
   let field = if class_name == "sound" { "id" } else { "name" }
-  let source = root.read_result(fp"{entry}/{field}", max_bytes: 4096)?
+  let field_path = fp"{entry}/{field}".require(RelPath)?
+  let source = root.read_result(field_path, max_bytes: 4096)?
   return Ok({value: entry.name(), complete: true}) when source.state == "absent"
 
   if source.state != "observed" or source.truncated or source.data == null {
@@ -5788,7 +5797,7 @@ proc device_class_reference_name(
   }
 }
 
-proc device_class_reference_parent(root: FsRoot, entry: Path) [fs, error] -> Result[DeviceClassParentRead] {
+proc device_class_reference_parent(root: FsRoot, entry: RelPath) [fs, error] -> Result[DeviceClassParentRead] {
   if let Ok(target) = root.readlink(fp"{entry}/device") {
     return Ok({target: target.display(), complete: true})
   }
@@ -5807,7 +5816,7 @@ proc device_class_reference_parent(root: FsRoot, entry: Path) [fs, error] -> Res
 ## Reads class identities, display labels, and physical-device links from bounded sysfs paths.
 export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List[DeviceClassReference], Error] {
   let records: List[DeviceClassReference] = collect {
-    for source in [
+    let sources: List[DeviceClassSource] = [
       {
         class_name: "drm",
         path: p"sys/class/drm",
@@ -5820,7 +5829,8 @@ export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List
         class_name: "input",
         path: p"sys/class/input",
       },
-    ] {
+    ]
+    for source in sources {
       let listing = root.children(source.path, max_entries: 4096)?
       continue when listing.state == "absent"
       if listing.state != "complete" {
@@ -6144,7 +6154,7 @@ pure hwmon_channel_shape(channel: Str) -> HwmonShape {
   {kind: "unknown", unit: "raw"}
 }
 
-proc reference_hwmon_text(root: FsRoot, source_path: Path) [fs, error] -> Result[HwmonTextReference] {
+proc reference_hwmon_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[HwmonTextReference] {
   let source = root.read_result(source_path, max_bytes: 4096)?
   return Ok({value: null, complete: true}) when source.state == "absent"
 
@@ -6161,7 +6171,7 @@ proc reference_hwmon_text(root: FsRoot, source_path: Path) [fs, error] -> Result
 
 proc reference_hwmon_number(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   nonnegative: Bool,
   alarm = false,
 ) [fs, error] -> Result[HwmonNumberReference] {
@@ -6201,6 +6211,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
         let name = attribute.name()
         continue unless name.ends_with("_input")
         let channel = name.split("") |> take(name.count_chars() - 6).join("")
+        let channel_path = fp"{chip_path}/{channel}".require(RelPath)?
         let shape = hwmon_channel_shape(channel)
         yield {
           chip_entry_name: chip_path.name(),
@@ -6209,11 +6220,11 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
           kind: shape.kind,
           unit: shape.unit,
           value: reference_hwmon_number(root, attribute, false)?,
-          label: reference_hwmon_text(root, fp"{chip_path}/{channel}_label")?,
-          minimum: reference_hwmon_number(root, fp"{chip_path}/{channel}_min", false)?,
-          maximum: reference_hwmon_number(root, fp"{chip_path}/{channel}_max", false)?,
-          critical: reference_hwmon_number(root, fp"{chip_path}/{channel}_crit", false)?,
-          alarm: reference_hwmon_number(root, fp"{chip_path}/{channel}_alarm", true, true)?,
+          label: reference_hwmon_text(root, fp"{chip_path}/{channel}_label".require(RelPath)?)?,
+          minimum: reference_hwmon_number(root, fp"{chip_path}/{channel}_min".require(RelPath)?, false)?,
+          maximum: reference_hwmon_number(root, fp"{chip_path}/{channel}_max".require(RelPath)?, false)?,
+          critical: reference_hwmon_number(root, fp"{chip_path}/{channel}_crit".require(RelPath)?, false)?,
+          alarm: reference_hwmon_number(root, fp"{chip_path}/{channel}_alarm".require(RelPath)?, true, true)?,
           parent_target: parent.target,
           parent_complete: parent.complete,
         }
@@ -6224,7 +6235,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
   channels
 }
 
-pure hwmon_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+pure hwmon_bundle_storage_path(name: Str, target: Str) -> Result[RelPath] {
   let parts = target.split("/")
   if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[-1] != name {
     return Err(check_failure("hwmon class entry has an invalid devices target"))
@@ -6240,18 +6251,18 @@ pure hwmon_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
     components += [part]
   }
 
-  components.join("/")
+  fp"{components.join("/")}".require(RelPath)
 }
 
-pure hwmon_bundle_gauge(relative: Str) -> Bool {
+pure hwmon_bundle_gauge(relative: RelPath) -> Bool {
   relative.ends_with("_input") or relative.ends_with("_alarm")
 }
 
-pure hwmon_bundle_device_target_safe(storage: Str, target: Str) -> Bool {
+pure hwmon_bundle_device_target_safe(storage: RelPath, target: Str) -> Bool {
   return false when target == "" or target.starts_with("/")
 
-  var components = storage.split("/")
-    |> take(storage.split("/").len() - 1)
+  var components = storage.display().split("/")
+    |> take(storage.display().split("/").len() - 1)
     |> collect()
   for part in target.split("/") {
     if part == ".." {
@@ -6276,7 +6287,7 @@ pure hwmon_bundle_device_target_safe(storage: Str, target: Str) -> Bool {
 proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] {
   let listing = root.children(p"sys/class/hwmon", max_entries: 1024)?
   var chips: List[HwmonBundleChip] = []
-  var source_paths = []
+  var source_paths: List[RelPath] = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, chips: chips, source_paths: source_paths, complete: complete}
@@ -6293,7 +6304,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
 
     let class_link = root.readlink_result(entry)?
     var class_target = null
-    var storage = entry.display()
+    var storage: RelPath = entry
     if class_link.state == "observed" {
       class_target = class_link.target.require(Path)?.display()
       storage = hwmon_bundle_storage_path(name, class_target ?? "")?
@@ -6325,13 +6336,13 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
         device_target: device_target,
       },
     ]
-    source_paths += [f"{storage}/name"]
+    source_paths += [fp"{storage}/name"]
     for attribute in attributes.children {
       let attribute_name = attribute.name()
       continue unless attribute_name.ends_with("_input")
       let channel = attribute_name.split("") |> take(attribute_name.count_chars() - 6).join("")
       for attribute_suffix in ["input", "label", "min", "max", "crit", "alarm"] {
-        source_paths += [f"{storage}/{channel}_{attribute_suffix}"]
+        source_paths += [fp"{storage}/{channel}_{attribute_suffix}".require(RelPath)?]
       }
     }
 
@@ -6362,8 +6373,8 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/hwmon", mode: 0o700, parents: true)
     for chip in layout.chips {
-      if ! bundle.exists(fp"{chip.storage_path}") {
-        bundle.mkdir(fp"{chip.storage_path}", mode: 0o700, parents: true)
+      if ! bundle.exists(chip.storage_path) {
+        bundle.mkdir(chip.storage_path, mode: 0o700, parents: true)
       }
 
       if chip.device_target != null {
@@ -6371,7 +6382,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       }
 
       if chip.class_target != null {
-        bundle.symlink(target: fp"{chip.class_target}", path: fp"sys/class/hwmon/{chip.name}")
+        bundle.symlink(target: fp"{chip.class_target}", path: fp"sys/class/hwmon/{chip.name}".require(RelPath)?)
       }
     }
   }
@@ -6380,12 +6391,12 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = source.read_result(relative, max_bytes: 4096)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -6410,10 +6421,10 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
   let later_layout = hwmon_bundle_layout(source)?
   var stable_static = layout == later_layout
-  let changing_gauges: List[Str] = collect {
+  let changing_gauges: List[RelPath] = collect {
     for index in range(layout.source_paths.len()) {
       let relative = layout.source_paths[index]
-      let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+      let raw = source.read_result(relative, max_bytes: 4096)?
       let first = sources[index]
       if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
         if hwmon_bundle_gauge(relative) {
@@ -6471,11 +6482,11 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
 
   var changing_seen: Set[Str] = set.empty()
   for gauge in capture.changing_gauges {
-    if ! hwmon_bundle_gauge(gauge) or gauge not in layout.source_paths or gauge in changing_seen {
+    if ! hwmon_bundle_gauge(gauge) or gauge not in layout.source_paths or gauge.display() in changing_seen {
       return Err(check_failure("hwmon changing gauge metadata is invalid"))
     }
 
-    changing_seen = changing_seen.add(gauge)
+    changing_seen = changing_seen.add(gauge.display())
   }
 
   for index in range(layout.source_paths.len()) {
@@ -7137,7 +7148,7 @@ export pure compare_cpuidle(
 
 proc reference_cpuidle_text(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   required: Bool,
   max_bytes = 4096,
 ) [fs, error] -> Result[Str?] {
@@ -7155,7 +7166,7 @@ proc reference_cpuidle_text(
   }
 }
 
-proc reference_cpuidle_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_cpuidle_number(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let raw = reference_cpuidle_text(root, source_path, false)?
   guard raw != null else {
     return Ok(null)
@@ -7186,7 +7197,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
   let available = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/available_governors", false)?
   let states: List[CpuIdleStateReference] = collect {
     for cpu_id in present {
-      let idle_path = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle"
+      let idle_path = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle".require(RelPath)?
       let listing = root.children(idle_path, max_entries: 256)?
       continue when listing.state == "absent"
       if listing.state != "complete" {
@@ -7284,7 +7295,7 @@ export pure parse_cpufreq_boost_reference(
   {supported: null, allowed: null, scope: null}
 }
 
-proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Str?] {
+proc reference_cpufreq_text(root: FsRoot, source_path: RelPath, required: Bool) [fs, error] -> Result[Str?] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok(null) when raw.state == "absent" and ! required
 
@@ -7299,7 +7310,7 @@ proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs
   }
 }
 
-proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_cpufreq_number(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let source = reference_cpufreq_text(root, source_path, false)?
   guard let value = source else {
     return Ok(null)
@@ -7312,7 +7323,7 @@ proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Re
   number
 }
 
-proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Result[CpuFreqGaugeReference] {
+proc reference_cpufreq_gauge(root: FsRoot, source_path: RelPath) [fs, error] -> Result[CpuFreqGaugeReference] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok({value: null, complete: true}) when raw.state == "absent"
 
@@ -7421,7 +7432,8 @@ export pure parse_proc_status_affinity(output: Str) -> Result[List[Int], Error] 
 }
 
 proc captured_cpu_set_text(root: FsRoot, name: Str) [fs, error] -> Result[Str] {
-  let raw = root.read_result(fp"sys/devices/system/cpu/{name}", max_bytes: 65536)?
+  let source_path = fp"sys/devices/system/cpu/{name}".require(RelPath)?
+  let raw = root.read_result(source_path, max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure(f"CPU set capture has no complete {name} source"))
   }
@@ -7457,7 +7469,7 @@ export proc capture_cpu_set_bundle(
   }
 
   for name in ["possible", "present", "online", "offline"] {
-    if bundle.exists(fp"sys/devices/system/cpu/{name}") {
+    if bundle.exists(fp"sys/devices/system/cpu/{name}".require(RelPath)?) {
       return Err(check_failure("CPU set capture destination contains a source file"))
     }
   }
@@ -7467,7 +7479,7 @@ export proc capture_cpu_set_bundle(
   var complete = true
   var saved_bytes = []
   for name in ["possible", "present", "online", "offline"] {
-    let relative = fp"sys/devices/system/cpu/{name}"
+    let relative = fp"sys/devices/system/cpu/{name}".require(RelPath)?
     let raw = source.read_result(relative, max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       complete = false
@@ -7500,7 +7512,7 @@ export proc capture_cpu_set_bundle(
   var stable = true
   let names = ["possible", "present", "online", "offline"]
   for index in range(4) {
-    let again = source.read_result(fp"sys/devices/system/cpu/{names[index]}", max_bytes: 65536)?
+    let again = source.read_result(fp"sys/devices/system/cpu/{names[index]}".require(RelPath)?, max_bytes: 65536)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -7552,7 +7564,7 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
       return Err(check_failure(f"CPU set capture cannot score {name} source"))
     }
 
-    let raw = bundle.read_result(fp"sys/devices/system/cpu/{name}", max_bytes: 65536)?
+    let raw = bundle.read_result(fp"sys/devices/system/cpu/{name}".require(RelPath)?, max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or expected.sha256_hex == null or hash.sha256(
       raw.data,
     )
@@ -7597,22 +7609,22 @@ export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cp
   }
 }
 
-pure cpufreq_bundle_source_limit(relative: Str) -> Int {
+pure cpufreq_bundle_source_limit(relative: RelPath) -> Int {
   if relative in [
-    "sys/devices/system/cpu/possible",
-    "sys/devices/system/cpu/present",
-    "sys/devices/system/cpu/online",
-    "sys/devices/system/cpu/offline",
-  ] or relative.ends_with("/scaling_available_frequencies") {
+    p"sys/devices/system/cpu/possible",
+    p"sys/devices/system/cpu/present",
+    p"sys/devices/system/cpu/online",
+    p"sys/devices/system/cpu/offline",
+  ] or relative.display().ends_with("/scaling_available_frequencies") {
     return 65536
   }
 
   4096
 }
 
-pure cpufreq_bundle_is_gauge(relative: Str) -> Bool {
+pure cpufreq_bundle_is_gauge(relative: RelPath) -> Bool {
   for name in ["cpuinfo_cur_freq", "scaling_cur_freq", "cpuinfo_avg_freq", "scaling_setspeed"] {
-    return true when relative.ends_with(f"/{name}")
+    return true when relative.display().ends_with(f"/{name}")
   }
 
   false
@@ -7621,13 +7633,13 @@ pure cpufreq_bundle_is_gauge(relative: Str) -> Bool {
 proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayout] {
   let listing = root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
   var policies = []
-  var source_paths: List[Str] = [
-    "sys/devices/system/cpu/possible",
-    "sys/devices/system/cpu/present",
-    "sys/devices/system/cpu/online",
-    "sys/devices/system/cpu/offline",
-    "sys/devices/system/cpu/cpufreq/boost",
-    "sys/devices/system/cpu/intel_pstate/no_turbo",
+  var source_paths: List[RelPath] = [
+    p"sys/devices/system/cpu/possible",
+    p"sys/devices/system/cpu/present",
+    p"sys/devices/system/cpu/online",
+    p"sys/devices/system/cpu/offline",
+    p"sys/devices/system/cpu/cpufreq/boost",
+    p"sys/devices/system/cpu/intel_pstate/no_turbo",
   ]
   if listing.state != "complete" {
     return {
@@ -7653,7 +7665,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
     }
 
     policies += [name]
-    let prefix = entry.display()
+    let prefix = entry
     for attribute in [
       "related_cpus",
       "affected_cpus",
@@ -7673,7 +7685,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
       "energy_performance_available_preferences",
       "scaling_available_frequencies",
     ] {
-      source_paths += [f"{prefix}/{attribute}"]
+      source_paths += [fp"{prefix}/{attribute}".require(RelPath)?]
     }
   }
 
@@ -7709,7 +7721,7 @@ export proc capture_cpufreq_bundle(
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)
     for policy in layout.policies {
-      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/{policy}", mode: 0o700)
+      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/{policy}".require(RelPath)?, mode: 0o700)
     }
   }
 
@@ -7717,21 +7729,21 @@ export proc capture_cpufreq_bundle(
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = source.read_result(relative, max_bytes: cpufreq_bundle_source_limit(relative))?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
 
     if raw.truncated or raw.state not in ["observed", "absent"] or ((relative in [
-      "sys/devices/system/cpu/possible",
-      "sys/devices/system/cpu/present",
-      "sys/devices/system/cpu/online",
-      "sys/devices/system/cpu/offline",
+      p"sys/devices/system/cpu/possible",
+      p"sys/devices/system/cpu/present",
+      p"sys/devices/system/cpu/online",
+      p"sys/devices/system/cpu/offline",
     ] or relative.ends_with("/related_cpus") or relative.ends_with("/affected_cpus")) and raw.state != "observed") {
       complete = false
     }
@@ -7752,10 +7764,10 @@ export proc capture_cpufreq_bundle(
 
   let later_layout = cpufreq_bundle_layout(source)?
   var stable_static = layout == later_layout
-  let changing_gauges: List[Str] = collect {
+  let changing_gauges: List[RelPath] = collect {
     for index in range(layout.source_paths.len()) {
       let relative = layout.source_paths[index]
-      let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+      let raw = source.read_result(relative, max_bytes: cpufreq_bundle_source_limit(relative))?
       let first = sources[index]
       if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
         if cpufreq_bundle_is_gauge(relative) {
@@ -7814,11 +7826,11 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
 
   var gauge_paths: Set[Str] = set.empty()
   for relative in capture.changing_gauges {
-    if relative not in layout.source_paths or ! cpufreq_bundle_is_gauge(relative) or relative in gauge_paths {
+    if relative not in layout.source_paths or ! cpufreq_bundle_is_gauge(relative) or relative.display() in gauge_paths {
       return Err(check_failure("CPUFreq capture has an invalid changing gauge path"))
     }
 
-    gauge_paths = gauge_paths.add(relative)
+    gauge_paths = gauge_paths.add(relative.display())
   }
 
   for index in range(layout.source_paths.len()) {
@@ -7829,7 +7841,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"CPUFreq absent source {relative} differs"))
       }
 
@@ -7840,7 +7852,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
       return Err(check_failure(f"CPUFreq capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = bundle.read_result(relative, max_bytes: cpufreq_bundle_source_limit(relative))?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -7877,11 +7889,11 @@ export proc replay_cpufreq_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cp
 }
 
 proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyBundleLayout] {
-  var source_paths: List[Str] = [
-    "sys/devices/system/cpu/possible",
-    "sys/devices/system/cpu/present",
-    "sys/devices/system/cpu/online",
-    "sys/devices/system/cpu/offline",
+  var source_paths: List[RelPath] = [
+    p"sys/devices/system/cpu/possible",
+    p"sys/devices/system/cpu/present",
+    p"sys/devices/system/cpu/online",
+    p"sys/devices/system/cpu/offline",
   ]
   var cpu_ids = []
   var complete = true
@@ -7897,7 +7909,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
 
   var node_links: List[CpuTopologyNodeLink] = []
   for cpu_id in cpu_ids {
-    let cpu_path = fp"sys/devices/system/cpu/cpu{cpu_id}"
+    let cpu_path = fp"sys/devices/system/cpu/cpu{cpu_id}".require(RelPath)?
     let listing = root.children(cpu_path, max_entries: 256)?
     if listing.state != "complete" {
       complete = false
@@ -7923,7 +7935,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
     }
 
     for attribute in ["physical_package_id", "die_id", "core_id", "thread_siblings_list"] {
-      source_paths += [f"{cpu_path}/topology/{attribute}"]
+      source_paths += [fp"{cpu_path}/topology/{attribute}".require(RelPath)?]
     }
   }
 
@@ -7935,8 +7947,8 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
   }
 }
 
-proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Str?] {
-  let raw = root.read_result(fp"{relative}", max_bytes: 4096)?
+proc cpu_topology_reference_text(root: FsRoot, relative: RelPath, required: Bool) [fs, error] -> Result[Str?] {
+  let raw = root.read_result(relative, max_bytes: 4096)?
   return Ok(null) when raw.state == "absent" and ! required
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
@@ -7949,7 +7961,7 @@ proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [f
   value
 }
 
-proc cpu_topology_reference_number(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Int?] {
+proc cpu_topology_reference_number(root: FsRoot, relative: RelPath, required: Bool) [fs, error] -> Result[Int?] {
   let value = cpu_topology_reference_text(root, relative, required)?
   guard value != null else {
     return Ok(null)
@@ -7968,10 +7980,10 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
 
   let rows: List[CpuTopologyRawReference] = collect {
     for cpu_id in sets.present {
-      let prefix = f"sys/devices/system/cpu/cpu{cpu_id}/topology"
-      let package = cpu_topology_reference_number(root, f"{prefix}/physical_package_id", true)?
-      let core = cpu_topology_reference_number(root, f"{prefix}/core_id", true)?
-      let sibling_text = cpu_topology_reference_text(root, f"{prefix}/thread_siblings_list", true)?
+      let prefix: RelPath = fp"sys/devices/system/cpu/cpu{cpu_id}/topology".require(RelPath)?
+      let package = cpu_topology_reference_number(root, fp"{prefix}/physical_package_id", true)?
+      let core = cpu_topology_reference_number(root, fp"{prefix}/core_id", true)?
+      let sibling_text = cpu_topology_reference_text(root, fp"{prefix}/thread_siblings_list", true)?
       let siblings = parse_reference_cpu_list(sibling_text ?? "", false)?
       if cpu_id not in siblings {
         return Err(check_failure("CPU topology siblings omit their owner"))
@@ -7988,7 +8000,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
         id: cpu_id,
         online: cpu_id in sets.online,
         package_id: package ?? -1,
-        die_id: cpu_topology_reference_number(root, f"{prefix}/die_id", false)?,
+        die_id: cpu_topology_reference_number(root, fp"{prefix}/die_id", false)?,
         core_id: core ?? -1,
         siblings: siblings,
         node_id: node_id,
@@ -8096,11 +8108,11 @@ export proc capture_cpu_topology_bundle(
   let layout = cpu_topology_bundle_layout(source)?
   bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)
   for cpu_id in layout.cpu_ids {
-    bundle.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}/topology", mode: 0o700, parents: true)
+    bundle.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}/topology".require(RelPath)?, mode: 0o700, parents: true)
   }
 
   for link in layout.node_links {
-    bundle.symlink(target: fp"{link.target}", path: fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}")
+    bundle.symlink(target: fp"{link.target}", path: fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}".require(RelPath)?)
   }
 
   var sources: List[CpuTopologySourceObservation] = []
@@ -8114,12 +8126,12 @@ export proc capture_cpu_topology_bundle(
     } else {
       4096
     }
-    let raw = source.read_result(fp"{relative}", max_bytes: limit)?
+    let raw = source.read_result(relative, max_bytes: limit)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8266,16 +8278,16 @@ export proc replay_cpu_topology_bundle(bundle: FsRoot) [fs, time, error] -> Resu
   }
 }
 
-pure memory_bundle_paths() -> List[Str] {
+pure memory_bundle_paths() -> List[RelPath] {
   [
-    "proc/meminfo",
-    "sys/kernel/mm/transparent_hugepage/enabled",
-    "sys/kernel/mm/transparent_hugepage/defrag",
+    p"proc/meminfo",
+    p"sys/kernel/mm/transparent_hugepage/enabled",
+    p"sys/kernel/mm/transparent_hugepage/defrag",
   ]
 }
 
-proc memory_bundle_text(bundle: FsRoot, relative: Str, bound: Int) [fs, error] -> Result[Str] {
-  let raw = bundle.read_result(fp"{relative}", max_bytes: bound)?
+proc memory_bundle_text(bundle: FsRoot, relative: RelPath, bound: Int) [fs, error] -> Result[Str] {
+  let raw = bundle.read_result(relative, max_bytes: bound)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure(f"memory bundle has no complete {relative} source"))
   }
@@ -8291,8 +8303,8 @@ proc memory_bundle_reference(bundle: FsRoot) [fs, error] -> Result[MemoryBundleR
   let meminfo = parse_meminfo_reference(memory_bundle_text(bundle, "proc/meminfo", 1048576)?)?
   let thp: List[ThpReferencePolicy] = collect {
     for name in ["enabled", "defrag"] {
-      let relative = f"sys/kernel/mm/transparent_hugepage/{name}"
-      let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
+      let relative = fp"sys/kernel/mm/transparent_hugepage/{name}".require(RelPath)?
+      let raw = bundle.read_result(relative, max_bytes: 4096)?
       continue when raw.state == "absent"
       yield {name: name, value: parse_thp_reference(memory_bundle_text(bundle, relative, 4096)?)?}
     }
@@ -8317,7 +8329,7 @@ export proc capture_memory_bundle(
 
   let paths = memory_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}") {
+    if bundle.exists(relative) {
       return Err(check_failure("memory capture destination contains a source file"))
     }
   }
@@ -8330,7 +8342,7 @@ export proc capture_memory_bundle(
   for index in range(paths.len()) {
     let relative = paths[index]
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let raw = source.read_result(fp"{relative}", max_bytes: bound)?
+    let raw = source.read_result(relative, max_bytes: bound)?
     if raw.state != "observed" and (index == 0 or raw.state != "absent") {
       complete = false
     }
@@ -8343,7 +8355,7 @@ export proc capture_memory_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8365,7 +8377,7 @@ export proc capture_memory_bundle(
   var stable = true
   for index in range(paths.len()) {
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let again = source.read_result(fp"{paths[index]}", max_bytes: bound)?
+    let again = source.read_result(paths[index], max_bytes: bound)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -8413,7 +8425,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     }
 
     if expected.state == "absent" and index > 0 {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"memory capture {relative} absent source differs from metadata"))
       }
 
@@ -8425,7 +8437,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     }
 
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let raw = bundle.read_result(fp"{relative}", max_bytes: bound)?
+    let raw = bundle.read_result(relative, max_bytes: bound)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -8968,7 +8980,7 @@ export proc capture_vulnerabilities_bundle(
     return Err(check_failure("vulnerability capture has an invalid origin"))
   }
 
-  let directory = p"sys/devices/system/cpu/vulnerabilities"
+  let directory: RelPath = p"sys/devices/system/cpu/vulnerabilities"
   if bundle.exists(p"capture.json") or bundle.exists(directory) {
     return Err(check_failure("vulnerability capture destination is not empty"))
   }
@@ -9035,7 +9047,7 @@ export proc capture_vulnerabilities_bundle(
     |> sort-by .) == (second_names |> sort-by .)
   if first.state == "complete" {
     for item in sources {
-      let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}"
+      let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}".require(RelPath)?
       let later = source.read_result(relative, max_bytes: 16384)?
       let saved = bundle.read_result(relative, max_bytes: 16384)?
       if later.state != item.state or later.truncated != item.truncated or later.errno != item.errno or later.error_kind != item.error_kind or later.data != saved.data {
@@ -9076,7 +9088,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     return Err(check_failure("vulnerability capture has no stable complete reference"))
   }
 
-  let directory = p"sys/devices/system/cpu/vulnerabilities"
+  let directory: RelPath = p"sys/devices/system/cpu/vulnerabilities"
   let listing = bundle.children(directory, max_entries: 256)?
   if listing.state != "complete" or listing.children.len() != capture.sources.len() {
     return Err(check_failure("vulnerability capture file set differs from metadata"))
@@ -9092,7 +9104,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     }
 
     expected_names += [item.name]
-    let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}"
+    let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}".require(RelPath)?
     let raw = bundle.read_result(relative, max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != item.byte_count or hash.sha256(
       raw.data,
@@ -9512,7 +9524,8 @@ export pure compare_psi(
 proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
   let rows: List[PsiReferenceRow] = collect {
     for resource in ["cpu", "memory", "io"] {
-      let raw = bundle.read_result(fp"proc/pressure/{resource}", max_bytes: 16384)?
+      let relative = fp"proc/pressure/{resource}".require(RelPath)?
+      let raw = bundle.read_result(relative, max_bytes: 16384)?
       continue when raw.state == "absent"
       if raw.state != "observed" or raw.truncated or raw.data == null {
         return Err(check_failure(f"pressure capture {resource} source is incomplete"))
@@ -9549,7 +9562,7 @@ export proc capture_pressure_bundle(
   }
 
   for resource in ["cpu", "memory", "io"] {
-    if bundle.exists(fp"proc/pressure/{resource}") {
+    if bundle.exists(fp"proc/pressure/{resource}".require(RelPath)?) {
       return Err(check_failure("pressure capture destination contains a source file"))
     }
   }
@@ -9558,7 +9571,7 @@ export proc capture_pressure_bundle(
   var complete = true
   let sources: List[PressureSourceObservation] = collect {
     for resource in ["cpu", "memory", "io"] {
-      let relative = fp"proc/pressure/{resource}"
+      let relative = fp"proc/pressure/{resource}".require(RelPath)?
       let raw = source.read_result(relative, max_bytes: 16384)?
       if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
         complete = false
@@ -9574,7 +9587,7 @@ export proc capture_pressure_bundle(
       }
 
       yield {
-        path: relative.display(),
+        path: relative,
         state: raw.state,
         truncated: raw.truncated,
         errno: raw.errno,
@@ -9619,13 +9632,13 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
   let resources = ["cpu", "memory", "io"]
   for index in range(3) {
     let expected = capture.sources[index]
-    let relative = f"proc/pressure/{resources[index]}"
+    let relative = fp"proc/pressure/{resources[index]}".require(RelPath)?
     if expected.path != relative or expected.truncated {
       return Err(check_failure("pressure capture source identity or completeness differs from metadata"))
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"pressure capture {relative} absent source differs from metadata"))
       }
 
@@ -9636,7 +9649,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
       return Err(check_failure(f"pressure capture cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"{relative}", max_bytes: 16384)?
+    let raw = bundle.read_result(relative, max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -10777,7 +10790,7 @@ export pure compare_thermal_zones(
   }
 }
 
-proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+proc reference_thermal_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Str?] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok(null) when raw.state == "absent"
 
@@ -10792,7 +10805,7 @@ proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Resu
   }
 }
 
-proc reference_thermal_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_thermal_number(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let raw = reference_thermal_text(root, source_path)?
   guard let value = raw else {
     return Ok(null)
@@ -10880,9 +10893,9 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
     var trips = [
       {
         index: trip_index,
-        kind: reference_thermal_text(root, fp"{zone_path}/trip_point_{trip_index}_type")? ?? "unknown",
-        temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/trip_point_{trip_index}_temp")?,
-        hysteresis_millidegrees: reference_thermal_number(root, fp"{zone_path}/trip_point_{trip_index}_hyst")?,
+        kind: reference_thermal_text(root, fp"{zone_path}/trip_point_{trip_index}_type".require(RelPath)?)? ?? "unknown",
+        temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/trip_point_{trip_index}_temp".require(RelPath)?)?,
+        hysteresis_millidegrees: reference_thermal_number(root, fp"{zone_path}/trip_point_{trip_index}_hyst".require(RelPath)?)?,
       }
       for trip_index in trip_indices |> sort-by .
     ]
@@ -10906,8 +10919,8 @@ pure thermal_bundle_trip_source(name: Str) -> Bool {
 # Enumerates only thermal-zone identity, temperature, and indexed trip sources.
 proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayout] {
   let listing = root.children(p"sys/class/thermal", max_entries: 1024)?
-  var zone_paths = []
-  var source_paths = []
+  var zone_paths: List[RelPath] = []
+  var source_paths: List[RelPath] = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, zone_paths: zone_paths, source_paths: source_paths, complete: complete}
@@ -10915,9 +10928,9 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
 
   for zone_path in listing.children {
     continue unless zone_path.name().starts_with("thermal_zone")
-    let zone = zone_path.display()
+    let zone = zone_path
     zone_paths += [zone]
-    source_paths += [f"{zone}/type", f"{zone}/temp"]
+    source_paths += [fp"{zone}/type".require(RelPath)?, fp"{zone}/temp".require(RelPath)?]
     let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
@@ -10928,7 +10941,11 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
       let name = attribute.name()
       continue unless thermal_bundle_trip_source(name)
       let stem = name.split("") |> take(name.count_chars() - 5).join("")
-      source_paths += [f"{zone}/{name}", f"{zone}/{stem}_type", f"{zone}/{stem}_hyst"]
+      source_paths += [
+        fp"{zone}/{name}".require(RelPath)?,
+        fp"{zone}/{stem}_type".require(RelPath)?,
+        fp"{zone}/{stem}_hyst".require(RelPath)?,
+      ]
     }
 
     if source_paths.len() > 4096 {
@@ -11118,7 +11135,7 @@ export pure pci_binding_parent_from_target(target: Path, address: Str) -> Result
   preceding
 }
 
-proc reference_pci_link_name(root: FsRoot, source_path: Path, present: Bool) [fs, error] -> Result[Str?] {
+proc reference_pci_link_name(root: FsRoot, source_path: RelPath, present: Bool) [fs, error] -> Result[Str?] {
   guard present else {
     return Ok(null)
   }
@@ -11131,7 +11148,7 @@ proc reference_pci_link_name(root: FsRoot, source_path: Path, present: Bool) [fs
   name
 }
 
-proc reference_pci_numa_node(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_pci_numa_node(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let raw = reference_pci_link_text(root, source_path)?
   guard raw != null and raw != "-1" else {
     return Ok(null)
@@ -11192,7 +11209,7 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
   rows |> sort-by .address
 }
 
-proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+proc reference_pci_link_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Str?] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok(null) when raw.state == "absent"
 
@@ -11207,7 +11224,7 @@ proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Res
   }
 }
 
-proc reference_pci_link_width(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+proc reference_pci_link_width(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Int?] {
   let raw = reference_pci_link_text(root, source_path)?
   guard raw != null else {
     return Ok(null)
@@ -11250,7 +11267,7 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
   rows |> sort-by .address
 }
 
-proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Result[Int] {
+proc pci_raw_hex(root: FsRoot, source_path: RelPath, width: Int) [fs, error] -> Result[Int] {
   let raw = reference_pci_link_text(root, source_path)?
   if raw == null or ! raw.starts_with("0x") {
     return Err(check_failure(f"PCI raw identity {source_path} is absent or lacks a hex prefix"))
@@ -11266,21 +11283,21 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
     for binding in bindings {
       let address = binding.address
       let bdf = pci_reference_bdf(address)?
-      let prefix = f"sys/bus/pci/devices/{address}"
-      let class_code = pci_raw_hex(root, fp"{prefix}/class", 6)?
+      let prefix = fp"sys/bus/pci/devices/{address}".require(RelPath)?
+      let class_code = pci_raw_hex(root, fp"{prefix}/class".require(RelPath)?, 6)?
       yield {
         address: address,
         domain: bdf.domain,
         bus: bdf.bus,
         device: bdf.device,
         function: bdf.function,
-        vendor_id: pci_raw_hex(root, fp"{prefix}/vendor", 4)?,
-        device_id: pci_raw_hex(root, fp"{prefix}/device", 4)?,
+        vendor_id: pci_raw_hex(root, fp"{prefix}/vendor".require(RelPath)?, 4)?,
+        device_id: pci_raw_hex(root, fp"{prefix}/device".require(RelPath)?, 4)?,
         class_code: class_code,
         prog_if: class_code.bit_and(255),
-        revision: pci_raw_hex(root, fp"{prefix}/revision", 2)?,
-        subsystem_vendor_id: pci_raw_hex(root, fp"{prefix}/subsystem_vendor", 4)?,
-        subsystem_device_id: pci_raw_hex(root, fp"{prefix}/subsystem_device", 4)?,
+        revision: pci_raw_hex(root, fp"{prefix}/revision".require(RelPath)?, 2)?,
+        subsystem_vendor_id: pci_raw_hex(root, fp"{prefix}/subsystem_vendor".require(RelPath)?, 4)?,
+        subsystem_device_id: pci_raw_hex(root, fp"{prefix}/subsystem_device".require(RelPath)?, 4)?,
         driver: binding.driver,
         numa_node: binding.numa_node,
         iommu_group: binding.iommu_group,
@@ -11292,7 +11309,7 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
 }
 
 # Restricts bus entry links to the sysfs devices tree and their own BDF.
-pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
+pure pci_bundle_storage_path(address: Str, target: Str) -> Result[RelPath] {
   let components = target.split("/")
   if components.len() < 4 or components[0] != ".." or components[1] != ".." or components[2] != ".." or components[3] != "devices" or components[-1] != address {
     return Err(check_failure("PCI bus entry has an invalid sysfs target"))
@@ -11309,13 +11326,13 @@ pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
     storage += [components[index]]
   }
 
-  storage.join("/")
+  fp"{storage.join("/")}".require(RelPath)
 }
 
 proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
   let listing = root.children(p"sys/bus/pci/devices", max_entries: 4096)?
   var functions: List[PciBundleFunction] = []
-  var source_paths = []
+  var source_paths: List[RelPath] = []
   if listing.state != "complete" {
     return {
       listing_state: listing.state,
@@ -11355,7 +11372,7 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
         iommu_target: iommu_target,
       },
     ]
-    let prefix = entry.display()
+    let prefix = entry
     for name in [
       "vendor",
       "device",
@@ -11369,7 +11386,7 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
       "max_link_speed",
       "max_link_width",
     ] {
-      source_paths += [f"{prefix}/{name}"]
+      source_paths += [fp"{prefix}/{name}".require(RelPath)?]
     }
   }
 
@@ -11399,7 +11416,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/bus/pci/devices", mode: 0o700, parents: true)
     for function in layout.functions {
-      bundle.mkdir(fp"{function.storage_path}", mode: 0o700, parents: true)
+      bundle.mkdir(function.storage_path, mode: 0o700, parents: true)
       if function.driver_target != null {
         bundle.symlink(target: fp"{function.driver_target}", path: fp"{function.storage_path}/driver")
       }
@@ -11408,7 +11425,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
         bundle.symlink(target: fp"{function.iommu_target}", path: fp"{function.storage_path}/iommu_group")
       }
 
-      bundle.symlink(target: fp"{function.class_target}", path: fp"sys/bus/pci/devices/{function.address}")
+      bundle.symlink(target: fp"{function.class_target}", path: fp"sys/bus/pci/devices/{function.address}".require(RelPath)?)
     }
   }
 
@@ -11416,12 +11433,12 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = source.read_result(relative, max_bytes: 4096)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11566,7 +11583,7 @@ export proc replay_pci_bundle(bundle: FsRoot) [fs, time, error] -> Result[PciBun
 }
 
 # Restricts a USB bus entry link to its named node in the sysfs devices tree.
-pure usb_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+pure usb_bundle_storage_path(name: Str, target: Str) -> Result[RelPath] {
   let components = target.split("/")
   if components.len() < 5 or components[0] != ".." or components[1] != ".." or components[2] != ".." or components[3] != "devices" or components[-1] != name {
     return Err(check_failure("USB bus entry has an invalid sysfs target"))
@@ -11582,11 +11599,11 @@ pure usb_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
     storage += [component]
   }
 
-  storage.join("/")
+  fp"{storage.join("/")}".require(RelPath)
 }
 
-pure usb_bundle_source_limit(relative: Str) -> Int {
-  return 1048576 when relative.ends_with("/descriptors")
+pure usb_bundle_source_limit(relative: RelPath) -> Int {
+  return 1048576 when relative.display().ends_with("/descriptors")
 
   4096
 }
@@ -11616,7 +11633,7 @@ pure usb_bundle_root_hub_interface(name: Str) -> Result[Bool] {
 proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
   let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   var entries: List[UsbBundleEntry] = []
-  var source_paths = []
+  var source_paths: List[RelPath] = []
   if listing.state != "complete" {
     return {
       listing_state: listing.state,
@@ -11661,7 +11678,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         driver_target: driver_target,
       },
     ]
-    let prefix = entry.display()
+    let prefix = entry
     if interface {
       for attribute in [
         "bInterfaceNumber",
@@ -11671,7 +11688,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         "bInterfaceProtocol",
         "bNumEndpoints",
       ] {
-        source_paths += [f"{prefix}/{attribute}"]
+        source_paths += [fp"{prefix}/{attribute}".require(RelPath)?]
       }
     } else {
       for attribute in [
@@ -11694,7 +11711,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         "power/autosuspend_delay_ms",
         "power/runtime_status",
       ] {
-        source_paths += [f"{prefix}/{attribute}"]
+        source_paths += [fp"{prefix}/{attribute}".require(RelPath)?]
       }
     }
   }
@@ -11725,13 +11742,14 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/bus/usb/devices", mode: 0o700, parents: true)
     for entry in layout.entries {
-      if ! bundle.exists(fp"{entry.storage_path}") {
-        bundle.mkdir(fp"{entry.storage_path}", mode: 0o700, parents: true)
+      if ! bundle.exists(entry.storage_path) {
+        bundle.mkdir(entry.storage_path, mode: 0o700, parents: true)
       }
 
       if ":" not in entry.name {
-        if ! bundle.exists(fp"{entry.storage_path}/power") {
-          bundle.mkdir(fp"{entry.storage_path}/power", mode: 0o700, parents: true)
+        let power_path: RelPath = fp"{entry.storage_path}/power"
+        if ! bundle.exists(power_path) {
+          bundle.mkdir(power_path, mode: 0o700, parents: true)
         }
       }
     }
@@ -11741,7 +11759,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
         bundle.symlink(target: fp"{entry.driver_target}", path: fp"{entry.storage_path}/driver")
       }
 
-      bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/bus/usb/devices/{entry.name}")
+      bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/bus/usb/devices/{entry.name}".require(RelPath)?)
     }
   }
 
@@ -11749,12 +11767,12 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = source.read_result(relative, max_bytes: usb_bundle_source_limit(relative))?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11783,7 +11801,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = source.read_result(relative, max_bytes: usb_bundle_source_limit(relative))?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -11854,7 +11872,7 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"USB absent source {relative} differs"))
       }
 
@@ -11865,7 +11883,7 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
       return Err(check_failure(f"USB capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = bundle.read_result(relative, max_bytes: usb_bundle_source_limit(relative))?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -12171,7 +12189,7 @@ pure network_link_sysfs_comparable_flags(bits: Int) -> Int {
 
 proc network_raw_number(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   hexadecimal: Bool,
   maximum: Int,
 ) [fs, error] -> Result[NetworkRawNumber] {
@@ -14318,7 +14336,7 @@ pure parse_block_queue_stat(output: Str) -> Result[List[BlockQueueCounter]] {
   counters
 }
 
-proc bounded_block_reference_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+proc bounded_block_reference_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[Str?] {
   let source = root.read_result(source_path, max_bytes: 4096)?
   return null when source.state == "absent"
 
@@ -14347,13 +14365,13 @@ export proc read_block_queue_sources(
       }
 
       seen = seen.add(name)
-      let firmware_primary = bounded_block_reference_text(root, fp"sys/class/block/{name}/device/firmware_rev")?
+      let firmware_primary = bounded_block_reference_text(root, fp"sys/class/block/{name}/device/firmware_rev".require(RelPath)?)?
       let firmware = if firmware_primary == null {
-        bounded_block_reference_text(root, fp"sys/class/block/{name}/device/rev")?
+        bounded_block_reference_text(root, fp"sys/class/block/{name}/device/rev".require(RelPath)?)?
       } else {
         firmware_primary
       }
-      let stat = bounded_block_reference_text(root, fp"sys/class/block/{name}/stat")?
+      let stat = bounded_block_reference_text(root, fp"sys/class/block/{name}/stat".require(RelPath)?)?
       yield {
         name: name,
         firmware: firmware,
@@ -14365,7 +14383,7 @@ export proc read_block_queue_sources(
   sources
 }
 
-pure block_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+pure block_bundle_storage_path(name: Str, target: Str) -> Result[RelPath] {
   let parts = target.split("/")
   if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[-1] != name {
     return Err(check_failure("block class entry has an invalid devices target"))
@@ -14381,13 +14399,13 @@ pure block_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
     components += [part]
   }
 
-  components.join("/")
+  fp"{components.join("/")}".require(RelPath)
 }
 
-pure block_bundle_link_path(storage: Str, directory: Str, target: Str) -> Str? {
+pure block_bundle_link_path(storage: RelPath, directory: Str, target: Str) -> RelPath? {
   return null when target == "" or target.starts_with("/")
 
-  var components = f"{storage}/{directory}".split("/")
+  var components = f"{storage.display()}/{directory}".split("/")
   for part in target.split("/") {
     if part == ".." {
       guard components.len() > 1 else {
@@ -14406,14 +14424,18 @@ pure block_bundle_link_path(storage: Str, directory: Str, target: Str) -> Str? {
 
   return null when components.len() < 2 or components[0] != "sys"
 
-  components.join("/")
+  if let Ok(relative_path) = fp"{components.join("/")}".require(RelPath) {
+    relative_path
+  } else {
+    null
+  }
 }
 
 # Preserves class identity and both block-layer relation directories.
 proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] {
   let listing = root.children(p"sys/class/block", max_entries: 4096)?
   var entries: List[BlockBundleEntry] = []
-  var source_paths = []
+  var source_paths: List[RelPath] = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, entries: entries, source_paths: source_paths, complete: complete}
@@ -14427,7 +14449,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
 
     let class_link = root.readlink_result(entry)?
     var class_target = null
-    var storage = entry.display()
+    var storage: RelPath = entry
     if class_link.state == "observed" {
       class_target = class_link.target.require(Path)?.display()
       storage = block_bundle_storage_path(name, class_target ?? "")?
@@ -14513,7 +14535,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       "device/rev",
       "stat",
     ] {
-      source_paths += [f"{storage}/{attribute}"]
+      source_paths += [fp"{storage}/{attribute}".require(RelPath)?]
     }
 
     if source_paths.len() > 8192 {
@@ -14521,7 +14543,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
     }
   }
 
-  var storage_by_name: Map[Str] = {}
+  var storage_by_name: Map[RelPath] = {}
   for entry in entries {
     storage_by_name = storage_by_name.set(entry.name, entry.storage_path)
   }
@@ -14642,7 +14664,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
   var queue: List[BlockQueueReference] = []
   for entry in layout.entries {
     let name = entry.name
-    let source_path = fp"{entry.storage_path}"
+    let source_path = entry.storage_path
     let dev = bounded_block_reference_text(root, fp"{source_path}/dev")?
     let size = bounded_block_reference_text(root, fp"{source_path}/size")?
     if dev == null or size == null {
@@ -15012,14 +15034,15 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/block", mode: 0o700, parents: true)
     for entry in layout.entries {
-      let storage = fp"{entry.storage_path}"
+      let storage = entry.storage_path
       if ! bundle.exists(storage) {
         bundle.mkdir(storage, mode: 0o700, parents: true)
       }
 
       for nested in ["queue", "device"] {
-        if ! bundle.exists(fp"{storage}/{nested}") {
-          bundle.mkdir(fp"{storage}/{nested}", mode: 0o700, parents: true)
+        let nested_path = fp"{storage}/{nested}".require(RelPath)?
+        if ! bundle.exists(nested_path) {
+          bundle.mkdir(nested_path, mode: 0o700, parents: true)
         }
       }
 
@@ -15036,10 +15059,10 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
         },
       ] {
         continue when relation.state != "complete"
-        let directory = fp"{storage}/{relation.kind}"
+        let directory = fp"{storage}/{relation.kind}".require(RelPath)?
         bundle.mkdir(directory, mode: 0o700)
         for link in relation.links {
-          let destination = fp"{directory}/{link.name}"
+          let destination = fp"{directory}/{link.name}".require(RelPath)?
           if link.target == null {
             bundle.mkdir(destination, mode: 0o700)
           } else {
@@ -15049,7 +15072,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       }
 
       if entry.class_target != null {
-        bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/class/block/{entry.name}")
+        bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/class/block/{entry.name}".require(RelPath)?)
       }
     }
   }
@@ -15058,12 +15081,12 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = source.read_result(relative, max_bytes: 4096)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -15090,10 +15113,10 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
   let later_layout = block_bundle_layout(source)?
   var stable_static = layout == later_layout
-  let changing_stats: List[Str] = collect {
+  let changing_stats: List[RelPath] = collect {
     for index in range(layout.source_paths.len()) {
       let relative = layout.source_paths[index]
-      let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+      let raw = source.read_result(relative, max_bytes: 4096)?
       let first = sources[index]
       if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
         if relative.ends_with("/stat") {
@@ -15156,11 +15179,11 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
 
   var changed_seen: Set[Str] = set.empty()
   for relative in capture.changing_stats {
-    if ! relative.ends_with("/stat") or relative not in layout.source_paths or relative in changed_seen {
+    if ! relative.display().ends_with("/stat") or relative not in layout.source_paths or relative.display() in changed_seen {
       return Err(check_failure("block changing stat metadata is invalid"))
     }
 
-    changed_seen = changed_seen.add(relative)
+    changed_seen = changed_seen.add(relative.display())
   }
 
   for index in range(layout.source_paths.len()) {
@@ -15620,7 +15643,7 @@ export proc capture_mountinfo_bundle(
     return Err(check_failure("mountinfo capture has an invalid origin"))
   }
 
-  let relative = p"proc/self/mountinfo"
+  let relative: RelPath = p"proc/self/mountinfo"
   if bundle.exists(p"capture.json") or bundle.exists(relative) {
     return Err(check_failure("mountinfo capture destination is not empty"))
   }
@@ -16743,8 +16766,9 @@ export proc capture_kernel_parameters_bundle(
     var sha256_hex = null
     if raw.data != null {
       let data = raw.data
-      if ! bundle.exists(relative.parent()) {
-        bundle.mkdir(relative.parent(), mode: 0o700, parents: true)
+      let parent = relative.parent().require(RelPath)?
+      if ! bundle.exists(parent) {
+        bundle.mkdir(parent, mode: 0o700, parents: true)
       }
 
       bundle.write(relative, data)
@@ -16754,7 +16778,7 @@ export proc capture_kernel_parameters_bundle(
 
     observations += [
       {
-        path: relative.display(),
+        path: relative,
         state: raw.state,
         truncated: raw.truncated,
         errno: raw.errno,
@@ -16814,7 +16838,7 @@ export proc validate_kernel_parameters_bundle(
   for index in range(sources.len()) {
     let expected = capture.sources[index]
     let relative = sources[index].path.strip_prefix(/)?
-    if expected.path != relative.display() or expected.truncated {
+    if expected.path != relative or expected.truncated {
       return Err(check_failure("kernel parameter capture source identity or completeness differs from metadata"))
     }
 
@@ -17016,8 +17040,8 @@ export pure compare_os_release(
   }
 }
 
-pure os_release_bundle_paths() -> List[Str] {
-  ["etc/os-release", "usr/lib/os-release"]
+pure os_release_bundle_paths() -> List[RelPath] {
+  [p"etc/os-release", p"usr/lib/os-release"]
 }
 
 ## Captures both release sources so replay can verify local-file precedence over vendor data.
@@ -17036,7 +17060,7 @@ export proc capture_os_release_bundle(
 
   let paths = os_release_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}") {
+    if bundle.exists(relative) {
       return Err(check_failure("os-release capture destination contains a source file"))
     }
   }
@@ -17046,12 +17070,12 @@ export proc capture_os_release_bundle(
   var observations: List[OsReleaseSourceObservation] = []
   var saved_bytes = []
   for relative in paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: 65536)?
+    let raw = source.read_result(relative, max_bytes: 65536)?
     var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -17072,7 +17096,7 @@ export proc capture_os_release_bundle(
 
   var stable = true
   for index in range(paths.len()) {
-    let again = source.read_result(fp"{paths[index]}", max_bytes: 65536)?
+    let again = source.read_result(paths[index], max_bytes: 65536)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17080,15 +17104,15 @@ export proc capture_os_release_bundle(
   }
 
   let selected_path = if observations[0].state == "observed" and ! observations[0].truncated {
-    paths[0]
+    paths[0].display()
   } else if observations[0].state == "absent" and observations[1].state == "observed" and ! observations[1].truncated {
-    paths[1]
+    paths[1].display()
   } else {
     ""
   }
   var reference: OsReleaseReference? = null
   if selected_path != "" {
-    let index = if selected_path == paths[0] { 0 } else { 1 }
+    let index = if selected_path == paths[0].display() { 0 } else { 1 }
     if let Ok(text) = (saved_bytes[index] ?? b"").utf8() {
       if let Ok(parsed) = parse_reference_os_release(text) {
         reference = parsed
@@ -17134,7 +17158,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       "read_failure",
       "permission_denied",
     ] and expected.sha256_hex == null) {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+    if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"os-release unavailable source {relative} differs from metadata"))
       }
 
@@ -17145,7 +17169,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       return Err(check_failure(f"os-release cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"{relative}", max_bytes: 65536)?
+    let raw = bundle.read_result(relative, max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -17155,9 +17179,9 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
   }
 
   let selected_path = if capture.sources[0].state == "observed" {
-    paths[0]
+    paths[0].display()
   } else if capture.sources[0].state == "absent" and capture.sources[1].state == "observed" {
-    paths[1]
+    paths[1].display()
   } else {
     ""
   }
@@ -17165,8 +17189,9 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release capture has no usable reference"))
   }
 
-  let selected = bundle.read_result(fp"{selected_path}", max_bytes: 65536)?
-  let index = if selected_path == paths[0] { 0 } else { 1 }
+  let selected_relative = if selected_path == paths[0].display() { paths[0] } else { paths[1] }
+  let selected = bundle.read_result(selected_relative, max_bytes: 65536)?
+  let index = if selected_path == paths[0].display() { 0 } else { 1 }
   if selected.state != "observed" or selected.truncated or selected.data == null or hash.sha256(selected.data)
     .hex() != (capture.sources[index].sha256_hex ?? "") {
     return Err(check_failure("os-release selected source changed during validation"))
@@ -17360,8 +17385,8 @@ export pure compare_device_tree(
   }
 }
 
-pure device_tree_bundle_paths() -> List[Str] {
-  ["sys/firmware/devicetree/base/model", "sys/firmware/devicetree/base/compatible"]
+pure device_tree_bundle_paths() -> List[RelPath] {
+  [p"sys/firmware/devicetree/base/model", p"sys/firmware/devicetree/base/compatible"]
 }
 
 ## Saves bounded raw device-tree identity strings and an independently decoded reference.
@@ -17380,7 +17405,7 @@ export proc capture_device_tree_bundle(
 
   let paths = device_tree_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}") {
+    if bundle.exists(relative) {
       return Err(check_failure("device-tree capture destination contains a source file"))
     }
   }
@@ -17392,7 +17417,7 @@ export proc capture_device_tree_bundle(
   for index in range(paths.len()) {
     let relative = paths[index]
     let limit = if index == 0 { 4096 } else { 16384 }
-    let raw = source.read_result(fp"{relative}", max_bytes: limit)?
+    let raw = source.read_result(relative, max_bytes: limit)?
     if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
@@ -17401,7 +17426,7 @@ export proc capture_device_tree_bundle(
     var sha256_hex = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17423,7 +17448,7 @@ export proc capture_device_tree_bundle(
   var stable = true
   for index in range(paths.len()) {
     let limit = if index == 0 { 4096 } else { 16384 }
-    let again = source.read_result(fp"{paths[index]}", max_bytes: limit)?
+    let again = source.read_result(paths[index], max_bytes: limit)?
     let first = sources[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17472,7 +17497,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
       }
 
       if expected.state == "absent" {
-        if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+        if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
           return Err(check_failure(f"device-tree absent source {relative} differs from metadata"))
         }
 
@@ -17485,7 +17510,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
       }
 
       let limit = if index == 0 { 4096 } else { 16384 }
-      let raw = bundle.read_result(fp"{relative}", max_bytes: limit)?
+      let raw = bundle.read_result(relative, max_bytes: limit)?
       if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
         raw.data,
       )
@@ -17519,7 +17544,7 @@ export proc replay_device_tree_bundle(bundle: FsRoot) [fs, time, error] -> Resul
   compare_device_tree(encode_replayed_report(candidate, true)?, reference, false)
 }
 
-proc reference_dmi_text(root: FsRoot, source_path: Path) [fs, error] -> Result[DmiTextReference] {
+proc reference_dmi_text(root: FsRoot, source_path: RelPath) [fs, error] -> Result[DmiTextReference] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok({value: null, complete: true}) when raw.state == "absent"
 
@@ -17548,16 +17573,16 @@ export proc read_dmi_identity_reference(root: FsRoot) [fs, error] -> Result[DmiI
   })
 }
 
-pure dmi_identity_bundle_paths() -> List[Str] {
+pure dmi_identity_bundle_paths() -> List[RelPath] {
   [
-    "sys/class/dmi/id/sys_vendor",
-    "sys/class/dmi/id/product_name",
-    "sys/class/dmi/id/board_vendor",
-    "sys/class/dmi/id/board_name",
-    "sys/class/dmi/id/bios_vendor",
-    "sys/class/dmi/id/bios_version",
-    "sys/class/dmi/id/product_serial",
-    "sys/class/dmi/id/product_uuid",
+    p"sys/class/dmi/id/sys_vendor",
+    p"sys/class/dmi/id/product_name",
+    p"sys/class/dmi/id/board_vendor",
+    p"sys/class/dmi/id/board_name",
+    p"sys/class/dmi/id/bios_vendor",
+    p"sys/class/dmi/id/bios_version",
+    p"sys/class/dmi/id/product_serial",
+    p"sys/class/dmi/id/product_uuid",
   ]
 }
 
@@ -17581,7 +17606,7 @@ export proc capture_dmi_identity_bundle(
 
   let paths = dmi_identity_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}") {
+    if bundle.exists(relative) {
       return Err(check_failure("DMI identity capture destination contains a source file"))
     }
   }
@@ -17591,7 +17616,7 @@ export proc capture_dmi_identity_bundle(
   var saved_bytes = []
   var complete = true
   for relative in paths {
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = source.read_result(relative, max_bytes: 4096)?
     if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
@@ -17600,7 +17625,7 @@ export proc capture_dmi_identity_bundle(
     var sha256_hex = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)
+      bundle.write(relative, data)
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17621,7 +17646,7 @@ export proc capture_dmi_identity_bundle(
 
   var stable = true
   for index in range(paths.len()) {
-    let again = source.read_result(fp"{paths[index]}", max_bytes: 4096)?
+    let again = source.read_result(paths[index], max_bytes: 4096)?
     let first = sources[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17670,7 +17695,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"DMI identity absent source {relative} differs from metadata"))
       }
 
@@ -17681,7 +17706,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
       return Err(check_failure(f"DMI identity cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
@@ -18159,13 +18184,13 @@ export pure parse_proc_cgroup_reference(output: Str) -> Result[Str?, Error] {
 export type VisibleCgroup2Location = {
   group_path: Str,
   visible_path: Str,
-  source_path: Str,
+  source_path: RelPath,
   mount_root: Str,
-  mount_source_path: Str,
+  mount_source_path: RelPath,
 }
 
 ## Names one visible cgroup2 ancestor and its rooted source directory.
-export type VisibleCgroup2Ancestor = {visible_path: Str, source_path: Str, hierarchy_level: Int}
+export type VisibleCgroup2Ancestor = {visible_path: Str, source_path: RelPath, hierarchy_level: Int}
 
 ## Preserves the raw quota and period without converting them to CPU counts.
 export type CpuScopeQuota = {quota: Int?, period: Int, unlimited: Bool}
@@ -18229,12 +18254,12 @@ export type Cgroup2ResourceObservation = {
   ended: Int,
 }
 
-type Cgroup2BundlePath = {path: Str, max_bytes: Int, changing: Bool}
+type Cgroup2BundlePath = {path: RelPath, max_bytes: Int, changing: Bool}
 
 type Cgroup2BundleLayout = {ancestors: List[VisibleCgroup2Ancestor], paths: List[Cgroup2BundlePath]}
 
 type Cgroup2BundleSource = {
-  path: Str,
+  path: RelPath,
   state: Str,
   truncated: Bool,
   errno: Int?,
@@ -18250,7 +18275,7 @@ type Cgroup2BundleCapture = {
   reference_adapter: Str,
   layout: Cgroup2BundleLayout,
   stable_static: Bool,
-  changing_sources: List[Str],
+  changing_sources: List[RelPath],
   scoreable: Bool,
   sources: List[Cgroup2BundleSource],
   reference_ancestors: List[Str],
@@ -18361,7 +18386,7 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
     group_path.split("") |> drop(chosen_root.count_chars() + 1).join("")
   }
   let mount_relative = (chosen_point.split("/") |> where . != "").join("/")
-  let source_path = if relative == "" {
+  let source_path_text = if relative == "" {
     if mount_relative == "" {
       "."
     } else {
@@ -18372,12 +18397,15 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
   } else {
     f"{mount_relative}/{relative}"
   }
+  let source_path = fp"{source_path_text}".require(RelPath)?
+  let mount_source_path_text = if mount_relative == "" { "." } else { mount_relative }
+  let mount_source_path = fp"{mount_source_path_text}".require(RelPath)?
   {
     group_path: group_path,
     visible_path: group_path,
     source_path: source_path,
     mount_root: chosen_root,
-    mount_source_path: if mount_relative == "" { "." } else { mount_relative },
+    mount_source_path: mount_source_path,
   }
 }
 
@@ -18406,7 +18434,7 @@ export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Resul
     }
 
     let visible_parts = visible.split("/")
-    let source_parts = source.split("/")
+    let source_parts = source.display().split("/")
     if visible_parts.len() < 2 or source_parts.len() < 1 {
       return Err(check_failure("cgroup2 reference has an invalid visible ancestor path"))
     }
@@ -18416,9 +18444,11 @@ export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Resul
       visible = "/"
     }
 
-    source = source_parts |> take(source_parts.len() - 1).join("/")
-    if source == "" {
-      source = "."
+    let source_text = source_parts |> take(source_parts.len() - 1).join("/")
+    if source_text == "" {
+      source = p"."
+    } else {
+      source = fp"{source_text}".require(RelPath)?
     }
 
     level += 1
@@ -18589,7 +18619,7 @@ pure cgroup2_reference_resource(
 
 proc cgroup2_reference_text(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   max_bytes: Int,
   required: Bool,
 ) [fs, error] -> Result[Str?] {
@@ -18685,8 +18715,10 @@ export proc read_cgroup2_resource_reference(
         current_file: "pids.current",
       },
     ] {
-      let maximum_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/{family.maximum_file}", 4096, false)?
-      let current_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/{family.current_file}", 4096, false)?
+      let maximum_path = fp"{path_item.source_path}/{family.maximum_file}".require(RelPath)?
+      let current_path = fp"{path_item.source_path}/{family.current_file}".require(RelPath)?
+      let maximum_raw = cgroup2_reference_text(root, maximum_path, 4096, false)?
+      let current_raw = cgroup2_reference_text(root, current_path, 4096, false)?
       continue when maximum_raw == null and current_raw == null
       if maximum_raw == null or current_raw == null {
         return Err(check_failure(f"cgroup2 {family.resource} reference has an incomplete limit pair"))
@@ -18821,13 +18853,6 @@ proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayo
   ]
   for ancestor in ancestors {
     let source = ancestor.source_path
-    if source == "" or source.starts_with("/") or (source != "." and (source.split("/")
-      |> any { |part|
-        part in ["", ".", ".."]
-      })) {
-      return Err(check_failure("cgroup2 bundle ancestor path is unsafe"))
-    }
-
     for attribute in [
       {
         name: "memory.max",
@@ -18880,7 +18905,11 @@ proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayo
         changing: true,
       },
     ] {
-      let relative = if source == "." { attribute.name } else { f"{source}/{attribute.name}" }
+      let relative = if source.display() == "." {
+        fp"{attribute.name}".require(RelPath)?
+      } else {
+        fp"{source}/{attribute.name}".require(RelPath)?
+      }
       paths += [{path: relative, max_bytes: attribute.max_bytes, changing: attribute.changing}]
     }
   }
@@ -18911,7 +18940,7 @@ export proc capture_cgroup2_bundle(
   var saved_bytes = []
   var complete = true
   for item in layout.paths {
-    let relative = fp"{item.path}"
+    let relative = item.path
     let raw = source.read_result(relative, max_bytes: item.max_bytes)?
     var sha256_hex = null
     var byte_count = 0
@@ -18928,8 +18957,8 @@ export proc capture_cgroup2_bundle(
     }
 
     if raw.truncated or raw.state not in ["observed", "absent"] or (item.path in [
-      "proc/self/cgroup",
-      "proc/self/mountinfo",
+      p"proc/self/cgroup",
+      p"proc/self/mountinfo",
     ] and raw.state != "observed") {
       complete = false
     }
@@ -18950,10 +18979,10 @@ export proc capture_cgroup2_bundle(
 
   let later_layout = cgroup2_bundle_layout(source)?
   var stable_static = layout == later_layout
-  let changing_sources: List[Str] = collect {
+  let changing_sources: List[RelPath] = collect {
     for index in range(layout.paths.len()) {
       let item = layout.paths[index]
-      let raw = source.read_result(fp"{item.path}", max_bytes: item.max_bytes)?
+      let raw = source.read_result(item.path, max_bytes: item.max_bytes)?
       let first = sources[index]
       if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
         if item.changing {
@@ -19016,11 +19045,11 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
 
   var changed_seen: Set[Str] = set.empty()
   for relative in capture.changing_sources {
-    if relative in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
+    if relative.display() in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
       return Err(check_failure("cgroup2 changing source metadata is invalid"))
     }
 
-    changed_seen = changed_seen.add(relative)
+    changed_seen = changed_seen.add(relative.display())
   }
 
   for index in range(layout.paths.len()) {
@@ -19030,7 +19059,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
       return Err(check_failure("cgroup2 source identity differs"))
     }
 
-    let relative = fp"{item.path}"
+    let relative = item.path
     if expected.state == "absent" {
       if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"cgroup2 absent source {item.path} differs"))
@@ -19310,7 +19339,7 @@ export pure compare_cpu_scope_cgroup(
   })
 }
 
-proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs, error] -> Result[Str?] {
+proc process_reference_text(root: FsRoot, source_path: RelPath, max_bytes: Int) [fs, error] -> Result[Str?] {
   let source = root.read_result(source_path, max_bytes:)?
   if source.state != "observed" or source.truncated or source.data == null {
     return Ok(null)
@@ -19590,7 +19619,8 @@ export proc capture_process_bundle(
           max_bytes: 16384,
         },
       ] {
-        let raw = source.read_result(fp"{process_path}/{field.name}", max_bytes: field.max_bytes)?
+        let field_path = fp"{process_path}/{field.name}".require(RelPath)?
+        let raw = source.read_result(field_path, max_bytes: field.max_bytes)?
         if raw.state != "observed" or raw.truncated or raw.data == null {
           skipped += [
             {
@@ -19709,10 +19739,10 @@ export proc capture_process_bundle(
       }
 
       total_bytes += selected_bytes
-      bundle.mkdir(fp"proc/{pid}", mode: 0o700)
+      bundle.mkdir(fp"proc/{pid}".require(RelPath)?, mode: 0o700)
       for field in raw_fields {
-        let relative = f"proc/{pid}/{field.name}"
-        bundle.write(fp"{relative}", field.data)
+        let relative = fp"proc/{pid}/{field.name}".require(RelPath)?
+        bundle.write(relative, field.data)
         sources += [
           {
             path: relative,
@@ -19812,11 +19842,12 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
 
   var source_by_path: Map[ProcessBundleSource] = {}
   for item in capture.sources {
-    if item.path in source_by_path {
+      let path_key = item.path.display()
+      if path_key in source_by_path {
       return Err(check_failure("process bundle repeats a source path"))
     }
 
-    source_by_path = source_by_path.set(item.path, item)
+      source_by_path = source_by_path.set(path_key, item)
   }
 
   var seen_pids: Set[Str] = set.empty()
@@ -19845,17 +19876,18 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
         max_bytes: 16384,
       },
     ] {
-      let relative = f"proc/{pid}/{field.name}"
-      if relative not in source_by_path {
+      let relative = fp"proc/{pid}/{field.name}".require(RelPath)?
+      let path_key = relative.display()
+      if path_key not in source_by_path {
         return Err(check_failure("process bundle source is missing"))
       }
 
-      let expected = source_by_path.get(relative)?
+      let expected = source_by_path.get(path_key)?
       if expected.path != relative or expected.max_bytes != field.max_bytes {
         return Err(check_failure("process bundle source identity differs"))
       }
 
-      let raw = bundle.read_result(fp"{relative}", max_bytes: field.max_bytes)?
+      let raw = bundle.read_result(relative, max_bytes: field.max_bytes)?
       if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
         raw.data,
       )
@@ -21401,9 +21433,9 @@ proc audit_no_subprocess_case(
   label: Str,
   scratch: FsRoot,
 ) [fs, process, error] {
-  let trace_name = fp"trace-{label}"
-  let stdout_name = fp"stdout-{label}"
-  let stderr_name = fp"stderr-{label}"
+  let trace_name = fp"trace-{label}".require(RelPath)?
+  let stdout_name = fp"stdout-{label}".require(RelPath)?
+  let stderr_name = fp"stderr-{label}".require(RelPath)?
   scratch.write(trace_name, "")
   scratch.write(stdout_name, "")
   scratch.write(stderr_name, "")
@@ -21536,7 +21568,7 @@ export proc audit_no_subprocess_replay_paths(xsh_bin: Str, script: Str) [fs, pro
   audit_no_subprocess_case(xsh_bin, script, ["--from", missing_path.display()], false, "missing-replay", scratch)
   let startup_trace = scratch.read_text(p"trace-version")?
   for label in ["offline-replay", "malformed-replay", "unsupported-schema", "invalid-utf8-replay", "missing-replay"] {
-    let replay_trace = scratch.read_text(fp"trace-{label}")?
+    let replay_trace = scratch.read_text(fp"trace-{label}".require(RelPath)?)?
     let replay_reads = replay_host_read_violations_after_baseline(replay_trace, startup_trace)
     if ! replay_reads.is_empty() {
       let reasons = replay_reads.join(", ")
@@ -21578,8 +21610,9 @@ proc read_uname_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
   let scratch_path = scratch.host_path()?
-  let output_path = fp"{scratch_path}/{name}"
-  scratch.write(fp"{name}", "")
+  let output_name = fp"{name}".require(RelPath)?
+  let output_path = fp"{scratch_path}/{output_name}"
+  scratch.write(output_name, "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21595,7 +21628,7 @@ proc read_uname_reference(
     return Err(check_failure(f"uname {flag} reference command failed"))
   }
 
-  let value = scratch.read_text(fp"{name}")?.trim()
+  let value = scratch.read_text(output_name)?.trim()
   if value == "" {
     return Err(check_failure(f"uname {flag} reference command returned an empty value"))
   }
@@ -21608,7 +21641,8 @@ proc read_uptime_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UptimeReferenceObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")
+  let output_name = fp"{name}".require(RelPath)?
+  scratch.write(output_name, "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21616,7 +21650,7 @@ proc read_uptime_reference(
       ["cat", "/proc/uptime"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}",
+      stdout: fp"{scratch_path}/{output_name}",
     ),
   )?
   let ended = time.now()
@@ -21624,7 +21658,7 @@ proc read_uptime_reference(
     return Err(check_failure("cat /proc/uptime reference command failed"))
   }
 
-  let output = scratch.read_text(fp"{name}")?
+  let output = scratch.read_text(output_name)?
   {seconds: parse_reference_uptime_seconds(output)?, started: started, ended: ended}
 }
 
@@ -21634,7 +21668,8 @@ proc read_os_release_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")
+  let output_name = fp"{name}".require(RelPath)?
+  scratch.write(output_name, "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21642,7 +21677,7 @@ proc read_os_release_reference(
       ["cat", source_path],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}",
+      stdout: fp"{scratch_path}/{output_name}",
     ),
   )?
   let ended = time.now()
@@ -21650,7 +21685,7 @@ proc read_os_release_reference(
     return Err(check_failure(f"cat {source_path} reference command failed"))
   }
 
-  let value = scratch.read_text(fp"{name}")?
+  let value = scratch.read_text(output_name)?
   {value: value, started: started, ended: ended}
 }
 
@@ -21671,14 +21706,15 @@ export proc read_device_tree_raw_reference(
   }
 
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")
+  let output_name = fp"{name}".require(RelPath)?
+  scratch.write(output_name, "")
   let status = process.run(
     process.command_argv(
       "/usr/bin/od",
-      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path],
+      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path.display()],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}",
+      stdout: fp"{scratch_path}/{output_name}",
     ),
   )?
   let ended = time.now()
@@ -21686,7 +21722,7 @@ export proc read_device_tree_raw_reference(
     return Err(check_failure(f"device-tree od reference failed for {source_path}"))
   }
 
-  let output = scratch.read_result(fp"{name}", max_bytes: max_bytes * 4 + 4096)?
+  let output = scratch.read_result(output_name, max_bytes: max_bytes * 4 + 4096)?
   if output.state != "observed" or output.truncated or output.data == null {
     return Err(check_failure(f"device-tree od reference output is incomplete for {source_path}"))
   }
@@ -21706,8 +21742,10 @@ proc read_namespace_reference(
   output_name: Str,
 ) [fs, process, time, error] -> Result[NamespaceLinkObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{output_name}", "")
-  scratch.write(fp"{output_name}-error", "")
+  let output_path = fp"{output_name}".require(RelPath)?
+  let error_path = fp"{output_name}-error".require(RelPath)?
+  scratch.write(output_path, "")
+  scratch.write(error_path, "")
   let source_path = f"/proc/self/ns/{kernel_name}"
   let started = time.now()
   let status = process.run(
@@ -21716,8 +21754,8 @@ proc read_namespace_reference(
       ["readlink", source_path],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{output_name}",
-      stderr: fp"{scratch_path}/{output_name}-error",
+      stdout: fp"{scratch_path}/{output_path}",
+      stderr: fp"{scratch_path}/{error_path}",
     ),
   )?
   let ended = time.now()
@@ -21725,7 +21763,7 @@ proc read_namespace_reference(
     return Err(check_failure(f"namespace reference {source_path} is unavailable"))
   }
 
-  let target = scratch.read_text(fp"{output_name}")?.trim()
+  let target = scratch.read_text(output_path)?.trim()
   if target == "" {
     return Err(check_failure(f"namespace reference {source_path} returned an empty target"))
   }
@@ -21740,8 +21778,8 @@ proc read_reference_tool_version(
   name: Str,
 ) [fs, process, error] -> Result[Str] {
   let scratch_path = scratch.host_path()?
-  let output_name = fp"{name}-version"
-  let error_name = fp"{name}-version-error"
+  let output_name = fp"{name}-version".require(RelPath)?
+  let error_name = fp"{name}-version-error".require(RelPath)?
   scratch.write(output_name, "")
   scratch.write(error_name, "")
   let status = process.run(
@@ -22110,8 +22148,10 @@ proc print_cpu_id_set_result(name: Str, result: CpuIdSetComparison) [error, io] 
 # Reads a bounded raw host-memory snapshot with its observation interval.
 proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, error] -> Result[MeminfoObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")
-  scratch.write(fp"{name}-error", "")
+  let output_name = fp"{name}".require(RelPath)?
+  let error_name = fp"{name}-error".require(RelPath)?
+  scratch.write(output_name, "")
+  scratch.write(error_name, "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22119,8 +22159,8 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
       ["cat", "/proc/meminfo"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}",
-      stderr: fp"{scratch_path}/{name}-error",
+      stdout: fp"{scratch_path}/{output_name}",
+      stderr: fp"{scratch_path}/{error_name}",
     ),
   )?
   let ended = time.now()
@@ -22128,7 +22168,7 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
     return Err(check_failure("meminfo raw reference command failed"))
   }
 
-  let raw = scratch.read_result(fp"{name}", max_bytes: 1048576)?
+  let raw = scratch.read_result(output_name, max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("meminfo raw reference is incomplete"))
   }
@@ -22205,23 +22245,25 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
       let source_path = fp"/sys/kernel/mm/transparent_hugepage/{name}"
       continue unless source_path.exists()
       let output_name = f"thp-{label}-{name}"
-      scratch.write(fp"{output_name}", "")
-      scratch.write(fp"{output_name}-error", "")
+      let output_path = fp"{output_name}".require(RelPath)?
+      let error_path = fp"{output_name}-error".require(RelPath)?
+      scratch.write(output_path, "")
+      scratch.write(error_path, "")
       let status = process.run(
         process.command_argv(
           "/bin/cat",
           ["cat", source_path],
           cwd: /,
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-          stdout: fp"{scratch_path}/{output_name}",
-          stderr: fp"{scratch_path}/{output_name}-error",
+          stdout: fp"{scratch_path}/{output_path}",
+          stderr: fp"{scratch_path}/{error_path}",
         ),
       )?
       if ! status.exited_with(0) {
         return Err(check_failure(f"THP {name} raw reference command failed"))
       }
 
-      let raw = scratch.read_result(fp"{output_name}", max_bytes: 4096)?
+      let raw = scratch.read_result(output_path, max_bytes: 4096)?
       if raw.state != "observed" or raw.truncated or raw.data == null {
         return Err(check_failure(f"THP {name} raw reference is incomplete"))
       }
@@ -22348,7 +22390,7 @@ pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
   kib * 1024
 }
 
-proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Int?] {
+proc read_huge_page_counter_reference(root: FsRoot, source_path: RelPath, required: Bool) [fs, error] -> Result[Int?] {
   let raw = root.read_result(source_path, max_bytes: 4096)?
   return Ok(null) when raw.state == "absent" and ! required
 
@@ -22368,7 +22410,7 @@ proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required:
 
 proc read_huge_page_pool_reference(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   node_id: Int?,
 ) [fs, error] -> Result[HugePageReferencePool] {
   let page_size_bytes = parse_huge_page_size_reference(source_path.name())?
@@ -22509,23 +22551,25 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
       continue unless source_path.exists()
       yield resource
       let output_name = f"psi-{label}-{resource}"
-      scratch.write(fp"{output_name}", "")
-      scratch.write(fp"{output_name}-error", "")
+      let output_path = fp"{output_name}".require(RelPath)?
+      let error_path = fp"{output_name}-error".require(RelPath)?
+      scratch.write(output_path, "")
+      scratch.write(error_path, "")
       let status = process.run(
         process.command_argv(
           "/bin/cat",
           ["cat", source_path],
           cwd: /,
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-          stdout: fp"{scratch_path}/{output_name}",
-          stderr: fp"{scratch_path}/{output_name}-error",
+          stdout: fp"{scratch_path}/{output_path}",
+          stderr: fp"{scratch_path}/{error_path}",
         ),
       )?
       if ! status.exited_with(0) {
         return Err(check_failure(f"PSI {resource} raw reference command failed"))
       }
 
-      let raw = scratch.read_result(fp"{output_name}", max_bytes: 16384)?
+      let raw = scratch.read_result(output_path, max_bytes: 16384)?
       if raw.state != "observed" or raw.truncated or raw.data == null {
         return Err(check_failure(f"PSI {resource} raw reference is incomplete"))
       }
@@ -22649,8 +22693,10 @@ proc read_vulnerability_reference(
       }
 
       let output_name = f"vulnerability-{label}-{index}"
-      scratch.write(fp"{output_name}", "")
-      scratch.write(fp"{output_name}-error", "")
+      let output_path = fp"{output_name}".require(RelPath)?
+      let error_path = fp"{output_name}-error".require(RelPath)?
+      scratch.write(output_path, "")
+      scratch.write(error_path, "")
       let source_path = fp"/sys/devices/system/cpu/vulnerabilities/{name}"
       let status = process.run(
         process.command_argv(
@@ -22658,15 +22704,15 @@ proc read_vulnerability_reference(
           ["cat", source_path],
           cwd: /,
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-          stdout: fp"{scratch_path}/{output_name}",
-          stderr: fp"{scratch_path}/{output_name}-error",
+          stdout: fp"{scratch_path}/{output_path}",
+          stderr: fp"{scratch_path}/{error_path}",
         ),
       )?
       if ! status.exited_with(0) {
         return Err(check_failure(f"vulnerability {name} raw reference command failed"))
       }
 
-      let raw = scratch.read_result(fp"{output_name}", max_bytes: 16384)?
+      let raw = scratch.read_result(output_path, max_bytes: 16384)?
       if raw.state != "observed" or raw.truncated or raw.data == null {
         return Err(check_failure(f"vulnerability {name} raw reference is incomplete"))
       }
@@ -22871,7 +22917,8 @@ proc lspci_reference_binary() [fs, error] -> Result[Str] {
 }
 
 proc read_lspci_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
-  let raw = scratch.read_result(fp"{output_name}", max_bytes: 16777216)?
+  let output_path = fp"{output_name}".require(RelPath)?
+  let raw = scratch.read_result(output_path, max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("lspci reference output is incomplete"))
   }
@@ -23537,7 +23584,8 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
 }
 
 proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
-  let raw = scratch.read_result(fp"{output_name}", max_bytes: 16777216)?
+  let output_path = fp"{output_name}".require(RelPath)?
+  let raw = scratch.read_result(output_path, max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("ip JSON reference output is incomplete"))
   }
@@ -24355,6 +24403,8 @@ proc read_mount_usage_references(
   let observations: List[MountUsageReference] = collect {
     for id in mount_usage_eligible_ids(mounts) {
       let output_name = f"{name}-{id}"
+      let output_path = fp"{output_name}".require(RelPath)?
+      let error_path = fp"{output_name}-error".require(RelPath)?
       let argv = [
         "findmnt",
         "--kernel=mountinfo",
@@ -24373,15 +24423,15 @@ proc read_mount_usage_references(
           argv,
           cwd: /,
           env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-          stdout: fp"{scratch_path}/{output_name}",
-          stderr: fp"{scratch_path}/{output_name}-error",
+          stdout: fp"{scratch_path}/{output_path}",
+          stderr: fp"{scratch_path}/{error_path}",
         ),
       )?
       if ! status.exited_with(0) {
         return Err(check_failure(f"findmnt capacity reference failed for mount ID {id}"))
       }
 
-      yield parse_findmnt_usage_json(scratch.read_text(fp"{output_name}")?, id)?
+      yield parse_findmnt_usage_json(scratch.read_text(output_path)?, id)?
     }
   }
 
@@ -24520,6 +24570,10 @@ proc read_kernel_module_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[KernelModuleObservation] {
   let scratch_path = scratch.host_path()?
+  let lsmod_path = fp"{name}-lsmod".require(RelPath)?
+  let lsmod_error_path = fp"{name}-lsmod-error".require(RelPath)?
+  let proc_path = fp"{name}-proc".require(RelPath)?
+  let proc_error_path = fp"{name}-proc-error".require(RelPath)?
   let started = time.now()
   let formatted_status = process.run(
     process.command_argv(
@@ -24527,8 +24581,8 @@ proc read_kernel_module_reference(
       ["lsmod"],
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}-lsmod",
-      stderr: fp"{scratch_path}/{name}-lsmod-error",
+      stdout: fp"{scratch_path}/{lsmod_path}",
+      stderr: fp"{scratch_path}/{lsmod_error_path}",
     ),
   )?
   if ! formatted_status.exited_with(0) {
@@ -24541,8 +24595,8 @@ proc read_kernel_module_reference(
       ["cat", "/proc/modules"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}-proc",
-      stderr: fp"{scratch_path}/{name}-proc-error",
+      stdout: fp"{scratch_path}/{proc_path}",
+      stderr: fp"{scratch_path}/{proc_error_path}",
     ),
   )?
   let ended = time.now()
@@ -24552,8 +24606,8 @@ proc read_kernel_module_reference(
 
   {
     modules: parse_lsmod_reference(
-      scratch.read_text(fp"{name}-lsmod")?,
-      scratch.read_text(fp"{name}-proc")?,
+      scratch.read_text(lsmod_path)?,
+      scratch.read_text(proc_path)?,
     )?,
     started: started,
     ended: ended,
@@ -24632,6 +24686,8 @@ proc read_kernel_command_line_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[KernelCommandLineObservation] {
   let scratch_path = scratch.host_path()?
+  let output_path = fp"{name}".require(RelPath)?
+  let error_path = fp"{name}-error".require(RelPath)?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -24639,8 +24695,8 @@ proc read_kernel_command_line_reference(
       ["cat", "/proc/cmdline"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"{scratch_path}/{name}",
-      stderr: fp"{scratch_path}/{name}-error",
+      stdout: fp"{scratch_path}/{output_path}",
+      stderr: fp"{scratch_path}/{error_path}",
     ),
   )?
   let ended = time.now()
@@ -24648,7 +24704,7 @@ proc read_kernel_command_line_reference(
     return Err(check_failure("proc command-line reference failed"))
   }
 
-  let read = scratch.read_result(fp"{name}", max_bytes: 65536)?
+  let read = scratch.read_result(output_path, max_bytes: 65536)?
   if read.state != "observed" or read.truncated or read.data == null {
     return Err(check_failure("proc command-line reference is incomplete"))
   }
@@ -24791,6 +24847,8 @@ proc read_kernel_parameter_reference(
       }
 
       let output_name = f"{name}-{item.index}"
+      let output_path = fp"{output_name}".require(RelPath)?
+      let error_path = fp"{output_name}-error".require(RelPath)?
       let binary = if source.source == "sysctl" { sysctl_binary } else { "/bin/cat" }
       let argv = if source.source == "sysctl" { ["sysctl", "-n", source.name] } else { ["cat", source.path.display()] }
       let status = process.run(
@@ -24799,15 +24857,15 @@ proc read_kernel_parameter_reference(
           argv,
           cwd: /,
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-          stdout: fp"{scratch_path}/{output_name}",
-          stderr: fp"{scratch_path}/{output_name}-error",
+          stdout: fp"{scratch_path}/{output_path}",
+          stderr: fp"{scratch_path}/{error_path}",
         ),
       )?
       if ! status.exited_with(0) {
         return Err(check_failure(f"kernel parameter reference failed for {source.name}"))
       }
 
-      let read = scratch.read_result(fp"{output_name}", max_bytes: 4096)?
+      let read = scratch.read_result(output_path, max_bytes: 4096)?
       if read.state != "observed" or read.truncated or read.data == null {
         return Err(check_failure(f"kernel parameter reference is incomplete for {source.name}"))
       }
@@ -24895,9 +24953,10 @@ proc read_proc_status_affinity_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[ProcStatusAffinityObservation] {
   let scratch_path = scratch.host_path()?
-  let output_name = fp"{name}"
+  let output_name = fp"{name}".require(RelPath)?
+  let error_name = fp"{name}-error".require(RelPath)?
   scratch.write(output_name, "")
-  scratch.write(fp"{name}-error", "")
+  scratch.write(error_name, "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -24906,7 +24965,7 @@ proc read_proc_status_affinity_reference(
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
-      stderr: fp"{scratch_path}/{name}-error",
+      stderr: fp"{scratch_path}/{error_name}",
     ),
   )?
   let ended = time.now()
@@ -25355,8 +25414,8 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let scratch = fs.tempdir()?
-    for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
-    scratch.write(fp"{name}", "")
+  for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
+    scratch.write(fp"{name}".require(RelPath)?, "")
   }
 
   let scratch_path = scratch.host_path()?
@@ -26306,7 +26365,7 @@ export proc validate_and_run(
   if options.capture_cpu_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("CPU set capture destination already exists"))
     }
@@ -26345,7 +26404,7 @@ export proc validate_and_run(
   if options.capture_cpufreq_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpufreq_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("CPUFreq capture destination already exists"))
     }
@@ -26391,7 +26450,7 @@ export proc validate_and_run(
   if options.capture_cpu_topology_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_topology_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("CPU topology capture destination already exists"))
     }
@@ -26423,7 +26482,7 @@ export proc validate_and_run(
   if options.capture_memory_bundle != "" {
     let destination = path.absolute(fp"{options.capture_memory_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("memory capture destination already exists"))
     }
@@ -26465,7 +26524,7 @@ export proc validate_and_run(
   if options.capture_cgroup2_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cgroup2_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("cgroup2 capture destination already exists"))
     }
@@ -26498,7 +26557,7 @@ export proc validate_and_run(
   if options.capture_process_bundle != "" {
     let destination = path.absolute(fp"{options.capture_process_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("process capture destination already exists"))
     }
@@ -26532,7 +26591,7 @@ export proc validate_and_run(
   if options.capture_power_supply_bundle != "" {
     let destination = path.absolute(fp"{options.capture_power_supply_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("power supply capture destination already exists"))
     }
@@ -26569,7 +26628,7 @@ export proc validate_and_run(
   if options.capture_pressure_bundle != "" {
     let destination = path.absolute(fp"{options.capture_pressure_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("pressure capture destination already exists"))
     }
@@ -26604,7 +26663,7 @@ export proc validate_and_run(
   if options.capture_swaps_bundle != "" {
     let destination = path.absolute(fp"{options.capture_swaps_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("swap capture destination already exists"))
     }
@@ -26639,7 +26698,7 @@ export proc validate_and_run(
   if options.capture_os_release_bundle != "" {
     let destination = path.absolute(fp"{options.capture_os_release_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("os-release capture destination already exists"))
     }
@@ -26674,7 +26733,7 @@ export proc validate_and_run(
   if options.capture_uptime_bundle != "" {
     let destination = path.absolute(fp"{options.capture_uptime_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("uptime capture destination already exists"))
     }
@@ -26710,7 +26769,7 @@ export proc validate_and_run(
   if options.capture_dmi_identity_bundle != "" {
     let destination = path.absolute(fp"{options.capture_dmi_identity_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("DMI identity capture destination already exists"))
     }
@@ -26745,7 +26804,7 @@ export proc validate_and_run(
   if options.capture_device_tree_bundle != "" {
     let destination = path.absolute(fp"{options.capture_device_tree_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("device-tree capture destination already exists"))
     }
@@ -26780,7 +26839,7 @@ export proc validate_and_run(
   if options.capture_kernel_command_line_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_command_line_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("kernel command-line capture destination already exists"))
     }
@@ -26815,7 +26874,7 @@ export proc validate_and_run(
   if options.capture_kernel_modules_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_modules_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("kernel module capture destination already exists"))
     }
@@ -26850,7 +26909,7 @@ export proc validate_and_run(
   if options.capture_vulnerabilities_bundle != "" {
     let destination = path.absolute(fp"{options.capture_vulnerabilities_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("vulnerability capture destination already exists"))
     }
@@ -26885,7 +26944,7 @@ export proc validate_and_run(
   if options.capture_mountinfo_bundle != "" {
     let destination = path.absolute(fp"{options.capture_mountinfo_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("mountinfo capture destination already exists"))
     }
@@ -26920,7 +26979,7 @@ export proc validate_and_run(
   if options.capture_kernel_parameters_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_parameters_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("kernel parameter capture destination already exists"))
     }
@@ -26955,7 +27014,7 @@ export proc validate_and_run(
   if options.capture_thermal_bundle != "" {
     let destination = path.absolute(fp"{options.capture_thermal_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("thermal capture destination already exists"))
     }
@@ -26988,7 +27047,7 @@ export proc validate_and_run(
   if options.capture_hwmon_bundle != "" {
     let destination = path.absolute(fp"{options.capture_hwmon_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("hwmon capture destination already exists"))
     }
@@ -27030,7 +27089,7 @@ export proc validate_and_run(
   if options.capture_block_bundle != "" {
     let destination = path.absolute(fp"{options.capture_block_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("block capture destination already exists"))
     }
@@ -27065,7 +27124,7 @@ export proc validate_and_run(
   if options.capture_powercap_bundle != "" {
     let destination = path.absolute(fp"{options.capture_powercap_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("powercap capture destination already exists"))
     }
@@ -27098,7 +27157,7 @@ export proc validate_and_run(
   if options.capture_pci_bundle != "" {
     let destination = path.absolute(fp"{options.capture_pci_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("PCI capture destination already exists"))
     }
@@ -27139,7 +27198,7 @@ export proc validate_and_run(
   if options.capture_usb_bundle != "" {
     let destination = path.absolute(fp"{options.capture_usb_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("USB capture destination already exists"))
     }
@@ -27181,7 +27240,7 @@ export proc validate_and_run(
   if options.capture_smbios_bundle != "" {
     let destination = path.absolute(fp"{options.capture_smbios_bundle}")?
     let parent = fs.open_root(destination.parent())?
-        let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}".require(RelPath)?
     if parent.exists(leaf) {
       return Err(check_failure("SMBIOS capture destination already exists"))
     }

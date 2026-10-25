@@ -2069,10 +2069,9 @@ proc create_sort_temp_root(directory: Str?) [fs, io, process, env, error] -> FsR
   }
 }
 
-proc sort_temp_path(root: FsRoot, name: Str) [fs, error] -> Path {
-  let relative = fp"{name}"
-  root.write(relative, b"")
-  root.chmod(relative, 0o600)
+proc sort_temp_path(root: FsRoot, name: RelPath) [fs, error] -> Path {
+  root.write(name, b"")
+  root.chmod(name, 0o600)
   fp"{root.host_path()?}/{name}"
 }
 
@@ -2105,12 +2104,13 @@ proc run_compress_program(program: Str, argv: List[Str], input: Bytes, output: P
 }
 
 proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [fs, process, env, error] -> SortInput {
-  let run_path = sort_temp_path(root, name)
+  let relative = fp"{name}".require(RelPath)?
+  let run_path = sort_temp_path(root, relative)
   if let program = compress {
     run_compress_program(program, [program], contents, run_path)
   } else {
-    root.write(fp"{name}", contents)
-    root.chmod(fp"{name}", 0o600)
+    root.write(relative, contents)
+    root.chmod(relative, 0o600)
   }
   {name: run_path.bytes(), path: run_path, stdin: false, compressed: compress}
 }
@@ -2129,7 +2129,8 @@ proc compress_temp_run(root: FsRoot, name: Str, plain: Path, compress: Str?) [fs
 ## Returns the input as plain text, decompressing a temporary run into a new file under the root.
 proc plain_sort_input(root: FsRoot, input: SortInput, name: Str) [fs, process, env, error] -> SortInput {
   if let program = input.compressed {
-    let plain = sort_temp_path(root, name)
+    let relative = fp"{name}".require(RelPath)?
+    let plain = sort_temp_path(root, relative)
     run_compress_program(program, [program, "-d"], input.path.read_bytes()?, plain)
     {name: plain.bytes(), path: plain, stdin: false, compressed: null}
   } else {
@@ -2279,7 +2280,8 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
       } else {
         let name = f"merge-{pass}-{group_number}"
         let plain_inputs = plain_sort_inputs(root, input_group, name)
-        let merged = sort_temp_path(root, f"{name}-plain")
+        let merged_name = fp"{name}-plain".require(RelPath)?
+        let merged = sort_temp_path(root, merged_name)
         let fd = unix.open_fd(merged, write: true)?
         merge_sort_stream(plain_inputs, opts, has_key, fd, false)
         unix.close_fd(fd)

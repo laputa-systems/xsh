@@ -281,9 +281,10 @@ print \$entry.size
   fp"{root}/missing-again".remove()
   tree.remove(missing_ok: false)
   let temp_file = fs.tempfile()?
-  assert temp_file.root.exists(temp_file.path)?
-  temp_file.root.write(temp_file.path, "temp")
-  assert temp_file.root.read_text(temp_file.path)? == "temp"
+  let temp_file_path = temp_file.path.require(RelPath)?
+  assert temp_file.root.exists(temp_file_path)?
+  temp_file.root.write(temp_file_path, "temp")
+  assert temp_file.root.read_text(temp_file_path)? == "temp"
   temp_file.root.close()
   let temp_dir = fs.tempdir()?
   temp_dir.mkdir(p"child")
@@ -337,10 +338,6 @@ test test_fs_root_operations_reject_traversal { |ctx|
   let absent_filesystem = root.filesystem_stats(p"nested/missing")?
   assert absent_filesystem.state == "absent"
   assert absent_filesystem.error_kind == "not_found"
-  test.error_kind(
-    root.filesystem_stats(/tmp),
-    "fs-root-filesystem-stats",
-  )
   let limited = root.read_result(p"nested/data.txt", max_bytes: 2)?
   assert limited.data == b"ro"
   assert limited.truncated
@@ -398,12 +395,7 @@ test test_fs_root_operations_reject_traversal { |ctx|
   test.error_kind(root.read_text(p"nested/link"), "fs-root-read")
   let escaped_directory = root.children(p"nested/link")?
   assert ! escaped_directory.enumeration_succeeded
-  let escaped_path = root.children(../outside)?
-  assert ! escaped_path.enumeration_succeeded
-  test.error_kind(root.read_text(../secret.txt), "fs-root-read")
-  test.error_kind(root.symlink(target: p"target", path: ../escape), "fs-root-symlink")
   test.error_kind(root.write_atomic(p"missing/parent.txt", "x"), "fs-root-write")
-  test.error_kind(fs.root_install_file(source_root, ../secret.txt, root, p"escape.txt", 0o600), "fs-root-install")
   root.remove(p"nested/data.txt")
   assert ! root.exists(p"nested/data.txt")?
   source_root.close()
@@ -435,7 +427,6 @@ test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
   let directory = root.stat(p"nested")?
   assert directory.kind == "dir"
   test.error_kind(root.stat(p"nested/missing"), "fs-root-stat")
-  test.error_kind(root.stat(../outside), "fs-root-stat")
   root.close()
 }
 
@@ -471,7 +462,7 @@ test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
 
   let dir = test.temp_dir(ctx, name: "fs-raw-name")?
   let root = fs.open_root(dir)?
-  let raw_name = b"raw\xfffile" as Path
+  let raw_name = (b"raw\xfffile" as Path).require(RelPath)?
   root.write(raw_name, b"ok")
   assert root.read_bytes(raw_name)? == b"ok"
   assert root.children(p".")?.children == [raw_name]
@@ -513,7 +504,8 @@ root.write_atomic(p"state", bytes.zero(8192)?)
   assert root.read_text(p"state")? == "old"
   let leftovers = [entry for entry in root.children(p".")?.children if entry != p"state"]
   assert leftovers.len() == 1
-  let partial = root.stat(leftovers[0])?
+  let partial_path = leftovers[0].require(RelPath)?
+  let partial = root.stat(partial_path)?
   assert partial.kind == "file" and partial.size == 4096
   assert outside_sentinel.read_text()? == "outside"
   assert fs.children(outside)?.collect().len() == 1
@@ -846,7 +838,8 @@ test test_filesystem_path_and_install_apis { |ctx|
 """
 
   assert scratch.exists(p".")?
-  assert temp.root.exists(temp.path)?
+  let temp_path = temp.path.require(RelPath)?
+  assert temp.root.exists(temp_path)?
   let copy = fp"{root}/copy.txt"
   let moved = fp"{root}/moved.txt"
   let hard = fp"{root}/hard.txt"

@@ -34,7 +34,8 @@ test test_sys_source_numbers_reject_prefixes_signs_and_json_unsafe_values {
     {file: "plus", value: "+1"},
     {file: "huge", value: "9007199254740992"},
   ] {
-    root.write(fp"{item.file}", f"{item.value}\n")
+    let file_path = fp"{item.file}".require(RelPath)?
+    root.write(file_path, f"{item.value}\n")
   }
 
   assert src.bounded_number(src.read_source_text(root, p"ok"), true).value == 42

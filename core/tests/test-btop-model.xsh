@@ -10,7 +10,7 @@ pure default_processes() -> List[fixture.ProcessFixture] {
   [{pid: 42, start_ticks: 1000, cpu_ticks: 10, rss_pages: 16384, uid: 1000}]
 }
 
-proc capture(root: FsRoot, prefix: Path, source_id: Str, at_ns: Int) [fs, error] -> Result[model.Observation, Error] {
+proc capture(root: FsRoot, prefix: RelPath, source_id: Str, at_ns: Int) [fs, error] -> Result[model.Observation, Error] {
   let frame_root = root.open_root(prefix)?
   defer frame_root.close()
   source.capture(frame_root, source_id, at_ns, 4096, 100)
@@ -383,8 +383,9 @@ test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
   var churn_previous: model.Observation? = null
   for index in range(40) {
     let row = {pid: 100 + index, start_ticks: 1000 + index, cpu_ticks: index, rss_pages: 1, uid: 1000}
-    fixture.write_b3_frame(bundle, f"frames/churn-{index}", 0, [row])
-    let current = capture(bundle, fp"frames/churn-{index}", "uid-churn", 4000000000 + index * 1000000000)?
+    let frame_path = fp"frames/churn-{index}".require(RelPath)?
+    fixture.write_b3_frame(bundle, frame_path, 0, [row])
+    let current = capture(bundle, frame_path, "uid-churn", 4000000000 + index * 1000000000)?
     let next = model.step_cached(current, churn_previous, churn_cache)
     assert next.metadata.by_pid.len() <= 1
     churn_cache = next.metadata

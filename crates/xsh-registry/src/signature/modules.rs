@@ -1503,9 +1503,9 @@ fn fs_module() -> ModuleSig {
             sig(
                 vec![
                     param("source_root", fs_root_type()),
-                    param("source", Type::Path),
+                    param("source", Type::RelPath),
                     param("dest_root", fs_root_type()),
-                    param("dest", Type::Path),
+                    param("dest", Type::RelPath),
                     param("mode", Type::Int),
                     default_param("parents", Type::Bool),
                     default_param("overwrite", Type::Bool),

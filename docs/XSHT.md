@@ -34,6 +34,7 @@ searches `tests/` unless `test_roots` changes that default. The formatter uses
 remove files from its source denominator. `[check] annotate`, `[lint]`,
 `[dead-code]`, and `[coverage]` hold the other per-project policies. The parser
 in `crates/xsht/src/cli/files.rs` owns accepted keys and defaults.
+The `[lint]` section rejects unknown keys, including retired rule switches.
 
 ## Checking and annotation
 

@@ -1080,14 +1080,14 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "open_root",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(fs_root_type()),
                     false,
                     RuntimeOp::FsRootOpenRoot,
                 ),
                 method(
                     "read_bytes",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(Type::Bytes),
                     false,
                     RuntimeOp::FsRootRead,
@@ -1095,7 +1095,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "read_result",
                     vec![
-                        param("path", Type::Path),
+                        param("path", Type::RelPath),
                         default_param("max_bytes", Type::Int),
                     ],
                     result(fs_root_read_result_type()),
@@ -1104,7 +1104,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "filesystem_stats",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(fs_root_filesystem_stats_type()),
                     false,
                     RuntimeOp::FsRootFilesystemStats,
@@ -1112,7 +1112,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "children",
                     vec![
-                        param("path", Type::Path),
+                        param("path", Type::RelPath),
                         default_param("max_entries", Type::Int),
                         default_param("ordered", Type::Bool),
                     ],
@@ -1122,42 +1122,42 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "read_text",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(Type::Str),
                     false,
                     RuntimeOp::FsRootReadText,
                 ),
                 method(
                     "write",
-                    vec![param("path", Type::Path), param("data", Type::Bytes)],
+                    vec![param("path", Type::RelPath), param("data", Type::Bytes)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootWrite,
                 ),
                 method(
                     "write",
-                    vec![param("path", Type::Path), param("data", Type::Str)],
+                    vec![param("path", Type::RelPath), param("data", Type::Str)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootWrite,
                 ),
                 method(
                     "write_atomic",
-                    vec![param("path", Type::Path), param("data", Type::Bytes)],
+                    vec![param("path", Type::RelPath), param("data", Type::Bytes)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootWriteAtomic,
                 ),
                 method(
                     "write_atomic",
-                    vec![param("path", Type::Path), param("data", Type::Str)],
+                    vec![param("path", Type::RelPath), param("data", Type::Str)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootWriteAtomic,
                 ),
                 method(
                     "metadata",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(fs_entry_type()),
                     false,
                     RuntimeOp::FsRootMetadata,
@@ -1165,7 +1165,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "stat",
                     vec![
-                        param("path", Type::Path),
+                        param("path", Type::RelPath),
                         default_param("follow_symlinks", Type::Bool),
                     ],
                     result(crate::records::fs_stat_type()),
@@ -1174,7 +1174,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "exists",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(Type::Bool),
                     false,
                     RuntimeOp::FsRootExists,
@@ -1182,7 +1182,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "mkdir",
                     vec![
-                        param("path", Type::Path),
+                        param("path", Type::RelPath),
                         default_param("mode", Type::Int),
                         default_param("parents", Type::Bool),
                     ],
@@ -1192,21 +1192,21 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "remove",
-                    vec![param("path", Type::Path), default_param("dir", Type::Bool)],
+                    vec![param("path", Type::RelPath), default_param("dir", Type::Bool)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootRemove,
                 ),
                 method(
                     "readlink",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(Type::Path),
                     false,
                     RuntimeOp::FsRootReadlink,
                 ),
                 method(
                     "readlink_result",
-                    vec![param("path", Type::Path)],
+                    vec![param("path", Type::RelPath)],
                     result(fs_root_readlink_result_type()),
                     false,
                     RuntimeOp::FsRootReadlinkResult,
@@ -1215,7 +1215,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     "symlink",
                     vec![
                         labeled_param("target", Type::Path),
-                        labeled_param("path", Type::Path),
+                        labeled_param("path", Type::RelPath),
                         default_param("parents", Type::Bool),
                         default_param("overwrite", Type::Bool),
                     ],
@@ -1225,7 +1225,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "chmod",
-                    vec![param("path", Type::Path), param("mode", Type::Int)],
+                    vec![param("path", Type::RelPath), param("mode", Type::Int)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootChmod,

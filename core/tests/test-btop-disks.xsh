@@ -6,7 +6,8 @@ use core.lib.sys_block as block
 use core.lib.system_report as report
 
 proc add_block_device(root: FsRoot, name: Str, number: Str, disk_sequence: Str, stats: Str) [fs, error] {
-  let device_path = fp"sys/devices/virtual/block/{name}"
+  let name_path = fp"{name}".require(RelPath)?
+  let device_path: RelPath = fp"sys/devices/virtual/block/{name_path}"
   root.mkdir(fp"{device_path}/holders", parents: true)
   root.mkdir(fp"{device_path}/slaves", parents: true)
   root.mkdir(fp"{device_path}/queue", parents: true)
@@ -14,7 +15,7 @@ proc add_block_device(root: FsRoot, name: Str, number: Str, disk_sequence: Str, 
   root.write(fp"{device_path}/diskseq", f"{disk_sequence}\n")
   root.write(fp"{device_path}/size", "4096\n")
   root.write(fp"{device_path}/stat", stats)
-  root.symlink(target: fp"../../devices/virtual/block/{name}", path: fp"sys/class/block/{name}")
+  root.symlink(target: fp"../../devices/virtual/block/{name}", path: fp"sys/class/block/{name_path}")
 }
 
 proc write_mounts(root: FsRoot, text: Str) [fs, error] {

@@ -75,7 +75,8 @@ export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
   var interfaces: List[NetworkInterface] = []
   var issues = parsed.issues
   for item in parsed.interfaces {
-    let source = src.read_source_text(root, fp"sys/class/net/{item.name}/ifindex", max_bytes: 128)
+    let ifindex_path = fp"sys/class/net/{item.name}/ifindex".require(RelPath)?
+    let source = src.read_source_text(root, ifindex_path, max_bytes: 128)
     if source.observation.state != .Observed or source.observation.value == null {
       issues += [src.issue(f"network.{item.name}.ifindex", source.observation.state, source.error_kind, source.errno)]
       interfaces += [{...item, ifindex: null}]

@@ -23466,6 +23466,36 @@ run true
     }
 
     #[test]
+    fn named_relative_path_arguments_preserve_their_literal_origins() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("named-relative-path.xsh", r#"
+pure checked(file: RelPath, count: Int = 0) -> RelPath { let _ = count; file }
+let prefix: RelPath = p"parent"
+assert checked(p"relative", count: 42) == p"relative"
+assert checked(fp"{prefix}/name", count: 43) == p"parent/name"
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let decoder = stage_view_decoder(&program.store);
+            let literal = (0..program.store.tags.len()).find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Path(path)) if path == b"relative")
+            }).unwrap();
+            let payload = program.store.payload(program.store.data[literal].range()).unwrap();
+            let bytes = super::super::IrBytesId::from_raw(payload[0]).unwrap();
+            let range = program.store.bytes[bytes.index()];
+            let mut forged = (*program).clone();
+            forged.store.byte_data[range.start as usize] = b'/';
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
     fn context_scopes_preserve_return_transfers_and_timed_unit_completion() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("context-return-transfer.xsh", r#"

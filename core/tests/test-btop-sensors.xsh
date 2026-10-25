@@ -7,12 +7,14 @@ use core.lib.system_report_live as live
 
 type TestChannel = {id: Int, label: Str, value: Str}
 
-proc write_hwmon(root: FsRoot, directory: Str, chip: Str, channels: List[TestChannel]) [fs, error] {
+proc write_hwmon(root: FsRoot, directory: RelPath, chip: Str, channels: List[TestChannel]) [fs, error] {
   root.mkdir(fp"sys/class/hwmon/{directory}", parents: true)
   root.write(fp"sys/class/hwmon/{directory}/name", f"{chip}\n")
   for channel in channels {
-    root.write(fp"sys/class/hwmon/{directory}/temp{channel.id}_label", f"{channel.label}\n")
-    root.write(fp"sys/class/hwmon/{directory}/temp{channel.id}_input", f"{channel.value}\n")
+    let label_path = fp"sys/class/hwmon/{directory}/temp{channel.id}_label".require(RelPath)?
+    let input_path = fp"sys/class/hwmon/{directory}/temp{channel.id}_input".require(RelPath)?
+    root.write(label_path, f"{channel.label}\n")
+    root.write(input_path, f"{channel.value}\n")
   }
 }
 

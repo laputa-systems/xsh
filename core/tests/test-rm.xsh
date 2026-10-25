@@ -277,7 +277,7 @@ test test_rm_unreadable_empty_directory_and_first_failure { |ctx|
 test test_rm_recursive_removes_hierarchy_deeper_than_path_max { |ctx|
   let base = test.temp_dir(ctx, name: "rm-deep")?
   let levels = ["a" for _ in range(1000)]
-  let chain = fp"{levels.join("/")}"
+  let chain = fp"{levels.join("/")}".require(RelPath)?
   var top = fs.open_root(base)?
   top.mkdir(p"deep")
   var floor = top.open_root(p"deep")?

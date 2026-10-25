@@ -544,8 +544,8 @@ export proc capture_smbios_bundle(
     return Err(smbios_check_failure("SMBIOS capture origin must identify a fixture or live capture"))
   }
 
-  let relative = p"sys/firmware/dmi/tables/DMI"
-  let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
+  let relative: RelPath = p"sys/firmware/dmi/tables/DMI"
+  let entry_relative: RelPath = p"sys/firmware/dmi/tables/smbios_entry_point"
   if bundle.exists(p"capture.json") or bundle.exists(relative) or bundle.exists(
     entry_relative,
   ) {
@@ -623,7 +623,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
   }
 
   let capture = json.decode(metadata.data as Str)?.require(SmbiosCapture)?
-  let relative = p"sys/firmware/dmi/tables/DMI"
+  let relative: RelPath = p"sys/firmware/dmi/tables/DMI"
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "smbios-raw-rooted-v1" or ! capture.stable or capture.source.path != "sys/firmware/dmi/tables/DMI" or capture.entry_point.path != "sys/firmware/dmi/tables/smbios_entry_point" or capture.source.state != "observed" or capture.source.truncated or capture.source.errno != null or capture.source.error_kind != null or capture.source.sha256_hex == null or (capture.entry_point.state == "observed" and (capture.entry_point.truncated or capture.entry_point.errno != null or capture.entry_point.error_kind != null or capture.entry_point.sha256_hex == null)) or (capture.entry_point.state == "absent" and capture.entry_point.sha256_hex != null) {
     return Err(smbios_check_failure("SMBIOS capture metadata cannot support exact replay"))
   }
@@ -636,7 +636,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
     return Err(smbios_check_failure("SMBIOS capture bytes differ from metadata"))
   }
 
-  let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
+  let entry_relative: RelPath = p"sys/firmware/dmi/tables/smbios_entry_point"
   var entry_data = null
   if capture.entry_point.sha256_hex == null {
     if capture.entry_point.byte_count != 0 or bundle.exists(entry_relative) {
@@ -1122,7 +1122,7 @@ export proc corroborate_smbios_bundle(
     "dmidecode-reference.json",
     "dmidecode-comparison.json",
   ] {
-    if bundle.exists(fp"{name}") {
+    if bundle.exists(fp"{name}".require(RelPath)?) {
       return Err(smbios_check_failure("SMBIOS bundle already contains dmidecode corroboration"))
     }
   }

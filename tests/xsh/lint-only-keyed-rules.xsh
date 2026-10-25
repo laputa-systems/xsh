@@ -27,11 +27,6 @@ const keyed_rules: List[KeyedRule] = [
     source: "pure probe(line: Str) -> Str {\n  let parts = line.split(\"=\")\n  let key = parts[0]\n  let value = parts[1]\n  key + value\n}\n\nprint probe(\"a=b\")\n",
   },
   {
-    code: "lint.prefer-rel-path",
-    off: "",
-    source: "proc stage(root: FsRoot, file: Path) [fs, error] {\n  root.write(file, \"x\")\n}\n",
-  },
-  {
     code: "lint.prefer-inferred-private-effects",
     off: "[lint]\nprefer-inferred-private-effects = false\n",
     source: "proc parsed(text: Str) [error] -> Result[Int] {\n  text.parse_int()? + 1\n}\n\nlet total = parsed(\"1\")?\nassert total == 2\n",

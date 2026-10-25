@@ -280,7 +280,8 @@ proc remove_database(root: FsRoot) [fs, process, error] {
     doomed += [p"run/udev/queue.bin"]
   }
 
-  for directory in [p"run/udev/data", p"run/udev/links", p"run/udev/tags", p"run/udev/static_node-tags", p"run/udev/watch"] {
+  let directories: List[RelPath] = [p"run/udev/data", p"run/udev/links", p"run/udev/tags", p"run/udev/static_node-tags", p"run/udev/watch"]
+  for directory in directories {
     let listing = root.children(directory, max_entries: 65536)?
     for entry in listing.children {
       if directory == p"run/udev/data" {
@@ -660,7 +661,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
 
     continue when opts.dry_run
 
-    let uevent = fp"sys{target}/uevent"
+    let uevent = fp"sys{target}/uevent".require(RelPath)?
     continue unless root.exists(uevent)
 
     if let Err(failure) = root.write(uevent, opts.action) {

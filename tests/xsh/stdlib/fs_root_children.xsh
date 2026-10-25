@@ -25,7 +25,8 @@ test test_fs_root_children_order_matches_filesystem_enumeration { |ctx|
   let root = fs.open_root(root_path)?
     root.mkdir(p"nested")
   for name in ["zebra", "alpha", "middle", "beta"] {
-    root.write(fp"nested/{name}", name)
+    let child_name = fp"{name}".require(RelPath)?
+    root.write(fp"nested/{child_name}", name)
   }
   let native = fs.children(fp"{root_path}/nested", ordered: false)?
     |> map { |entry| fp"nested/{entry.name}" }

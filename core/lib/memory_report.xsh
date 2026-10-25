@@ -4,9 +4,9 @@
 ##! util-linux column, summary, and serialization behavior for the selected mode.
 use lib.gnu as gnu
 
-const MEMORY_PATH = "sys/devices/system/memory"
-const CONFIG_PATH = "sys/firmware/memory"
-const PARAMETER_PATH = "sys/module/memory_hotplug/parameters/memmap_on_memory"
+const MEMORY_PATH: RelPath = p"sys/devices/system/memory"
+const CONFIG_PATH: RelPath = p"sys/firmware/memory"
+const PARAMETER_PATH: RelPath = p"sys/module/memory_hotplug/parameters/memmap_on_memory"
 const COLUMN_NAMES = ["RANGE", "SIZE", "STATE", "REMOVABLE", "BLOCK", "NODE", "ZONES", "CONFIGURED", "MEMMAP-ON-MEMORY"]
 const DEFAULT_COLUMNS = ["RANGE", "SIZE", "STATE", "REMOVABLE", "BLOCK"]
 const ZONE_NAMES = ["DMA", "DMA32", "Normal", "Highmem", "Movable", "Device", "None", "Unknown"]
@@ -239,7 +239,7 @@ pure memory_version_sort(entries: List[Entry]) -> List[Entry] {
   ordered + left[left_index..] + right[right_index..]
 }
 
-pure memory_entries(paths: List[Path]) -> List[Entry] {
+pure memory_entries(paths: List[RelPath]) -> List[Entry] {
   let entries = collect {
     for item_path in paths {
       if let entry = block_entry(item_path.name(), "memory") { yield entry }
@@ -301,7 +301,7 @@ pure decimal_value(text: Str?) -> Int {
   if let Ok(parsed) = value.byte_slice(start, length: end - start).parse_int() { parsed } else { 0 }
 }
 
-proc optional_text(root: FsRoot, attr_path: Path) [fs, error] -> Str? {
+proc optional_text(root: FsRoot, attr_path: RelPath) [fs, error] -> Str? {
   if let Ok(text) = root.read_text(attr_path) { return without_final_newline(text) }
   null
 }
@@ -310,7 +310,7 @@ pure without_final_newline(text: Str) -> Str {
   if text.ends_with("\n") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
 }
 
-proc children(root: FsRoot, directory_path: Path, label: Str) [fs, process, env, error] -> List[Path] {
+proc children(root: FsRoot, directory_path: RelPath, label: Str) [fs, process, env, error] -> List[RelPath] {
   let listing = root.children(directory_path, max_entries: 65536)?
   if listing.state != "complete" {
     let detail = if listing.error_kind == null { "" } else { f": {listing.error_kind}" }
@@ -319,7 +319,7 @@ proc children(root: FsRoot, directory_path: Path, label: Str) [fs, process, env,
   listing.children
 }
 
-proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env, error] -> Int {
+proc node_id(root: FsRoot, block_path: RelPath, block_name: Str) [fs, process, env, error] -> Int {
   let block_root = match root.open_root(block_path) {
     Ok(directory) => directory
     Err(failure) => {
@@ -339,8 +339,8 @@ proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env,
   -1
 }
 
-proc zone_values(root: FsRoot, block_path: Path) [fs, error] -> List[Str] {
-  let zones_path = fp"{block_path}/valid_zones"
+proc zone_values(root: FsRoot, block_path: RelPath) [fs, error] -> List[Str] {
+  let zones_path: RelPath = fp"{block_path}/valid_zones"
   match root.read_bytes(zones_path) {
     Ok(raw) => {
       var length = raw.len()
@@ -372,7 +372,9 @@ proc zone_values(root: FsRoot, block_path: Path) [fs, error] -> List[Str] {
 }
 
 proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes: Bool, have_zones: Bool) [fs, process, env, error] -> Block {
-  let block_path = fp"{MEMORY_PATH}/{entry.name}"
+  let entry_path = fp"{entry.name}".require(RelPath)?
+  let block_path: RelPath = fp"{MEMORY_PATH}/{entry_path}"
+  let config_path: RelPath = fp"{CONFIG_PATH}/{entry_path}"
   var state = "?"
   var removable = false
   var node = -1
@@ -380,8 +382,8 @@ proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes:
   var configured = false
   var memmap_on_memory = false
   if have_config {
-    let config = optional_text(root, fp"{CONFIG_PATH}/{entry.name}/config")
-    let memmap = optional_text(root, fp"{CONFIG_PATH}/{entry.name}/memmap_on_memory")
+    let config = optional_text(root, fp"{config_path}/config")
+    let memmap = optional_text(root, fp"{config_path}/memmap_on_memory")
     configured = decimal_value(config) == 1
     memmap_on_memory = decimal_value(memmap) == 1
     state = "offline"
@@ -433,7 +435,7 @@ proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[E
     }
   }
   if include_summary {
-    if let text = optional_text(root, fp"{PARAMETER_PATH}") {
+    if let text = optional_text(root, PARAMETER_PATH) {
       inventory.memmap_parameter = if text.starts_with("Y") { "yes" } else if text.starts_with("N") { "no" } else if text.starts_with("force") { "force" } else { null }
     }
   }
@@ -442,7 +444,7 @@ proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[E
 
 ## Reads the memory block inventory and optional summary parameter beneath root.
 export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
-  let memory_path = p"sys/devices/system/memory"
+  let memory_path = MEMORY_PATH
   let directory = match root.metadata(memory_path) {
     Ok(metadata) => metadata
     Err(failure) => {
@@ -451,7 +453,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
     }
   }
   if directory.kind != "dir" { fail("cannot open /sys/devices/system/memory: Not a directory") }
-  let block_size_path = fp"{MEMORY_PATH}/block_size_bytes"
+  let block_size_path: RelPath = fp"{MEMORY_PATH}/block_size_bytes"
   let supports_memory_blocks = match root.exists(block_size_path) {
     Ok(exists) => exists
     Err(_) => false
@@ -480,7 +482,8 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   var have_nodes = false
   var have_zones = false
   for entry in entries {
-    let block_path = fp"{MEMORY_PATH}/{entry.name}"
+    let entry_path = fp"{entry.name}".require(RelPath)?
+    let block_path: RelPath = fp"{MEMORY_PATH}/{entry_path}"
     if ! have_nodes and node_id(root, block_path, entry.name) != -1 { have_nodes = true }
     if ! have_zones and root.exists(fp"{block_path}/valid_zones")? { have_zones = true }
   }

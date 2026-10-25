@@ -7,7 +7,7 @@ type CgroupMount = {root: Str, point: Str}
 type SourceRead = {observation: report_model.TextObservation, errno: Int?, error_kind: Str?}
 
 type SystemReportCgroupParser = module {
-  export proc read_source_text(root: FsRoot, source_path: Path, max_bytes: Int, preserve_whitespace: Bool) [fs, error] -> SourceRead
+  export proc read_source_text(root: FsRoot, source_path: RelPath, max_bytes: Int, preserve_whitespace: Bool) [fs, error] -> SourceRead
   export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath
   export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?, Error]
   export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error]

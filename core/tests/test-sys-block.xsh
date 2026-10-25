@@ -3,7 +3,8 @@ use core.lib.system_report as report
 
 # Creates a class entry for a device whose real directory lives at `device_path`.
 # Partitions expose holders but no slaves directory of their own.
-proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors: Str, slaves = true) [fs, error] {
+proc add_device(root: FsRoot, name: Str, device_path: RelPath, number: Str, sectors: Str, slaves = true) [fs, error] {
+  let name_path = fp"{name}".require(RelPath)?
   root.mkdir(fp"sys/devices/{device_path}/holders", parents: true)
   if slaves {
     root.mkdir(fp"sys/devices/{device_path}/slaves", parents: true)
@@ -17,7 +18,7 @@ proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors:
   root.write(fp"sys/devices/{device_path}/queue/rotational", "0\n")
   root.write(fp"sys/devices/{device_path}/removable", "0\n")
   root.write(fp"sys/devices/{device_path}/ro", "1\n")
-  root.symlink(target: fp"../../devices/{device_path}", path: fp"sys/class/block/{name}")
+  root.symlink(target: fp"../../devices/{device_path}", path: fp"sys/class/block/{name_path}")
 }
 
 test test_sys_block_scheduler_parser_requires_exactly_one_selected_choice {
@@ -37,9 +38,9 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let root = fs.tempdir()?
   defer root.close()
   root.mkdir(p"sys/class/block", parents: true)
-  let disk = "pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1"
+  let disk: RelPath = p"pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1"
   add_device(root, "nvme0n1", disk, "259:0", "2048")
-  add_device(root, "nvme0n1p2", f"{disk}/nvme0n1p2", "259:2", "1024", slaves: false)
+  add_device(root, "nvme0n1p2", fp"{disk}/nvme0n1p2", "259:2", "1024", slaves: false)
   root.write(fp"sys/devices/{disk}/diskseq", "17\n")
   root.write(fp"sys/devices/{disk}/nvme0n1p2/partition", "2\n")
   root.mkdir(fp"sys/devices/{disk}/device", parents: true)

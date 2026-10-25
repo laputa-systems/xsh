@@ -5,14 +5,18 @@ test test_lscpu_fixture_preserves_cpu_identity_and_offline_selection { |ctx|
   let root = fs.tempdir()?
   defer root.close()
   root.mkdir(p"sys/devices/system/cpu", parents: true)
-  for name in ["possible", "present"] { root.write(fp"sys/devices/system/cpu/{name}", "0-1\n") }
+  for name in ["possible", "present"] {
+    let source_path = fp"sys/devices/system/cpu/{name}".require(RelPath)?
+    root.write(source_path, "0-1\n")
+  }
   root.write(p"sys/devices/system/cpu/online", "0\n")
   root.mkdir(p"proc", parents: true)
   root.write(p"proc/cpuinfo", "processor : 0\nvendor_id : Acme\nmodel name : Example CPU\n\nprocessor : 1\nvendor_id : Acme\nmodel name : Example CPU\n")
   for index in range(2) {
-    root.mkdir(fp"sys/devices/system/cpu/cpu{index}/topology", parents: true)
-    root.write(fp"sys/devices/system/cpu/cpu{index}/topology/physical_package_id", "0\n")
-    root.write(fp"sys/devices/system/cpu/cpu{index}/topology/core_id", f"{index}\n")
+    let cpu_path = fp"sys/devices/system/cpu/cpu{index}".require(RelPath)?
+    root.mkdir(fp"{cpu_path}/topology", parents: true)
+    root.write(fp"{cpu_path}/topology/physical_package_id", "0\n")
+    root.write(fp"{cpu_path}/topology/core_id", f"{index}\n")
   }
   let section = hardware.cpu_from_root(root, "x86_64")?
   let lines = hardware.cpu_rows(section, ["CPU", "CORE", "SOCKET", "ONLINE"], "all", true)?
@@ -87,7 +91,10 @@ test test_lscpu_fixture_preserves_cpu_identity_and_offline_selection { |ctx|
   assert out.read_text()? == "# CPU,ONLINE\n0,Y\n1,N\n"
   root.write(p"sys/devices/system/cpu/cpu0/topology/physical_package_id", "4\n")
   root.write(p"sys/devices/system/cpu/cpu1/topology/physical_package_id", "9\n")
-  for index in range(2) { root.write(fp"sys/devices/system/cpu/cpu{index}/topology/core_id", "7\n") }
+  for index in range(2) {
+    let cpu_path = fp"sys/devices/system/cpu/cpu{index}".require(RelPath)?
+    root.write(fp"{cpu_path}/topology/core_id", "7\n")
+  }
   let physical = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin, script, "--parse=CPU,SOCKET,CORE", "--physical", "--all", "--sysroot", folder],
     folder, {}, b"", out, fp"{folder}/stderr", timeout: 5s)

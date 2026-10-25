@@ -418,6 +418,7 @@ export pure compare_lsusb(
 
 proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs, process, error] -> Result[Str] {
   let scratch_path = root.host_path()?
+  let output_name = fp"{name}".require(RelPath)?
   let status = process.run(
     process.command_argv(
       executable,
@@ -430,7 +431,7 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
   )?
   return Err(lsusb_failure(f"lsusb {name} command failed")) unless status.exited_with(0)
 
-  let raw = root.read_result(fp"{name}", max_bytes: 1048576)?
+  let raw = root.read_result(output_name, max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(lsusb_failure(f"lsusb {name} output is incomplete"))
   }

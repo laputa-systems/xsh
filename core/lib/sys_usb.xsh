@@ -334,7 +334,7 @@ pure link_parents(devices: List[UsbDevice]) -> List[UsbDevice] {
 }
 
 ## Reads a USB bus-entry link and accepts direct directories in rooted fixtures.
-export proc controller_address(root: FsRoot, device_path: Path) [fs, error] -> ControllerObservation {
+export proc controller_address(root: FsRoot, device_path: RelPath) [fs, error] -> ControllerObservation {
   if let Ok(observed) = root.readlink_result(device_path) {
     if observed.state == "observed" {
       guard observed.target != null else {

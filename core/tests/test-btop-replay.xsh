@@ -36,9 +36,10 @@ test test_btop_replay_uses_recorded_mount_capacity_without_querying_the_snapshot
   defer bundle.close()
   fixture.write_b3_bundle(bundle, default_processes())
   for frame in [0, 1] {
-    bundle.mkdir(fp"frames/{frame}/proc/self", parents: true)
+    let frame_path = fp"frames/{frame}".require(RelPath)?
+    bundle.mkdir(fp"{frame_path}/proc/self", parents: true)
     bundle.write(
-      fp"frames/{frame}/proc/self/mountinfo",
+      fp"{frame_path}/proc/self/mountinfo",
       "1 0 8:0 / /mnt/fake rw - ext4 /dev/sda rw\n",
     )
   }

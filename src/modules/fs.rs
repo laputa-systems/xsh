@@ -1608,10 +1608,14 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{df_capacity_percent, list_filesystem, mount_for, mount_listing_skips, mounts};
+    use super::{
+        df_capacity_percent, list_filesystem, mount_for, mount_listing_skips, mounts,
+        rooted_children,
+    };
     use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
     use std::path::Path;
+    use xsh_root::Root;
 
     fn test_span() -> Span {
         Span::new(SourceId::new(0), 0, 0)
@@ -1666,6 +1670,21 @@ mod tests {
 
         assert!(listing.source.is_some());
         assert!(listing.items.is_empty());
+    }
+
+    #[test]
+    fn rooted_children_returns_relative_paths() {
+        let directory = tempfile::tempdir().expect("create rooted children fixture");
+        std::fs::create_dir(directory.path().join("nested")).expect("create nested directory");
+        std::fs::write(directory.path().join("nested/file"), "data").expect("write child");
+        let root = Root::open(directory.path()).expect("open rooted children fixture");
+        let result = rooted_children(&root, Path::new("nested"), 65_536, true, test_span())
+            .expect("list rooted children");
+
+        assert_eq!(result.children, [Path::new("nested/file")]);
+        assert!(result.children.iter().all(|path| {
+            crate::sema::validated::is_rel_path(&crate::runtime::process::path_bytes(path))
+        }));
     }
 }
 

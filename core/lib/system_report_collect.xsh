@@ -506,7 +506,7 @@ export pure pci_parent_address(target: Path, child_address: Str) -> Str? {
 ## Reads bounded text; see `sys_source.read_source_text`.
 export proc read_source_text(
   root: FsRoot,
-  source_path: Path,
+  source_path: RelPath,
   max_bytes: Int = 65536,
   preserve_whitespace: Bool = false,
 ) [fs, error] -> SourceRead {

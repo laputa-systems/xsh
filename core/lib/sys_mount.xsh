@@ -323,7 +323,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
             ),
           ]
         } else {
-          var usage_path: Path? = null
+          var usage_path: RelPath? = null
           if target == "/" {
             usage_path = p"."
           } else {

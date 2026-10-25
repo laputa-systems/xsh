@@ -1,6 +1,6 @@
 proc listed(marker, root: FsRoot) [fs, error] { let _ = marker; root.children(ordered: true, path: p".")? }
-proc stored(marker, root: FsRoot, location: Path, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }
-proc loaded(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.read_text(location)? }
+proc stored(marker, root: FsRoot, location: RelPath, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }
+proc loaded(marker, root: FsRoot, location: RelPath) [fs, error] { let _ = marker; root.read_text(location)? }
 proc exercise() [fs, error] {
   tempdir site {
     with root = fs.open_root(site)? {

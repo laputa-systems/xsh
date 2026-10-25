@@ -17,8 +17,8 @@ proc process_stat(pid: Int, start_ticks: Int, cpu_ticks: Int, rss_pages: Int) ->
 }
 
 ## Writes a valid two-CPU, memory, network, and process source set under prefix.
-export proc write_b3_frame(root: FsRoot, prefix: Str, index: Int, process_rows: List[ProcessFixture]) [fs, error] {
-  let frame = fp"{prefix}/proc"
+export proc write_b3_frame(root: FsRoot, prefix: RelPath, index: Int, process_rows: List[ProcessFixture]) [fs, error] {
+  let frame: RelPath = fp"{prefix}/proc"
   root.mkdir(fp"{frame}/net", parents: true)
   let aggregate = if index == 0 {
     "cpu 100 0 50 850 0 0 0 0 0 0"
@@ -52,7 +52,8 @@ export proc write_b3_frame(root: FsRoot, prefix: Str, index: Int, process_rows: 
   root.mkdir(fp"{prefix}/sys/class/net/lo", parents: true)
   root.write(fp"{prefix}/sys/class/net/lo/ifindex", "1\n")
   for row in process_rows {
-    let directory = fp"{frame}/{row.pid}"
+    let pid = fp"{row.pid}".require(RelPath)?
+    let directory: RelPath = fp"{frame}/{pid}"
     root.mkdir(directory, parents: true)
     root.write(fp"{directory}/stat", process_stat(row.pid, row.start_ticks, row.cpu_ticks, row.rss_pages))
     root.write(fp"{directory}/statm", f"65536 {row.rss_pages} 100 0 0 1 0\n")

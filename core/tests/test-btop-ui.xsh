@@ -6,7 +6,7 @@ use core.lib.btop_ui as ui
 use core.lib.sys_proc as processes
 use core.tests.support.btop as fixture
 
-proc capture(root: FsRoot, prefix: Path, at_ns: Int) [fs, error] -> Result[model.Observation, Error] {
+proc capture(root: FsRoot, prefix: RelPath, at_ns: Int) [fs, error] -> Result[model.Observation, Error] {
   let frame_root = root.open_root(prefix)?
   defer frame_root.close()
   source.capture(frame_root, "ui-fixture", at_ns, 4096, 100)

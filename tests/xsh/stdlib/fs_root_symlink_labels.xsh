@@ -14,14 +14,18 @@ test test_fs_root_symlink_requires_each_path_label { |ctx|
 }
 
 test test_fs_root_symlink_labels_keep_defaults_and_source_order { |ctx|
-  let output = test.expect(ctx, r"""proc operand(label: Str, destination: Path) [] -> Path {
+  let output = test.expect(ctx, r"""proc target_operand(label: Str, destination: Path) [] -> Path {
+  print $label
+  destination
+}
+proc link_operand(label: Str, destination: RelPath) [] -> RelPath {
   print $label
   destination
 }
 let root = fs.tempdir()?
 defer root.close()
-root.symlink(path: operand("path", p"nested/link"), target: operand("target", p"data"))?
-root.symlink(...{target: p"data", path: p"spread"})?
+root.symlink(path: link_operand("path", p"nested/link"), target: target_operand("target", p"data"))?
+root.symlink(...{target: p"data", path: p"spread".require(RelPath)?})?
 print (root.readlink(p"nested/link")?) (root.readlink(p"spread")?)
 """, status: 0)?
   assert output.stdout == "path\ntarget\ndata data\n"

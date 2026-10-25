@@ -45,7 +45,8 @@ proc capture_frame(
   clock_ticks_per_second: Int,
   captured_usage: List[mounts.CapturedUsage],
 ) [fs, error] -> Result[model.Observation, Error] {
-  let frame_root = root.open_root(fp"frames/{index}")?
+  let frame_path = fp"frames/{index}".require(RelPath)?
+  let frame_root = root.open_root(frame_path)?
   defer frame_root.close()
   source.capture(
     frame_root,

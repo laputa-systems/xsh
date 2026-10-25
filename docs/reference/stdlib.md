@@ -158,7 +158,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
 - `fs.rename_exchange(source: Path, dest: Path) -> Result[Unit, Error]` — Atomically exchanges two existing directory entries.
 - `fs.rename_noreplace(source: Path, dest: Path) -> Result[Unit, Error]` — Renames a path atomically without replacing an existing destination.
-- `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `fs.root_install_file(source_root: FsRoot, source: RelPath, dest_root: FsRoot, dest: RelPath, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `fs.set_owner(path: Path, uid: Int? = default, gid: Int? = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes a path's owner and group by numeric ID in one call.
 - `fs.set_times(path: Path, atime_ns: Int? = default, mtime_ns: Int? = default, atime_now: Bool = default, mtime_now: Bool = default, follow_symlinks: Bool = default, atime_sec: Int? = default, atime_nsec: Int? = default, mtime_sec: Int? = default, mtime_nsec: Int? = default) -> Result[Unit, Error]` — Sets access and modification times with nanosecond precision.
 - `fs.setgid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
@@ -722,25 +722,25 @@ Process-scoped utility helpers.
 
 ### FsRoot
 
-- `FsRoot.children(path: Path, max_entries: Int = default, ordered: Bool = default) -> Result[{children: List[Path], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}, Error]` — Enumerates child paths below a rooted filesystem capability.
-- `FsRoot.chmod(path: Path, mode: Int) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `FsRoot.children(path: RelPath, max_entries: Int = default, ordered: Bool = default) -> Result[{children: List[RelPath], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}, Error]` — Enumerates child paths below a rooted filesystem capability.
+- `FsRoot.chmod(path: RelPath, mode: Int) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.close() -> Result[Unit, Error]` — Closes an owned rooted filesystem capability.
-- `FsRoot.exists(path: Path) -> Result[Bool, Error]` — Inspects a path below a rooted filesystem capability.
-- `FsRoot.filesystem_stats(path: Path) -> Result[{available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}, Error]` — Reads exact filesystem capacity counters below a rooted directory capability.
+- `FsRoot.exists(path: RelPath) -> Result[Bool, Error]` — Inspects a path below a rooted filesystem capability.
+- `FsRoot.filesystem_stats(path: RelPath) -> Result[{available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}, Error]` — Reads exact filesystem capacity counters below a rooted directory capability.
 - `FsRoot.host_path() -> Result[Path, Error]` — Returns the host path represented by a rooted filesystem capability.
-- `FsRoot.metadata(path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Inspects a path below a rooted filesystem capability.
-- `FsRoot.mkdir(path: Path, mode: Int = default, parents: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
-- `FsRoot.open_root(path: Path) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
-- `FsRoot.read_bytes(path: Path) -> Result[Bytes, Error]` — Reads bytes or UTF-8 text below a rooted filesystem capability.
-- `FsRoot.read_result(path: Path, max_bytes: Int = default) -> Result[{data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}, Error]` — Reads a bounded byte snapshot below a rooted filesystem capability.
-- `FsRoot.read_text(path: Path) -> Result[Str, Error]` — Reads bytes or UTF-8 text below a rooted filesystem capability.
-- `FsRoot.readlink(path: Path) -> Result[Path, Error]` — Reads a symlink target below a rooted filesystem capability.
-- `FsRoot.readlink_result(path: Path) -> Result[{errno: Int?, error_kind: Str?, state: Str, target: Path?}, Error]` — Observes a symlink target below a rooted filesystem capability.
-- `FsRoot.remove(path: Path, dir: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
-- `FsRoot.stat(path: Path, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
-- `FsRoot.symlink(target: Path, path: Path, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
-- `FsRoot.write(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
-- `FsRoot.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
+- `FsRoot.metadata(path: RelPath) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Inspects a path below a rooted filesystem capability.
+- `FsRoot.mkdir(path: RelPath, mode: Int = default, parents: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `FsRoot.open_root(path: RelPath) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
+- `FsRoot.read_bytes(path: RelPath) -> Result[Bytes, Error]` — Reads bytes or UTF-8 text below a rooted filesystem capability.
+- `FsRoot.read_result(path: RelPath, max_bytes: Int = default) -> Result[{data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}, Error]` — Reads a bounded byte snapshot below a rooted filesystem capability.
+- `FsRoot.read_text(path: RelPath) -> Result[Str, Error]` — Reads bytes or UTF-8 text below a rooted filesystem capability.
+- `FsRoot.readlink(path: RelPath) -> Result[Path, Error]` — Reads a symlink target below a rooted filesystem capability.
+- `FsRoot.readlink_result(path: RelPath) -> Result[{errno: Int?, error_kind: Str?, state: Str, target: Path?}, Error]` — Observes a symlink target below a rooted filesystem capability.
+- `FsRoot.remove(path: RelPath, dir: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `FsRoot.stat(path: RelPath, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
+- `FsRoot.symlink(target: Path, path: RelPath, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
+- `FsRoot.write(path: RelPath, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
+- `FsRoot.write_atomic(path: RelPath, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
 
 ### Int
 
@@ -933,7 +933,7 @@ Process-scoped utility helpers.
 - `FsFilesystemStats {available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}` — Reports capacity statistics for a filesystem.
 - `FsMount {available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}` — Describes one mounted filesystem.
 - `FsRemoveManifestResult {missing: Int, pruned_dirs: Int, removed: Int}` — Reports paths removed by a manifest operation.
-- `FsRootChildrenResult {children: List[Path], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}` — Describes one bounded directory enumeration beneath a rooted filesystem capability.
+- `FsRootChildrenResult {children: List[RelPath], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}` — Describes one bounded directory enumeration beneath a rooted filesystem capability.
 - `FsRootFilesystemStats {available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}` — Describes filesystem capacity observed through a rooted directory capability.
 - `FsRootReadResult {data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}` — Describes a bounded read beneath a rooted filesystem capability.
 - `FsRootReadlinkResult {errno: Int?, error_kind: Str?, state: Str, target: Path?}` — Describes a symlink target observation beneath a rooted filesystem capability.

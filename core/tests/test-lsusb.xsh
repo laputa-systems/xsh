@@ -9,7 +9,10 @@ test test_lsusb_typed_fixture_identifiers_and_filters {
     {name: "idVendor", value: "1234"}, {name: "idProduct", value: "5678"},
     {name: "busnum", value: "1"}, {name: "devnum", value: "3"},
     {name: "manufacturer", value: "Acme"}, {name: "product", value: "Widget"},
-  ] { root.write(fp"sys/bus/usb/devices/1-2/{item.name}", f"{item.value}\n") }
+  ] {
+    let attribute_path = fp"sys/bus/usb/devices/1-2/{item.name}".require(RelPath)?
+    root.write(attribute_path, f"{item.value}\n")
+  }
   let inventory = usb.collect(root)
   assert inventory.devices.len() == 1
   let labels = hardware.parse_ids("1234  Acme\n\t5678  Widget\n")?

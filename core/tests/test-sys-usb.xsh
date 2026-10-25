@@ -8,7 +8,8 @@ pure hid_descriptors() -> Bytes {
 
 # Writes one device's identity attributes under `sys/devices/LOCATION` and links it
 # from the bus listing; the caller creates `sys/bus/usb/devices` once.
-proc add_device(root: FsRoot, name: Str, location: Str, vendor: Str, product: Str, number: Int) [fs, error] {
+proc add_device(root: FsRoot, name: Str, location: RelPath, vendor: Str, product: Str, number: Int) [fs, error] {
+  let name_path = fp"{name}".require(RelPath)?
   root.mkdir(fp"sys/devices/{location}/power", parents: true)
   for item in [
     {file: "idVendor", value: vendor},
@@ -28,10 +29,11 @@ proc add_device(root: FsRoot, name: Str, location: Str, vendor: Str, product: St
     {file: "power/autosuspend_delay_ms", value: "2000"},
     {file: "power/runtime_status", value: "active"},
   ] {
-    root.write(fp"sys/devices/{location}/{item.file}", f"{item.value}\n")
+    let attribute_path = fp"sys/devices/{location}/{item.file}".require(RelPath)?
+    root.write(attribute_path, f"{item.value}\n")
   }
 
-  root.symlink(target: fp"../../../devices/{location}", path: fp"sys/bus/usb/devices/{name}")
+  root.symlink(target: fp"../../../devices/{location}", path: fp"sys/bus/usb/devices/{name_path}")
 }
 
 test test_sys_usb_descriptor_stream_keeps_framing_and_unknown_payloads {
@@ -73,11 +75,11 @@ test test_sys_usb_collect_links_hub_children_controller_and_interfaces {
   let root = fs.tempdir()?
   defer root.close()
   root.mkdir(p"sys/bus/usb/devices", parents: true)
-  let controller = "pci0000:00/0000:00:14.0"
-  add_device(root, "usb1", f"{controller}/usb1", "1d6b", "0002", 1)
-  add_device(root, "1-1", f"{controller}/usb1/1-1", "05e3", "0610", 2)
-  add_device(root, "1-1.2", f"{controller}/usb1/1-1/1-1.2", "046d", "c52b", 3)
-  let interface_path = f"{controller}/usb1/1-1/1-1.2/1-1.2:1.0"
+  let controller: RelPath = p"pci0000:00/0000:00:14.0"
+  add_device(root, "usb1", fp"{controller}/usb1", "1d6b", "0002", 1)
+  add_device(root, "1-1", fp"{controller}/usb1/1-1", "05e3", "0610", 2)
+  add_device(root, "1-1.2", fp"{controller}/usb1/1-1/1-1.2", "046d", "c52b", 3)
+  let interface_path: RelPath = fp"{controller}/usb1/1-1/1-1.2/1-1.2:1.0"
   root.mkdir(fp"sys/devices/{interface_path}", parents: true)
   root.write(fp"sys/devices/{interface_path}/bAlternateSetting", "0\n")
   root.symlink(target: ../../../../../../../../../bus/usb/drivers/usbhid, path: fp"sys/devices/{interface_path}/driver")
