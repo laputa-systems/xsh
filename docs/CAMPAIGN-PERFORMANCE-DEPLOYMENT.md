@@ -1,8 +1,17 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: active 2026-10-25 on `master`. The owner merged
+Status: winding down 2026-10-25 on `master`. The owner merged
 `backlog-2026-10-25` and requested all further work on `master`. The working
 source is **not qualified**.
+
+## Winddown in progress
+
+The owner requested campaign-winddown, integration of useful remaining work,
+and cleanup. Start no new campaign wave or full qualification run. Let the
+current r2 bootstrap finish, verify and settle applicable in-flight source,
+then preserve a reboot-safe handoff and stop. The planned canonical r2 retry
+is cancelled. XSH-1, XSH-3, XSH-14 and XSH-19 remain open until their actual
+acceptance is complete; XSH-23 remains owner-deferred.
 
 ## Active backlog run (2026-10-25)
 
