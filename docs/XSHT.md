@@ -151,6 +151,13 @@ rechecked; a fix is declined if it adds checker diagnostics or drops comments.
 that command. `xsht lint --list` prints the catalog used by the generated
 [lint reference](reference/lints.md).
 
+`lint.prefer-inferred-proc-return` remains opt-in. A private return annotation
+can make a helper's result easier to read even when inference preserves its
+type. The rule proves equality of checked facts before offering a deletion.
+It preserves exported signatures, entry signatures, recursive annotations and
+annotations needed for contextual typing. Enable it when you want private
+helpers to omit redundant return types.
+
 `lint.prefer-atomically-replace` reports a temporary-file publication only
 when its final rename explicitly uses `overwrite: true`; a rename that refuses
 an existing destination does not have equivalent replacement behavior.

@@ -176,15 +176,6 @@ Next: 30
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-5 · P4 · Decide whether inferred proc returns become default
-
-- **Area:** Config
-- **Where:** `crates/xsht/src/lint_prefer_inferred_proc_return.rs:1`, `docs/XSHT.md:68`
-- **Problem:** `lint.prefer-inferred-proc-return` is opt-in and reports about 160 current sites. The repository has no decision on making the rule default.
-- **Recommendation:** Review the fixes for public readability and checker stability, then either enable the rule by default or record why it remains opt-in.
-- **Fix with:** test-audit
-- **Effort:** S
-
 ### XSH-6 · P4 · Add a named contract validation error
 
 - **Area:** Errors
