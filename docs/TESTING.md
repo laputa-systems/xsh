@@ -217,6 +217,13 @@ may require root or Linux capabilities. A missing required capability fails
 the focused run. The privileged core tests use a `nodev` scratch filesystem for
 block-device safety.
 
+The `cargo dev test linux` containers use the Linux musl target for the
+selected architecture: x86-64 selects `x86_64-unknown-linux-musl`, and AArch64
+selects `aarch64-unknown-linux-musl`, including on macOS. Their Cargo target
+root is `target/linux-test` by default. When `CARGO_TARGET_DIR` is set, they
+use its `linux-test` subdirectory, separate from host build products. The
+`xsh-cargo-registry` volume remains shared.
+
 `date --set` and the ignored BTRFS reflink test change host-like kernel state.
 Run them only in a disposable QEMU TCG guest with no network or host devices.
 Use an emulated 2020 CMOS clock and pass a fresh 256-bit nonce in both the boot

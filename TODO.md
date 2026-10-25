@@ -68,15 +68,6 @@ Next: 30
 - **Fix with:** none
 - **Effort:** M
 
-### XSH-11 · P3 · Isolate Linux CI products from the host target
-
-- **Area:** Build
-- **Where:** `dev/test_workflows.xsh:256`, `dev/docker.xsh:168`
-- **Problem:** `cargo dev test linux --ci` passes the host target into the container and shares `target/`. It works only on Linux and overwrites host release products.
-- **Recommendation:** Give the container an explicit Linux target and an isolated product directory while retaining shared reusable build inputs where safe.
-- **Fix with:** isolate-effects
-- **Effort:** M
-
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
 - **Area:** Performance

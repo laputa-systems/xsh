@@ -1,10 +1,13 @@
 use context as lifecycle
 use coverage as coverage_workflow
 use docker as docker_workflows
+use env
 use fixtures
 use release as releases
 use stage as stages
+use test_workflows as workflows
 use targets as target_policy
+use unix
 
 test test_supported_target_records_and_default {
   assert target_policy.default_triple == "x86_64-unknown-linux-musl"
@@ -87,7 +90,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   assert "--privileged" in argv
   assert "/tmp:rw,nodev,exec,mode=1777" in argv
   assert "/repo:/work" in argv
-  assert "/repo/target:/work/target" in argv
+  assert "/repo/target/linux-test:/work/target" in argv
   assert "TARGET=aarch64-unknown-linux-musl" in argv
   assert "DIST_PROFILE=dev" in argv
   assert "XSH_OS_STRESS_REPEAT=25" in argv
@@ -129,6 +132,124 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
     assert "--memory-swap=1g" in docker_options_before_image
     assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
     assert argv[-1] == operation
+  }
+}
+
+test test_linux_test_docker_argv_isolates_products_and_keeps_registry_cache {
+  let ctx = {
+    ...fixtures.linux_context(/repo, "verification")?,
+    target_dir: p"/repo/custom-target",
+  }
+  for operation in ["test-linux", "test-linux-ci", "test-linux-split", "test-linux-ci-split"] {
+    let argv = docker_workflows.internal_argv(
+      ctx,
+      "xsh-test",
+      "linux/amd64",
+      operation,
+      true,
+      1000,
+      1000,
+      "",
+      [],
+    )?
+    assert "/repo/custom-target/linux-test:/work/target" in argv
+    assert "CARGO_TARGET_DIR=/work/target" in argv
+    assert "xsh-cargo-registry:/root/.cargo/registry" in argv
+    assert argv[-1] == operation
+  }
+
+  let gate = docker_workflows.internal_argv(
+    ctx, "xsh-test", "linux/amd64", "gate-lane", false, 1000, 1000, "", [],
+  )?
+  assert "/repo/custom-target:/work/target" in gate
+  assert "/repo/custom-target/linux-test:/work/target" not in gate
+}
+
+test test_linux_ci_maps_requested_architecture_and_isolates_host_products { |ctx|
+  let root = test.temp_dir(ctx, name: "linux-test-product-isolation")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let log = fp"{root}/docker.log"
+  fp"{tools}/docker".write(
+    f"""#!{ctx.xsh_bin}
+let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+log.write(previous + args.join("|") + "\\n")?
+""",
+    mode: 0o755,
+  )
+  let mac_arm = {
+    ...fixtures.darwin_context(root, "dist")?,
+    target_dir: fp"{root}/host-target-mac",
+  }
+  let arm_target = target_policy.resolve("aarch64-unknown-linux-musl")?
+  let linux_arm_override = {
+    ...fixtures.linux_context(root, "dist")?,
+    host_arch: target_policy.X86_64,
+    target: arm_target,
+    target_dir: fp"{root}/host-target-arm",
+  }
+  let x86_target = target_policy.resolve("x86_64-unknown-linux-musl")?
+  let mac_x86_override = {
+    ...fixtures.darwin_context(root, "dist")?,
+    target: x86_target,
+    target_dir: fp"{root}/host-target-x86",
+  }
+  let inherited_path = env.get_or("PATH", "")?
+  env PATH=f"{tools}:{inherited_path}" XSH_TEST_IMAGE_BUILD="0" XSH_TEST_IMAGE="xsh-test:linux-isolation" DIST_PROFILE="release" {
+    workflows.linux_test(mac_arm, true)
+    workflows.linux_test(linux_arm_override, true)
+    workflows.linux_test(mac_x86_override, true)
+  }
+
+  let commands = log.read_lines()?.collect()
+  assert commands.len() == 12
+  let cases = [
+    {
+      run: commands[1].split("|"),
+      target: "aarch64-unknown-linux-musl",
+      platform: "linux/arm64",
+      host_target: mac_arm.target_dir,
+    },
+    {
+      run: commands[5].split("|"),
+      target: "aarch64-unknown-linux-musl",
+      platform: "linux/arm64",
+      host_target: linux_arm_override.target_dir,
+    },
+    {
+      run: commands[9].split("|"),
+      target: "x86_64-unknown-linux-musl",
+      platform: "linux/amd64",
+      host_target: mac_x86_override.target_dir,
+    },
+  ]
+  for case in cases {
+    assert case.run[0..5] == ["run", "--rm", "--init", "--platform", case.platform]
+    assert f"{case.host_target}/linux-test:/work/target" in case.run
+    assert "CARGO_TARGET_DIR=/work/target" in case.run
+    assert "xsh-cargo-registry:/root/.cargo/registry" in case.run
+    assert f"TARGET={case.target}" in case.run
+    assert "DIST_PROFILE=release" in case.run
+    assert "--target" in case.run
+    assert case.target in case.run
+    assert case.run[-1] == "test-linux-ci"
+  }
+  assert commands[3].split("|")[-1] == "test-linux-ci-split"
+  assert commands[7].split("|")[-1] == "test-linux-ci-split"
+  assert commands[11].split("|")[-1] == "test-linux-ci-split"
+  assert fp"{mac_arm.target_dir}/linux-test".exists()?
+  assert fp"{linux_arm_override.target_dir}/linux-test".exists()?
+  assert fp"{mac_x86_override.target_dir}/linux-test".exists()?
+  let uid = unix.id()?.uid
+  let gid = unix.id()?.gid
+  for directory in [
+    fp"{mac_arm.target_dir}/linux-test",
+    fp"{linux_arm_override.target_dir}/linux-test",
+    fp"{mac_x86_override.target_dir}/linux-test",
+  ] {
+    assert directory.metadata()?.uid == uid
+    assert directory.metadata()?.gid == gid
   }
 }
 

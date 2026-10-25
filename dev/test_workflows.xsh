@@ -251,10 +251,22 @@ export proc xsh(ctx: context.Context) [fs, process, env, error, io] -> Result[Un
   native(ctx, profile, [])
 }
 
-## Carries the selected test profile into the direct Docker command explicitly.
+pure linux_test_target(ctx: context.Context) -> Result[targets.Target, Error] {
+  match ctx.target.arch {
+    "x86_64" => targets.resolve("x86_64-unknown-linux-musl")
+    "aarch64" => targets.resolve("aarch64-unknown-linux-musl")
+    else => Err(targets.TargetError.Unsupported(target: ctx.target.triple))
+  }
+}
+
+## Carries the selected profile and Linux target into an isolated Docker product root.
 export proc linux_test(ctx: context.Context, ci: Bool) [fs, process, env, error, io] -> Result[Unit, Error] {
   let profile = execution_profile()?
-  let selected = {...ctx, profile: profile_name(profile)}
+  let selected = {
+    ...ctx,
+    target: linux_test_target(ctx)?,
+    profile: profile_name(profile),
+  }
   docker.run_internal(selected, if ci { "test-linux-ci" } else { "test-linux" }, true, [])
   docker.run_internal(selected, if ci { "test-linux-ci-split" } else { "test-linux-split" }, true, [])
 }

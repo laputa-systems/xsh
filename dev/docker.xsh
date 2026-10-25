@@ -46,6 +46,18 @@ export proc platform(ctx: context.Context) [env, error] -> Result[Str, Error] {
   }
 }
 
+pure linux_test_operation(operation: Str) -> Bool {
+  operation in ["test-linux", "test-linux-ci", "test-linux-split", "test-linux-ci-split"]
+}
+
+pure internal_target_dir(ctx: context.Context, operation: Str) -> Path {
+  if linux_test_operation(operation) {
+    fp"{ctx.target_dir}/linux-test"
+  } else {
+    ctx.target_dir
+  }
+}
+
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
 export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Result[Str, Error] {
   let image = image_name()?
@@ -142,6 +154,7 @@ export pure internal_argv(
     ]
   }
   let target_environment = ["-e", f"{target_flags_variable}={target_rustflags}"]
+  let target_dir = internal_target_dir(ctx, operation)
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
@@ -166,7 +179,7 @@ export pure internal_argv(
     "-v",
     f"{ctx.root}:/work",
     "-v",
-    f"{ctx.target_dir}:/work/target",
+    f"{target_dir}:/work/target",
     "-v",
     "xsh-cargo-registry:/root/.cargo/registry",
     "-w",
@@ -212,6 +225,9 @@ proc internal_command(
   privileged: Bool,
   extra: List[Str],
 ) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
+  if linux_test_operation(operation) {
+    internal_target_dir(ctx, operation).mkdir(parents: true)?
+  }
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
