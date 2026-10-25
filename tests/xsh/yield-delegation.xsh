@@ -135,14 +135,14 @@ stream child() [io, error] -> Stream[Int] {
   yield 3
   fail()?
 }
-stream parent() [io, error] -> Stream[Int] {
+stream parent(rows: Stream[Int]) [io, error] -> Stream[Int] {
   defer close("parent-close")
   yield @source()?
-  yield @child()
+  yield @rows
   print "unreachable"
 }
 proc main() [io, error] {
-  for row in parent() { print f"row {row}" }
+  for row in parent(child()) { print f"row {row}" }
   print "consumer-after"
 }
 """,
@@ -157,13 +157,25 @@ parent-close
   assert "RowsError.Late" in output.stderr
 }
 
+test test_opaque_stream_pulls_require_error_effect { |ctx|
+  for source in [
+    "proc pull(source: Stream[Int]) [] { for item in source { let _ = item } }",
+    "stream pull(source: Stream[Int]) [] -> Stream[Int] { yield @source }",
+    "stream pull(source: Stream[Int]) -> Stream[Int] { yield @source }\nproc forbidden(source: Stream[Int]) [] { let rows = pull(source) }",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert !output.success
+    assert "check.effect-violation" in output.stderr, output.stderr
+  }
+}
+
 test test_yield_delegation_aliases_share_one_cursor { |ctx|
   let output = test.run_script(
     ctx,
     r"""
 proc close(message: Str) [io] { print $message }
 stream child() [] -> Stream[Int] { yield @[1, 2, 3] }
-stream parent(source: Stream[Int]) [] -> Stream[Int] { yield @source }
+stream parent(source: Stream[Int]) -> Stream[Int] { yield @source }
 proc main() [io, error] {
   let source = child()
   let wrapped = parent(source)

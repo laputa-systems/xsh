@@ -6206,8 +6206,6 @@ impl Checker {
                 DiagnosticCode::CheckYield,
             );
         }
-        // Fresh list syntax receives an item context for empty and nested
-        // literals. Callable sources retain their declared List or Stream kind.
         let collection = match arena.arena.expr(value).kind {
             ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } => {
                 expected.as_ref().map(|ty| Type::List(Box::new(ty.clone())))
@@ -6216,6 +6214,9 @@ impl Checker {
         };
         let actual = self.check_expr_arena(arena, source, value, collection.as_ref());
         let value_span = arena.arena.expr(value).span;
+        if matches!(actual.unvalidated(), Type::Stream(_)) {
+            self.check_iteration_propagation_arena(arena, value, &actual);
+        }
         self.record_stream_delegated_origin(arena, value);
         match actual.into_unvalidated() {
             Type::List(item) | Type::Stream(item) => {
@@ -8995,7 +8996,7 @@ type Relay = pure(items: Stream[Int]) -> Stream[Int]
 type Holder = {rows: Result[Stream[Int], CaptureFailure]}
 type StreamBox = {rows: Stream[Int]}
 stream nested(items: Stream[Int]) [] -> Stream[StreamBox] { yield {rows: items} }
-stream delegated(items: Stream[Int]) [] -> Stream[Int] { yield @items }
+stream delegated(items: Stream[Int]) [error] -> Stream[Int] { yield @items }
 let initial: Result[Int, OtherFailure] = Ok(7)
 var shared: Result[Stream[Int], CaptureFailure] = wrapper(safe(initial))
 pure read_shared() -> Result[Stream[Int], CaptureFailure] { shared }
@@ -9041,7 +9042,7 @@ shared = wrapper(failing(initial))
             ("saved-destructured-stream", "let {rows} = {rows: failing(other)}; let _ = rows; 7", None),
             ("safe-nested-record-producer", "for box in nested(safe(other)) { for item in box.rows { let _ = item } }; 7", None),
             ("fallible-nested-record-producer", "for box in nested(failing(other)) { for item in box.rows { let _ = item } }; 7", Some("box.rows")),
-            ("safe-delegated-producer", "for item in delegated(safe(other)) { let _ = item }; 7", None),
+            ("safe-delegated-producer", "for item in delegated(safe(other)) { let _ = item }; 7", Some("delegated(safe(other))")),
             ("fallible-delegated-producer", "for item in delegated(failing(other)) { let _ = item }; 7", Some("delegated(failing(other))")),
             ("safe-with-stream", "with rows = wrapper(safe(other)) { for item in rows { let _ = item } } else {}; 7", None),
             ("fallible-with-stream", "with rows = wrapper(failing(other)) { for item in rows { let _ = item } } else {}; 7", Some("rows")),

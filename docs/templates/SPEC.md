@@ -3727,9 +3727,14 @@ lazy. When the stream is pulled later, its producer-body effect obligation
 stays attributed to that creation call; pulling inside a `without` region does
 not move it to the consumer. A net-effect stream can therefore be created
 outside `without net` and consumed inside, while creating it inside is
-rejected. This is static checking, not a run-time sandbox. A `yield` inside a
-`collect` block (6.9) in a producer appends to that block's list and emits
-nothing.
+rejected. Pulling a stream whose producer is unknown, including a `Stream[T]`
+parameter, can propagate `Error` and requires the `error` effect for iteration,
+comprehensions and delegation. A producer delegating such a parameter must
+declare or infer `error`, even when a particular caller supplies an infallible
+stream. Lists and streams whose retained producer is known to be infallible
+do not acquire this obligation. This is static checking, not a run-time sandbox.
+A `yield` inside a `collect` block (6.9) in a producer appends to that block's
+list and emits nothing.
 
 ### 9.6 Effects
 

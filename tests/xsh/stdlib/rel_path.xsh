@@ -457,7 +457,7 @@ let rels: List[RelPath] = ["a", "b"]
 let dynamic: Pure = size
 match dynamic.call(rels) {
   Ok(value) => print ${value.require(Int)?}
-  Err(error) => Err(error)?
+  Err(error) => Err(error.require(Error)?)?
 }
 """,
     status: 0,

@@ -36,7 +36,7 @@ Next: 34
 - **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
 - **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed. Focused repairs need qualification, and UDP failures and full-corpus timeouts remain unexplained. Private/resource close remains unrun.
 - **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
-- **Blocked:** XSH-25's owner decision prevents full native acceptance: the exact `tests/xsh/yield-delegation.xsh::test_yield_delegation_aliases_share_one_cursor` selector still fails because indexed verification requires `error` outside the declared stream contract. XSH-29 also retains an unresolved full-corpus timeout mismatch. The replacement image is available and its qualification launcher is repaired; historical passes do not qualify it.
+- **Blocked:** XSH-29 retains an unresolved full-corpus timeout mismatch. The replacement image is available and its qualification launcher is repaired; historical passes do not qualify it. XSH-25's stream-effect decision and focused implementation are complete, but combined qualification remains pending.
 - **Fix with:** orchestrate
 - **Effort:** M
 
@@ -86,15 +86,6 @@ Next: 34
 - **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The accepted baseline is still pending, so deletion must follow G1.
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
-- **Effort:** M
-
-### XSH-25 · P3 · Decide the error effect of a stream parameter
-
-- **Area:** Errors
-- **Where:** `tests/xsh/yield-delegation.xsh`, `tests/xsh/stdlib/rel_path.xsh`
-- **Problem:** The checker accepts `stream parent(s: Stream[Int]) [] -> Stream[Int] { yield @s }`, while the verifier requires `error`. The current `test_yield_delegation_aliases_share_one_cursor` still expects acceptance and fails at indexed verification. The formerly reported RelPath test already declares `[io, error]`; that half of the report is stale.
-- **Recommendation:** Owner decision on whether pulling an opaque stream implies `error`, then align checker, verifier, SPEC and both tests.
-- **Fix with:** error-model
 - **Effort:** M
 
 ### XSH-28 · P3 · Bound the narrowing proof cost
