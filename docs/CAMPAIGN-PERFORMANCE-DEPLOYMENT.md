@@ -1,7 +1,7 @@
 # Make XSH fast to run and dependable in Laputa
 
 Status: blocked 2026-10-25 on `backlog-2026-10-25`, cut from
-`master` at `da96b5274`. Nothing pushed or merged from this branch. The working
+`master` at `da96b5274`. This run has not pushed or merged into `master`. The working
 source is **not qualified**.
 
 ## Active backlog run (2026-10-25)
@@ -10,7 +10,9 @@ The bounded queue is the 27 tickets in `TODO.md` at `da96b5274`. New discoveries
 remain outside this run. Each closure includes the ticket removal and its
 accepted change in one local commit. The owner authorized unattended execution,
 then local integration after backlog completion, followed by campaign work.
-Seventeen starting tickets are closed; ten remain open with the blockers below.
+Seventeen starting tickets are closed. Of the ten original tickets still open,
+XSH-23 is now owner-deferred and excluded from this run; nine remain in scope
+with the blockers below.
 Five discoveries, XSH-30 through XSH-34, are saved for a later run. Their
 priorities are assumed from the ticket policy. No newly filed defect was implemented.
 
