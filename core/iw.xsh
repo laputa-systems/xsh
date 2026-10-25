@@ -945,10 +945,12 @@ proc execute(tokens: List[Str]) -> Result[Int] {
       target = resolve(client, "phy", name)?
       selector = "phy"
     }
-    return Ok(show_usage("", "", 1)) when target == null
   } else {
     target = resolve(client, selector, name)?
-    return Err(nl.errno_failure(if selector == "dev" { 19 } else { 2 })) when target == null
+  }
+  if target == null {
+    return Ok(show_usage("", "", 1)) when idby == "implicit"
+    return Err(nl.errno_failure(if selector == "dev" { 19 } else { 2 }))
   }
   let identified = identify(selector, words)
   return Ok(show_usage("", "", 1)) when identified.key == ""
