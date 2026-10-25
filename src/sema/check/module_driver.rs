@@ -69,6 +69,21 @@ impl CheckSession {
         self.check_view(&view, options)
     }
 
+    /// Check a single-use entry without retaining its prepared or checked facts.
+    /// Imported module facts remain cached for subsequent entries in this session.
+    pub fn check_transient_entry(
+        &mut self,
+        root_statements: crate::syntax::arena::ArenaRange,
+        entry_source_id: SourceId,
+        options: CheckOptions,
+    ) -> CheckOutput {
+        let view = self.view_for_root(root_statements, entry_source_id);
+        let output = self.check_view(&view, options);
+        ModuleRecordCache::with_shared(self.records.clone(), self.cache_trace.clone())
+            .forget_entry(&view);
+        output
+    }
+
     /// Borrow the exact resolved entry scope used by checking and compact preparation.
     pub fn view_for_root(
         &self,
@@ -1934,6 +1949,34 @@ mod tests {
                 published = Some(scheme);
             }
         }
+    }
+
+    #[test]
+    fn transient_entries_release_root_facts_and_reuse_imported_schemes() {
+        let workspace = typing_workspace(&[
+            "use shared\nlet result: Int = shared.identity(42)\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let mut session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source) = workspace.roots[0];
+        ENTRY_CHECKS.with(|checks| checks.set(0));
+        let first = session.check_transient_entry(root, source, CheckOptions::default());
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        let first_scheme = exported_scheme(
+            &checked_module_facts(&session, workspace.module_source), "identity",
+        );
+        assert!(session.records.lock().unwrap().values().all(|record| record.source_id() != source));
+        let second = session.check_transient_entry(root, source, CheckOptions::default());
+        assert_same_facts(&first, &second);
+        let second_scheme = exported_scheme(
+            &checked_module_facts(&session, workspace.module_source), "identity",
+        );
+        assert!(Arc::ptr_eq(&first_scheme, &second_scheme));
+        assert_eq!(ENTRY_CHECKS.with(std::cell::Cell::get), 2);
+        assert!(session.records.lock().unwrap().values().all(|record| record.source_id() != source));
     }
 
     #[test]

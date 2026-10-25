@@ -393,6 +393,16 @@ impl Default for ModuleRecordCache {
 }
 
 impl ModuleRecordCache {
+    pub(super) fn forget_entry(&self, view: &CheckBundleView<'_>) {
+        let source_id = view.root_source_id().expect("transient entry retains its source identity");
+        self.shared.lock().expect("module record cache poisoned").retain(|key, _| {
+            key.role != ModuleRecordRole::Entry
+                || key.source_id != source_id
+                || key.start != view.root_statements.start
+                || key.len != view.root_statements.len
+        });
+    }
+
     pub(super) fn with_shared(
         shared: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
         trace: Option<CacheTrace>,

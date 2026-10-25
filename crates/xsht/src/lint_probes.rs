@@ -2,6 +2,7 @@ use super::{
     ArenaExprKind, ArenaProgram, ArenaStmtKind, BTreeMap, ExprId, Linter, Severity, Span,
     Type, list_splice_element_type_is_precise, shift_after_deletion,
 };
+use std::sync::Arc;
 #[cfg(test)]
 use super::{annotation_probe_tests, local_annotation_probe_tests};
 
@@ -14,6 +15,9 @@ pub(crate) struct LintProbeSnapshot {
 }
 
 pub(crate) struct LintProbeTransport;
+
+const MAX_LOCAL_ANNOTATION_PROBE_BATCH_ENTRIES: usize = 2;
+const MAX_LOCAL_ANNOTATION_PROBE_BATCH_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) fn standalone_sources(
     source_id: xsh::frontend::source::SourceId,
@@ -80,6 +84,96 @@ impl LintProbeTransport {
             parse_diagnostics: entry.parsed.diagnostics,
             checked: entry.checked,
         })
+    }
+
+    pub(super) fn for_each_loaded_local_annotation_fact(
+        context: &super::ReturnProofContext,
+        source: &str,
+        deletions: &[Span],
+        mut visit: impl FnMut(usize, Option<CheckedLocalAnnotationFacts>),
+    ) {
+        let mut start = 0;
+        while start < deletions.len() {
+            let mut end = start;
+            let mut retained_bytes = 0usize;
+            while end < deletions.len()
+                && end - start < MAX_LOCAL_ANNOTATION_PROBE_BATCH_ENTRIES
+            {
+                let candidate_bytes = source
+                    .len()
+                    .checked_sub(deletions[end].range().len())
+                    .expect("local annotation deletion is within its source");
+                if end > start
+                    && retained_bytes.saturating_add(candidate_bytes)
+                        > MAX_LOCAL_ANNOTATION_PROBE_BATCH_BYTES
+                {
+                    break;
+                }
+                retained_bytes = retained_bytes.saturating_add(candidate_bytes);
+                end += 1;
+            }
+            let candidates = deletions[start..end]
+                .iter()
+                .map(|deletion| {
+                    let mut candidate = source.to_owned();
+                    candidate.replace_range(deletion.range(), "");
+                    candidate
+                })
+                .collect::<Vec<_>>();
+            let facts = Self::loaded_local_annotation_fact_batch(context, &candidates);
+            assert_eq!(facts.len(), end - start);
+            for (offset, facts) in facts.into_iter().enumerate() {
+                visit(start + offset, facts);
+            }
+            start = end;
+        }
+    }
+
+    pub(super) fn loaded_local_annotation_fact_batch(
+        context: &super::ReturnProofContext,
+        candidates: &[String],
+    ) -> Vec<Option<CheckedLocalAnnotationFacts>> {
+        let inputs = candidates
+            .iter()
+            .map(|candidate| xsh::frontend::load::ArenaEntryInput {
+                file: context.file.clone(),
+                bytes: candidate.as_bytes().to_vec(),
+                module_roots: context.module_roots.clone(),
+            })
+            .collect();
+        let workspace = xsh::frontend::symbols::SymbolOwner::new().with_current(|| {
+            xsh::frontend::load::parse_load_entries_shared_arena_only(inputs)
+        });
+        assert_eq!(workspace.entries.len(), candidates.len());
+        let mut session = xsh::frontend::check::CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        workspace
+            .entries
+            .iter()
+            .zip(candidates)
+            .map(|(entry, candidate)| {
+                let source_matches = workspace
+                    .sources
+                    .get(entry.source_id)
+                    .is_some_and(|file| {
+                        file.id() == entry.source_id
+                            && file.text().as_bytes() == candidate.as_bytes()
+                    });
+                if !source_matches || !entry.diagnostics.is_empty() {
+                    return None;
+                }
+                let checked = session.check_transient_entry(
+                    entry.statements,
+                    entry.source_id,
+                    xsh::frontend::check::CheckOptions::default(),
+                );
+                workspace.program.symbol_owner().with_current(|| {
+                    checked_local_annotation_facts_from_output(&checked, entry.source_id)
+                })
+            })
+            .collect()
     }
 
 }
@@ -600,6 +694,119 @@ impl<'a> Linter<'a> {
         snapshot.program.symbol_owner().with_current(|| {
             checked_local_annotation_facts_from_output(checked, snapshot.source_id)
         })
+    }
+
+    pub(super) fn queue_local_annotation_proof(
+        &mut self,
+        deletion: Span,
+        binding: Span,
+        diagnostic: xsh::diagnostic::Diagnostic,
+    ) {
+        if self.local_annotation_before.is_none() {
+            self.local_annotation_before =
+                Some(self.local_annotation_baseline_facts(deletion.source_id));
+        }
+        let Some(before) = self.local_annotation_before.as_ref().unwrap().as_ref() else {
+            return;
+        };
+        if !before.bindings.contains_key(&binding.start()) {
+            return;
+        }
+        if self.return_proof.is_some() {
+            #[cfg(test)]
+            local_annotation_probe_tests::record_candidate();
+            self.synchronize_diagnostic_order();
+            let pending = self.pending_local_annotation_proofs.len();
+            self.diagnostic_order
+                .as_mut()
+                .expect("loaded annotation proofs have diagnostic ordering")
+                .entries
+                .push(super::DiagnosticOrderEntry::LocalAnnotation(pending));
+            self.pending_local_annotation_proofs
+                .push((deletion, binding, diagnostic));
+        } else if self.local_annotation_removal_preserves_contract(deletion, binding) {
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
+    pub(super) fn finalize_local_annotation_proofs(&mut self) {
+        if self.pending_local_annotation_proofs.is_empty() {
+            return;
+        }
+        let Some(context) = self.return_proof.as_ref() else {
+            return;
+        };
+        let context = context.clone();
+        let Some(before) = self.local_annotation_before.as_ref().unwrap().as_ref() else {
+            return;
+        };
+        let pending = std::mem::take(&mut self.pending_local_annotation_proofs);
+        let deletions = pending.iter().map(|(deletion, _, _)| *deletion).collect::<Vec<_>>();
+        let mut accepted = vec![false; pending.len()];
+        LintProbeTransport::for_each_loaded_local_annotation_fact(
+            &context,
+            self.source,
+            &deletions,
+            |index, after| {
+                let Some(after) = after else {
+                    return;
+                };
+                let (deletion, binding, _) = &pending[index];
+                let Some(old_shape) = before.bindings.get(&binding.start()) else {
+                    return;
+                };
+                let old_facts = before
+                    .expressions
+                    .iter()
+                    .map(|((start, end), shape)| {
+                        (
+                            (
+                                shift_after_deletion(*start, *deletion),
+                                shift_after_deletion(*end, *deletion),
+                            ),
+                            shape.clone(),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>();
+                accepted[index] = after.bindings.get(&binding.start()) == Some(old_shape)
+                    && after.expressions == old_facts;
+            },
+        );
+        self.synchronize_diagnostic_order();
+        let mut pending_diagnostics = pending
+            .into_iter()
+            .map(|(_, _, diagnostic)| Some(diagnostic))
+            .collect::<Vec<_>>();
+        let mut ordered_diagnostics = Vec::with_capacity(
+            self.diagnostics.len() + accepted.iter().filter(|accepted| **accepted).count(),
+        );
+        let mut existing_diagnostics = std::mem::take(&mut self.diagnostics)
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<_>>();
+        let order = self.diagnostic_order.as_mut().unwrap();
+        let mut next_existing = 0;
+        for entry in order.entries.drain(..) {
+            match entry {
+                super::DiagnosticOrderEntry::Diagnostic(index) => {
+                    assert_eq!(index, next_existing);
+                    ordered_diagnostics.push(existing_diagnostics[index].take().unwrap());
+                    next_existing += 1;
+                }
+                super::DiagnosticOrderEntry::LocalAnnotation(index) => {
+                    if accepted[index] {
+                        ordered_diagnostics.push(pending_diagnostics[index].take().unwrap());
+                    } else {
+                        pending_diagnostics[index].take();
+                    }
+                }
+                super::DiagnosticOrderEntry::Position(_) => {}
+            }
+        }
+        assert!(existing_diagnostics.iter().all(Option::is_none));
+        assert!(pending_diagnostics.iter().all(Option::is_none));
+        self.diagnostics = ordered_diagnostics;
+        self.diagnostic_order = None;
     }
 
     pub(super) fn local_annotation_removal_preserves_contract(

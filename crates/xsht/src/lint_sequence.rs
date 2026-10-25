@@ -6,7 +6,7 @@ use super::{
     ArenaStmtKind, ArenaSugar, ArenaTypeExprKind, AssignOp,
     AssignTargetId, AstArena, BinaryOp, BindingTargetId, BlockId, FunctionDefId,
     CoreCommand, Diagnostic, DiagnosticCode, ExprId, FixHint, FlowSummary, FxHashSet, Label, Linter,
-    Name, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp,
+    Name, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp, DiagnosticPosition,
     binding_target_contains_name, context_scope, direct_call_name,
     expr_may_assign_local, expr_may_have_effects, expr_references_name,
     format_binding_target, is_map_empty_call, list_splice_element_type_is_precise,
@@ -75,8 +75,6 @@ pub(super) fn collect_stream_producer_candidates(
     }
 }
 
-// Only the common lint walk records consumers. Pending reports remember
-// their original pass position so later observations cannot reorder findings.
 #[derive(Default)]
 pub(super) struct StreamProducers {
     observing: bool,
@@ -86,7 +84,7 @@ pub(super) struct StreamProducers {
 }
 
 struct PendingStreamProducers {
-    report_at: usize,
+    report_at: DiagnosticPosition,
     candidates: Vec<StreamProducerCandidate>,
 }
 
@@ -665,7 +663,11 @@ impl<'a> Linter<'a> {
         let mut pair_insertion_points = Vec::new();
         for (index, &stmt) in stmts.iter().enumerate() {
             if index > 0 && collect_pair_hooks {
-                pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
+                pair_insertion_points.push((
+                    stmts[index - 1],
+                    stmt,
+                    self.diagnostic_position_at(self.diagnostics.len()),
+                ));
             }
             if flow.is_some_and(|flow| !flow.fallthrough)
                 && !reported_dead_region
@@ -691,7 +693,11 @@ impl<'a> Linter<'a> {
             rules::statement_pair(self, previous, current, stmts);
             let end = self.diagnostics.len();
             let count = end - before;
-            self.move_diagnostics_to(before, end, insertion_point + inserted);
+            let insertion_point = match insertion_point {
+                DiagnosticPosition::Index(index) => DiagnosticPosition::Index(index + inserted),
+                tracked => tracked,
+            };
+            self.move_diagnostics_to(before, end, insertion_point);
             inserted += count;
         }
         flow
@@ -1288,7 +1294,7 @@ impl<'a> Linter<'a> {
         }
         self.stream_producers.observing = true;
         self.stream_producers.pending = Some(PendingStreamProducers {
-            report_at: self.diagnostics.len(),
+            report_at: self.diagnostic_position_at(self.diagnostics.len()),
             candidates,
         });
         self.stream_producers.active_candidates.clear();
