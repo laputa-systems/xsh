@@ -10,6 +10,8 @@ TASK_TREE=$1
 TASK_MODE=$2
 shift 2
 TASK_ROOT=/home/josh/d/laputa-systems/xsh
+TASK_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+TASK_IMAGE_ID=$(python3 "$TASK_SCRIPT_DIR/../../../native_image.py")
 TASK_TOOL_DIR=${XSH_GATE_TOOL_DIR:?the reviewed gate tool directory is required}
 TASK_INFRA=$TASK_ROOT/.work/consolidation/infra
 TASK_GATE_DIR=$TASK_ROOT/.work/final-review-evidence/final-correctness-gates
@@ -228,7 +230,7 @@ case "$TASK_MODE" in
     mkdir -p "$TASK_TARGET_DIR"
     exec 9>"$TASK_INFRA/cargo.lock"
     flock -w "$TASK_CARGO_LOCK_TIMEOUT" 9 || { echo 'cargo build lock timed out' >&2; exit 75; }
-    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:rw" -v xsh-consolidation-kache:/root/.cache/kache -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e RUSTC_WRAPPER=/usr/local/bin/kache -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
+    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:rw" -v xsh-consolidation-kache:/root/.cache/kache -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e RUSTC_WRAPPER=/usr/local/bin/kache -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 "$TASK_IMAGE_ID" "$@"
     ;;
   run)
     if [ "$#" -eq 0 ]; then echo 'run command is required' >&2; exit 2; fi
@@ -237,7 +239,7 @@ case "$TASK_MODE" in
     esac
     task_disk_tmpdir_args
     mkdir -p "$TASK_TARGET_DIR"
-    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:ro" --user "$TASK_UID:$TASK_GID" -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
+    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:ro" --user "$TASK_UID:$TASK_GID" -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup "$TASK_IMAGE_ID" "$@"
     ;;
   prepare-cargo)
     if [ "$#" -ne 0 ]; then echo 'prepare-cargo accepts no command' >&2; exit 2; fi
@@ -257,7 +259,7 @@ case "$TASK_MODE" in
       -v "$TASK_XDG_CACHE_HOME:$TASK_XDG_CACHE_HOME" \
       -v xsh-consolidation-kache:"$TASK_XDG_CACHE_HOME/kache" \
       -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup \
-      sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c \
+      "$TASK_IMAGE_ID" \
       /bin/sh -ceu 'chown -R "$1:$2" "$3" "$4" "$5" "$6" "$7"; stat -c "%U:%G %n" "$3" "$4" "$5" "$6" "$7"' \
       sh "$TASK_UID" "$TASK_GID" "$TASK_TARGET_DIR" "$TASK_CARGO_HOME" "$TASK_CARGO_HOME/registry" "$TASK_XDG_CACHE_HOME" "$TASK_XDG_CACHE_HOME/kache"
     ;;
@@ -289,7 +291,7 @@ case "$TASK_MODE" in
       -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup \
       -e CARGO_HOME="$TASK_CARGO_HOME" -e XDG_CACHE_HOME="$TASK_XDG_CACHE_HOME" \
       -e XSH_GATE_RUSTC_WRAPPER=/usr/local/bin/xsh-rustc-jemalloc \
-      sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
+      "$TASK_IMAGE_ID" "$@"
     ;;
   *) echo 'unknown mode' >&2; exit 2 ;;
 esac

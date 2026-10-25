@@ -22,6 +22,9 @@ from typing import Any
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from native_image import IMAGE_ID
 
 from owned_containers import (
     InterruptedRun,
@@ -44,7 +47,7 @@ FUNCTIONAL_CLOSE_ROOT = ROOT / ".work/final-review-evidence"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 TARGET = "x86_64-unknown-linux-musl"
-IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+IMAGE = IMAGE_ID
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"
 BINARY_NAMES = ("xsh", "xsht", "xsh-test-helper")

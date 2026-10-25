@@ -19,6 +19,9 @@ import time
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from native_image import IMAGE_ID, runner_image_id
 
 from owned_containers import (
     InterruptedRun,
@@ -33,6 +36,7 @@ from owned_containers import (
 
 ROOT = Path("/home/josh/d/laputa-systems/xsh")
 INFRA = ROOT / ".work/consolidation/infra"
+RUNNER = Path(__file__).resolve().parents[1] / "infra/run-native.sh"
 TARGET = "x86_64-unknown-linux-musl"
 RELEASE_OPT_LEVEL = 3
 TOOLS = ("xsh", "dash", "bash", "nushell", "ysh", "elvish", "python")
@@ -164,12 +168,11 @@ def close_record(path, commit):
 
 
 def native_image():
-    wrapper = INFRA / "run-native.sh"
-    info = json.loads(subprocess.check_output(["docker", "image", "inspect", "xsh-test:consolidation-native"]))[0]
-    pinned = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
-    if info["Id"] != pinned or info["Architecture"] != "amd64" or pinned not in wrapper.read_text():
+    runner_image = runner_image_id(RUNNER)
+    info = json.loads(subprocess.check_output(["docker", "image", "inspect", runner_image]))[0]
+    if info["Id"] != runner_image or info["Architecture"] != "amd64":
         raise ValueError("native build image or run-native pin differs from the accepted x86_64 image")
-    return {"image_id": info["Id"], "architecture": info["Architecture"], "wrapper_sha256": digest(wrapper)}
+    return {"image_id": info["Id"], "architecture": info["Architecture"], "wrapper_sha256": digest(RUNNER)}
 
 
 def no_native_containers(image_id):

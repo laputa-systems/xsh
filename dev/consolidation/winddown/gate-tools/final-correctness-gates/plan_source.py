@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
 from typing import Any
 
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from native_image import IMAGE_ID
 
 TARGET = "x86_64-unknown-linux-musl"
-IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+IMAGE = IMAGE_ID
 
 
 def plan_data() -> dict[str, Any]:

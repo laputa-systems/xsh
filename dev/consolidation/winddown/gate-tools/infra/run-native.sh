@@ -1,5 +1,12 @@
 #!/bin/bash
 set -euo pipefail
+TASK_ROOT=/home/josh/d/laputa-systems/xsh
+TASK_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+TASK_IMAGE_ID=$(python3 "$TASK_SCRIPT_DIR/../../../native_image.py")
+if [ "$#" -eq 1 ] && [ "$1" = "--image-id" ]; then
+  printf '%s\n' "$TASK_IMAGE_ID"
+  exit 0
+fi
 if [ "$#" -lt 3 ]; then
   echo "usage: run-native.sh WORKTREE build|run COMMAND..." >&2
   exit 2
@@ -7,7 +14,6 @@ fi
 TASK_TREE=$1
 TASK_MODE=$2
 shift 2
-TASK_ROOT=/home/josh/d/laputa-systems/xsh
 TASK_INFRA=$TASK_ROOT/.work/consolidation/infra
 TASK_BASELINE=$TASK_INFRA/baseline-bin
 case "$TASK_TREE" in
@@ -46,13 +52,13 @@ case "$TASK_MODE" in
     esac
     exec 9>"$TASK_INFRA/cargo.lock"
     flock 9
-    "${TASK_DOCKER[@]}" --stop-timeout 60 -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e TASK_UID="$TASK_UID" -e TASK_GID="$TASK_GID" sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/bash /usr/local/bin/xsh-container-build.sh --output "$TASK_TREE/target" -- /usr/bin/env LD_PRELOAD=/usr/lib/libjemalloc.so.2 "$@"
+    "${TASK_DOCKER[@]}" --stop-timeout 60 -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e TASK_UID="$TASK_UID" -e TASK_GID="$TASK_GID" "$TASK_IMAGE_ID" /bin/bash /usr/local/bin/xsh-container-build.sh --output "$TASK_TREE/target" -- /usr/bin/env LD_PRELOAD=/usr/lib/libjemalloc.so.2 "$@"
     ;;
   run)
     case " $* " in
       *" cargo test "*|*" cargo build "*|*" cargo check "*) echo "compile with build mode and --no-run; run the emitted static harness" >&2; exit 2;;
     esac
-    exec "${TASK_DOCKER[@]}" --user "$TASK_UID:$TASK_GID" -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
+    exec "${TASK_DOCKER[@]}" --user "$TASK_UID:$TASK_GID" -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup "$TASK_IMAGE_ID" "$@"
     ;;
   *) echo 'unknown mode' >&2; exit 2;;
 esac

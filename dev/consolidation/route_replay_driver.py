@@ -20,8 +20,11 @@ from typing import Any
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+from native_image import IMAGE_ID
+
+IMAGE = IMAGE_ID
 TARGET = "x86_64-unknown-linux-musl"
 CONFIG_PATH = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-route-matrix/evidence.json")
 GENERATOR_PATH = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-route-matrix/generate.py")

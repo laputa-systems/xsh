@@ -1274,7 +1274,7 @@ class RunnerInvocationTests(unittest.TestCase):
                 self.assertNotIn("/home/josh/d/laputa-systems/laputa", arguments)
                 self.assertIn("-w", arguments)
                 self.assertEqual(arguments[arguments.index("-w") + 1], str(tree))
-                self.assertIn("sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c", arguments)
+                self.assertIn(LAUNCHER.IMAGE, arguments)
                 docker_argv = self.docker_argv_capture.read_bytes().split(b"\0")
                 self.assertEqual(docker_argv[-1], b"")
                 captured_argv = [os.fsdecode(value) for value in docker_argv[:-1]]

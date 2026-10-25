@@ -22,6 +22,9 @@ from typing import Any, Callable
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from native_image import IMAGE_ID
 
 from owned_containers import (
     InterruptedRun,
@@ -39,7 +42,7 @@ INFRA = ROOT / ".work/consolidation/infra"
 TARGET = "x86_64-unknown-linux-musl"
 CAPTURE_HELPER_RELATIVE = Path("dev/consolidation/winddown/gate-tools/final-performance-gates/capture-container-resources.py")
 CAPTURE_HELPER_CONTAINER = "/work/" + CAPTURE_HELPER_RELATIVE.as_posix()
-NATIVE_IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+NATIVE_IMAGE_ID = IMAGE_ID
 IMAGE_REFERENCES = (NATIVE_IMAGE_ID, "xsh-test", "xsh-test:consolidation-native")
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"

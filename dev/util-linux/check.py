@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import contextvars
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -22,10 +23,14 @@ from leases import campaign_leases, LeaseBusy, mark_cleanup_unresolved, original
 
 
 ROOT = Path(__file__).resolve().parents[2]
-IMAGE = "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+sys.path.insert(0, str(ROOT / "dev/consolidation"))
+from native_image import IMAGE_ID
+
+IMAGE = "xsh-test@" + IMAGE_ID
 COHORT = ("lslocks", "lsipc", "lsmem", "mountpoint", "namei")
 PACKAGE_COMMIT = "087ea48145e24307010ba91f403c5ff8f402568c"
 PRODUCT_SOURCE = "57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1"
+PRODUCT_OUTPUT = Path(".work/wt/requalify-57a-ef7/.work/consolidation/final-performance-gates/profile-cost-57a-ef7")
 PRODUCT_HASHES = {
     "xsh": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b",
     "xsht": "daa6c47667f65e8a2fe06a04ff179ee99e6286496c6d441b193889b3b9fec7fa",
@@ -196,10 +201,87 @@ def candidate_products():
     return active
 
 
-def baseline_products():
+def profile_build_context(receipt, directory, target):
     import acceptance
-    directory = original_root(ROOT) / f".work/consolidation/final-performance-gates/profile-cost-{PRODUCT_SOURCE}/opt3/target/x86_64-unknown-linux-musl/release"
-    context = acceptance.BuildContext(source=PRODUCT_SOURCE, profile="release", target="x86_64-unknown-linux-musl", image=IMAGE, allocator="mimalloc", allocation="1cpu/1GiB")
+
+    if not isinstance(receipt, dict):
+        raise ValueError("baseline profile receipt must be an object")
+    source_identity = receipt.get("source_identity")
+    expected_tree = subprocess.check_output(
+        ["git", "-C", str(ROOT), "rev-parse", f"{PRODUCT_SOURCE}^{{tree}}"], text=True
+    ).strip()
+    if (
+        type(receipt.get("schema")) is not int
+        or receipt.get("schema") != 1
+        or receipt.get("state") != "artifact-qualified"
+        or receipt.get("qualification_mode") != "artifacts-only"
+        or receipt.get("source_commit") != PRODUCT_SOURCE
+        or receipt.get("source_status") != "clean"
+        or source_identity != {
+            "commit": PRODUCT_SOURCE,
+            "git_tree": expected_tree,
+            "status": "clean",
+        }
+    ):
+        raise ValueError("baseline profile receipt does not identify the qualified clean source")
+
+    profile = receipt.get("profile")
+    if profile != {"name": "release", "lto": "thin", "codegen_units": 16, "opt_levels": [3]}:
+        raise ValueError("baseline profile receipt does not identify the release opt3 profile")
+    if receipt.get("target") != target:
+        raise ValueError("baseline profile receipt does not identify the accepted target")
+
+    image = receipt.get("native_image")
+    image_id = image.get("image_id") if isinstance(image, dict) else None
+    if not isinstance(image_id, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None or image.get("architecture") != "amd64":
+        raise ValueError("baseline profile receipt does not identify an immutable amd64 image")
+
+    results = receipt.get("results")
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict) or results[0].get("name") != "release-opt3":
+        raise ValueError("baseline profile receipt must contain exactly one release opt3 build")
+    result = results[0]
+    build = result.get("build")
+    cleanup = build.get("container_cleanup") if isinstance(build, dict) else None
+    if (
+        result.get("profile") != "release"
+        or result.get("opt_level") != 3
+        or result.get("lto") != "thin"
+        or result.get("codegen_units") != 16
+        or not isinstance(build, dict)
+        or type(build.get("status")) is not int
+        or build.get("status") != 0
+        or build.get("stage_validation_error") is not None
+        or not isinstance(cleanup, dict)
+        or cleanup.get("resolved") is not True
+    ):
+        raise ValueError("baseline profile receipt does not record a successful release opt3 build")
+
+    stage_validation = build.get("stage_validation")
+    binary_records = stage_validation.get("binary_hashes") if isinstance(stage_validation, dict) else None
+    if not isinstance(binary_records, dict) or set(binary_records) != set(PRODUCT_HASHES):
+        raise ValueError("baseline profile receipt does not record the accepted product set")
+    for name, expected_hash in PRODUCT_HASHES.items():
+        record = binary_records[name]
+        if not isinstance(record, dict) or record.get("path") != str(directory / name) or record.get("sha256") != expected_hash:
+            raise ValueError(f"baseline profile receipt product differs from the accepted {name} hash")
+
+    return acceptance.BuildContext(
+        source=receipt["source_commit"],
+        profile=profile["name"],
+        target=receipt["target"],
+        image="xsh-test@" + image_id,
+        allocator="mimalloc",
+        allocation="1cpu/1GiB",
+    )
+
+
+def baseline_products():
+    import resources
+
+    output = original_root(ROOT) / PRODUCT_OUTPUT
+    directory = output / "opt3/target" / resources.TARGET / "release"
+    receipt = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
+    context = profile_build_context(receipt, directory, resources.TARGET)
     return verify_product_hashes(directory, PRODUCT_HASHES), context
 
 

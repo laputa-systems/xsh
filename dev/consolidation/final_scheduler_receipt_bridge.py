@@ -15,13 +15,15 @@ import sys
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from native_image import IMAGE_ID
 
 ROOT: Path
 CONTROLLER_ROOT: Path
 COMMIT: str
 TREE: str
 TARGET = "x86_64-unknown-linux-musl"
-IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 IMAGE = "xsh-test@" + IMAGE_ID
 FUNCTIONAL_CLOSE_PATH: Path
 PROFILE_RECEIPT_PATH: Path | None

@@ -11,8 +11,11 @@ import stat
 import sys
 from datetime import datetime, timezone
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-NATIVE_IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+from native_image import IMAGE_ID
+
+NATIVE_IMAGE_ID = IMAGE_ID
 IMAGE_REFERENCES = {NATIVE_IMAGE_ID, "xsh-test", "xsh-test:consolidation-native"}
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"

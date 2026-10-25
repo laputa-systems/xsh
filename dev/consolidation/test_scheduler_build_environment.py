@@ -9,6 +9,7 @@ import tomllib
 from unittest.mock import patch
 
 root = Path(__file__).resolve().parents[2]
+tool_root = root
 spec = spec_from_file_location("scheduler_bridge", Path(__file__).with_name("final_scheduler_receipt_bridge.py"))
 bridge = module_from_spec(spec)
 spec.loader.exec_module(bridge)
@@ -102,7 +103,7 @@ def test_reference_docker_capture_matches_the_actual_launcher():
         target = controller / "run/target/cargo"
         laputa = controller / "laputa"
         capture = controller / "build.docker-argv"
-        environment = dict(os.environ, TASK_TREE=str(reference), TASK_ROOT=str(controller), TASK_INFRA=str(controller / ".work/consolidation/infra"), TASK_LAPUTA_CORPUS=str(laputa), TASK_CIDFILE=str(controller / "build.cid"), TASK_TARGET_DIR=str(target), TASK_DISK_TMPDIR=str(reference / ".work/tmp"))
+        environment = dict(os.environ, TASK_TREE=str(reference), TASK_ROOT=str(controller), TASK_INFRA=str(controller / ".work/consolidation/infra"), TASK_LAPUTA_CORPUS=str(laputa), TASK_CIDFILE=str(controller / "build.cid"), TASK_TARGET_DIR=str(target), TASK_DISK_TMPDIR=str(reference / ".work/tmp"), TASK_IMAGE_ID=bridge.IMAGE_ID)
         with patch.multiple(bridge, CONTROLLER_ROOT=controller, REFERENCE_ROOT=reference):
             command = bridge.reference_build_command()
             raw = subprocess.check_output(["bash", "-c", base + "\n" + temporary_args + "\n" + invocation, "launcher-capture-test", *command[3:]], env=environment)
@@ -180,15 +181,18 @@ def test_profile_laputa_binding_requires_the_same_clean_corpus():
 def test_reference_environment_satisfies_actual_launcher_preflight():
     common = Path(bridge.git(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
     controller = common.parent
-    launcher = root / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
+    launcher = tool_root / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
     text = launcher.read_text()
-    prefix = text[:text.index('if [ -e "$TASK_NATIVE_CLEANUP_MARKER" ]; then')]
+    directory_assignment = 'TASK_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)'
+    prefix = text[:text.index(directory_assignment)]
+    prefix += 'TASK_SCRIPT_DIR="$XSH_TEST_TASK_SCRIPT_DIR"\nTASK_IMAGE_ID="$XSH_TEST_IMAGE_ID"\n'
+    prefix += text[text.index("TASK_TOOL_DIR=${XSH_GATE_TOOL_DIR"):text.index('if [ -e "$TASK_NATIVE_CLEANUP_MARKER" ]; then')]
     gate = controller / ".work/final-review-evidence/final-correctness-gates"
     with tempfile.TemporaryDirectory(prefix="scheduler-unit-", dir=gate) as directory, tempfile.TemporaryDirectory(dir=root / ".work/tmp") as corpus_directory:
         run = Path(directory)
         corpus = Path(corpus_directory)
         subprocess.run(["git", "init", "--quiet", str(corpus)], check=True)
-        environment = dict(os.environ, XSH_GATE_TOOL_DIR=str(launcher.parent), XSH_GATE_CIDFILE=str(run / "build.cid"), XSH_GATE_TARGET_DIR=str(run / "target/cargo"), XSH_GATE_LAPUTA_CORPUS=str(corpus), XSH_GATE_DOCKER_ARGV_CAPTURE=str(run / "build.docker-argv"))
+        environment = dict(os.environ, XSH_GATE_TOOL_DIR=str(launcher.parent), XSH_GATE_CIDFILE=str(run / "build.cid"), XSH_GATE_TARGET_DIR=str(run / "target/cargo"), XSH_GATE_LAPUTA_CORPUS=str(corpus), XSH_GATE_DOCKER_ARGV_CAPTURE=str(run / "build.docker-argv"), XSH_TEST_TASK_SCRIPT_DIR=str(launcher.parent), XSH_TEST_IMAGE_ID=bridge.IMAGE_ID)
         def preflight(values):
             return subprocess.run(["bash", "-c", prefix, "launcher-preflight-test", str(root), "build"], env=values, capture_output=True)
         result = preflight(environment)

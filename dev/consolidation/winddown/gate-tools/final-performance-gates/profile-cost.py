@@ -20,6 +20,9 @@ import time
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from native_image import IMAGE_ID, runner_image_id
 
 from owned_containers import (
     BUILD_OUTPUT_STOP_GRACE_SECONDS,
@@ -38,10 +41,11 @@ from owned_containers import (
 
 ROOT = Path("/home/josh/d/laputa-systems/xsh")
 INFRA = ROOT / ".work/consolidation/infra"
+RUNNER = Path(__file__).resolve().parents[1] / "infra/run-native.sh"
 CONTAINER_BUILD_WRAPPER = Path(__file__).resolve().parents[1] / "infra/container-build.sh"
 CONTAINER_BUILD_PATH = "/usr/local/bin/xsh-container-build.sh"
 TARGET = "x86_64-unknown-linux-musl"
-NATIVE_IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+NATIVE_IMAGE_ID = IMAGE_ID
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"
 MEMORY_LIMIT_BYTES = 24 * 1024**3
@@ -183,9 +187,9 @@ def check_close(path, commit):
 
 
 def image_identity():
-    image = json.loads(subprocess.check_output(["docker", "image", "inspect", "xsh-test:consolidation-native"]))[0]
-    wrapper = INFRA / "run-native.sh"
-    if image["Id"] != NATIVE_IMAGE_ID or image["Architecture"] != "amd64" or NATIVE_IMAGE_ID not in wrapper.read_text():
+    runner_image = runner_image_id(RUNNER)
+    image = json.loads(subprocess.check_output(["docker", "image", "inspect", runner_image]))[0]
+    if image["Id"] != runner_image or image["Architecture"] != "amd64":
         raise ValueError("release profile comparison requires the pinned x86_64 native image and runner")
     env = set(image["Config"].get("Env", []))
     required_env = {
@@ -193,7 +197,7 @@ def image_identity():
         "AR=/usr/local/bin/llvm-ar",
         "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include",
     }
-    wrapper_text = wrapper.read_text()
+    wrapper_text = RUNNER.read_text()
     if not required_env <= env or "RUSTC_WRAPPER=/usr/local/bin/kache" not in wrapper_text or "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker" not in wrapper_text:
         raise ValueError("native build image or wrapper no longer selects the pinned Clang, kache and mold toolchain")
     tools = {"kache": KACHE, "mold": MOLD, "linker": LINKER}
@@ -205,7 +209,7 @@ def image_identity():
     mold_version = subprocess.check_output([str(MOLD), "--version"], text=True).splitlines()[0]
     if kache_version != "kache 1.0.0" or not mold_version.startswith("mold 3.0.0 "):
         raise ValueError("host kache/mold version differs from the verified build tooling")
-    return {"image_id": image["Id"], "architecture": image["Architecture"], "runner_sha256": digest(wrapper), "clang_driver": "/usr/bin/clang-23", "kache_version": kache_version, "mold_version": mold_version, "tool_hashes": observed}
+    return {"image_id": image["Id"], "architecture": image["Architecture"], "runner_sha256": digest(RUNNER), "clang_driver": "/usr/bin/clang-23", "kache_version": kache_version, "mold_version": mold_version, "tool_hashes": observed}
 
 
 def no_active_native_containers(image_id):

@@ -20,6 +20,9 @@ from datetime import datetime, timezone
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from native_image import IMAGE_ID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "final-performance-gates"))
 from owned_containers import (
@@ -36,7 +39,7 @@ from owned_containers import (
 from outcomes import compare_pair, manifest_sha256, read_manifest, validate_log
 
 
-PINNED_IMAGE = "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+PINNED_IMAGE = "xsh-test@" + IMAGE_ID
 TARGET = "x86_64-unknown-linux-musl"
 ROOT = Path(__file__).resolve().parents[5]
 INFRA = ROOT / ".work/consolidation/infra"
