@@ -109,3 +109,44 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "2\n13\ntrue\n"
 }
+
+test test_conditional_method_receiver_uses_each_arms_narrowed_type { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    let name: Str? = if true { "ab" } else { "cd" }
+    if name != null {
+      out += [(if false { name } else { "ß" }).upper()]
+      out += [(if true { name } else { "ß" }).upper()]
+    }
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "SS\nAB\n"
+}
+
+test test_empty_map_call_survives_argument_reordering_and_conditional_storage { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc keyed(counts: Map[Str], bonus: Int = 9) -> Int { counts.len() + bonus }
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    out += [f"{keyed(map.empty(), bonus: 3)}"]
+    let counts: Map[Int?] = match 6 { 3 => map.empty(), 4 => {["a"]: null}, _ => {["b"]: 5, ["c"]: null} }
+    out += [f"{counts.len()}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n2\n"
+}

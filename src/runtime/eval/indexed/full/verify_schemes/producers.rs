@@ -3374,6 +3374,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap =>
                     if self.declared_type(decoder, instruction)?.is_none() { return Ok(true); },
+                schema::ExprView::ModuleCall { .. } => if self.is_empty_map_module_call(decoder, instruction)? { return Ok(true); },
                 _ => {}
             }
         }
@@ -6465,7 +6466,7 @@ impl<'a> ProducerProof<'a> {
         self.budget.charge(1)?;
         if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
         let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(instruction)? else { return Ok(None); };
-        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
+        if !self.is_empty_map_module_call(decoder, value.raw() as usize)? && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
         self.checked_match_binding(decoder, instruction)
     }
 
@@ -6475,6 +6476,7 @@ impl<'a> ProducerProof<'a> {
         if let Some(source) = self.fresh_lists.get(&key) { return Ok(*source); }
         let source = match decoder.expression_view(argument)? {
             schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. } => Some(argument),
+            schema::ExprView::ModuleCall { .. } if self.is_empty_map_module_call(decoder, argument)? => Some(argument),
             schema::ExprView::Param(slot) => {
                 let binding = self.binding(decoder.owner, argument, slot)?;
                 match binding {
@@ -6505,7 +6507,7 @@ impl<'a> ProducerProof<'a> {
         let Some(source) = self.fresh_contextual_argument_source(decoder, argument)? else { return Ok(false) };
         if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
         if !matches!((self.store.tags[source], expected),
-            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)))
+            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprModuleCall, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)))
         { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
         ensure_producer_context_type(self.store.tags[source], expected)?;
         let binding = self.binding(decoder.owner, argument, slot)?;
@@ -7013,6 +7015,11 @@ impl<'a> ProducerProof<'a> {
         Ok(None)
     }
 
+    fn is_empty_map_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        Ok(op == super::super::RuntimeOp::MapEmpty && args.len() == 0)
+    }
+
     fn checked_empty_collection_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
         let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
         if !matches!((op, expected.unvalidated()),
@@ -7096,6 +7103,13 @@ impl<'a> ProducerProof<'a> {
         {
             self.budget.charge_clone(payload)?;
             Arc::new((**payload).clone())
+        } else if let Type::Optional(payload) = receiver_type.unvalidated()
+            && self.pushes_expected_to_results(decoder, receiver, payload, true)?
+        {
+            self.budget.charge_clone(payload)?;
+            let payload = Arc::new((**payload).clone());
+            self.expression(decoder.owner, receiver, Arc::clone(&payload), false);
+            payload
         } else { receiver_type };
         let signatures = FullDecoder::registered_method_signatures(receiver_type.as_ref(), name)?.ok_or_else(|| IrVerifyError::new("ground method has no registered parameter contract"))?;
         let mut selected = None;
