@@ -3394,7 +3394,13 @@ impl<'a> ProducerProof<'a> {
                 self.expression(decoder.owner, value, Arc::clone(checked), false);
                 continue;
             }
-            let Some(actual) = self.declared_type(decoder, value)? else { return Ok(false) };
+            let Some(actual) = self.declared_type(decoder, value)? else {
+                if matches!(decoder.expression_view(value)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)) {
+                    self.expression(decoder.owner, value, Arc::clone(checked), false);
+                    continue;
+                }
+                return Ok(false);
+            };
             let Type::List(item) = actual.unvalidated() else { return Ok(false) };
             let fits = if runtime_complete {
                 self.checked_record_field_fits(decoder, value, item, expected_item)?
@@ -5691,6 +5697,12 @@ impl<'a> ProducerProof<'a> {
                         let (actual, source_fact) = self.operand_context(&decoder, input)?.into_parts();
                         let actual = match actual {
                             Some(actual) => actual,
+                            None if matches!(self.store.tags[input], FullTag::ExprIf | FullTag::ExprPatternIf | FullTag::ExprMatch | FullTag::ExprStrMatch | FullTag::ExprTagMatch)
+                                && matches!(checked.as_ref(), Type::List(_) | Type::Map(_, _)) =>
+                            {
+                                self.expression(owner, input, Arc::clone(&checked), false);
+                                return Ok(());
+                            }
                             None => return Err(IrVerifyError::new("checked value input has no producer contract")),
                         };
                         let optional_payload = !runtime_complete && Self::checked_optional_payload_source(&actual, &checked);
@@ -6858,7 +6870,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn checked_fresh_list_method_receiver(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        let Type::Set(item) = expected else { return Ok(None) };
+        let (Type::Set(item) | Type::List(item)) = expected else { return Ok(None) };
         let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else { return Ok(None) };
         let receiver = receiver.raw() as usize;
         if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)
