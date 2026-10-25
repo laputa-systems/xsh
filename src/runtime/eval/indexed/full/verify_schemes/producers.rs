@@ -4943,7 +4943,7 @@ impl<'a> ProducerProof<'a> {
         };
         if (matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _)) || matches!(expected.as_ref(), Type::Record(_)) && actual.is_none())
             && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
-            && let Some(source) = self.fresh_contextual_argument_source(&decoder, instruction)?
+            && let Some(source) = self.deferrable_aggregate_source(&decoder, instruction, &expected)?
             && self.declared_type(&decoder, source)?.is_none()
         {
             let binding = self.binding(owner, instruction, slot)?;
@@ -6478,8 +6478,15 @@ impl<'a> ProducerProof<'a> {
     fn contextual_match_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<(ProducerBinding, usize)>, IrVerifyError> {
         self.budget.charge(1)?;
         if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
-        let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(instruction)? else { return Ok(None); };
-        if !self.is_empty_map_module_call(decoder, value.raw() as usize)? && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
+        let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(instruction)? else { return Ok(None); };
+        let reads_binding = match arms.next().transpose()? {
+            Some((_, _, body)) => matches!(decoder.expression_view(body.raw() as usize)?, schema::ExprView::Param(_)),
+            None => true,
+        };
+        let empty_map = !reads_binding
+            && self.is_empty_map_module_call(decoder, value.raw() as usize)?
+            && self.contextual_producer_type(decoder, value.raw() as usize)?.is_none();
+        if !empty_map && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
         self.checked_match_binding(decoder, instruction)
     }
 
@@ -6489,7 +6496,6 @@ impl<'a> ProducerProof<'a> {
         if let Some(source) = self.fresh_lists.get(&key) { return Ok(*source); }
         let source = match decoder.expression_view(argument)? {
             schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. } => Some(argument),
-            schema::ExprView::ModuleCall { .. } if self.is_empty_map_module_call(decoder, argument)? => Some(argument),
             schema::ExprView::Param(slot) => {
                 let binding = self.binding(decoder.owner, argument, slot)?;
                 match binding {
@@ -6517,7 +6523,12 @@ impl<'a> ProducerProof<'a> {
         if !matches!(expected, Type::List(_) | Type::Map(_, _) | Type::Record(_)) { return Ok(false); }
         let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(false) };
         if matches!(expected, Type::Record(_)) && self.declared_type(decoder, argument)?.is_some() { return Ok(false); }
-        let Some(source) = self.fresh_contextual_argument_source(decoder, argument)? else { return Ok(false) };
+        let source = match self.fresh_contextual_argument_source(decoder, argument)? {
+            Some(source) => Some(source),
+            None if matches!(expected, Type::Map(_, _)) => self.contextual_empty_map_source(decoder, argument)?,
+            None => None,
+        };
+        let Some(source) = source else { return Ok(false) };
         if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
         if !matches!((self.store.tags[source], expected),
             (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprModuleCall, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)))
@@ -7026,6 +7037,28 @@ impl<'a> ProducerProof<'a> {
             parent = decoder.instruction_parent_of(ancestor)?;
         }
         Ok(None)
+    }
+
+    fn contextual_empty_map_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
+        self.budget.charge(1)?;
+        let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(None) };
+        let binding = self.binding(decoder.owner, argument, slot)?;
+        let ProducerBinding::ScopedDeclaration(result, _) = binding else { return Ok(None) };
+        let owner = &self.index.owners[&decoder.owner];
+        let Some(parent) = owner.parents[result - owner.range.start] else { return Ok(None) };
+        if self.store.tags[parent] != FullTag::ExprMatch { return Ok(None); }
+        let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
+        if !self.is_empty_map_module_call(decoder, value.raw() as usize)? { return Ok(None); }
+        Ok(self.checked_match_binding(decoder, parent)?.filter(|(actual, _)| *actual == binding).map(|(_, source)| source))
+    }
+
+    fn deferrable_aggregate_source(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<Option<usize>, IrVerifyError> {
+        if let Some(source) = self.fresh_contextual_argument_source(decoder, argument)? { return Ok(Some(source)); }
+        if !matches!(expected, Type::Map(_, _)) { return Ok(None); }
+        let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(None) };
+        let binding = self.binding(decoder.owner, argument, slot)?;
+        if !self.contextual_sources.contains_key(&(decoder.owner, binding)) { return Ok(None); }
+        self.contextual_empty_map_source(decoder, argument)
     }
 
     fn is_empty_map_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
