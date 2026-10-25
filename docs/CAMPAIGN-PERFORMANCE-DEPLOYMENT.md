@@ -52,19 +52,30 @@ parser callers are migrated; no compatibility parser or test weakening remains.
 Generated documentation is updated. This completes feature implementation;
 qualification remains separate.
 
-XSH-14 now owns `.work/wt/finish-lint`, branch `backlog-finish-lint`, starting
-from clean feature checkpoint `25639900b219bef1b828827b61f0e4fec578e4ed`.
-Build matched release products before and after the isolated lint patch in that
-same worktree, with the approved image and target flags. The older diagnostic
-worktree and verification products remain preserved. Measure only guarded,
-interleaved, correct equal workloads; acceptance still requires an actual win
-outside variation and the existing memory bounds.
+XSH-14's release candidate is `97e36117116602dbfaf2d3c60ea63be00773c801`
+in `.work/wt/finish-lint`, branch `backlog-finish-lint`, based on clean feature
+checkpoint `25639900b219bef1b828827b61f0e4fec578e4ed`. Both release builds use
+ef7, opt3, thin LTO and 16 codegen units. The transient-entry and probe tests
+pass (1 and 8), and outputs match at 85 default diagnostics, 4 annotation-only,
+and zero candidate-free. Five interleaved RSS-only pairs per workload pass
+baseline plus max(10%, 2,048 KiB); candidate median RSS is 81,416 / 72,840 /
+35,692 KiB. Binary size is 57,159,144 bytes baseline and 57,257,360 candidate.
+Guarded timing stopped before its first sample on unrelated host proof/build
+work. **Perf gate deferred: host busy.** No speedup is qualified and the
+candidate remains outside integration. Preserve this tree, its release products
+and RSS evidence; do not retry CPU timing without a new positive quiet preflight.
 
-The owner explicitly approved ef7c796 and requalification from scratch. After
-feature completion and lint acceptance, deliberately resume that named campaign
-qualification on one clean combined source. This is the existing manual request;
-failed focused checks and ordinary edits cannot launch unrelated Full workloads.
-Do not infer a push or default-branch merge grant from it.
+The owner explicitly approved ef7c796 and requalification from scratch. Proceed
+with that named G1 correctness workload on the accepted feature source while
+XSH-14 timing is deferred. Do not wait for performance to perform correctness,
+and do not credit later source changes with this source's full qualification.
+Use the clean common corpus at
+`/home/josh/d/laputa-systems/laputa/.work/wt/qualification-corpus-f201300`
+(`f201300d05450fd55fa44815b8236d30ffbb7dbf`) for historical comparisons on both
+sides; current typed PM source `c8cdb73` has its separate focused proof above.
+The repaired launcher plans with ef7, one product build and five isolated Linux
+contexts; the canonical owner alone runs the full native suite. This is the
+existing manual requalification request, with no push or default-branch merge.
 
 | Closed ticket | Commit | Decisive evidence |
 |---|---|---|
@@ -218,7 +229,8 @@ git -C /home/josh/d/laputa-systems/xsh status --short --branch && git log --onel
 
 Read the active backlog section and `TODO.md` before dispatch. Reuse valid
 focused evidence. Feature implementation is accepted; finish the matched-release
-XSH-14 decision before freezing the combined requalification source. XSH-29's known failures are repaired and focused proof is complete; comprehensive
+XSH-14 decision when timing is valid; current feature correctness qualification
+proceeds without the unmeasured optimization. XSH-29's known failures are repaired and focused proof is complete; comprehensive
 qualification is separate, not another automatic full-corpus retry. XSH-14 remains separate until valid
 guarded timing can support its performance decision.
 

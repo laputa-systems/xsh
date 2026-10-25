@@ -28,7 +28,7 @@ Next: 35
 - **Where:** `crates/xsht/src/lint.rs`, `crates/xsht/src/cli`
 - **Problem:** Each lint candidate probe parses, loads, and checks the unchanged import graph again. Large fix runs repeat the same work for every candidate.
 - **Recommendation:** Measure shared checking, grouped candidates, and clean-corpus probe skipping. Keep the smallest design that preserves diagnostics and fix safety.
-- **Unmet:** Build a matched release pair after feature integration, then collect guarded timing on a quiet host. Candidate `cb8c23d6d` remains outside integration on `backlog-lane-diagnostics`. Existing products use optimized verification, so their memory and diagnostic controls are useful but cannot qualify production performance; no valid timing samples exist.
+- **Unmet:** Collect guarded CPU timing when the host is quiet. Matched ef7 release products and candidate `97e361171` are preserved in `.work/wt/finish-lint`, outside integration. Current diagnostics and focused controls match, the release RSS gate passes all three workloads, and binary size grows 98,216 bytes. Unrelated proof/build work prevented timing before the first sample; no speedup is qualified.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
