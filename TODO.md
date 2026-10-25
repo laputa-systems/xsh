@@ -86,15 +86,6 @@ Next: 30
 - **Fix with:** isolate-effects
 - **Effort:** M
 
-### XSH-12 · P3 · Align CLI and in-process checker diagnostics
-
-- **Area:** Errors
-- **Where:** `dev/consolidation/designs/check-session.md:28`, `crates/xsht/src/cli/lint.rs:3217`
-- **Problem:** `xsht check`, `xsht lint`, and the in-process checker can report different primary codes for migration diagnostics, `proc main` parameters, and unresolved modules.
-- **Recommendation:** Define one diagnostic contract for loaded and source-only checks, then make each entry point preserve it.
-- **Fix with:** error-model
-- **Effort:** M
-
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
 - **Area:** Performance

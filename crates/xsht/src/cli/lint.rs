@@ -1235,8 +1235,7 @@ fn finish_lint_workspace_root(
                 index: results.len(),
                 kind: LintResultKind::Diagnostics {
                     status: if linted.diagnostics.iter().any(|diagnostic| {
-                        (diagnostic.severity == Severity::Error
-                            || reported_check_finding(diagnostic))
+                        diagnostic.severity == Severity::Error
                             && diagnostic
                                 .code
                                 .is_some_and(|code| code.family() == DiagnosticFamily::Check)
@@ -1694,10 +1693,12 @@ fn lint_workspace_node_with_fixes(
                 kind: LintResultKind::Clean,
             };
         }
-        let status = if check_diagnostics.is_empty() {
-            lint_diagnostics_status(lint_diagnostics)
-        } else {
+        let status = if check_diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error && reported_check_finding(diagnostic)
+        }) {
             2
+        } else {
+            lint_diagnostics_status(check_diagnostics.iter().chain(lint_diagnostics.iter()))
         };
         return LintResult {
             index,
@@ -2326,10 +2327,8 @@ fn collect_fix_spans_filtered(
     non_overlapping
 }
 
-/// The status of a file's lint findings. A note never fails a file; whether
-/// notes fail the run is decided once, where they are counted.
-fn lint_diagnostics_status(diagnostics: &[Diagnostic]) -> u8 {
-    if diagnostics.iter().all(|diagnostic| {
+fn lint_diagnostics_status<'a>(diagnostics: impl IntoIterator<Item = &'a Diagnostic>) -> u8 {
+    if diagnostics.into_iter().all(|diagnostic| {
         diagnostic.severity == Severity::Note
             || (diagnostic.severity == Severity::Warning
                 && diagnostic.code == Some(DiagnosticCode::LintPathConstructor))
@@ -3011,6 +3010,73 @@ mod tests {
         assert_eq!(shared.proven_nonnull_fallback_receivers.len(), 101);
         assert!(shared.propagating_statements.contains(&local_span));
         assert_eq!(shared.propagating_statements.len(), 101);
+    }
+
+    #[test]
+    fn lint_checker_warnings_use_lint_failure_status() {
+        let fixture = TempDir::new().expect("create checker warning fixture");
+        let entry = fixture.path().join("entry.xsh");
+        fs::write(
+            &entry,
+            "error Input = Failed(message: Str)\n\
+error Output = Failed(message: Str)\n\
+proc translate(input: Result[Int, Input]) -> Result[Int, Output] {\n\
+  match input {\n\
+    Ok(value) => return value\n\
+    Err(failure) => return Err(Output.Failed(message: failure.message))\n\
+  }\n\
+}\n\
+proc legacy_process_error() { let _error = ProcessError(\"legacy\") }\n",
+        )
+        .expect("write checker warning fixture");
+        let mut discovery = discover_lint_files(
+            &[entry.to_string_lossy().into_owned()],
+            &XshConfig::default(),
+        )
+        .expect("discover checker warning fixture");
+        discovery.only = Some(vec![
+            DiagnosticCode::CheckErrorCause,
+            DiagnosticCode::CheckMigrationError,
+        ]);
+        for fix in [false, true] {
+            let results = lint_workspace(
+                &discovery,
+                fix,
+                false,
+                &ConfigCache::default(),
+                &StageTimings::start(),
+            );
+            let output = results
+                .iter()
+                .filter_map(|result| match &result.kind {
+                    LintResultKind::Diagnostics { diagnostics, .. }
+                    | LintResultKind::FixDiagnostics { diagnostics, .. } => Some(
+                        diagnostics
+                            .iter()
+                            .map(|diagnostic| diagnostic.text.as_str())
+                            .collect::<String>(),
+                    ),
+                    _ => None,
+                })
+                .collect::<String>();
+
+            assert!(results.iter().any(|result| match &result.kind {
+                LintResultKind::Diagnostics { status: 1, diagnostics }
+                | LintResultKind::FixDiagnostics {
+                    status: 1,
+                    diagnostics,
+                    ..
+                } => {
+                    diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.text.contains("warn[check.error-cause]"))
+                        && diagnostics
+                            .iter()
+                            .any(|diagnostic| diagnostic.text.contains("warn[check.migration-error]"))
+                }
+                _ => false,
+            }), "{output}");
+        }
     }
 
     #[test]
