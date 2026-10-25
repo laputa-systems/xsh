@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 24
+Next: 30
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
@@ -192,4 +192,58 @@ Next: 24
 - **Problem:** `laputa-systems/bbtree` claims about 5x faster single-thread lookups than std `BTreeMap` with `unsync::BBTreeMap` as a drop-in. XSH uses `BTreeMap` throughout the checker, verifier and runtime values, but most maps are probably tiny, where the gain may vanish. The measured campaign growth is generalization-map copying, which depends on clone cost. `unproven` that ordered-map operations matter at all.
 - **Recommendation:** After the post-inference performance baseline, profile the 512-unit generalization witness and script startup to rank `BTreeMap` time. Only if it is a meaningful share, swap `unsync::BBTreeMap` in behind one alias at the hottest owner and compare interleaved CPU time. Vet the single maintainer, its `unsafe` and allocation code, `InlinkeKey` on our key types, and the build-time, binary-size and startup gates before widening.
 - **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-24 · P3 · Close the parked verifier narrowing and typing gaps
+
+- **Area:** Types
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/`, `tests/xsh/signature-cli.xsh`, `tests/xsh/proof-provenance.xsh`, `tests/xsh/guarded-control-proofs.xsh`, `tests/xsh/pattern-tests.xsh`, `tests/xsh/wait-until.xsh`, `tests/xsh/default-parameters.xsh`
+- **Problem:** The checker accepts these programs and the indexed-IR verifier rejects them. Witnesses: `cli main(...operands: List[Str]) [] { print ${operands.join(",")} }` reaches the verifier as `List(Any)`; a type-test proof joined across if/else branches (`if c { assert a } else { assert a }` then a guarded read); top-level `for raw in xs { continue when raw == null; let s: Str = raw }`; top-level `let outcome = Err("failed")`; `try { wait until false within 50ms backoff 10ms..20ms }`; top-level `let shared = combine` then `shared.call(left: 9)`; `.call` on an erased `Pure` handle typed `Any` instead of `Result[Any]`; a generic body calling an `export let` alias (lowering blocker).
+- **Recommendation:** Give each a verified link to the evidence the checker already holds, as the earlier narrowing repairs did; never admit unauthenticated IR.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-25 · P3 · Decide the error effect of a stream parameter
+
+- **Area:** Errors
+- **Where:** `tests/xsh/yield-delegation.xsh`, `tests/xsh/stdlib/rel_path.xsh`
+- **Problem:** The checker rejects `for e in paths` over a `Stream[Path]` parameter in an `[io]` proc yet accepts `stream parent(s: Stream[Int]) [] -> Stream[Int] { yield @s }`, while the verifier requires `error` for the second. Both tests expect acceptance.
+- **Recommendation:** Owner decision on whether pulling an opaque stream implies `error`, then align checker, verifier, SPEC and both tests.
+- **Fix with:** error-model
+- **Effort:** M
+
+### XSH-26 · P3 · Type the pull error of a process stream
+
+- **Area:** Errors
+- **Where:** `tests/xsh/run-accept-stream-capture.xsh`, `src/sema/check`
+- **Problem:** `Stream[T]` has no pull-error type, so a typed `ProcessError` is lost on stream iteration. Typing it in the checker made the verifier fail with "captured error producer disagrees with its nominal error contract".
+- **Recommendation:** Add process-stream provenance to the checker and the verifier's captured error types together, or record that pull errors stay untyped.
+- **Fix with:** error-model
+- **Effort:** M
+
+### XSH-27 · P3 · Decide typed-callable facts for non-exact module projections
+
+- **Area:** Types
+- **Where:** `tests/xsh/constant-key-projections.xsh`
+- **Problem:** `plugin.get("increment")?` on a module required as a declared type is typed as a callable by the checker, but the module is non-exact, so admitting the fact would trust a signature the runtime `require` never validates.
+- **Recommendation:** Decide whether non-exact modules may carry a callable scheme through `get`; if not, make the checker stop typing it.
+- **Fix with:** architect
+- **Effort:** S
+
+### XSH-28 · P3 · Bound the narrowing proof cost
+
+- **Area:** Performance
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`checked_instruction_is_in_roots`)
+- **Problem:** The producer work budget is now 32 units per instruction because dense programs need about 26. The ancestor walk in `checked_instruction_is_in_roots` is quadratic in nesting depth. No timing was measured.
+- **Recommendation:** Measure verification time on the deepest corpus programs after the baseline exists, then cut the walk cost rather than raising the factor again.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-29 · P3 · Finish the XSHT integration failures
+
+- **Area:** Tests
+- **Where:** `crates/xsht/tests/cli.rs`, `crates/xsht/tests/lint_format_invariance.rs`, `crates/xsht/tests/desugar.rs`, branch `campaign/xsht-integration` (`e23c43739`, unreviewed)
+- **Problem:** On `de42880c8` five XSHT tests fail: `test_roots_lower_contextual_nominal_imports_in_the_selected_scope` (verifier rejection), three `lint_format_invariance` tests (the corpus includes inference-erased `*.erased.xsh` witnesses; a redundant-parentheses fixture loses lints after formatting), and the desugared `core/tests/test-gnu-cp.xsh` run. Later merges may have fixed some.
+- **Recommendation:** Rerun the five on current `master`, then fix the owners; reuse the WIP commit only where it still applies.
+- **Fix with:** root-cause
 - **Effort:** M

@@ -1,8 +1,59 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: paused 2026-10-24. The owner requested a clean stop, not campaign completion.
+Status: paused 2026-10-25 at local `master` `4908d2342`, nothing pushed. The
+owner requested a clean stop. The merged source is **not qualified**.
 
-## Resume
+## Current state (2026-10-25)
+
+`master` now holds the whole full-inference integration (merged by the owner as
+`08810c3b9`) plus these local merges: the XSH-22 ground-comprehension verifier
+repair; the first Pyramid slice (`cargo dev gate --plan`, `--tier edit|change`,
+`--case`, `--full` as the only Full route, exact native IDs, `--events-jsonl`);
+`xsh-fuzz` soundness as the explicit Scenario case `test-soundness`; core
+program and checker regressions; soundness fuzz repairs (158 of 1,500 generated
+programs rejected down to 0); native test-directory cleanup of read-only trees;
+verifier narrowing and corpus repairs; checker, lint and runtime repairs.
+
+Qualification evidence, by exact tree. Nothing below is a pass of the combined
+boundary.
+
+| Tree | Result |
+|---|---|
+| `08810c3b9`, `7702424d5` | Full container run stops in `core_compat_extra` (9 of 61 fail: `core/timeout.xsh` effects, `core/lib/btop_graph.xsh` checker bug). `integration` passes 232/232, where the older run failed 35. |
+| `de42880c8` | Full container run: build, five root Rust targets, soundness 14/14 and debug `--lib` 2,740 pass. XSHT fails 5 of 143: `cli::test_roots_lower_contextual_nominal_imports_in_the_selected_scope`, three `lint_format_invariance` tests, `desugar::the_desugared_corpus_checks_and_tests_like_the_corpus`. |
+| `753ef05f8` (trimmed clone) | `linux_priv` 10/10. Native suite INCOMPLETE: 2,772 pass, 76 fail, 41 skipped. Five tests timed out on a loaded host and the runner cancelled the rest. Since then verifier narrowing and checker repairs landed. |
+| host runs after the later merges | `tests/xsh` 4,174 pass, 39 fail. Debug `--lib` 2,740 pass, 0 fail. Soundness 14/14. These are host results. |
+| `56666e65e` | Container build failed on an unused `mut`; fixed in `4908d2342`. The rerun on `4908d2342` was stopped during compilation by this winddown. |
+
+Never run on this source: the split resource tests, a complete container native
+suite, the performance and memory baseline. XSH-22 was verified only by focused
+tests and the later runs above, not by a dedicated container run.
+
+## Resume (current)
+
+First command:
+
+```sh
+git -C /home/josh/d/laputa-systems/xsh status --short --branch && git log --oneline -3
+```
+
+Then, on a quiet host with no agents running (`perf-gate-ready -s`), run one
+`cargo dev test linux` from the main checkout (linked worktrees break the
+container's `.git`). Fix failures one cause per agent, then run the split
+resource tests, then rewrite this status, then take the performance and memory
+baseline from qualified products only. Do not reopen inference architecture,
+syntax, Lean models, or add harnesses.
+
+Unreviewed work to reuse only where it still applies: branch
+`campaign/xsht-integration` commit `e23c43739` is a stopped agent's partial
+XSHT fixes on an old base. Parked design items are tickets XSH-24 to XSH-29 in
+`TODO.md`. Rulings made this session: the verifier work budget is 32 units per
+instruction; nested empty `[]` payloads stay strict and tests annotate them; a
+rejected call has no result; `xsh-fuzz` is Scenario tier, not automatic;
+`xsh-lane` and `xsh-routine` and the consolidation campaign skill were
+deleted in favor of generic orchestration.
+
+## Historical resume (2026-10-24 pause, superseded above)
 
 Prompt: “Resume `full-inference-campaign.md` from the paused 2026-10-24 handoff.
 Keep bounded isolated edits, local commits/integration and owned offline Docker
@@ -19,7 +70,7 @@ perform the parent steering checkpoint before dispatch. All previous agents have
 stopped. Do not restart the old queue or rebaseline unchanged inputs. Recreate
 only the checkout needed for the next parked item from its named branch.
 
-## State and evidence
+## Historical state and evidence (2026-10-24)
 
 The integration branch is `campaign/full-inference-integration`. Executable code
 checkpoint `7187237f7` includes the completed in-flight slices below; later
@@ -76,7 +127,7 @@ combined canonical run. **The new combined source has not passed the complete
 library/native/canonical/performance/deployment boundary and is not eligible
 for a compiler-prefix merge to master.**
 
-## Direction and next delivery
+## Historical direction (2026-10-24)
 
 The limiting stage is the remaining functional relationships and their combined
 acceptance. Keep one owner for coupled Guard success/error/capture metadata.
@@ -94,7 +145,7 @@ are closed. Perform the next steering checkpoint after that functional group
 and its matching corpus replay. Only then optimize the measured generalization
 map-copy growth; no performance result has been accepted on this source.
 
-## Open lanes: committed and parked
+## Historical open lanes (2026-10-24)
 
 | Branch and checkpoint | Finding and next step |
 |---|---|
