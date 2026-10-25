@@ -1,23 +1,33 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: blocked 2026-10-25 on `backlog-2026-10-25`, cut from
-`master` at `da96b5274`. This run has not pushed or merged into `master`. The working
+Status: active 2026-10-25 on `backlog-2026-10-25`, cut from
+`master` at `da96b5274`. No default-branch merge has been performed. The working
 source is **not qualified**.
 
 ## Active backlog run (2026-10-25)
 
-The bounded queue is the 27 tickets in `TODO.md` at `da96b5274`. New discoveries
-remain outside this run. Each closure includes the ticket removal and its
-accepted change in one local commit. The owner authorized unattended execution,
-then local integration after backlog completion, followed by campaign work.
-Seventeen starting tickets are closed. Of the ten original tickets still open,
-XSH-23 is now owner-deferred and excluded from this run; nine remain in scope
-with the blockers below.
-Five discoveries, XSH-30 through XSH-34, are saved for a later run. Their
-priorities are assumed from the ticket policy. No newly filed defect was implemented.
+The owner expanded the starting queue to all remaining tickets through XSH-34,
+except owner-deferred XSH-23. Seventeen starting tickets and XSH-33 are closed; thirteen remain open,
+including discoveries XSH-30 through XSH-32 and XSH-34. Each closure
+includes the ticket removal and accepted change in one local commit. Local
+commits are authorized; publication and default-branch integration remain separate.
 
-Accepted backlog checkpoint: `79f420b64`, with focused proof reused where the
-relevant code and inputs remain unchanged. This is not combined qualification.
+Feature completeness takes priority over waiting for a quiet performance host.
+Use focused Edit and Change checks, reuse valid evidence, and batch compatible
+integration checks and generated documentation. Full workloads remain manual-only.
+Busy-host timing remains unqualified and never counts as a pass, but does not
+hold up independent implementation.
+
+Accepted backlog checkpoint: `79f420b64`. XSH-29's partial repair is integrated
+provisionally as `de6c74d9f`; its remaining timeout acceptance is still open.
+The current uncommitted wave implements XSH-4, XSH-7, XSH-10, XSH-30, XSH-31,
+XSH-32 and XSH-34. XSH-33 is closed at `f4d43aaee`: the inventory checker
+passes 92 owner sets and all 51 focused rejection controls pass. Seventeen selected
+native cases pass on the combined 4/7/31/32/34 source. CLI comparison matches
+37 cases; its required default-catalog check exposed a separately reproduced
+list-splice verifier defect, now owned as a prerequisite rather than skipped.
+The final combined products and generated documentation are pending. None of
+this evidence qualifies a baseline or closes an incomplete ticket.
 
 | Closed ticket | Commit | Decisive evidence |
 |---|---|---|
@@ -37,11 +47,12 @@ relevant code and inputs remain unchanged. This is not combined qualification.
 | XSH-27 | `0186d37b9` | All nine projection tests pass; cold controls cover both module origins, get/index selection and forged keys. |
 | XSH-20 | `09c95c896` | Mdev 13 native passes, daemon 8/8 and byte environments 2/2; offline Docker covers privileged device creation and foreground reload/termination. |
 | XSH-8 | `291713253` | Filesystem 47/47, rooted report readers 18/18, source 4/4, collection 7/7, API 67/67; both migrated Laputa files check and lower. |
+| XSH-33 | `f4d43aaee` | Provisional inventory matches 92 Rust owner sets; 51 focused controls pass without changing Lean obligations. |
 | XSH-25 | `79f420b64` | Owner accepted error for opaque stream pulls; 13 checker tests, one verifier control, 12 native cases and two frame-route replays pass; make docs succeeds. |
 
 XSH-8 and XSH-16 need source commits in Laputa and queue-removal commits here
-because the source and ticket belong to different Git repositories. Neither
-repository has been pushed. The Laputa caller migration is `f201300`, following
+because the source and ticket belong to different Git repositories. No
+repository publication is part of this workflow. The Laputa caller migration is `f201300`, following
 the XSH-16 source commit `284c1d7`.
 
 The accepted API changes require RelPath for rooted operations, distinguish
@@ -82,10 +93,9 @@ pass: formatting preserves 1,428 diagnostics and layout perturbs 1,875 files.
 Independent review found a read-permission regression in the new SGID helper;
 the correction passes its mode controls, two cleanup controls and the actual
 native selector under umask 0400, which failed before the fix. The candidate is
-committed as `6bc0df51d` on `backlog-park-xsht-29`, outside integration; XSH-29
-remains open. Its non-desugar evidence predates XSH-25; reassess affected proof
-when combining them. Current verification and release products were rebuilt
-for XSH-25 without the parked candidates. They have no full qualification credit.
+preserved as `6bc0df51d` on `backlog-park-xsht-29` and provisionally integrated
+as `de6c74d9f`; XSH-29 remains open. Its non-desugar evidence predates XSH-25; reassess affected proof
+when combining them. Current feature products have no full qualification credit.
 
 The owner approved replacement image ef7c796 after the historical local image
 became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
