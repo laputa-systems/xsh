@@ -50,12 +50,30 @@ test test_imported_generic_calls_keep_kind_and_parameter_restrictions { |ctx|
   for declaration in [
     "export proc required(value: Int) -> Int { value }",
     "export stream required(value: Int) -> Int { yield value }",
-    "export pure required(value: Int, other: Int = 0) -> Int { value }",
-    "export pure required(value: Int, ...others: List[Int]) -> Int { value }",
   ] {
     fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")?
     let result = test.run_xsh(ctx, "use decoy as trusted\nuse selected as actual\npure invoke(row) { actual.required(row.value) }\n", env: {XSH_MODULE_PATH: modules})?
     assert result.status == 2, result.stderr
     assert "[check.local-inference]" in result.stderr, result.stderr
+  }
+}
+
+test test_imported_defaulted_and_rest_calls_infer_the_caller_parameter { |ctx|
+  let modules = test.temp_dir(ctx, name: "typing-imported-pure-shapes")?
+  for declaration in [
+    "export pure required(value: Int, other: Int = 0) -> Int { value + other }",
+    "export pure required(value: Int, ...others: List[Int]) -> Int { value + others.len() }",
+  ] {
+    fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")?
+    let result = test.run_xsh(
+      ctx,
+      r"""use selected as actual
+pure invoke(row) { actual.required(row.value) }
+print ${invoke({value: 5})}
+""",
+      env: {XSH_MODULE_PATH: modules},
+    )?
+    assert result.success, result.stderr
+    assert result.stdout == "5\n", result.stdout
   }
 }
