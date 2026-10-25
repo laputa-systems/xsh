@@ -149,51 +149,6 @@ Next: 30
 - **Fix with:** api-surface-and-module-boundaries
 - **Effort:** L
 
-### XSH-5 · P4 · Decide whether inferred proc returns become default
-
-- **Area:** Config
-- **Where:** `crates/xsht/src/lint_prefer_inferred_proc_return.rs:1`, `docs/XSHT.md:68`
-- **Problem:** `lint.prefer-inferred-proc-return` is opt-in and reports about 160 current sites. The repository has no decision on making the rule default.
-- **Recommendation:** Review the fixes for public readability and checker stability, then either enable the rule by default or record why it remains opt-in.
-- **Fix with:** test-audit
-- **Effort:** S
-
-### XSH-6 · P4 · Add a named contract validation error
-
-- **Area:** Errors
-- **Where:** `docs/SPEC.md`, `src/runtime`
-- **Problem:** A failed `.require(Contract)` raises plain `Error` facets. Callers cannot match contract validation failures by a stable family name.
-- **Recommendation:** Add `ContractError` only if real callers need typed recovery, then update propagation, matching, tests, and the SPEC together.
-- **Fix with:** error-model
-- **Effort:** M
-
-### XSH-13 · P4 · Add the example lint corpus to the standard test plan
-
-- **Area:** Tests
-- **Where:** `crates/xsht/tests/examples.rs:190`, `dev/tests/test-gates.xsh:240`
-- **Problem:** The standard XSHT test plan skips `examples::example_corpus_lints_without_warnings`. Contributors must know and run the target separately.
-- **Recommendation:** Decide which local gate owns the corpus pass, include it once, and keep the timing-line normalization inside the test.
-- **Fix with:** renovate-tests
-- **Effort:** S
-
-### XSH-17 · P4 · Diagnose two inherited Laputa package-manager failures
-
-- **Area:** Tests
-- **Where:** `../laputa/tests/pm/pm_execute.xsh`
-- **Problem:** Two `pm_execute` tests lose the proof's error text. They fail on both old and current toolchains, so the XSH migration did not establish their cause.
-- **Recommendation:** Reproduce each test in Laputa, trace the missing diagnostic, and fix the owner only after the failing boundary is known.
-- **Fix with:** root-cause
-- **Effort:** S
-
-### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
-
-- **Area:** Performance
-- **Where:** `src/runtime/value.rs:172`, `src/runtime/value.rs:958`, `src/sema/schemes.rs`, `src/sema/constraints.rs`
-- **Problem:** `laputa-systems/bbtree` claims about 5x faster single-thread lookups than std `BTreeMap` with `unsync::BBTreeMap` as a drop-in. XSH uses `BTreeMap` throughout the checker, verifier and runtime values, but most maps are probably tiny, where the gain may vanish. The measured campaign growth is generalization-map copying, which depends on clone cost. `unproven` that ordered-map operations matter at all.
-- **Recommendation:** After the post-inference performance baseline, profile the 512-unit generalization witness and script startup to rank `BTreeMap` time. Only if it is a meaningful share, swap `unsync::BBTreeMap` in behind one alias at the hottest owner and compare interleaved CPU time. Vet the single maintainer, its `unsafe` and allocation code, `InlinkeKey` on our key types, and the build-time, binary-size and startup gates before widening.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
 ### XSH-24 · P3 · Close the parked verifier narrowing and typing gaps
 
 - **Area:** Types
@@ -246,4 +201,49 @@ Next: 30
 - **Problem:** On `de42880c8` five XSHT tests fail: `test_roots_lower_contextual_nominal_imports_in_the_selected_scope` (verifier rejection), three `lint_format_invariance` tests (the corpus includes inference-erased `*.erased.xsh` witnesses; a redundant-parentheses fixture loses lints after formatting), and the desugared `core/tests/test-gnu-cp.xsh` run. Later merges may have fixed some.
 - **Recommendation:** Rerun the five on current `master`, then fix the owners; reuse the WIP commit only where it still applies.
 - **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-5 · P4 · Decide whether inferred proc returns become default
+
+- **Area:** Config
+- **Where:** `crates/xsht/src/lint_prefer_inferred_proc_return.rs:1`, `docs/XSHT.md:68`
+- **Problem:** `lint.prefer-inferred-proc-return` is opt-in and reports about 160 current sites. The repository has no decision on making the rule default.
+- **Recommendation:** Review the fixes for public readability and checker stability, then either enable the rule by default or record why it remains opt-in.
+- **Fix with:** test-audit
+- **Effort:** S
+
+### XSH-6 · P4 · Add a named contract validation error
+
+- **Area:** Errors
+- **Where:** `docs/SPEC.md`, `src/runtime`
+- **Problem:** A failed `.require(Contract)` raises plain `Error` facets. Callers cannot match contract validation failures by a stable family name.
+- **Recommendation:** Add `ContractError` only if real callers need typed recovery, then update propagation, matching, tests, and the SPEC together.
+- **Fix with:** error-model
+- **Effort:** M
+
+### XSH-13 · P4 · Add the example lint corpus to the standard test plan
+
+- **Area:** Tests
+- **Where:** `crates/xsht/tests/examples.rs:190`, `dev/tests/test-gates.xsh:240`
+- **Problem:** The standard XSHT test plan skips `examples::example_corpus_lints_without_warnings`. Contributors must know and run the target separately.
+- **Recommendation:** Decide which local gate owns the corpus pass, include it once, and keep the timing-line normalization inside the test.
+- **Fix with:** renovate-tests
+- **Effort:** S
+
+### XSH-17 · P4 · Diagnose two inherited Laputa package-manager failures
+
+- **Area:** Tests
+- **Where:** `../laputa/tests/pm/pm_execute.xsh`
+- **Problem:** Two `pm_execute` tests lose the proof's error text. They fail on both old and current toolchains, so the XSH migration did not establish their cause.
+- **Recommendation:** Reproduce each test in Laputa, trace the missing diagnostic, and fix the owner only after the failing boundary is known.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
+
+- **Area:** Performance
+- **Where:** `src/runtime/value.rs:172`, `src/runtime/value.rs:958`, `src/sema/schemes.rs`, `src/sema/constraints.rs`
+- **Problem:** `laputa-systems/bbtree` claims about 5x faster single-thread lookups than std `BTreeMap` with `unsync::BBTreeMap` as a drop-in. XSH uses `BTreeMap` throughout the checker, verifier and runtime values, but most maps are probably tiny, where the gain may vanish. The measured campaign growth is generalization-map copying, which depends on clone cost. `unproven` that ordered-map operations matter at all.
+- **Recommendation:** After the post-inference performance baseline, profile the 512-unit generalization witness and script startup to rank `BTreeMap` time. Only if it is a meaningful share, swap `unsync::BBTreeMap` in behind one alias at the hottest owner and compare interleaved CPU time. Vet the single maintainer, its `unsafe` and allocation code, `InlinkeKey` on our key types, and the build-time, binary-size and startup gates before widening.
+- **Fix with:** make-it-fast
 - **Effort:** M
