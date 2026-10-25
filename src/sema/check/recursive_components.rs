@@ -116,6 +116,7 @@ impl Checker {
 
     pub(super) fn recursive_component_has_errors(&self, program: &ArenaProgram, definitions: &[FunctionDefId]) -> bool {
         self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error
+            && diagnostic.code != Some(DiagnosticCode::CheckRedundantParens)
             && diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Primary
                 && definitions.iter().any(|&definition| function_contains_span(program, definition, label.span))))
     }
@@ -1091,4 +1092,25 @@ mod tests {
         assert!(checked.checked_declarations.functions.values().all(|declaration| declaration.scheme.is_none() && declaration.scheme_body_facts.is_none()));
         assert!(checked.call_instantiations.is_empty());
     }
+
+    #[test]
+    fn layout_errors_preserve_authenticated_signatures_while_type_errors_reject_them() {
+        for (item, published) in [("item", true), ("\"wrong\"", false)] {
+            let source = format!("pure positives(items: List[Int], floor: Int = 0) -> List[Int] {{ [{item} for item in items if (item) > (floor)] }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
+                && diagnostic.severity == crate::diagnostic::Severity::Error));
+            let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "positives").unwrap();
+            assert_eq!(declaration.signature.is_some(), published, "{source}: {:?}", checked.diagnostics);
+            if let Some(signature) = &declaration.signature {
+                assert_eq!(signature.return_ty, Type::List(Box::new(Type::Int)));
+            } else {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error
+                    && diagnostic.code != Some(DiagnosticCode::CheckRedundantParens)));
+            }
+        }
+    }
+
 }

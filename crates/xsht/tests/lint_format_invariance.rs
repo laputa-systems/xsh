@@ -72,7 +72,9 @@ fn copy_corpus(from: &Path, to: &Path) {
                 continue;
             }
             copy_corpus(&path, &target);
-        } else if name.ends_with(".xsh") || name == "xsht-config.ini" {
+        } else if (name.ends_with(".xsh") && !name.ends_with(".erased.xsh"))
+            || name == "xsht-config.ini"
+        {
             fs::create_dir_all(to).expect("create corpus copy directory");
             fs::copy(&path, &target).expect("copy corpus file");
         }
@@ -699,6 +701,33 @@ fn redundant_parentheses_preserve_default_parameter_and_close_lints() {
         "fixed source does not check:\n{}",
         String::from_utf8_lossy(&check.stderr)
     );
+}
+
+#[test]
+fn redundant_parentheses_preserve_default_parameter_lint_for_collection_returns() {
+    const SOURCE: &str = "pure positives(items: List[Int], floor: Int = 0) -> List[Int] {\n  [item for item in items if item > floor]\n}\nprint ${positives([1]).len()}\n";
+    let scratch = TempDir::new().expect("scratch directory");
+    let baseline = scratch.path().join("baseline");
+    let perturbed = scratch.path().join("perturbed");
+    fs::create_dir_all(&baseline).expect("create baseline directory");
+    fs::create_dir_all(&perturbed).expect("create perturbed directory");
+    fs::write(baseline.join("main.xsh"), SOURCE).expect("write baseline source");
+    let source = perturb_layout(SOURCE).expect("fixture accepts layout perturbations");
+    assert_ne!(source, SOURCE);
+    fs::write(perturbed.join("main.xsh"), source).expect("write perturbed source");
+
+    let before = lint_tree(&baseline, false);
+    assert!(before.contains_key(&(
+        String::from("main.xsh"),
+        String::from("warn[lint.default-param-type]")
+    )));
+    let mut after = lint_tree(&perturbed, false);
+    assert!(after.contains_key(&(
+        String::from("main.xsh"),
+        String::from("err[check.redundant-parens]")
+    )));
+    without_redundant_parens(&mut after);
+    assert_same_diagnostics("collection return fixture", &before, &after);
 }
 
 #[test]

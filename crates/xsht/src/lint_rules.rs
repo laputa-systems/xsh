@@ -1994,7 +1994,7 @@ impl<'a> Linter<'a> {
             || !snapshot
                 .checked
                 .as_ref()
-                .is_some_and(|checked| checked.diagnostics.is_empty())
+                .is_some_and(super::probes::checked_without_layout_diagnostics)
         {
             return;
         }
@@ -2307,9 +2307,7 @@ impl<'a> Linter<'a> {
                     start = end;
                     continue;
                 };
-                // Rechecking the combined pattern proves equal resolved capture types,
-                // including nominal constructor payloads and aliases of those types.
-                if checked.diagnostics.is_empty() {
+                if super::probes::checked_without_layout_diagnostics(checked) {
                     self.diagnostics.push(
                         Diagnostic::new(
                             Severity::Warning,

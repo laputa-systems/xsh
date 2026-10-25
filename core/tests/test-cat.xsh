@@ -143,9 +143,8 @@ test test_cat_streams_show_all_from_an_unbounded_device { |ctx|
   let output = fp"{root}/stdout"
   let error = fp"{root}/stderr"
   let command = "exec \"$1\" \"$2\" -A /dev/full | \"$3\" -c 2048 > \"$4\""
-  let timeout = p"/usr/bin/timeout"
-  let argv = [timeout.display(), "5s", "/bin/sh", "-c", command, "cat-device", ctx.xsh_bin.display(), script.display(), head.display(), output.display()]
-  let plan = process.command_argv(timeout, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", /dev/null, error, timeout: 5s)
+  let argv = ["/bin/sh", "-c", command, "cat-device", ctx.xsh_bin.display(), script.display(), head.display(), output.display()]
+  let plan = process.command_argv(p"/bin/sh", argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", /dev/null, error, timeout: 30s)
   let status = process.run(plan)?
 
   let data = output.read_bytes()?

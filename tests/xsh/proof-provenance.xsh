@@ -339,3 +339,26 @@ proc select(item: Item, choose: Bool) [error] -> Str {
     assert !rejected.success
   }
 }
+
+test test_imported_error_family_capture_retains_its_declaration_identity { |ctx|
+  let root = test.temp_dir(ctx, name: "captured-error-family")?
+  fp"{root}/model.xsh".write(r"""##! Captured error identity.
+## A missing value.
+export error Trouble = Missing(reason: Str)
+## Return the missing value.
+export pure missing() -> Result[Int, Trouble] { Err(Trouble.Missing("broken")) }
+""")
+  let output = test.expect(
+    ctx,
+    r"""use model as local
+let failure: Result[Int, local.Trouble] = local.missing()
+pure message() -> Str {
+  match failure { Err(local.Trouble.Missing {reason}) => reason; _ => "unexpected" }
+}
+print ${message()}
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert output.stdout == "broken\n"
+}

@@ -7,9 +7,10 @@ use crate::xsht::cli::{
 use crate::xsht::config::FileToolConfig;
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{IsTerminal, Write};
+use std::os::fd::AsFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -18,6 +19,8 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
+use rustix::fs::{AtFlags, CWD, Dir, Mode, OFlags};
+use rustix::io::Errno;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
     Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram, TestCancellation,
@@ -1477,6 +1480,15 @@ fn run_native_test(
             cleanup_error: None,
         };
     }
+    if let Err(error) = clear_inherited_setgid(&temp_root) {
+        let cleanup = remove_native_test_directory(&temp_root)
+            .err()
+            .map_or_else(String::new, |cleanup| format!("; cleanup failed: {cleanup}"));
+        return test_failure(format!(
+            "failed to normalize native test directory permissions for '{}': {error}{cleanup}",
+            temp_root.display()
+        ));
+    }
 
     let mut outcome = run_native_test_in_directory(case, options, route_witness_output_dir, cancellation, &temp_root);
     if !options.keep_temp
@@ -1490,27 +1502,155 @@ fn run_native_test(
 fn remove_native_test_directory(root: &Path) -> std::io::Result<()> {
     match fs::remove_dir_all(root) {
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            restore_owner_access(root)?;
-            fs::remove_dir_all(root)
+            remove_native_test_directory_by_handle(root)
+        }
+        Err(error) if error.raw_os_error() == Some(libc::ENAMETOOLONG) => {
+            remove_native_test_directory_by_handle(root)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         result => result,
     }
 }
 
-fn restore_owner_access(directory: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    const OWNER_ACCESS: u32 = 0o700;
-    const PERMISSION_BITS: u32 = 0o7777;
-    let metadata = fs::symlink_metadata(directory)?;
-    if !metadata.file_type().is_dir() { return Ok(()); }
-    let mode = metadata.permissions().mode() & PERMISSION_BITS;
-    if mode & OWNER_ACCESS != OWNER_ACCESS { fs::set_permissions(directory, fs::Permissions::from_mode(mode | OWNER_ACCESS))?; }
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() { restore_owner_access(&entry.path())?; }
+fn clear_inherited_setgid(directory: &Path) -> std::io::Result<()> {
+    const SETGID: u32 = 0o2000;
+    let metadata = rustix::fs::statat(CWD, directory, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(std::io::Error::from)?;
+    if rustix::fs::FileType::from_raw_mode(metadata.st_mode as _) != rustix::fs::FileType::Directory {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "native test root is not a directory",
+        ));
+    }
+    let mode = metadata.st_mode as u32 & 0o7777;
+    if mode & SETGID != 0 {
+        set_native_directory_mode_at(CWD, directory.as_os_str(), Mode::from_raw_mode(mode & !SETGID))?;
     }
     Ok(())
+}
+
+fn remove_native_test_directory_by_handle(root: &Path) -> std::io::Result<()> {
+    let parent_path = root.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "native test directory has no parent",
+        )
+    })?;
+    let name = root.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "native test directory has no name",
+        )
+    })?;
+    let parent = fs::File::open(parent_path)?;
+    let root_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let root_fd = match rustix::fs::openat(&parent, name, root_flags, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(error) if error == Errno::NOENT => return Ok(()),
+        Err(error) if error == Errno::ACCESS || error == Errno::PERM => {
+            restore_native_directory_access_at(parent.as_fd(), name)?;
+            rustix::fs::openat(&parent, name, root_flags, Mode::empty())
+                .map_err(std::io::Error::from)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    restore_native_directory_access_at(parent.as_fd(), name)?;
+    let mut root_dir = Dir::new(root_fd)?;
+    remove_native_directory_entries(&mut root_dir)?;
+    match rustix::fs::unlinkat(&parent, name, AtFlags::REMOVEDIR) {
+        Err(error) if error == Errno::NOENT => Ok(()),
+        result => result.map_err(Into::into),
+    }
+}
+
+fn remove_native_directory_entries(directory: &mut Dir) -> std::io::Result<()> {
+    while let Some(entry) = directory.read() {
+        let entry = entry?;
+        let name = OsStr::from_bytes(entry.file_name().to_bytes());
+        if name == OsStr::new(".") || name == OsStr::new("..") {
+            continue;
+        }
+        let parent = directory.fd()?;
+        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let child = match rustix::fs::openat(parent, name, flags, Mode::empty()) {
+            Ok(child) => child,
+            Err(error) if error == Errno::NOENT => continue,
+            Err(error) if error == Errno::NOTDIR || error == Errno::LOOP => {
+                match rustix::fs::unlinkat(directory.fd()?, name, AtFlags::empty()) {
+                    Err(error) if error == Errno::NOENT => {}
+                    result => result?,
+                }
+                continue;
+            }
+            Err(error) if error == Errno::ACCESS || error == Errno::PERM => {
+                restore_native_directory_access_at(parent, name)?;
+                rustix::fs::openat(parent, name, flags, Mode::empty())
+                    .map_err(std::io::Error::from)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        restore_native_directory_access_at(parent, name)?;
+        let mut child = Dir::new(child)?;
+        remove_native_directory_entries(&mut child)?;
+        rustix::fs::unlinkat(directory.fd()?, name, AtFlags::REMOVEDIR)?;
+    }
+    Ok(())
+}
+
+fn restore_native_directory_access_at(
+    parent: rustix::fd::BorrowedFd<'_>,
+    name: &OsStr,
+) -> std::io::Result<()> {
+    const OWNER_ACCESS: u32 = 0o700;
+    let metadata = rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(std::io::Error::from)?;
+    if rustix::fs::FileType::from_raw_mode(metadata.st_mode as _) != rustix::fs::FileType::Directory {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "native test cleanup entry is not a directory",
+        ));
+    }
+    let mode = metadata.st_mode as u32 & 0o7777;
+    if mode & OWNER_ACCESS == OWNER_ACCESS {
+        return Ok(());
+    }
+    set_native_directory_mode_at(parent, name, Mode::from_raw_mode(mode | OWNER_ACCESS))
+}
+
+fn set_native_directory_mode_at(
+    parent: impl AsFd,
+    name: &OsStr,
+    mode: Mode,
+) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let pinned = rustix::fs::openat(
+            parent,
+            name,
+            OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
+        if rustix::fs::FileType::from_raw_mode(rustix::fs::fstat(&pinned).map_err(std::io::Error::from)?.st_mode as _)
+            != rustix::fs::FileType::Directory
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "native test directory changed type",
+            ));
+        }
+        rustix::fs::chmod(
+            format!("/proc/self/fd/{}", pinned.as_raw_fd()),
+            mode,
+        )
+        .map_err(std::io::Error::from)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        rustix::fs::chmodat(parent, name, mode, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(std::io::Error::from)
+    }
 }
 
 fn run_native_test_in_directory(
@@ -2313,6 +2453,82 @@ mod tests {
         assert_eq!(std::fs::metadata(&outside).unwrap().permissions().mode() & 0o7777, 0o500);
         std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(std::fs::read_to_string(outside.join("kept")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn native_test_directory_removal_handles_paths_longer_than_path_max() {
+        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let sandbox = tempfile::TempDir::new_in(scratch).unwrap();
+        let sandbox_dir = std::fs::File::open(sandbox.path()).unwrap();
+        let outside = sandbox.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("kept"), "kept").unwrap();
+        rustix::fs::mkdirat(&sandbox_dir, "root", rustix::fs::Mode::from_raw_mode(0o700)).unwrap();
+        let restricted = sandbox.path().join("root/restricted");
+        std::fs::create_dir(&restricted).unwrap();
+        std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let root_fd = rustix::fs::openat(
+            &sandbox_dir,
+            "root",
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap();
+        symlink(&outside, sandbox.path().join("root/outside-link")).unwrap();
+        std::fs::write(
+            sandbox.path().join("root").join(std::ffi::OsString::from_vec(b"leaf-\xff".to_vec())),
+            "kept",
+        )
+        .unwrap();
+        let flags = rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC;
+        let mut parent = root_fd;
+        let component = "0123456789".repeat(20);
+        for suffix in 0..20 {
+            let name = format!("{component}{suffix}");
+            rustix::fs::mkdirat(&parent, &name, rustix::fs::Mode::from_raw_mode(0o755)).unwrap();
+            parent = rustix::fs::openat(&parent, &name, flags, rustix::fs::Mode::empty()).unwrap();
+        }
+        drop(parent);
+
+        let root = sandbox.path().join("root");
+        super::remove_native_test_directory(&root).unwrap();
+        assert!(!root.exists());
+        assert_eq!(std::fs::read_to_string(outside.join("kept")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn native_test_root_clears_inherited_setgid_without_changing_access() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let sandbox = tempfile::TempDir::new_in(scratch).unwrap();
+        let root = sandbox.path().join("root");
+        let link = sandbox.path().join("link");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o2755)).unwrap();
+        symlink(&root, &link).unwrap();
+
+        assert!(super::clear_inherited_setgid(&link).is_err());
+        assert_eq!(std::fs::metadata(&root).unwrap().permissions().mode() & 0o7777, 0o2755);
+
+        super::clear_inherited_setgid(&root).unwrap();
+
+        assert_eq!(std::fs::metadata(&root).unwrap().permissions().mode() & 0o7777, 0o755);
+        for mode in [0o2377, 0o2300, 0o377] {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(mode)).unwrap();
+            super::clear_inherited_setgid(&root).unwrap();
+            assert_eq!(std::fs::metadata(&root).unwrap().permissions().mode() & 0o7777, mode & !0o2000);
+        }
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     #[test]

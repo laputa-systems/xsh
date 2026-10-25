@@ -206,6 +206,14 @@ fn original_offset(offset: usize, removed: &[(usize, usize)]) -> usize {
     })
 }
 
+pub(super) fn checked_without_layout_diagnostics(
+    checked: &xsh::frontend::check::CheckOutput,
+) -> bool {
+    checked.diagnostics.iter().all(|diagnostic| {
+        diagnostic.code == Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+    })
+}
+
 pub(super) fn checked_return_removal_facts_from_output(
     checked: &xsh::frontend::check::CheckOutput,
     program: &ArenaProgram,
@@ -328,7 +336,11 @@ pub(super) fn checked_source_body_contracts(
         .filter(|(id, _)| id.body.source_id == source_id)
         .collect::<Vec<_>>();
     let source_name = sources.get(source_id)?.name().to_owned();
-    let contracts = checked_body_contracts(checked.clone(), program, sources, source_id).ok()?;
+    let mut contract_input = checked.clone();
+    contract_input.diagnostics.retain(|diagnostic| {
+        diagnostic.code != Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+    });
+    let contracts = checked_body_contracts(contract_input, program, sources, source_id).ok()?;
     program.symbol_owner().with_current(|| {
         let mut effect_body_count = 0;
         let mut source_contracts = BTreeMap::new();
@@ -675,7 +687,7 @@ impl<'a> Linter<'a> {
         let Some(checked) = snapshot.checked.as_ref() else {
             return false;
         };
-        if !checked.diagnostics.is_empty() {
+        if !checked_without_layout_diagnostics(checked) {
             return false;
         }
         snapshot.program.symbol_owner().with_current(|| {

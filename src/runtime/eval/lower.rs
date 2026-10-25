@@ -2456,7 +2456,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 {
                     return None;
                 }
-                let checked_type = binding.checked.clone();
+                let checked_type = binding.checked.clone().map(|ty| self.canonicalize_checked_type(ty));
                 if id == BindingId::args() && checked_type.is_none() {
                     return None;
                 }
