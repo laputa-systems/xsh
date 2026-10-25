@@ -42,3 +42,26 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "-7.75\n"
 }
+
+test test_optional_field_guard_inside_optional_record_guard_narrows_the_read { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""type R0 = {f0: Int?, f1: Str}
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    let counted: R0? = R0(f0: 4, f1: "a")
+    let uncounted: R0? = R0(f0: null, f1: "b")
+    let absent: R0? = null
+    out += [if counted == null { "null" } else { if counted.f0 == null { "none" } else { f"{counted.f0}" } }]
+    out += [if uncounted == null { "null" } else { if uncounted.f0 == null { "none" } else { f"{uncounted.f0}" } }]
+    out += [if absent == null { "null" } else { if absent.f0 == null { "none" } else { f"{absent.f0}" } }]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4\nnone\nnull\n"
+}

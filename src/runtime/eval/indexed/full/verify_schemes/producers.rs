@@ -535,6 +535,18 @@ impl ProducerPrefixContext<'_> {
                     fields.reverse();
                     return Ok(Some((target.0, fields)));
                 }
+                schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } if check.schema.is_none() => {
+                    let source = value.raw() as usize;
+                    let Some(binding) = self.guard_value_binding_path(decoder, source, use_site, target, charge)? else { return Ok(None) };
+                    let checked = check.ty.materialize()?;
+                    if decoder.checked_value_optional_source_for_binding(instruction, source, check.ty.id, &checked, &binding, charge)?.is_none()
+                        || binding.1.len() + fields.len() > 128
+                    { return Ok(None); }
+                    charge(fields.len())?;
+                    let mut path = binding.1;
+                    path.extend(fields.into_iter().rev());
+                    return Ok(Some((binding.0, path)));
+                }
                 _ => return Ok(None),
             }
         }
