@@ -65,11 +65,13 @@ runner; it must remain until timing acceptance or explicit retirement.
 XSH-29's contextual-import and three lint-invariance checks passed with the
 combined API changes. Corpus desugar comparison exposed competing cat fixture
 deadlines, then different GNU cp and fold timeouts. The cat fixture correction
-passes written, desugared and owned-process timeout controls. The parity harness
-currently starts four file workers, each permitting up to 32 native cases on
-this host. The next bounded repair assigns a shared concurrency budget, proves
-both failing files, then reruns parity without the parked XSH-14 candidate.
-No timeout mismatch earns acceptance credit.
+passes written, desugared and owned-process timeout controls. Both GNU files
+pass in isolated written and desugared runs. The proposed concurrency repair
+was rejected: the existing scheduler already caps active cases at eight per
+file, so its explicit jobs setting would not change the load here. That patch
+is removed. The full-corpus timeout cause remains unproven; repeating the same
+run on the unchanged busy host earns no acceptance credit. Current-source
+non-desugar acceptance is running without the parked XSH-14 candidate.
 
 The owner approved replacement image ef7c796 after the historical local image
 became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
@@ -96,7 +98,16 @@ owner's opaque-stream error-effect decision. XSH-10 is parked because current
 option usage contract; new declaration syntax needs an owner decision. No parser
 replacement or CLI contract change has been accepted.
 
+The qualification launcher now plans successfully with the approved image.
+Commit `2ef2c361b` refreshes its one-way tool binding while preserving the old
+resource and privilege plan. All 52 launcher controls pass, including real
+detached-worktree admission and wrong-source rejection.
+
 Baseline qualification follows the compiler/tooling repairs on one stable tree.
+It also requires XSH-25's owner decision: a current exact run of
+`tests/xsh/yield-delegation.xsh::test_yield_delegation_aliases_share_one_cursor`
+fails with the expected-pass test's indexed effect-contract rejection. A full
+native gate cannot qualify this source while that known conflict remains.
 XSH-1 requires scheduler qualification; XSH-19 follows completed G1 acceptance;
 XSH-28 and XSH-23 require the post-inference baseline. Historical passes below
 do not qualify this source. Timing gates wait for a confirmed quiet host; the

@@ -18,6 +18,7 @@ Next: 30
 - **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
 - **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed. Focused repairs need qualification, and UDP failures and full-corpus timeouts remain unexplained. Private/resource close remains unrun.
 - **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
+- **Blocked:** XSH-25's owner decision prevents full native acceptance: the exact `tests/xsh/yield-delegation.xsh::test_yield_delegation_aliases_share_one_cursor` selector still fails because indexed verification requires `error` outside the declared stream contract. XSH-29 also retains an unresolved full-corpus timeout mismatch. The replacement image is available and its qualification launcher is repaired; historical passes do not qualify it.
 - **Fix with:** orchestrate
 - **Effort:** M
 
@@ -73,7 +74,7 @@ Next: 30
 
 - **Area:** Errors
 - **Where:** `tests/xsh/yield-delegation.xsh`, `tests/xsh/stdlib/rel_path.xsh`
-- **Problem:** The checker rejects `for e in paths` over a `Stream[Path]` parameter in an `[io]` proc yet accepts `stream parent(s: Stream[Int]) [] -> Stream[Int] { yield @s }`, while the verifier requires `error` for the second. Both tests expect acceptance.
+- **Problem:** The checker accepts `stream parent(s: Stream[Int]) [] -> Stream[Int] { yield @s }`, while the verifier requires `error`. The current `test_yield_delegation_aliases_share_one_cursor` still expects acceptance and fails at indexed verification. The formerly reported RelPath test already declares `[io, error]`; that half of the report is stale.
 - **Recommendation:** Owner decision on whether pulling an opaque stream implies `error`, then align checker, verifier, SPEC and both tests.
 - **Fix with:** error-model
 - **Effort:** M
