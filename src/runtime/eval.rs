@@ -906,10 +906,9 @@ impl ProducerDemand {
     ) -> impl Iterator<Item = Span> + 'a {
         declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
             let expression = program.arena.expr(*expression);
-            (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Capture(_) | crate::syntax::arena::ArenaExprKind::Retry { .. })
-                || (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Collect { .. }) && ty.has_unsigned_constraint())
-                || (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::ErrorContext { .. })
-                    && stream_return_item(ty).is_some())).then_some(expression.span)
+            (stream_return_item(ty).is_some()
+                || matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Capture(_) | crate::syntax::arena::ArenaExprKind::Retry { .. })
+                || (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Collect { .. }) && ty.has_unsigned_constraint())).then_some(expression.span)
         })
     }
 

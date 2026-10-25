@@ -1565,13 +1565,10 @@ impl GroundProducerIndex {
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
             if !fact.is_contract() { continue; }
             let Some(&tag) = store.tags.get(fact.instruction as usize) else { continue };
-            if store.semantic.to_type(fact.type_id)?.contains_scheme_callable() { checked_producers.push(index); continue; }
-            if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue | FullTag::ExprRange | FullTag::ExprCapture | FullTag::ExprErrorContext) { continue; }
             let ty = store.semantic.to_type(fact.type_id)?;
+            if ty.contains_scheme_callable() || crate::runtime::eval::stream_return_item(&ty).is_some() { checked_producers.push(index); continue; }
+            if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue) { continue; }
             if (tag == FullTag::ExprCheckedValue && ty.contains_typed_callable())
-                || (tag == FullTag::ExprRange && matches!(&ty, Type::Stream(_)))
-                || (tag == FullTag::ExprCapture && matches!(&ty, Type::Result(ok, _) if crate::runtime::eval::stream_return_item(ok).is_some()))
-                || (tag == FullTag::ExprErrorContext && crate::runtime::eval::stream_return_item(&ty).is_some())
                 || fact.authenticates_result_constructor(tag, &ty)?
             { checked_producers.push(index); }
         }

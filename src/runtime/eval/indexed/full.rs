@@ -26386,6 +26386,31 @@ proc capture_binding(binary: Str, payload) {
     }
 
     #[test]
+    fn default_process_streams_authenticate_their_cold_initializer() {
+        run_with_large_stack(|| {
+            let mut program = fixture("default-process-stream-proof.xsh", r#"
+let rows = run.stream --text sh -c "printf row; exit 7" ?
+for row in rows { print $row }
+"#);
+            program.store.in_place.take();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            assert_eq!(verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+            FullVerifier::verify(&program).unwrap();
+            let capture = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRunCapture).unwrap();
+            let words = program.store.data[capture].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_kind = program.clone();
+            let kind = wrong_kind.store.run_kinds.len() as u32;
+            wrong_kind.store.run_kinds.push(RunKind::StreamBytes);
+            wrong_kind.store.extra[words.start] = kind;
+            FullVerifier::verify(&wrong_kind).expect_err("stream reads must authenticate the actual process output kind");
+            let mut missing_initializer = program;
+            missing_initializer.store.tags[capture] = FullTag::ExprUnit;
+            missing_initializer.store.data[capture] = IrData::default();
+            FullVerifier::verify(&missing_initializer).expect_err("a stream fact cannot replace its physical initializer");
+        });
+    }
+
+    #[test]
     fn strict_result_producers_preserve_process_capture_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("strict-process-results.xsh", r#"

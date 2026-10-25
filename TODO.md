@@ -21,15 +21,6 @@ Next: 35
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-32 · P2 · Retain callable initialization proof for process streams
-
-- **Area:** Errors
-- **Where:** `src/runtime/eval/indexed/full.rs:10887`, `src/runtime/eval/lower.rs`
-- **Problem:** `let rows = run.stream --text sh -c "printf row; exit 7" ?; for row in rows { print $row }` is rejected before execution with `checked callable slot has no immutable callable initializer`. The same failure occurs on baseline and candidate, before the child can produce output or report its completion error. This differs from XSH-25's opaque-stream effect decision and XSH-26's error-family annotation.
-- **Recommendation:** Add the minimal default process-stream regression and repair its initializer producer or evidence transport without relaxing the verifier's authority check.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
