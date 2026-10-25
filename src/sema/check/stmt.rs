@@ -5030,6 +5030,9 @@ impl Checker {
                 self.check_tail_block_for_purpose_arena(arena, source, def.body, None, TailCheckingPurpose::ProcCompletion)
             };
             self.boundary.result_unit_function_tail = enclosing_tail;
+            if def.return_ty_defaulted && !def.test_declaration {
+                self.forget_discardable_tail_bindings(arena, def.body);
+            }
             if tail != Type::Unknown {
                 let origin = self.stream_block_origin(arena, def.body);
                 let schema = self.checked_block_schema(arena, def.body);
