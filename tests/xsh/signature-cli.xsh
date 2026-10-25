@@ -261,8 +261,11 @@ cli main(root: Path, jobs: marker.WorkerCount = 4) [error] { print ${marker.valu
 }
 
 test test_signature_cli_preserves_entry_exit_status_and_errors { |ctx|
-  for {body, status} in [{body: "exit 7", status: 7}, {body: "error.fail(\"entry failed\")?", status: 3}] {
-    let output = test.run_script(ctx, f"cli main() [error] {{ {body} }}\n")?
+  for {body, effects, status} in [
+    {body: "exit 7", effects: "error, process", status: 7},
+    {body: "error.fail(\"entry failed\")?", effects: "error", status: 3},
+  ] {
+    let output = test.run_script(ctx, f"cli main() [{effects}] {{ {body} }}\n")?
     assert output.status == status, output.stderr
   }
 }
