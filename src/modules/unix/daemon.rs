@@ -172,12 +172,11 @@ pub(crate) fn daemon_start(
     // SAFETY: pre_exec performs only async-signal-safe descriptor and signal operations on live inherited descriptors.
     unsafe {
         command.pre_exec(move || {
-            if libc::sigprocmask(libc::SIG_BLOCK, &mask, std::ptr::null_mut()) != 0
-                || libc::fcntl(writer_fd, libc::F_SETFD, 0) == -1
-            {
+            if libc::sigprocmask(libc::SIG_BLOCK, &mask, std::ptr::null_mut()) != 0 {
                 return Err(io::Error::last_os_error());
             }
-            Ok(())
+            let writer = std::os::fd::BorrowedFd::borrow_raw(writer_fd);
+            rio::fcntl_setfd(writer, rio::FdFlags::empty()).map_err(io::Error::from)
         });
     }
     // SAFETY: both sigset_t pointers refer to valid storage. Blocking before fork prevents a pre-exec handler from consuming a child signal.
