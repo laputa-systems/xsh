@@ -11075,6 +11075,9 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_keyed_index_type(base_type: Type, key: Option<&str>) -> Result<Type, IrVerifyError> {
+        if base_type.unvalidated() == &Type::ErasedRecord {
+            return Ok(Type::Any);
+        }
         if matches!(base_type.unvalidated(), Type::Record(_) | Type::Module(_)) {
             let key = key.ok_or_else(|| IrVerifyError::new("constant index producer has no checked key"))?;
             return crate::sema::sealed_operation::index_selection(&base_type, &Type::Str, Some(Name::intern(key)))
@@ -12792,6 +12795,9 @@ impl<'a> FullDecoder<'a> {
                             )?;
                         }
                         Type::Result(Box::new(required_type), Box::new(Type::Error))
+                    }
+                    schema::ExprView::RunCapture(run) if self.expression_checked_type_id(value)?.is_none() => {
+                        Type::run_capture_result(run.kind).ok_or_else(|| IrVerifyError::new("checked try producer run capture has no result contract"))?
                     }
                     _ => {
                         let Some(value_type) = self.expression_checked_type_id(value)? else {
