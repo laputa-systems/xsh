@@ -5,7 +5,7 @@
 test test_signal_hook_exit_sets_the_script_status { |ctx|
   let output = test.expect(
     ctx,
-    r"""on USR1 [] {
+    r"""on USR1 [process] {
   print "hook"
   exit 0
 }
@@ -40,7 +40,7 @@ test test_startup_signal_skips_main_before_its_captured_global_is_initialized { 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   child_script.write(
-    """on TERM [] {
+    """on TERM [process] {
   exit 143
 }
 
@@ -106,7 +106,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 test test_signal_hook_trace_records_the_shutdown_path { |ctx|
   let traced = test.run_xsht_trace(
     ctx,
-    r"""on USR1 [] {
+    r"""on USR1 [process] {
   exit 0
 }
 
@@ -144,7 +144,7 @@ test test_signal_hook_interrupts_time_sleep_promptly { |ctx|
   let started = time.now()
   let output = test.expect(
     ctx,
-    r"""on USR1 [] {
+    r"""on USR1 [process] {
   print "hook"
   exit 0
 }
@@ -162,7 +162,7 @@ print "after"
 test test_signal_hook_runs_from_a_parallel_stream_parent_checkpoint { |ctx|
   let output = test.expect(
     ctx,
-    r"""on USR1 [] {
+    r"""on USR1 [process] {
   print "hook"
   exit 0
 }
@@ -186,7 +186,7 @@ test test_signal_hook_local_defers_run_at_hook_exit { |ctx|
     ctx,
     r"""let marker = Path(args[0])
 
-on USR1 [fs, error] {
+on USR1 [process, fs, error] {
   defer marker.write("defer")?
   exit 0
 }
@@ -208,7 +208,7 @@ test test_signal_hook_runs_during_an_outer_defer_and_cleanup_resumes { |ctx|
     r"""let hook_marker = Path(args[0])
 let cleanup_marker = Path(args[1])
 
-on USR1 [fs, error] {
+on USR1 [process, fs, error] {
   hook_marker.write("hook")?
   exit 0
 }
@@ -231,7 +231,7 @@ test test_nonforced_signal_exit_runs_outer_cleanup_without_abort_error { |ctx|
     ctx,
     r"""let marker = Path(args[0])
 
-on USR1 [] {
+on USR1 [process] {
   exit 130
 }
 
@@ -271,7 +271,7 @@ test test_signal_hook_pre_cancel_forwards_to_the_active_child_before_the_hook_fi
     ctx,
     r"""let marker = Path(args[0])
 
-on USR1 --pre-cancel=0ms [time, error] {
+on USR1 --pre-cancel=0ms [process, time, error] {
   time.sleep(300ms)?
   exit 0
 }
@@ -288,7 +288,7 @@ let _ = process.run(command)?
 test test_signal_hook_exit_status_survives_time_measure_child_cancellation { |ctx|
   let output = test.expect(
     ctx,
-    r"""on USR1 [] {
+    r"""on USR1 [process] {
   exit 0
 }
 

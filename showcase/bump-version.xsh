@@ -6,7 +6,7 @@
 # Example: xsh showcase/bump-version.xsh -- patch --manifest Cargo.toml
 type Opts = {component: Str, manifest: Path, dry_run: Bool}
 
-proc main(...argv: List[Str]) [fs, error] {
+proc main(...argv: List[Str]) [fs, process, error] {
   let opts: Opts = cli.parse(
     argv,
     {

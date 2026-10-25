@@ -9,15 +9,15 @@ type Opts = {archive: List[Str], out: Path, list: Bool, compress: Str, decompres
 
 type StagedOutput = {published: Path, pending: Path}
 
-on SIGINT [error] {
+on SIGINT [process, error] {
   exit 3
 }
 
-on SIGTERM [error] {
+on SIGTERM [process, error] {
   exit 3
 }
 
-proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
+proc staged_output(dest: Path) [fs, process, error] -> Result[StagedOutput] {
   let output_parent = dest.parent
   let parent = if output_parent == "" { fs.cwd()? } else { output_parent.resolve()? }
   let published = fp"{parent}/{dest.name()}"
@@ -31,7 +31,7 @@ proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
   {published, pending}
 }
 
-proc main(...argv: List[Str]) [fs, error] {
+proc main(...argv: List[Str]) [fs, process, error] {
   let opts: Opts = cli.parse(
     argv,
     {

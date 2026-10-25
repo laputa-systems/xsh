@@ -3341,6 +3341,17 @@ impl Checker {
         match op {
             BinaryOp::ResultFallback => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
+                if matches!(left_ty, Type::Inference(_))
+                    && !matches!(arena.arena.expr(right).kind, ArenaExprKind::ValueBlock(_))
+                    && self.is_proven_nonnull_subject_arena(arena, left)
+                {
+                    self.proven_nonnull_fallback_receivers.insert(left_span);
+                    let saved_scopes = self.scopes.clone();
+                    let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
+                    self.scopes = saved_scopes;
+                    self.expect_type(&left_ty, &right_ty, right_span);
+                    return self.type_constraints.resolve(&left_ty).unwrap_or(left_ty);
+                }
                 if left_ty.contains_inference() {
                     use crate::sema::wrapper_operation::WrapperRequirementKind;
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
@@ -3369,16 +3380,7 @@ impl Checker {
                     ok_ty
                 } else if let Some(inner) = left_ty.optional_inner().cloned() {
                     inner
-                } else if self
-                    .proof_subject_arena(arena, left)
-                    .is_some_and(|(_, path, _, binding)| {
-                        binding
-                            .unrefined_ty
-                            .as_ref()
-                            .and_then(|ty| super::proof::projected_type(ty, &path))
-                            .is_some_and(|ty| matches!(ty, Type::Optional(_)))
-                    })
-                {
+                } else if self.is_proven_nonnull_subject_arena(arena, left) {
                     self.proven_nonnull_fallback_receivers.insert(left_span);
                     left_ty.clone()
                 } else {

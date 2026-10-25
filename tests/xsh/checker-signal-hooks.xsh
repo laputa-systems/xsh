@@ -15,7 +15,7 @@ test test_checker_accepts_entry_signal_hook_with_prior_bindings { |ctx|
     r"""
 let marker = Path("/tmp/xsh-signal")
 
-on SIGINT [fs, error] {
+on SIGINT [process, fs, error] {
   marker.write("interrupted\n")?
   exit 130
 }

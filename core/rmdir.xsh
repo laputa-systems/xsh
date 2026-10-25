@@ -5,7 +5,7 @@ type RmdirOptions = {parents: Bool, ignore_nonempty: Bool, verbose: Bool, help: 
 
 # The kernel can report permission or mount errors before checking emptiness.
 # Ignore those only when directory enumeration proves a retained child exists.
-proc ignored_nonempty(target: Path, failure: Error) [fs] -> Bool {
+proc ignored_nonempty(target: Path, failure: Error) [fs, error] -> Bool {
   let code = gnu.errno(failure)
   return true when code in [17, 39, 66]
   return false unless code in [1, 13, 16, 30]

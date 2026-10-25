@@ -75,11 +75,11 @@ usage: nc [-46CDdFhklNnrStUuvZz] [-I length] [-i interval] [-M ttl]
 
 # The utility dies of a termination signal; the evaluator's cancellation would
 # end the script with status 3 instead.
-on INT [] {
+on INT [process] {
   exit 130
 }
 
-on TERM [] {
+on TERM [process] {
   exit 143
 }
 

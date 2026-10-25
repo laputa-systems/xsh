@@ -80,9 +80,9 @@ test test_cksum_debug_reports_cpu_features_and_honors_tunables { |ctx|
   }
   assert debug.stderr == expected
 
-  let crypto = invoke(ctx, ["--debug", "--algorithm=md5"], b"test")?
-  assert crypto.status == 0
-  assert crypto.stderr == ""
+  let md5_run = invoke(ctx, ["--debug", "--algorithm=md5"], b"test")?
+  assert md5_run.status == 0
+  assert md5_run.stderr == ""
 
   if "avx512" in features {
     let disabled = invoke_with_tunables(ctx, ["--debug"], b"test", "glibc.cpu.hwcaps=-AVX512F")?
