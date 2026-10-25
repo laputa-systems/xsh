@@ -259,11 +259,10 @@ impl Analyzer<'_> {
             {
                 exempt.insert((binding, statement.span));
             }
-            self.report_released_mentions(statement.span, &locals, &released, &exempt);
-
-            for (binding, _) in releases {
-                released.entry(binding).or_insert(statement.span);
+            for (binding, release) in releases {
+                released.entry(binding).or_insert(release);
             }
+            self.report_released_mentions(statement.span, &locals, &released, &exempt);
 
             if let ArenaStmtKind::Assign { target, op: AssignOp::Set, .. } = statement.kind
                 && let Some((name, true)) = self.simple_assignment_target(target)
@@ -615,7 +614,10 @@ impl Analyzer<'_> {
                 mentions.extend(
                     sites
                         .iter()
-                        .filter(|site| span_in(statement_span, site.span))
+                        .filter(|site| {
+                            span_in(statement_span, site.span)
+                                && site.span.start() >= released[&binding].end()
+                        })
                         .map(|site| (site.order, binding, site.span, site.name)),
                 );
             }
@@ -693,13 +695,25 @@ impl Analyzer<'_> {
                         | crate::syntax::node::BinaryOp::Or
                         | crate::syntax::node::BinaryOp::And
                 ),
+                ArenaExprKind::PatternTest { value, .. }
+                | ArenaExprKind::PatternCondition { value, .. } => {
+                    pending.push(value);
+                    true
+                }
+                ArenaExprKind::ComparisonChain(pairs) => {
+                    pending.extend(self.program.arena.comparison_chain_operands(pairs).take(2));
+                    true
+                }
                 ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
                 | ArenaExprKind::ValuePipelineCall { .. }
                 | ArenaExprKind::Pipeline { .. }
                 | ArenaExprKind::StructuredPipeline { .. }
                 | ArenaExprKind::ContextScope { .. }
-                | ArenaExprKind::Loop { .. } => true,
+                | ArenaExprKind::Loop { .. }
+                | ArenaExprKind::ListComp { .. }
+                | ArenaExprKind::MapComp { .. }
+                | ArenaExprKind::SetComp { .. } => true,
                 ArenaExprKind::Null
                 | ArenaExprKind::Bool(_)
                 | ArenaExprKind::Int(_)
@@ -716,15 +730,9 @@ impl Analyzer<'_> {
                 | ArenaExprKind::Item
                 | ArenaExprKind::LastStatus
                 | ArenaExprKind::List(_)
-                | ArenaExprKind::ListComp { .. }
-                | ArenaExprKind::MapComp { .. }
                 | ArenaExprKind::Set(_)
-                | ArenaExprKind::SetComp { .. }
                 | ArenaExprKind::Record(_)
-                | ArenaExprKind::PatternTest { .. }
-                | ArenaExprKind::PatternCondition { .. }
                 | ArenaExprKind::Unary { .. }
-                | ArenaExprKind::ComparisonChain(_)
                 | ArenaExprKind::Call { .. }
                 | ArenaExprKind::Field { .. }
                 | ArenaExprKind::NullSafeField { .. }
@@ -750,7 +758,7 @@ impl Analyzer<'_> {
             if let Some(release) = self.expression_release(expr, locals)
                 && seen.insert(release)
             {
-                releases.push(release);
+                releases.push((release.0, node.span));
             }
             if lazy {
                 continue;
@@ -761,6 +769,7 @@ impl Analyzer<'_> {
                 }
             });
         }
+        releases.sort_unstable_by_key(|(_, span)| span.end());
         releases
     }
 

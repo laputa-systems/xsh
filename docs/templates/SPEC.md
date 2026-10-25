@@ -4533,11 +4533,14 @@ unconditional consuming operation makes later uses of that binding a
 {{.spec.use_after_release.source}}
 ```
 
-The check follows binding identity within its block. A release hidden in a
-branch, loop, deferred action, short-circuit expression, pipeline, or another
-function does not establish that the local was consumed. Reassigning a mutable
-local gives it a fresh live value. Alias locals, resources stored in containers,
-and values reached through projections are not tracked. `ProcessHandle.cancel`
+The check follows binding identity within its block, including later evaluated
+subexpressions of the consuming statement. A call consumes its receiver or
+argument after evaluating its receiver and arguments. Earlier reads in the
+same statement remain valid. A release hidden in a branch, loop, comprehension,
+deferred action, short-circuit expression, conditional comparison-chain operand,
+pipeline, or another function does not establish that the local was consumed.
+Reassigning a mutable local gives it a fresh live value. Alias locals, resources
+stored in containers, and values reached through projections are not tracked. `ProcessHandle.cancel`
 remains allowed after release because cancellation is idempotent.
 Ordinary block cleanup drops capability-release errors. A `with` resource
 scope (10.4) reports a release failure as its `Err` when the body reaches its

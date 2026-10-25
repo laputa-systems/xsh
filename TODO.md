@@ -22,16 +22,6 @@ Next: 35
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-4 · P3 · Check use after consumption for runtime handles
-
-- **Area:** Types
-- **Where:** `src/sema`, `dev/consolidation/designs/resources.md:1`
-- **Problem:** The checker accepts visible reuse after consuming operations such as `wait child`, `NetJob.wait`, and `FsRoot.close`. Programs discover the invalid state only at runtime.
-- **Recommendation:** Implement the straight-line ownership rules in the linked draft before extending them across control flow.
-- **Fix with:** make-invalid-states-unrepresentable
-- **Effort:** L
-- **Design:** [XSH-4 affine runtime handles](docs/rfc/XSH-4-affine-runtime-handles.md)
-
 ### XSH-7 · P3 · Define record and JSON schema exactness
 
 - **Area:** Types

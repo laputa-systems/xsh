@@ -153,9 +153,12 @@ A new diagnostic, `check.use-after-release`.
   the four handle types. Not a field, an element, or an alias.
 - **Release:** an operation in the "Consumed by" column, applied to that
   local, in a statement of the local's own block, evaluated unconditionally:
-  not under `if`, `match`, a loop, a stage block, `and`, `or`, or `??`.
-- **Error:** any later mention of the local in that block, including inside
-  nested blocks, other than an operation in "Allowed after release".
+  not under `if`, `match`, a loop or comprehension, a stage block, a
+  conditional comparison-chain operand, `and`, `or`, or `??`.
+- **Error:** any later mention of the local in that block, including later
+  evaluated subexpressions of the same statement and references inside nested
+  blocks, other than an operation in "Allowed after release". A call releases
+  its receiver or argument after evaluating its receiver and arguments.
   Assigning the local a new value ends the tracking.
 - **Not tracked:** a release inside a conditional or a loop, a `defer`, a
   handle passed to a function. Those keep the run-time error.

@@ -30,5 +30,5 @@ the topic owner below.
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
 | current performance and deployment work | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
-| open work and design drafts | [TODO](TODO.md), [handle ownership](docs/rfc/XSH-4-affine-runtime-handles.md), [record validation](docs/rfc/XSH-7-record-json-exactness.md) |
+| open work and design drafts | [TODO](TODO.md), [record validation](docs/rfc/XSH-7-record-json-exactness.md) |
 | generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |
