@@ -7,7 +7,8 @@ source is **not qualified**.
 ## Active backlog run (2026-10-25)
 
 The owner expanded the starting queue to all remaining tickets through XSH-34,
-except owner-deferred XSH-23. Twenty-six tickets are closed; five remain active, plus deferred XSH-23. Each closure
+except owner-deferred XSH-23. Twenty-seven tickets are closed; XSH-1, XSH-3, XSH-14 and XSH-19 remain
+active, plus deferred XSH-23. Each closure
 includes the ticket removal and accepted change in one local commit. Local
 commits are authorized; publication and default-branch integration remain separate.
 
@@ -40,14 +41,30 @@ readiness. Written/desugared cp (9/9 each) and fold (5/5 each), byte-source
 controls and the actual timeout-error case pass. Reuse the earlier non-desugar
 repair evidence; comprehensive parity remains unclaimed under XSH-3.
 
-XSH-10 remains uncommitted. The CLI matches 37 comparison cases. Review fixes
-cover computed-default minimum validation and invalid Path diagnostics; a UInt
-omission-sentinel prerequisite now passes all eight metadata native cases. All production users of
-the retired parser are migrated to typed operations, including seed, installer
-and Asterinas callers. Their six focused tests and the cross-consumer test pass.
-The required catalog check progressed past the repaired list-splice proof and a
-missing public Deno field contract, then exposed an iptables task-list inference
-failure. That compiler prerequisite is active; no package or test was skipped.
+XSH-10 is closed at `25639900b`, with Laputa source `c8cdb73`. The CLI
+matches 37 comparison cases; all eight metadata native cases, ten checker
+controls, six world/installer cases and the PM/system cross-consumer pass.
+The required real catalog check now passes, completing the earlier fourteen
+passing PM CLI cases. Both compiler prerequisites have native and cold authority
+controls; all 85 catalog recipe sources check and lower. Two missing public
+runtime-dependency field contracts in Deno and UV are documented. All retired
+parser callers are migrated; no compatibility parser or test weakening remains.
+Generated documentation is updated. This completes feature implementation;
+qualification remains separate.
+
+XSH-14 now owns `.work/wt/finish-lint`, branch `backlog-finish-lint`, starting
+from clean feature checkpoint `25639900b219bef1b828827b61f0e4fec578e4ed`.
+Build matched release products before and after the isolated lint patch in that
+same worktree, with the approved image and target flags. The older diagnostic
+worktree and verification products remain preserved. Measure only guarded,
+interleaved, correct equal workloads; acceptance still requires an actual win
+outside variation and the existing memory bounds.
+
+The owner explicitly approved ef7c796 and requalification from scratch. After
+feature completion and lint acceptance, deliberately resume that named campaign
+qualification on one clean combined source. This is the existing manual request;
+failed focused checks and ordinary edits cannot launch unrelated Full workloads.
+Do not infer a push or default-branch merge grant from it.
 
 | Closed ticket | Commit | Decisive evidence |
 |---|---|---|
@@ -200,15 +217,15 @@ git -C /home/josh/d/laputa-systems/xsh status --short --branch && git log --onel
 ```
 
 Read the active backlog section and `TODO.md` before dispatch. Reuse valid
-focused evidence and finish the uncommitted CLI, list-splice and proof-cost
-repairs before preparing more expensive qualification. XSH-29's known failures are repaired and focused proof is complete; comprehensive
+focused evidence. Feature implementation is accepted; finish the matched-release
+XSH-14 decision before freezing the combined requalification source. XSH-29's known failures are repaired and focused proof is complete; comprehensive
 qualification is separate, not another automatic full-corpus retry. XSH-14 remains separate until valid
 guarded timing can support its performance decision.
 
-Full workloads require the owner's explicit named request. A broad feature
-change, prerequisite or failed focused test must not launch `cargo dev test linux`
-or full parity automatically. Preserve the remaining G1/resource/baseline work as
-unmet until it is deliberately executed on qualified matching products. Use the
+The owner's explicit ef7 requalification request covers the remaining named
+G1/resource/baseline workload after the feature freeze. Execute it deliberately
+with matching products and preserve unmet checks as unmet. Ordinary edits and
+failed focused tests cannot launch unrelated Full workloads. Use the
 approved ef7 image and existing repaired launcher; do not reopen inference
 architecture, Lean models, or create another harness.
 
