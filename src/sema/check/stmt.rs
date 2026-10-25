@@ -7248,6 +7248,21 @@ impl Checker {
                     self.statement_positions
                         .insert(stmt.span, super::StatementPosition::Statement);
                     self.propagating_statements.insert(stmt.span);
+                    self.statement_expression_spans
+                        .insert(arena.arena.expr(expr_id).span);
+                } else if expected.is_none()
+                    && purpose == TailCheckingPurpose::ProcCompletion
+                    && ty == Type::Unit
+                {
+                    self.statement_expression_spans
+                        .insert(arena.arena.expr(expr_id).span);
+                    if self.boundary.result_unit_function_tail == Some(id)
+                        && !tail_stmt_uses_result_context_arena(arena, id)
+                    {
+                        self.statement_positions
+                            .insert(stmt.span, super::StatementPosition::Statement);
+                        self.propagating_statements.insert(stmt.span);
+                    }
                 }
                 ty
             }
@@ -7625,7 +7640,14 @@ impl Checker {
                 .filter(|arm| arm.guard.is_none())
                 .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
                 .collect::<Vec<_>>();
-            self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, value_span);
+            let completes_without_value = purpose == TailCheckingPurpose::ProcCompletion
+                && expectation.is_none()
+                && inferred.as_ref().is_none_or(|ty| matches!(ty, Type::Unit | Type::Unknown));
+            if completes_without_value {
+                self.check_tag_exhaustiveness_arena(arena, &value_ty, unguarded, value_span);
+            } else {
+                self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, value_span);
+            }
         }
         if all_arms_return {
             Type::Unknown
