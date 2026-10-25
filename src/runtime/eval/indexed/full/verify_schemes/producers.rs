@@ -3695,8 +3695,10 @@ impl<'a> ProducerProof<'a> {
                 }
             }
             schema::ExprView::ContextScope { mut body, .. } => {
+                let block = body.block_identity();
                 let payload = match decoder.derive_checked_block_tail_expression(&mut body)? {
                     Some(tail) => match self.need_context(decoder, tail)? { Some(payload) => payload, None => return Ok(None) },
+                    None if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? => Arc::new(Type::Unknown),
                     None => Arc::new(Type::Unit),
                 };
                 self.budget.charge_clone(&payload)?;

@@ -23446,6 +23446,51 @@ run true
     }
 
     #[test]
+    fn context_scopes_preserve_return_transfers_and_timed_unit_completion() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("context-return-transfer.xsh", r#"
+proc values() [env, error] -> Result[List[Str]] {
+    cd (p"/") { return ["ready"] }
+}
+assert values()? == ["ready"]
+let late: Result[Unit] = try { wait until false within 1ms backoff 1ms..2ms }
+assert late is Err(is Timeout)
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "values");
+            let decoder = function_view_decoder(&program.store, owner);
+            let (returned, value) = function_instruction_indices(&program, "values", FullTag::StmtReturn).into_iter().find_map(|instruction| {
+                let schema::StmtView::Return { value } = decoder.statement_view(instruction).unwrap() else { unreachable!() };
+                matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::List(_))
+                    .then_some((instruction, value.raw() as usize))
+            }).unwrap();
+            let schema::ExprView::List(mut items) = decoder.expression_view(value).unwrap() else { unreachable!() };
+            let item = items.next().unwrap().unwrap().raw() as usize;
+            let mut wrong_return = (*program).clone();
+            let start = wrong_return.store.extra.len() as u32;
+            wrong_return.store.extra.push(1);
+            wrong_return.store.tags[item] = FullTag::ExprBool;
+            wrong_return.store.data[item] = IrData::new(start, 1);
+            assert_eq!(FullVerifier::verify(&wrong_return).unwrap_err().message, "ground producer value disagrees with its checked contract");
+            let scope = function_instruction_indices(&program, "values", FullTag::ExprContextScope)[0];
+            let location = *program.store.payload(program.store.data[scope].range()).unwrap().last().unwrap();
+            let mut completes = (*program).clone();
+            let start = completes.store.extra.len() as u32;
+            completes.store.extra.extend([value as u32, 2, location]);
+            completes.store.tags[returned] = FullTag::StmtLetRecord;
+            completes.store.data[returned] = IrData::new(start, 3);
+            assert_eq!(FullVerifier::verify(&completes).unwrap_err().message, "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
     fn nullable_target_argument_proofs_require_their_exact_scoped_bound() {
         run_with_large_stack(|| {
             let program = fixture("nullable-target-scoped-bound.xsh", r#"
