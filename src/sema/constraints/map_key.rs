@@ -35,6 +35,12 @@ impl TypeConstraints {
         })
     }
 
+    pub(crate) fn map_key_requirement_rejecting(&self, variable: &Type, value: &Type) -> Option<Span> {
+        let Type::Inference(id) = variable else { return None };
+        if matches!(value, Type::Inference(_)) || value.is_map_key() { return None; }
+        self.map_key_requirement(*id).ok().flatten()
+    }
+
     pub(super) fn map_key_requirement(&self, id: TypeVariableId) -> Result<Option<Span>, ConstraintResolutionError> {
         let root = self.representative_root(id)?;
         let Some(Variable::Representative(variable)) = self.variables.get(&root) else {
