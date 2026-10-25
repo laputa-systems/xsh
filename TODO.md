@@ -69,15 +69,6 @@ Next: 35
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-30 · P3 · Bound the alias-DAG proof witness
-
-- **Area:** Performance
-- **Where:** `tests/xsh/proof-provenance.xsh:155`, `src/runtime/eval/indexed/full/verify_schemes/producers.rs`
-- **Problem:** `test_record_projection_alias_dag_is_bounded_without_expansion` builds 256 aliases, each combining the previous alias with itself. Bounded baseline and candidate runs do not finish. The failing stage and cause remain unproven; this is not evidence of a new campaign regression.
-- **Recommendation:** Reproduce the existing selector with a bounded run, separate checker and verifier cost, then preserve DAG sharing at the responsible owner. Keep the witness and do not raise its proof budget to hide the cost. Coordinate with XSH-28 if the owners coincide.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
 - **Deferred:** The owner is not interested in this evaluation at present. Exclude it from the active backlog run until the owner reopens it, even after a baseline becomes available.

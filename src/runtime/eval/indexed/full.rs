@@ -2897,6 +2897,7 @@ impl FullProgram {
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
             binding_identity_stack: OnceCell::new(),
+            binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: Some(function_signature_index.clone()),
             return_analysis: RefCell::default(),
@@ -6774,6 +6775,7 @@ impl<'p> FullExecution<'p> {
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
             binding_identity_stack: OnceCell::new(),
+            binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
@@ -7160,6 +7162,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     pattern_ceiling: Cell<usize>,
     local_immutable_let_initializers: RefCell<Option<FxHashMap<usize, LocalImmutableLetWriter>>>,
     binding_identity_stack: OnceCell<Rc<RefCell<BTreeSet<u32>>>>,
+    binding_identity_types: OnceCell<Rc<RefCell<BTreeMap<(u32, u32, TypeId), Option<TypeId>>>>>,
     /// Slots for which `verify_callable_slot_initializers` compared a writer's
     /// checked type against the slot's callable type fact. This is the only
     /// evidence a temporary driver slot has been written with its own type;
@@ -8028,12 +8031,20 @@ impl<'a> FullDecoder<'a> {
             .get_or_init(|| Rc::new(RefCell::new(BTreeSet::new())))
     }
 
+    fn binding_identity_types(&self) -> &Rc<RefCell<BTreeMap<(u32, u32, TypeId), Option<TypeId>>>> {
+        self.binding_identity_types.get_or_init(|| Rc::new(RefCell::new(BTreeMap::new())))
+    }
+
     fn checked_binding_identity_type(
         &self,
         mut binding_identity: u32,
         mut owner: u32,
         mut expected_type_id: TypeId,
     ) -> Result<Option<TypeId>, IrVerifyError> {
+        let query = (binding_identity, owner, expected_type_id);
+        if let Some(result) = self.binding_identity_types().borrow().get(&query) {
+            return Ok(*result);
+        }
         let mut entered = Vec::new();
         let result = (|| {
             let mut result = loop {
@@ -8072,6 +8083,9 @@ impl<'a> FullDecoder<'a> {
         })();
         for (binding, _) in entered {
             self.binding_identity_stack().borrow_mut().remove(&binding);
+        }
+        if let Ok(ty) = result {
+            self.binding_identity_types().borrow_mut().insert(query, ty);
         }
         result
     }
@@ -8157,6 +8171,7 @@ impl<'a> FullDecoder<'a> {
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
             binding_identity_stack: OnceCell::from(Rc::clone(self.binding_identity_stack())),
+            binding_identity_types: OnceCell::from(Rc::clone(self.binding_identity_types())),
             proven_callable_writers: RefCell::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
@@ -9275,6 +9290,7 @@ impl<'a> FullDecoder<'a> {
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
             binding_identity_stack: OnceCell::new(),
+            binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
@@ -19942,6 +19958,7 @@ impl FullVerifier {
                 pattern_ceiling: Cell::new(usize::MAX),
                 local_immutable_let_initializers: RefCell::default(),
                 binding_identity_stack: OnceCell::new(),
+                binding_identity_types: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: Some(function_signature_index.clone()),
                 return_analysis: RefCell::default(),
@@ -22555,6 +22572,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         pattern_ceiling: Cell::new(usize::MAX),
         local_immutable_let_initializers: RefCell::default(),
         binding_identity_stack: OnceCell::new(),
+        binding_identity_types: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
@@ -36369,6 +36387,7 @@ assert results == [4]
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
             binding_identity_stack: OnceCell::new(),
+            binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: Some(Arc::new(program.symbol_owner().with_current(|| {
                 FunctionSignatureIndex::build(&program.store)
@@ -41394,6 +41413,7 @@ pure foreign(payload, count: Int) {
                 pattern_ceiling: Cell::new(usize::MAX),
                 local_immutable_let_initializers: RefCell::default(),
                 binding_identity_stack: OnceCell::new(),
+                binding_identity_types: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
@@ -41460,6 +41480,7 @@ pure foreign(payload, count: Int) {
                 pattern_ceiling: Cell::new(usize::MAX),
                 local_immutable_let_initializers: RefCell::default(),
                 binding_identity_stack: OnceCell::new(),
+                binding_identity_types: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
@@ -53572,6 +53593,7 @@ pure apply() -> Int {
             "let first = args\nlet second = first\npure read() -> List[Str] { second }\n",
         );
         FullVerifier::verify(&program).unwrap();
+        let boolean = SemanticPoolBuilder::default().intern_type(&mut program.store.semantic, &Type::Bool).unwrap();
         let valid = program.clone();
         let second = program.store.binding_identities.iter()
             .position(|identity| program.store.string(identity.name).unwrap() == "second")
@@ -53593,6 +53615,9 @@ pure apply() -> Int {
         let mut recovered = unverified_return_analysis_decoder(&valid, "read");
         recovered.binding_identity_stack = OnceCell::from(Rc::clone(decoder.binding_identity_stack()));
         assert_eq!(recovered.checked_binding_identity_type(second, IR_NONE, type_id).unwrap(), Some(type_id));
+        assert_eq!(recovered.checked_binding_identity_type(second, IR_NONE, boolean).unwrap(), None);
+        assert!(recovered.checked_binding_identity_type(second, 0, type_id).is_err());
+        assert!(FullVerifier::verify(&program).is_err());
     }
 
     #[test]
