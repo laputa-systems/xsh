@@ -1,7 +1,67 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: paused 2026-10-25 at local `master` `4908d2342`, nothing pushed. The
-owner requested a clean stop. The merged source is **not qualified**.
+Status: backlog execution resumed 2026-10-25 on `backlog-2026-10-25`, cut from
+`master` at `da96b5274`. Nothing pushed. The merged source is **not qualified**.
+
+## Active backlog run (2026-10-25)
+
+The bounded queue is the 27 tickets in `TODO.md` at `da96b5274`. New discoveries
+remain outside this run. Each closure includes the ticket removal and its
+accepted change in one local commit. The owner authorized unattended execution,
+then local integration after backlog completion, followed by campaign work.
+
+Accepted backlog checkpoint: `ebb669499`, with focused proof reused where the
+relevant code and inputs remain unchanged. This is not combined qualification.
+
+| Closed ticket | Commit | Decisive evidence |
+|---|---|---|
+| XSH-21 | `4ed7f2d7a` | Real Docker success, failure, TERM escalation and symlink controls; rejected removal preserves registration. |
+| XSH-11 | `03cb9c204` | All 28 target-policy native tests pass, including macOS and isolated caller-owned products. |
+| XSH-12 | `53e296282` | Check-session 10/10, warning status in normal/fix modes, and genuine checker-error control. |
+| XSH-15 | `6c5b2d8cf` | Five interleaved cold builds per side, valid readiness brackets, correct regex outputs and entropy-failure contrast. Consumer-only costs are in PERFORMANCE-INFERENCE. |
+| XSH-16 | `60443a9df` | Laputa source commit `284c1d7`; current checker and seven selectors pass unprivileged in offline Alpine. |
+| XSH-18 | `dec6f7f33` | Active guard and shared-owner regression pass; injected production netlink access is rejected. |
+| XSH-24 | `0ea4a1528` | Eight witness shapes accounted for, 93 native passes and six IR authority controls; independent review found no demonstrated defect. |
+| XSH-5 | `8365e4d59` | Nine lint controls pass; inferred private returns remain an explicit style choice. |
+| XSH-6 | `8e94afd5a` | No production consumer needs another error family; four existing facet recovery controls pass. |
+| XSH-13 | `40e40bebb` | Plan regression and existing example lint corpus test pass. |
+| XSH-17 | `ebb669499` | Current exact selectors retain proof cause and PM context; no source fix justified. |
+
+XSH-16 needs one source commit in Laputa and one queue-removal commit here
+because the source and ticket belong to different Git repositories. Neither
+repository has been pushed.
+
+The next milestone is combined API and tooling acceptance: XSH-8 rooted-path
+migration and obsolete lint retirement, XSH-9 byte-preserving Linux boundaries,
+XSH-20 command policy plus generic Unix mechanisms, and XSH-29 tooling repairs.
+XSH-14 preserves individual annotation proofs while sharing import checks; its
+review found ordering regressions across late diagnostic insertions, which are
+being repaired before acceptance. Independent XSH-20 review found concurrent
+directory creation, host-regex dialect and signed-positive number regressions;
+the reference behavior remains binding. One owner is refreshing the combined
+mdev and host API products. Final documentation generation waits for that API
+group, avoiding repeated release builds.
+
+The parent owns integration, shared prerequisites and ticket accounting. Source
+stays frozen during each required build. New discoveries remain for later:
+the baseline 256-alias proof stress case hangs, and a distinct imported-private
+error alias case is rejected by both baseline and candidate. Neither is a
+claimed XSH-24 pass or a reason to weaken its tests.
+
+XSH-4 and XSH-7 remain parked on draft design decisions. XSH-25 requires the
+owner's opaque-stream error-effect decision. XSH-10 is parked because current
+`cli main` declarations cannot preserve its short-option aliases and required
+option usage contract; new declaration syntax needs an owner decision. No parser
+replacement or CLI contract change has been accepted.
+
+Baseline qualification follows the compiler/tooling repairs on one stable tree.
+XSH-1 requires scheduler qualification; XSH-19 follows completed G1 acceptance;
+XSH-28 and XSH-23 require the post-inference baseline. Historical passes below
+do not qualify this source. Timing gates wait for a confirmed quiet host; the
+first XSH-14 timing attempt overlapped a corpus check and was discarded.
+Focused correctness checks run in isolated lane products. No full native
+suites run concurrently. The next steering checkpoint follows API/tooling
+integration and its required proof, before baseline qualification.
 
 ## Current state (2026-10-25)
 
