@@ -16,7 +16,6 @@ const repository_lint_budget_test_filter = "lint_performance::repository_lint_is
 export const xsht_integration_exclusions = [
   "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
   "--skip", "examples::example_corpus_is_formatted",
-  "--skip", "examples::example_corpus_lints_without_warnings",
   "--skip", repository_lint_budget_test_filter,
 ]
 

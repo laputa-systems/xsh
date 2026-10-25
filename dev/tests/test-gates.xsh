@@ -263,13 +263,13 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
         "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi",
       ]
       let xsht_integration = [spec for spec in plan |> where .stage == "test-xsht"][0]
-      assert xsht_integration.argv[xsht_integration.argv.len() - 8..] == [
+      assert xsht_integration.argv[xsht_integration.argv.len() - 6..] == [
         "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
         "--skip", "examples::example_corpus_is_formatted",
-        "--skip", "examples::example_corpus_lints_without_warnings",
         "--skip", "lint_performance::repository_lint_is_clean_within_wall_budget",
       ]
-      assert tests.xsht_integration_exclusions == xsht_integration.argv[xsht_integration.argv.len() - 8..]
+      assert tests.xsht_integration_exclusions == xsht_integration.argv[xsht_integration.argv.len() - 6..]
+      assert "examples::example_corpus_lints_without_warnings" not in tests.xsht_integration_exclusions
       assert "lint_performance::lint_gate_terminates_and_reaps_process_at_wall_deadline" not in tests.xsht_integration_exclusions
       let product = tests.product_path(ctx, profile, tests.Xsht)
       assert product == fp"/repo/target/{ctx.target.triple}/{tests.profile_name(profile)}/xsht"

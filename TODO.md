@@ -194,15 +194,6 @@ Next: 30
 - **Fix with:** error-model
 - **Effort:** M
 
-### XSH-13 · P4 · Add the example lint corpus to the standard test plan
-
-- **Area:** Tests
-- **Where:** `crates/xsht/tests/examples.rs:190`, `dev/tests/test-gates.xsh:240`
-- **Problem:** The standard XSHT test plan skips `examples::example_corpus_lints_without_warnings`. Contributors must know and run the target separately.
-- **Recommendation:** Decide which local gate owns the corpus pass, include it once, and keep the timing-line normalization inside the test.
-- **Fix with:** renovate-tests
-- **Effort:** S
-
 ### XSH-17 · P4 · Diagnose two inherited Laputa package-manager failures
 
 - **Area:** Tests

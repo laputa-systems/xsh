@@ -110,6 +110,9 @@ Cargo process tests resolve `xsh`, `xsht`, `xshi`, `xsh-fuzz`, and
 Build products from the same target and profile before running filtered tests.
 The canonical gate builds the required products for you.
 
+The ordinary XSHT integration target includes the example lint corpus once.
+The corpus test removes the lint timing summary before comparing diagnostics.
+
 On a musl build host, `cargo dev` may preload jemalloc into compiler-only
 steps. A `cargo test` step builds test executables with the preload, then runs
 them without it so child processes do not inherit the library. Manual builds
