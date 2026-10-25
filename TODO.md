@@ -50,15 +50,6 @@ Next: 35
 - **Fix with:** dead-code-archaeology
 - **Effort:** M
 
-### XSH-28 · P3 · Bound the narrowing proof cost
-
-- **Area:** Performance
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`checked_instruction_is_in_roots`)
-- **Problem:** The producer work budget is now 32 units per instruction because dense programs need about 26. The ancestor walk in `checked_instruction_is_in_roots` is quadratic in nesting depth. No timing was measured.
-- **Recommendation:** Measure verification time on the deepest corpus programs after the baseline exists, then cut the walk cost rather than raising the factor again.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
 ### XSH-29 · P3 · Finish the XSHT integration failures
 
 - **Area:** Tests

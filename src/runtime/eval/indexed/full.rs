@@ -14295,9 +14295,15 @@ impl<'a> FullDecoder<'a> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(Vec<(usize, bool, bool)>, Vec<usize>)>, IrVerifyError> {
         charge(1)?;
+        if self.instruction_parent_of(child)? != Some(parent) {
+            return Err(IrVerifyError::new("branch condition query does not name an immediate child"));
+        }
         let charge = RefCell::new(charge);
         self.checked_branch_conditions_for_child_with(parent, child,
-            |instruction, roots| self.checked_instruction_is_in_roots(instruction, roots, &mut **charge.borrow_mut()),
+            |instruction, roots| {
+                (**charge.borrow_mut())(roots.len())?;
+                Ok(roots.contains(&instruction))
+            },
             |amount| (**charge.borrow_mut())(amount))
     }
 
@@ -49884,6 +49890,41 @@ pure values_in_loop(value: Values?) -> List[Int] {
 "#,
         );
         FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn nested_expression_branch_proofs_use_immediate_children() {
+        run_with_large_stack(|| {
+            let depth = 32;
+            let mut expression = "1".to_owned();
+            for _ in 0..depth {
+                expression = format!("if flag {{ {expression} }} else {{ 0 }}");
+            }
+            let program = fixture("nested-expression-branch-proof.xsh", &format!("pure nested(flag: Bool) -> Int {{ let result = {expression}; result }}\n"));
+            let decoder = return_analysis_decoder(&program, "nested");
+            let mut work = 0;
+            let mut branches = 0;
+            let mut rejected_descendants = 0;
+            for parent in decoder.instruction_range.clone() {
+                if program.store.tags[parent] != FullTag::ExprIf { continue; }
+                let schema::ExprView::IfExpr { branches: mut arms, .. } = decoder.expression_view(parent).unwrap() else { unreachable!() };
+                let (condition, value) = arms.next().unwrap().unwrap();
+                let child = value.raw() as usize;
+                assert_eq!(decoder.instruction_parent_of(child).unwrap(), Some(parent));
+                if let Some(descendant) = decoder.instruction_range.clone().find(|&instruction| decoder.instruction_parent_of(instruction).unwrap() == Some(child)) {
+                    let error = decoder.checked_branch_conditions_for_child(parent, descendant, &mut |_| Ok(())).unwrap_err();
+                    assert_eq!(error.message, "branch condition query does not name an immediate child");
+                    rejected_descendants += 1;
+                }
+                let (conditions, roots) = decoder.checked_branch_conditions_for_child(parent, child, &mut |amount| { work += amount; Ok(()) }).unwrap().unwrap();
+                assert_eq!(conditions, [(condition.raw() as usize, true, false)]);
+                assert_eq!(roots, [child]);
+                branches += 1;
+            }
+            assert_eq!(branches, depth);
+            assert!(rejected_descendants > 0);
+            assert!(work <= depth * 8, "branch proof charged {work} for depth {depth}");
+        });
     }
 
     #[test]
