@@ -1,6 +1,6 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: backlog execution resumed 2026-10-25 on `backlog-2026-10-25`, cut from
+Status: blocked 2026-10-25 on `backlog-2026-10-25`, cut from
 `master` at `da96b5274`. Nothing pushed or merged from this branch. The working
 source is **not qualified**.
 
@@ -10,6 +10,9 @@ The bounded queue is the 27 tickets in `TODO.md` at `da96b5274`. New discoveries
 remain outside this run. Each closure includes the ticket removal and its
 accepted change in one local commit. The owner authorized unattended execution,
 then local integration after backlog completion, followed by campaign work.
+Sixteen starting tickets are closed; eleven remain open with the blockers below.
+Four discoveries, XSH-30 through XSH-33, are saved for a later run. Their
+priorities are assumed from the ticket policy. No new discovery was executed.
 
 Accepted backlog checkpoint: `291713253`, with focused proof reused where the
 relevant code and inputs remain unchanged. This is not combined qualification.
@@ -47,7 +50,7 @@ are updated; `make docs` succeeds with the release products.
 Integration found an XSH-24 regression in returning directory scopes. Correction
 `5ee20e012` preserves absent success payloads without inventing Unit; runtime and
 forgery controls cover both indexed routes and the existing timeout witness.
-The actual development launcher now checks and lowers successfully. XSH-8 also
+The combined candidate's actual development launcher checks and lowers successfully. XSH-8 also
 authenticates formatted paths and named-argument temporary origins; forged
 traversal text, plain-Path holes and absolute literals are rejected.
 
@@ -70,8 +73,15 @@ pass in isolated written and desugared runs. The proposed concurrency repair
 was rejected: the existing scheduler already caps active cases at eight per
 file, so its explicit jobs setting would not change the load here. That patch
 is removed. The full-corpus timeout cause remains unproven; repeating the same
-run on the unchanged busy host earns no acceptance credit. Current-source
-non-desugar acceptance is running without the parked XSH-14 candidate.
+run on the unchanged busy host earns no acceptance credit. Without XSH-14, the
+four original non-desugar checks and the new collection-return lint control
+pass: formatting preserves 1,428 diagnostics and layout perturbs 1,875 files.
+Independent review found a read-permission regression in the new SGID helper;
+the correction passes its mode controls, two cleanup controls and the actual
+native selector under umask 0400, which failed before the fix. The candidate is
+committed as `6bc0df51d` on `backlog-park-xsht-29`, outside integration; XSH-29
+remains open. The normal verification products still contain that candidate and
+must not be treated as products qualified from the integration branch.
 
 The owner approved replacement image ef7c796 after the historical local image
 became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
@@ -116,6 +126,17 @@ Focused correctness checks run in isolated lane products. No full native
 suites run concurrently. The next steering checkpoint follows API/tooling
 integration and its required proof, before baseline qualification.
 
+The cleanup inventory removed no worktrees. Completed lane snapshots remain
+dirty and were preserved: `backlog-contract-decisions`, `backlog-daemon`,
+`backlog-docker`, `backlog-mdev`, `backlog-policy`, `backlog-relpath`,
+`backlog-relpath-proof`, and `backlog-verifier`, all under `.work/wt/`.
+Their HEADs are ancestors of the campaign, but that does not classify their
+uncommitted differences. `backlog-xsht` retains the original partial lane.
+Reconcile and preserve these snapshots before retiring them; no force removal
+or branch deletion occurred. The diagnostics and requalify-57a-ef7 trees have
+live artifact consumers described above. Pre-existing owner worktrees remain
+untouched, including the dirty `xsht-integration` checkout.
+
 ## Current state (2026-10-25)
 
 `master` now holds the whole full-inference integration (merged by the owner as
@@ -150,12 +171,19 @@ First command:
 git -C /home/josh/d/laputa-systems/xsh status --short --branch && git log --oneline -3
 ```
 
-Then, on a quiet host with no agents running (`perf-gate-ready -s`), run one
+Read the active backlog section and `TODO.md` before dispatch. Reuse completed
+focused evidence; do not replay closed tickets. XSH-25 needs the owner's stream
+effect decision before full native qualification. Resume XSH-29 from
+`backlog-park-xsht-29` only for a quiet-host parity comparison or a demonstrated
+deadline repair. Resume XSH-14 from `backlog-lane-diagnostics` only when its
+guarded timing runner can collect valid samples. Neither candidate is integrated.
+
+After those prerequisites are accepted on one clean source, run one
 `cargo dev test linux` from the main checkout (linked worktrees break the
-container's `.git`). Fix failures one cause per agent, then run the split
-resource tests, then rewrite this status, then take the performance and memory
-baseline from qualified products only. Do not reopen inference architecture,
-syntax, Lean models, or add harnesses.
+container's `.git`), then complete the remaining G1 matrix and split resource
+tests. Take the performance and memory baseline from qualified products only.
+Use the approved ef7 image; the refreshed launcher plans successfully. Do not
+reopen inference architecture, syntax, Lean models, or add harnesses.
 
 Unreviewed work to reuse only where it still applies: branch
 `campaign/xsht-integration` commit `e23c43739` is a stopped agent's partial
