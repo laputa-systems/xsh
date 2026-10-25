@@ -6,6 +6,25 @@ type Payload = Union[Str, Path, List[Str], Bytes]
 
 type Word = Union[Str, Path]
 
+type Counts = {retries: Int?}
+
+type ProofPair = {left: Str?, right: Int}
+
+proc alias_guard_after_exit_mutation(choose: Bool) [] -> Str {
+  var value: Str? = "ready"
+  let available = value != null
+  if choose {
+    value = null
+    return "early"
+  }
+  guard available else {
+    return "missing"
+  }
+  proof_string(value)
+}
+
+pure proof_string(value: Str) -> Str { value }
+
 pure measure(payload: Payload) -> Str {
   return "text " + payload.trim() when payload is Str
   return "file " + payload.name() when payload is Path
@@ -210,4 +229,37 @@ test test_earlier_exits_exclude_union_members {
   assert number_or_text(1) == "int"
   assert number_or_text(1.5) == "float"
   assert number_or_text("t") == "t"
+}
+
+test test_wildcard_if_let_narrows_the_tested_path {
+  let counts = Counts(retries: 3)
+  if let _ = counts.retries {
+    assert counts.retries + 1 == 4
+  }
+}
+
+test test_untyped_empty_lists_compare_equal {
+  let empty = [@[], @[]]
+  assert empty == []
+  assert [] == []
+}
+
+test test_fallback_over_an_error_constructor_takes_its_type_from_the_fallback {
+  let direct = Err(error.failure(" direct ")) ?? { |failure|
+    failure.message
+  }
+  assert direct.trim() == "direct"
+}
+
+test test_boolean_alias_survives_a_disjoint_write_and_an_exiting_mutation {
+  var pair = ProofPair("ready", 1)
+  let available = pair.left != null
+  guard available else {
+    return error.fail("missing left")
+  }
+  pair.right = 3
+  let left = proof_string(pair.left)
+  assert left == "ready"
+  assert alias_guard_after_exit_mutation(false) == "ready"
+  assert alias_guard_after_exit_mutation(true) == "early"
 }

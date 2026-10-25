@@ -103,7 +103,7 @@ struct ProducerOwner {
     block_can_complete: BTreeMap<usize, bool>,
     typed_calls: Vec<usize>,
     completed_optional_reads: RefCell<BTreeMap<usize, CompletedOptionalRead>>,
-    completed_union_reads: RefCell<BTreeMap<(usize, TypeId), super::super::LoweredType>>,
+    completed_union_reads: RefCell<BTreeMap<(usize, TypeId), Vec<usize>>>,
     snapshot_predicates: RefCell<BTreeMap<(usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>>>,
     immutable_initializers: RefCell<BTreeMap<ImmutableInitializerQuery, Vec<(Vec<Name>, (usize, bool))>>>,
     guard_scope_conditions: RefCell<BTreeMap<GuardScopeCondition, Vec<Vec<Name>>>>,
@@ -312,6 +312,10 @@ impl ProducerPrefixContext<'_> {
         }
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn block_can_complete(&self, block: usize) -> bool {
+        self.evidence.block_can_complete.get(&block).copied().unwrap_or(true)
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn instruction_forest(&self) -> super::super::InstructionParentContext<'_> {
         super::super::InstructionParentContext { owner: self.owner, range: self.evidence.range.clone(),
             parents: &self.evidence.parents, statements: &self.evidence.statements, children: &self.evidence.children, siblings: &self.evidence.siblings }
@@ -383,16 +387,8 @@ impl ProducerPrefixContext<'_> {
         self.evidence.work.borrow_mut().charge_clone(stored_contract)?;
         if &stored != stored_contract { return Ok(None); }
         self.evidence.work.borrow_mut().charge(1)?;
-        if let Some(&kind) = self.evidence.completed_union_reads.borrow().get(&(instruction, stored_id)) {
-            for member in members {
-                let mut work = self.evidence.work.borrow_mut();
-                work.charge(1)?;
-                if Self::narrowing_runtime_kind(member, &mut work)? == Some(kind) {
-                    work.charge_clone(member)?;
-                    return Ok(Some(member.clone()));
-                }
-            }
-            return Err(IrVerifyError::new("runtime kind has no unique semantic type"));
+        if let Some(survivors) = self.evidence.completed_union_reads.borrow().get(&(instruction, stored_id)) {
+            return Self::narrowed_union(members, survivors, &mut self.evidence.work.borrow_mut()).map(Some);
         }
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
         if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? { return Ok(None); }
@@ -404,7 +400,6 @@ impl ProducerPrefixContext<'_> {
             if kinds.contains(&kind) { return Ok(None); }
             kinds.push(kind);
         }
-        let mut narrowed = None;
         let mut remaining = vec![true; members.len()];
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
             |guard, charge| {
@@ -430,17 +425,27 @@ impl ProducerPrefixContext<'_> {
                     *survives &= accepted == (outcome == super::super::TypeTestOutcome::Accepted);
                 }
                 remaining = surviving;
-                let mut candidates = members.iter().zip(&kinds).zip(&remaining).filter(|(_, survives)| **survives).map(|(member, _)| member);
-                let (Some((selected, kind)), None) = (candidates.next(), candidates.next()) else { return Ok(false) };
-                work.charge_clone(selected)?;
-                narrowed = Some((selected.clone(), *kind));
-                Ok(true)
+                Ok(remaining.iter().filter(|survives| **survives).count() == 1)
             }, None, &mut charge)?;
-        if proven && let Some((ty, kind)) = narrowed {
+        let survivors = remaining.iter().enumerate().filter(|(_, survives)| **survives).map(|(index, _)| index).collect::<Vec<_>>();
+        let _ = proven;
+        if !survivors.is_empty() && survivors.len() < members.len() {
+            let narrowed = Self::narrowed_union(members, &survivors, &mut self.evidence.work.borrow_mut())?;
             self.evidence.work.borrow_mut().charge(1)?;
-            self.evidence.completed_union_reads.borrow_mut().insert((instruction, stored_id), kind);
-            Ok(Some(ty))
+            self.evidence.completed_union_reads.borrow_mut().insert((instruction, stored_id), survivors);
+            Ok(Some(narrowed))
         } else { Ok(None) }
+    }
+
+    fn narrowed_union(members: &[Type], survivors: &[usize], work: &mut SchemeInstantiationBudget) -> Result<Type, IrVerifyError> {
+        work.charge(survivors.len())?;
+        let mut kept = Vec::with_capacity(survivors.len());
+        for &index in survivors {
+            let member = members.get(index).ok_or_else(|| IrVerifyError::new("narrowed union member is out of bounds"))?;
+            work.charge_clone(member)?;
+            kept.push(member.clone());
+        }
+        Ok(if kept.len() == 1 { kept.remove(0) } else { Type::Union(kept) })
     }
 
     pub(in crate::runtime::eval::indexed::full) fn snapshot_value_initializer(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize) -> Result<Option<usize>, IrVerifyError> {
@@ -466,7 +471,6 @@ impl ProducerPrefixContext<'_> {
             return Err(IrVerifyError::new("condition snapshot context disagrees with its owner"));
         }
         let protected = self.evidence.binding(decoder.store, decoder.owner, use_site, target.0)?;
-        if !self.evidence.binding_path_is_snapshot(decoder, protected, target.0, charge)? { return Ok(None); }
         self.immutable_value_initializer(decoder, condition, slot, use_site, target, protected, charge)
     }
 
@@ -1268,6 +1272,20 @@ impl ProducerOwner {
                                 conditions.push((condition.raw() as usize, false, true, branch_index));
                             }
                         }
+                        schema::StmtView::PatternIf { mut branches, else_body, .. } => {
+                            let single = branches.len() == 1;
+                            for (branch_index, branch) in (&mut branches).enumerate() {
+                                charge(1)?;
+                                let (condition, body, _) = branch?;
+                                if self.block_can_complete[&body.block_identity().index()] {
+                                    if single && else_body.as_ref().is_some_and(|body| !self.block_can_complete[&body.block_identity().index()]) {
+                                        conditions.push((condition.raw() as usize, true, false, branch_index));
+                                    }
+                                    break;
+                                }
+                                conditions.push((condition.raw() as usize, false, false, branch_index));
+                            }
+                        }
                         schema::StmtView::Assert { value, .. } => {
                             charge(1)?;
                             conditions.push((value.raw() as usize, true, false, 0));
@@ -1756,7 +1774,7 @@ impl GroundProducerIndex {
                     complete_statement_positions &= range.contains(&statement)
                         && decoder.store.tags.get(statement).is_some_and(|tag| tag.kind() == schema::InstructionKind::Stmt);
                     complete_statement_positions &= owner.statement_positions.insert(statement, (block, position)).is_none();
-                    if matches!(decoder.store.tags[statement], FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtAssert | FullTag::StmtGuard) {
+                    if matches!(decoder.store.tags[statement], FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtPatternIf | FullTag::StmtAssert | FullTag::StmtGuard) {
                         work.borrow_mut().charge(1)?;
                         guards.push((position, statement));
                     }
@@ -2191,7 +2209,7 @@ impl GroundProducerIndex {
                         CompletedOptionalRead::WrapperPresence { .. } => 0,
                         CompletedOptionalRead::RecordValue { actual, expected } => actual.retained_bytes().saturating_add(expected.retained_bytes()),
                     }).sum::<usize>()
-                    + owner.completed_union_reads.borrow().len() * size_of::<((usize, TypeId), super::super::LoweredType)>()
+                    + owner.completed_union_reads.borrow().len() * size_of::<((usize, TypeId), Vec<usize>)>()
                     + owner.block_statements.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.block_declarations.len() * size_of::<((usize, usize), Vec<(usize, ProducerBinding)>)>()
                     + owner.block_declarations.values().map(|values| values.capacity() * size_of::<(usize, ProducerBinding)>()).sum::<usize>()
@@ -3326,7 +3344,9 @@ impl<'a> ProducerProof<'a> {
         for arm in arms {
             self.budget.charge(1)?;
             let Some(arm) = decoder.checked_branch_value_instruction(arm?)? else { continue };
-            joined.observe(self.need_context(decoder, arm)?);
+            let arm_type = self.need_context(decoder, arm)?;
+            if arm_type.as_deref() == Some(&Type::Unknown) { continue; }
+            joined.observe(arm_type);
         }
         let (candidate, unknown) = joined.finish(&mut self.budget)?;
         let Some(candidate) = candidate else { return Ok(None) };
@@ -3633,6 +3653,10 @@ impl<'a> ProducerProof<'a> {
                     Type::Result(payload, _) | Type::Optional(payload) => payload,
                     _ => return Ok(None),
                 };
+                if payload.as_ref() == &Type::Unknown {
+                    let schema::ExprView::ResultFallback { right, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                    return self.need_context(decoder, right.raw() as usize);
+                }
                 self.budget.charge_clone(payload)?;
                 Some((**payload).clone())
             }
@@ -3836,6 +3860,28 @@ impl<'a> ProducerProof<'a> {
             Some(CheckedArgumentType::EmptyMap) => None,
             None => None,
         })
+    }
+
+    fn is_untyped_empty_list(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        let mut pending = vec![instruction];
+        while let Some(instruction) = pending.pop() {
+            self.budget.charge(1)?;
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::List(values) => if values.len() != 0 { return Ok(false); },
+                schema::ExprView::ListBuild(mut entries) => for entry in &mut entries {
+                    let (splice, value, _) = entry?;
+                    if !splice { return Ok(false); }
+                    pending.push(value.raw() as usize);
+                },
+                schema::ExprView::Param(slot) => {
+                    let Some(prefix) = &decoder.producer_prefix else { return Ok(false) };
+                    let Some(initializer) = prefix.snapshot_value_initializer(decoder, instruction, slot)? else { return Ok(false) };
+                    pending.push(initializer);
+                }
+                _ => return Ok(false),
+            }
+        }
+        Ok(true)
     }
 
     fn is_erased_record_field(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
@@ -5350,6 +5396,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 let left_type = self.need_context(&decoder, left.raw() as usize)?;
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;
+                if left_type.is_none() && right_type.is_none()
+                    && self.is_untyped_empty_list(&decoder, left.raw() as usize)?
+                    && self.is_untyped_empty_list(&decoder, right.raw() as usize)?
+                { return Ok(()); }
                 let dynamic_fields = left_type.is_none() && right_type.is_none()
                     && self.is_erased_record_field(&decoder, left.raw() as usize)?
                     && self.is_erased_record_field(&decoder, right.raw() as usize)?;
@@ -5482,7 +5532,20 @@ impl<'a> ProducerProof<'a> {
                     self.verify_erased_record_aggregates(&decoder, unresolved)?;
                     return Ok(());
                 }
-                let Type::Record(expected_fields) = expected.unvalidated() else { return Err(IrVerifyError::new("ground record producer has no record contract")) };
+                let record_contract = match expected.unvalidated() {
+                    Type::Optional(inner) => inner.unvalidated(),
+                    other => other,
+                };
+                let record_contract = match (record_contract, &actual) {
+                    (Type::Union(members), Some(actual)) => {
+                        let mut candidates = members.iter().filter(|member| matches!(member, Type::Record(_)) && actual.matches_expected(member));
+                        let selected = candidates.next();
+                        if candidates.next().is_some() { return Err(IrVerifyError::new("ground record producer matches several union members")); }
+                        selected.unwrap_or(record_contract)
+                    }
+                    _ => record_contract,
+                };
+                let Type::Record(expected_fields) = record_contract else { return Err(IrVerifyError::new("ground record producer has no record contract")) };
                 for (name, expected) in expected_fields.iter() {
                     match writers.get(name) {
                         Some(super::super::CheckedRecordFieldWriter::Value(value)) => {
@@ -5814,7 +5877,16 @@ impl<'a> ProducerProof<'a> {
             }
             schema::ExprView::Try { value, .. } => {
                 if self.prove_error_transfer(&decoder, instruction)?.is_some() { return Ok(()); }
-                let source = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground propagation has no result contract"))?;
+                let Some(source) = self.need_context(&decoder, value.raw() as usize)? else {
+                    let never_completes = match decoder.expression_view(value.raw() as usize)? {
+                        schema::ExprView::ContextScope { mut body, .. } | schema::ExprView::ValueBlock { mut body, .. } =>
+                            matches!(decoder.checked_value_block_result(&mut body)?, super::super::CheckedValueBlockResult::DoesNotComplete),
+                        _ => !super::super::indexed_expr_can_complete(&decoder, value.raw() as usize, 0)?,
+                    };
+                    if !never_completes { return Err(IrVerifyError::new("ground propagation has no result contract")); }
+                    self.expression(owner, value.raw() as usize, Arc::new(Type::Result(Box::new(Type::Unit), Box::new(Type::Error))), false);
+                    return Ok(());
+                };
                 let Type::Result(ok, _) = source.unvalidated() else { return Err(IrVerifyError::new("ground propagation source is not a result")) };
                 if !ok.matches_expected(&expected) { return Err(IrVerifyError::new("ground propagation payload disagrees with its expected contract")); }
                 self.expression(owner, value.raw() as usize, source, false);
@@ -5848,7 +5920,12 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Tag { type_name, name, mut fields, .. } => {
-                if expected.unvalidated() != &Type::Tag(type_name) { return Err(IrVerifyError::new("ground tag producer has an incompatible family contract")); }
+                let tag_contract = match expected.unvalidated() { Type::Optional(inner) => inner.unvalidated(), other => other };
+                let tag_contract = match tag_contract {
+                    Type::Union(members) => members.iter().find(|member| **member == Type::Tag(type_name)).unwrap_or(tag_contract),
+                    other => other,
+                };
+                if tag_contract != &Type::Tag(type_name) { return Err(IrVerifyError::new("ground tag producer has an incompatible family contract")); }
                 let key = super::super::CheckedPatternVariantKey { kind: super::super::CheckedPatternVariantKind::Tag, owner: type_name, variant: Name::intern(name) };
                 let layout = self.store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("ground tag producer has no declared layout"))?;
                 let fields = (&mut fields).collect::<Result<Vec<_>, _>>()?;

@@ -14071,6 +14071,34 @@ impl<'a> FullDecoder<'a> {
                 charge(1)?;
                 context.parent_of(self.owner, &self.instruction_range, instruction)?;
                 if !visited.insert(instruction) { continue; }
+                if let Some(prefix) = &self.producer_prefix
+                    && roots.contains(&instruction)
+                    && matches!(self.store.tags[instruction], FullTag::StmtIf | FullTag::StmtIfBool)
+                {
+                    let mut branches_to_visit: Vec<(Option<usize>, Vec<usize>)> = Vec::new();
+                    let mut body_ids = |mut body: ListView<'_, BuildStmtId>| -> Result<Vec<usize>, IrVerifyError> {
+                        let completes = prefix.block_can_complete(body.block_identity().index());
+                        let mut ids = Vec::new();
+                        if completes { for statement in &mut body { ids.push(statement?.raw() as usize); } }
+                        Ok(ids)
+                    };
+                    match self.statement_view(instruction)? {
+                        schema::StmtView::If { mut branches, else_body } => {
+                            for branch in &mut branches { let (condition, body) = branch?; charge(1)?; branches_to_visit.push((Some(condition.raw() as usize), body_ids(body)?)); }
+                            if let Some(body) = else_body { branches_to_visit.push((None, body_ids(body)?)); }
+                        }
+                        schema::StmtView::IfBool { mut branches, else_body } => {
+                            for branch in &mut branches { let (condition, body) = branch?; charge(1)?; branches_to_visit.push((Some(condition.raw() as usize), body_ids(body)?)); }
+                            if let Some(body) = else_body { branches_to_visit.push((None, body_ids(body)?)); }
+                        }
+                        _ => unreachable!("conditional statement tag and generated view disagree"),
+                    }
+                    for (condition, statements) in branches_to_visit {
+                        pending.extend(condition);
+                        pending.extend(statements);
+                    }
+                    continue;
+                }
                 if (self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
                     && self.checked_statement_writes_binding_path(instruction, target, charge)?)
                     || (shared_mutable && self.checked_instruction_may_call_shared_writer(instruction, charge)?)
@@ -14616,7 +14644,7 @@ impl<'a> FullDecoder<'a> {
             let (fallback, fallback_guard, fallback_value) = arms.next().unwrap()?;
             if absent_guard.is_some() || present_guard.is_some() || fallback_guard.is_some()
                 || !matches!(self.checked_pattern_view(absent.raw())?, schema::PatternView::Literal(literal) if literal.is_null()?)
-                || !matches!(self.checked_pattern_view(present.raw())?, schema::PatternView::Bind { .. })
+                || !matches!(self.checked_pattern_view(present.raw())?, schema::PatternView::Bind { .. } | schema::PatternView::Wildcard)
                 || !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
                 || !matches!(self.expression_view(absent_value.raw() as usize)?, schema::ExprView::Bool(false))
                 || !matches!(self.expression_view(present_value.raw() as usize)?, schema::ExprView::Bool(true))
