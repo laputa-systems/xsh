@@ -571,6 +571,17 @@ fn command_argument_spacing_is_preserved() {
 }
 
 #[test]
+fn callable_parameter_defaults_keep_nested_expression_boundaries() {
+    for source in [
+        "let x = value |> x as pure(b: a = a |> each) -> y\n",
+        "let x = value |> x as proc(b = a |> each, c: a = value) -> y |> each\n",
+        "let x = value |> x as pure(b: a = value?) -> y\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
 fn command_dot_words_are_recognized() {
     for source in ["f .name\n", "f . name\n", "f.field .name\n", "print .name .field\n", "print. name\n", "ctx \"message\" { f() }\n", "collect { yield 1 }\n"] {
         assert_parser_and_grammar_agree(source, true);

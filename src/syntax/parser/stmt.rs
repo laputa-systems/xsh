@@ -1107,6 +1107,14 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
         context: ParameterAnnotationContext,
     ) -> Vec<(Name, Option<TypeExprId>, Option<ExprId>, bool, crate::source::Span)> {
+        self.in_nested_group(|parser| parser.parse_params_inner(arena, context))
+    }
+
+    fn parse_params_inner(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        context: ParameterAnnotationContext,
+    ) -> Vec<(Name, Option<TypeExprId>, Option<ExprId>, bool, crate::source::Span)> {
         let mut params = Vec::new();
         let mut reported_untyped = false;
         self.skip_newlines();
