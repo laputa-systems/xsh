@@ -934,7 +934,7 @@ test test_cli_parse_names_the_program_and_presents_at_the_boundary { |ctx|
     """use cli
 
 proc main() [io, error, fs] {
-  let _ = cli.parse(["--help"], {})
+  let _ = cli.parse(["--help"], {})?
   print "unreached"
 }
 """,
@@ -969,7 +969,7 @@ options:
     """use cli
 
 proc main() [io, error, fs] {
-  let _ = cli.parse(["--nope"], {name: "Str"})
+  let _ = cli.parse(["--nope"], {name: "Str"})?
   print "unreached"
 }
 """,
@@ -1007,7 +1007,7 @@ options:
 
 proc main() [io, error, fs] {
   let schema = {count: {kind: "Nope"}}
-  let _ = cli.parse([], schema)
+  let _ = cli.parse([], schema)?
 }
 """,
     status: 3,
@@ -1024,7 +1024,7 @@ proc main() [io, error, fs] {
     r"""use cli
 
 proc main() [io, error, fs] {
-  let _ = cli.parse(["--out", "a\u{0}b"], {out: "Path"})
+  let _ = cli.parse(["--out", "a\u{0}b"], {out: "Path"})?
 }
 """,
     status: 3,
