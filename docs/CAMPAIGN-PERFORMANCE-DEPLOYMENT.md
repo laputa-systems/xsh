@@ -1,17 +1,154 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: winding down 2026-10-25 on `master`. The owner merged
-`backlog-2026-10-25` and requested all further work on `master`. The working
-source is **not qualified**.
+Status: paused 2026-10-25 on `master`. This handoff supersedes the historical
+instructions below. No campaign loop, lane or qualification retry is scheduled.
 
-## Winddown in progress
+## Resume
 
-The owner requested campaign-winddown, integration of useful remaining work,
-and cleanup. Start no new campaign wave or full qualification run. Let the
-current r2 bootstrap finish, verify and settle applicable in-flight source,
-then preserve a reboot-safe handoff and stop. The planned canonical r2 retry
-is cancelled. XSH-1, XSH-3, XSH-14 and XSH-19 remain open until their actual
-acceptance is complete; XSH-23 remains owner-deferred.
+Prompt: “Resume this campaign from its 2026-10-25 handoff on master. Prioritize
+feature completeness and focused evidence; leave XSH-23 deferred.”
+
+First command, from the repository root:
+
+```sh
+git status --short && git log -5 --oneline
+```
+
+Read `AGENTS.md`, `TODO.md`, this handoff and the current `orchestrate` steering
+checkpoint before choosing work. Recheck the limiting stage and owner authority;
+do not blindly restart the old queue or rebaseline unchanged inputs. The queued
+`campaign-deser.md` preflight is a separate planning request, not execution of
+that campaign. No owner decision is needed to preserve this paused state.
+
+## State and direction
+
+Twenty-seven backlog tickets are closed. XSH-1, XSH-3, XSH-14 and XSH-19 remain
+open; XSH-23 is owner-deferred. The owner merged the backlog branch and directed
+all further work onto `master`. Accepted feature delivery ends at `25639900b`,
+including typed CLI entries and the Laputa migration `c8cdb73`. Both repositories'
+source integrations are settled; this campaign has no push grant.
+
+Winddown additionally integrates the provisional lint candidate `97e361171`
+through merge `6300eb05b`, and the independent lsmem fallback simplification at
+`f60a72f41`. The lint change preserves observed diagnostics and passes its
+focused tests, five interleaved RSS-only pairs per workload, binary-size checks
+and the post-merge xsht compiler check. CPU acceptance remains open:
+**perf gate deferred: host busy**. No speedup or full qualification is claimed.
+
+Canonical attempt `canonical-features-ef7-20261025` failed at Rust integration
+with 230 passes, two failures and one filtered test. It never reached full native
+or docs. Fixes `a7bf70336` (daemon descriptor flags through Rustix) and `a492b03cc`
+(nested parameter parsing) are integrated. The exact hygiene check, two daemon
+native tests with the rebuilt r2 product, parser regressions and all 19,997
+recognized deep grammar sentences pass. The second bootstrap passes on
+`1f2b898a9`; the planned canonical r2 retry was cancelled for winddown. Later
+lint/lsmem commits have focused proof only. The selected rooted lsmem output-mode
+test passes after integration. None of this substitutes for current-source G1.
+
+Feature completeness remains ahead of performance waiting. The limiting stage
+is current-source acceptance and remaining XSH-1/3/19 delivery, not a shortage of
+lanes. On explicit resume, choose the next substantive delivery from those
+items, preserve focused evidence, and steer again after the first accepted wave
+or two failed attempts. The owner-approved ef7 image remains the environment;
+old passes do not qualify it or later source changes.
+
+## Open lanes and parked source
+
+No lane is running. Every retired checkout's source is committed. The table
+preserves earlier lane snapshots for comparison; accepted versions already live
+on master. These snapshots must not be merged wholesale: they include obsolete
+intermediate implementations and lack later integration corrections. Retry only
+if a focused source comparison identifies a useful change missing from master.
+Recreate a needed checkout with `git worktree add .work/wt/NAME BRANCH` after
+reading current instructions; no checkout is required just to retain its branch.
+
+| Parked branch | Revision | Former checkout name |
+|---|---|---|
+| `park/winddown-20261025/backlog-contract-decisions` | `baab756be` | `backlog-contract-decisions` |
+| `backlog-lane-daemon` | `c34cc11e8` | `backlog-daemon` |
+| `backlog-lane-docker` | `4d3fc0c00` | `backlog-docker` |
+| `backlog-lane-mdev` | `cff2c3b84` | `backlog-mdev` |
+| `backlog-lane-policy` | `e81f65eb8` | `backlog-policy` |
+| `backlog-lane-relpath` | `32e8a4caa` | `backlog-relpath` |
+| `park/winddown-20261025/backlog-relpath-proof` | `471485552` | `backlog-relpath-proof` |
+| `backlog-lane-verifier` | `98cf49a85` | `backlog-verifier` |
+| `backlog-lane-xsht` | `6aac8b8b3` | `backlog-xsht` |
+| `backlog-finish-affine-handles` | `db9f03e27` | `finish-affine-handles` |
+| `backlog-finish-cli` | `b1919cb2d` | `finish-cli` |
+| `backlog-finish-proof-cost` | `c7fe659e6` | `finish-proof-cost` |
+| `backlog-finish-proof-errors` | `0081d2676` | `finish-proof-errors` |
+| `backlog-finish-record-validation` | `f15af3221` | `finish-record-validation` |
+| `park/winddown-20261025/grammar-deep` | `3c41b6696` | `grammar-deep` |
+| `scratch/pyramid-pilot-baseline` | `e61982c5d` | `pyramid-baseline` |
+| `campaign/pyramid-integration` | `c7b9b7b29` | `pyramid-integration` |
+| `scratch/pyramid-pilot-lsmem` | `4f745f4a3` | `pyramid-pilot` |
+| `park/winddown-20261025/qualify-daemon` | `62aed7b82` | `qualify-daemon` |
+| `campaign/xsht-integration` | `41130bdd1` | `xsht-integration` |
+
+`campaign/pyramid-integration` is the distinct unfinished verification-framework
+expansion. Its own handoff requires post-inference P0 qualification; its focused
+results use older compiler checkpoints, and its tree includes superseded compiler
+and applet implementations. Preserve its source, do not merge that tree over
+current contracts. Resume only after an owner-authorized Pyramid continuation
+selects the framework delta against current master and qualifies that delta.
+The two scratch pyramid pilot branches carry the same lsmem change, now accepted
+as `f60a72f41`; they have no remaining delivery. `campaign/xsht-integration` and
+the backlog snapshots preserve superseded repair versions, not additional
+accepted work. All other local branches returned by `git branch --no-merged
+master` are parked historical campaign archives outside this winddown's active
+scope; retain them without dispatch or automatic integration. No branch was
+deleted.
+
+## Cleanup and retained worktrees
+
+Twenty-two obsolete XSH checkouts were retired (26 registered at the start,
+four remain including the main checkout). Twenty-one normal removals succeeded.
+The full-inference removal failed on fixture permissions after Git unregistered
+it; its remaining directory was moved intact, without force removal, to
+`.work/preserved/winddown-20261025/full-inference-integration-remnant`.
+It is preserved data, not a registered worktree. Logs and lane-local data were
+moved under `.work/preserved/winddown-20261025/NAME/`, with `.work` contents in
+`work-data` and standalone Cargo caches in `target-cache`. Unknown fixtures and
+failed-run records remain preserved. The bounded cache pass removed 54 dead
+Cargo build/incremental directories and observed 35,807,100,928 additional free
+bytes (33.35 GiB). This is the measured cache-pass delta, not an estimate for
+all checkout removals. Two root-owned build-cache directories remain under
+`pyramid-integration/work-data/target/{verification,x86_64-unknown-linux-musl/verification}/build`
+inside the preservation root (648,611,651 apparent bytes); permissions prevented
+removal and no ownership repair was attempted.
+
+| Retained path | Branch / HEAD | Current consumer |
+|---|---|---|
+| `.` | `master` | Main integration checkout and queued Deser preflight. |
+| `.work/wt/finish-lint` | `backlog-finish-lint` / `97e361171` | Matched release baseline/candidate, RSS evidence and pending guarded CPU acceptance for XSH-14. |
+| `.work/wt/perf-baseline-r13` | detached `0dfebb001` | Existing release baseline products and receipts for remaining comparative gates. |
+| `.work/wt/requalify-57a-ef7` | detached `57a0f6314` | Protected reference products rebuilt with approved ef7 for remaining comparisons. |
+
+The three retained linked trees are clean. Root `.work/tmp` bootstrap and failed
+canonical receipts, retained products and `.work/final-review-evidence` remain
+live acceptance inputs. Rebuild disposable caches if absent; source and the
+resume procedure do not depend on them. The common comparison corpus remains
+in Laputa at `.work/wt/qualification-corpus-f201300`, revision `f201300d`.
+
+## Not started and verified
+
+No full canonical r2 retry, supplemental qualification, fresh timing, new
+Pyramid wave or Deser implementation was started during winddown. The next
+requested action is Deser preflight only; it does not clear existing acceptance.
+
+Reboot audit: worktree pruning and fresh status checks cover all retained XSH
+trees; branches preserve every retired source snapshot. `.work` is ignored via
+`.git/info/exclude` and resides on ext4. All active paths are repo-local; historical
+`/.work/tmp/` references are not system temporary storage. No owned build, native
+suite, container or scheduled campaign wakeup remains. The clean-environment
+resume command and named branches/paths are checked. The configured Stop hook
+and trusted configuration entries were inspected, and the closeout guard was
+invoked directly; the interactive `/hooks` UI is unavailable in this API session.
+Historical outputs below may name former checkout paths; use the preservation
+locations above, not those historical paths, for current data.
+
+<details>
+<summary>Historical campaign instructions and evidence (superseded by the handoff)</summary>
 
 ## Active backlog run (2026-10-25)
 
@@ -153,13 +290,11 @@ API and its reuse test pass in the isolated lane. Five interleaved RSS pairs pas
 default and focused diagnostic outputs match. A timing attempt stopped before
 its first sample when an unrelated build started: perf gate deferred: host busy.
 The unmeasured optimization is excluded from the integration tree and preserved
-as `cb8c23d6d` on `backlog-lane-diagnostics`. Its live worktree
-`.work/wt/backlog-diagnostics` retains the immutable products and guarded timing
-runner; it must remain until timing acceptance or explicit retirement. Profile
-inspection found both products use optimized verification, while performance
-measurements require release. After features are integrated, build a matched
-release pair before collecting guarded timing; a quiet verification-profile run
-would not qualify the production decision.
+as `cb8c23d6d` on `backlog-lane-diagnostics`. The immutable verification
+products and guarded timing runner were superseded by the matched release pair
+in `.work/wt/finish-lint`. No current consumer depends on the old products.
+Useful measurement outputs from the retired worktree are preserved under
+`.work/preserved/winddown-20261025/backlog-diagnostics`.
 
 XSH-29's contextual-import and lint-invariance repairs were provisionally
 integrated as `de6c74d9f`. The final focused deadline repairs and closure are
@@ -4547,3 +4682,7 @@ duplicate per-commit copies of controllers solely to record provenance.
 </details>
 
 Campaign log, 2026-10-24: paused at owner request; completed slices integrated, three current incomplete branches parked, 312 checkouts reclaimed, reboot and Stop-guard audits passed, no push.
+
+</details>
+
+Campaign log, 2026-10-25: paused on master; lint and lsmem source integrated, obsolete lane snapshots committed and checkouts retired, full qualification explicitly pending, no push.
