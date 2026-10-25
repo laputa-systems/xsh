@@ -51,14 +51,25 @@ The actual development launcher now checks and lowers successfully. XSH-8 also
 authenticates formatted paths and named-argument temporary origins; forged
 traversal text, plain-Path holes and absolute literals are rejected.
 
-XSH-14 remains open pending timing. Its candidate preserves diagnostic order
+XSH-14 is parked pending a quiet host. Its candidate preserves diagnostic order
 and individual deletion proofs, batches two roots, and releases transient entry
 records while retaining imports. The additive CheckSession.check_transient_entry
-API and its reuse test pass. Five interleaved RSS pairs pass the memory limit;
+API and its reuse test pass in the isolated lane. Five interleaved RSS pairs pass the memory limit;
 default and focused diagnostic outputs match. A timing attempt stopped before
 its first sample when an unrelated build started: perf gate deferred: host busy.
-XSH-29's original five acceptance tests are being repeated on the combined tree
-because caller types and lint ordering changed since the isolated corpus proof.
+The unmeasured optimization is excluded from the integration tree and preserved
+as `cb8c23d6d` on `backlog-lane-diagnostics`. Its live worktree
+`.work/wt/backlog-diagnostics` retains the immutable products and guarded timing
+runner; it must remain until timing acceptance or explicit retirement.
+
+XSH-29's contextual-import and three lint-invariance checks passed with the
+combined API changes. Corpus desugar comparison exposed competing cat fixture
+deadlines, then different GNU cp and fold timeouts. The cat fixture correction
+passes written, desugared and owned-process timeout controls. The parity harness
+currently starts four file workers, each permitting up to 32 native cases on
+this host. The next bounded repair assigns a shared concurrency budget, proves
+both failing files, then reruns parity without the parked XSH-14 candidate.
+No timeout mismatch earns acceptance credit.
 
 The owner approved replacement image ef7c796 after the historical local image
 became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
