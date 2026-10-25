@@ -663,7 +663,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(self.wrap_argument_bindings(value, bindings, span))
             }
             crate::sema::check::InferredVariant::Error { family, variant } => {
-                let key = match family.as_str().split_once('.') {
+                let key = match family.as_str().rsplit_once('.') {
                     Some((namespace, member)) => CompactErrorFamilyKey::Qualified(
                         QualifiedName::new(Name::intern(namespace), Name::intern(member)),
                     ),

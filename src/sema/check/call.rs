@@ -2327,7 +2327,7 @@ impl Checker {
                 }
             }
         }
-        Type::ErrorVariant { family, variant }
+        Type::ErrorVariant { family: self.canonical_error_family(family), variant }
     }
 
     pub(super) fn check_module_call_arena(

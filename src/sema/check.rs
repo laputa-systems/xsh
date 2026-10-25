@@ -1707,8 +1707,9 @@ impl ItemFrame {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(super) struct UserModuleSig {
+    namespace: Name,
     scheme_callables: Option<Arc<super::scheme_callable::SchemeCallableTable>>,
     values: BTreeMap<Name, Type>,
     procs: FxHashMap<Name, FunctionSig>,
@@ -1718,6 +1719,23 @@ pub(super) struct UserModuleSig {
     resolved_types: BTreeMap<Name, Type>,
     tag_variants: BTreeMap<Name, TagVariantInfo>,
     error_families: BTreeMap<Name, ErrorFamilyInfo>,
+}
+
+impl UserModuleSig {
+    fn new(namespace: Name) -> Self {
+        Self {
+            namespace,
+            scheme_callables: None,
+            values: BTreeMap::new(),
+            procs: FxHashMap::default(),
+            pures: FxHashMap::default(),
+            streams: FxHashMap::default(),
+            types: BTreeMap::new(),
+            resolved_types: BTreeMap::new(),
+            tag_variants: BTreeMap::new(),
+            error_families: BTreeMap::new(),
+        }
+    }
 }
 
 /// A producer accepts failures even in callbacks that cannot emit its items.
@@ -1889,6 +1907,7 @@ pub struct Checker {
     type_namespaces: FxHashMap<Name, BTreeMap<Name, Type>>,
     tag_variants: FxHashMap<Name, TagVariantInfo>,
     error_families: FxHashMap<Name, ErrorFamilyInfo>,
+    error_family_identities: FxHashMap<Name, Name>,
     error_facets: FxHashSet<Name>,
     resolving_types: Vec<Name>,
     user_modules: Arc<FxHashMap<String, UserModuleSig>>,
@@ -2318,6 +2337,7 @@ impl Checker {
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
+            error_family_identities: FxHashMap::default(),
             error_facets: FxHashSet::default(),
             resolving_types: Vec::new(),
             user_modules: Arc::default(),

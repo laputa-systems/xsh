@@ -650,11 +650,8 @@ impl Checker {
                 let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
                 let qualified = Name::intern(format!("{namespace}.{name}"));
-                // Imported error identities use the checked namespace, just as
-                // constructors and error patterns do. Schema resolution must
-                // not replace them with a module-local spelling.
                 if self.error_families.contains_key(&qualified) {
-                    return Type::ErrorFamily(qualified);
+                    return Type::ErrorFamily(self.canonical_error_family(qualified));
                 }
                 if self.error_facets.contains(&qualified) {
                     return Type::ErrorFacet(qualified);
@@ -800,7 +797,7 @@ impl Checker {
             return record;
         }
         if self.error_families.contains_key(&name) {
-            return Type::ErrorFamily(name);
+            return Type::ErrorFamily(self.canonical_error_family(name));
         }
         if self.error_facets.contains(&name) {
             return Type::ErrorFacet(name);
@@ -820,7 +817,7 @@ impl Checker {
     ) -> Type {
         let qualified = Name::intern(format!("{namespace}.{name}"));
         if self.error_families.contains_key(&qualified) {
-            return Type::ErrorFamily(qualified);
+            return Type::ErrorFamily(self.canonical_error_family(qualified));
         }
         if self.error_facets.contains(&qualified) {
             return Type::ErrorFacet(qualified);

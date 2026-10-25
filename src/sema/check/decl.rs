@@ -1324,7 +1324,7 @@ impl Checker {
                     exported.push((id, def.name, span));
                 }
             }
-            let mut header = UserModuleSig::default();
+            let mut header = UserModuleSig::new(module.name);
             for (id, name, span) in exported {
                 let def = program.arena.type_def(id);
                 header.types.insert(
@@ -1800,7 +1800,7 @@ impl Checker {
         self.infer_default_parameter_types(program, source, stmt_ids);
         self.infer_local_pure_returns(view, source, stmt_ids);
         self.infer_default_parameter_types(program, source, stmt_ids);
-        let mut exports = UserModuleSig::default();
+        let mut exports = UserModuleSig::new(module.name);
         for &stmt_id in stmt_ids {
             let stmt = program.arena.stmt(stmt_id);
             if let ArenaStmtKind::SignalHook(hook_id) = stmt.kind {
@@ -2169,8 +2169,6 @@ pub(super) fn callable_type_from_function_signature(
     })
 }
 
-/// A module names its own error families bare, while its importer spells
-/// them through the namespace (`mod.E`), as constructors and patterns do.
 fn qualify_imported_error_types(mut module: UserModuleSig, namespace: Name) -> UserModuleSig {
     let families = module
         .error_families
@@ -2254,6 +2252,10 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
 }
 
 impl Checker {
+    pub(super) fn canonical_error_family(&self, family: Name) -> Name {
+        self.error_family_identities.get(&family).copied().unwrap_or(family)
+    }
+
     pub(super) fn import_user_module(
         &mut self,
         key: &str,
@@ -2282,7 +2284,8 @@ impl Checker {
             self.error(span, &format!("module callable relationship is not owned: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
             return;
         }
-        let module = qualify_imported_error_types(module, namespace);
+        let declaring_namespace = module.namespace;
+        let module = qualify_imported_error_types(module, declaring_namespace);
         self.import_user_module_types(key, Some(namespace), span, false);
         let mut binding = Binding::new(module_type_from_user_signature(&module), false);
         binding.static_namespace = true;
@@ -2343,6 +2346,10 @@ impl Checker {
                             .insert(Name::intern(format!("{alias}.{facet}")));
                     }
                 }
+                let declaring_namespace = module.namespace;
+                let identity = Name::intern(format!("{declaring_namespace}.{name}"));
+                self.error_family_identities.insert(qualified, identity);
+                self.error_families.insert(identity, family.clone());
                 self.error_families.insert(qualified, family);
             }
             return;
@@ -2939,8 +2946,13 @@ impl Checker {
             }
             variants.insert(variant.name, ErrorVariantInfo::declared(fields, facets));
         }
-        self.error_families
-            .insert(def.name, ErrorFamilyInfo { variants });
+        let family = ErrorFamilyInfo { variants };
+        if let Some(namespace) = self.current_namespace {
+            let identity = Name::intern(format!("{namespace}.{}", def.name));
+            self.error_family_identities.insert(def.name, identity);
+            self.error_families.insert(identity, family.clone());
+        }
+        self.error_families.insert(def.name, family);
         self.publish_error_declaration(arena, id);
     }
 }

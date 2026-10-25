@@ -905,6 +905,44 @@ mod tests {
     }
 
     #[test]
+    fn imported_error_identity_survives_private_aliases_and_shared_module_cache() {
+        let texts = [
+            ("first.xsh", "use model as left\nuse facade\nlet failure: Result[Int, left.Trouble] = facade.missing()\n"),
+            ("second.xsh", "use model as right\nuse facade\nlet failure: right.Outcome[Int] = facade.missing()\n"),
+            ("model.xsh", "##! Shared errors.\n## A missing value.\nexport error Trouble = Missing(reason: Str)\n## A missing outcome.\nexport type Outcome[T] = Result[T, Trouble]\n## Return a missing value.\nexport pure missing() -> Result[Int, Trouble] { Err(Trouble.Missing(\"broken\")) }\n"),
+            ("facade.xsh", "##! Forward a private dependency.\nuse model as internal\n## Return a missing value.\nexport pure missing() -> Result[Int, internal.Trouble] { internal.missing() }\n"),
+        ];
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let mut parsed = Vec::new();
+        for (path, text) in texts {
+            let source = sources.add_file(path, text);
+            let result = Parser::parse_source_into_arena_builder(source, text, &mut builder);
+            assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+            parsed.push((result.statements, source));
+        }
+        for (index, name) in [(2, "model"), (3, "facade")] {
+            let symbol = builder.symbol_owner().intern(name);
+            builder.push_arena_module(name.to_string(), symbol, parsed[index].0);
+        }
+        for &(statements, _) in &parsed {
+            for statement in builder.statement_ids(statements) {
+                if let Some((use_id, path, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from(path[0].as_str().as_str()));
+                }
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(parsed[0].0));
+        let session = CheckSession::new(program, Arc::new(sources));
+        USER_MODULE_CHECKS.with(|checks| checks.set(0));
+        for &(statements, source) in &parsed[..2] {
+            let output = session.check(statements, source, CheckOptions::for_execution());
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        }
+    }
+
+    #[test]
     fn scheme_callable_nested_module_cache_rebases_fresh_entries_without_mutating_sources() {
         let texts = [
             ("first.xsh", "use bridge\nassert bridge.actions.apply(7) == 7\n"),

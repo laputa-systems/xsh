@@ -509,7 +509,9 @@ through the namespace (`helper.build(...)`, `helper.Config`,
 `helper.ConfigError.Missing(...)`); importing never injects names. Types and
 error families are compile-time names, not runtime fields of the module value.
 An exported type keeps the meaning it has in its declaring module, including
-references to that module's private types.
+references to that module's private types. An exported error family keeps its
+declaring identity across import aliases, including references through private
+imports in exported signatures.
 
 ### 3.4 Constants
 

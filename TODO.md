@@ -12,15 +12,6 @@ Next: 35
 - **Fix with:** benchmark-checklist
 - **Effort:** S
 
-### XSH-31 · P2 · Preserve error identity through private import aliases
-
-- **Area:** Types
-- **Where:** `src/sema/check`, `src/runtime/eval/lower.rs`
-- **Problem:** A facade privately imports `model as internal` and exports `missing() -> Result[Int, internal.Trouble]`. A caller importing the same model as `local` cannot assign `facade.missing()` to `Result[Int, local.Trouble]`, although both name the same exported error family. Baseline and candidate reject this case; direct imported-family capture is a separate XSH-29 repair.
-- **Recommendation:** Keep the three-module case as a regression and canonicalize the public signature to the declaring family's identity. Preserve nominal-family rejection controls.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests

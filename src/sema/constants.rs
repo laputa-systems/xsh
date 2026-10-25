@@ -843,7 +843,9 @@ impl RecordConstructors {
                     let definition = program.arena.error_def(id);
                     self.error_types.insert(
                         (namespace, definition.name),
-                        Type::ErrorFamily(definition.name),
+                        Type::ErrorFamily(namespace.map_or(definition.name, |namespace| {
+                            Name::intern(format!("{namespace}.{}", definition.name))
+                        })),
                     );
                     for variant in program.arena.error_variants(definition.variants) {
                         for facet in program.arena.names(variant.facets) {

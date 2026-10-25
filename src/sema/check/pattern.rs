@@ -151,7 +151,7 @@ impl Checker {
             } => {
                 let node = arena.arena.pattern(pattern);
                 if !node.kind.is_inferred_variant() {
-                    return Some(Type::ErrorVariant { family, variant });
+                    return Some(Type::ErrorVariant { family: self.canonical_error_family(family), variant });
                 }
                 // A target-typed variant narrows as the family it resolved to.
                 match self
@@ -468,7 +468,7 @@ impl Checker {
                 }
                 let text = name.as_str();
                 if let Some((family, variant)) = text.rsplit_once('.') {
-                    let family = Name::intern(family);
+                    let family = self.canonical_error_family(Name::intern(family));
                     let variant = Name::intern(variant);
                     if self
                         .error_families
@@ -891,11 +891,11 @@ impl Checker {
                 };
                 let type_matches = match value_ty {
                     Type::Unknown | Type::Any | Type::Error | Type::ProcessError => true,
-                    Type::ErrorFamily(name) => name == family,
+                    Type::ErrorFamily(name) => *name == self.canonical_error_family(*family),
                     Type::ErrorVariant {
                         family: actual_family,
                         variant: actual_variant,
-                    } => actual_family == family && actual_variant == variant,
+                    } => *actual_family == self.canonical_error_family(*family) && actual_variant == variant,
                     _ => false,
                 };
                 if !type_matches {

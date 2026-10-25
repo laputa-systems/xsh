@@ -1804,8 +1804,18 @@ impl fmt::Display for Type {
             Self::Status => write!(f, "Status"),
             Self::EnvPathList => write!(f, "EnvPathList"),
             Self::Error => write!(f, "Error"),
-            Self::ErrorFamily(name) => write!(f, "{name}"),
-            Self::ErrorVariant { family, variant } => write!(f, "{family}.{variant}"),
+            Self::ErrorFamily(name) => {
+                let identity = name.as_str();
+                match identity.rsplit_once('.') {
+                    Some((owner, family)) if owner.starts_with('/') => {
+                        let file = owner.rsplit('/').next().unwrap_or(owner);
+                        let module = file.strip_suffix(".xsh").unwrap_or(file);
+                        write!(f, "{module}.{family}")
+                    }
+                    _ => write!(f, "{identity}"),
+                }
+            }
+            Self::ErrorVariant { family, variant } => write!(f, "{}.{variant}", Self::ErrorFamily(*family)),
             Self::ErrorFacet(name) => write!(f, "{name}"),
             Self::ProcessError => write!(f, "ProcessError"),
             Self::Function(CallableKind::Pure) => write!(f, "Pure"),
@@ -1819,8 +1829,6 @@ impl fmt::Display for Type {
             Self::FsLock => write!(f, "FsLock"),
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => {
-                // Imported enum identities include their declaring file, but
-                // diagnostics name the declaration without exposing that path.
                 let identity = name.as_str();
                 let display = identity.rsplit_once('.').map_or(
                     identity.as_str(),
@@ -1953,7 +1961,7 @@ mod tests {
     }
 
     #[test]
-    fn enum_display_hides_only_filesystem_owned_identities() {
+    fn nominal_family_display_hides_only_filesystem_owned_identities() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             for (identity, display) in [
                 ("/tmp/module.with.dots.xsh.Kind", "Kind"),
@@ -1963,6 +1971,9 @@ mod tests {
                 ("<tag>", "<tag>"),
             ] {
                 assert_eq!(Type::Tag(Name::intern(identity)).to_string(), display);
+                let family_display = if identity.starts_with('/') { "module.with.dots.Kind" } else { display };
+                assert_eq!(Type::ErrorFamily(Name::intern(identity)).to_string(), family_display);
+                assert_eq!(Type::ErrorVariant { family: Name::intern(identity), variant: Name::intern("Missing") }.to_string(), format!("{family_display}.Missing"));
             }
         });
     }
