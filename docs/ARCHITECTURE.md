@@ -574,6 +574,13 @@ Static storage annotations use checked-value validation; a failed annotation is
 a fatal type error. Explicit schema requirements retain their Result transport.
 Module storage checks include the selected callable export contracts.
 
+A constant-key `get` of a declared module callable preserves the callable
+signature in both the Result operand and the propagated value. A constant index
+retains the same signature. Cold verification checks each physical key against
+that receiver's declared export signature.
+Runtime module validation checks callable signatures for open and exact
+contracts alike; exactness additionally restricts the module's extra exports.
+
 Monomorphic driver and capture reads use one storage proof per binding and
 contract. Typed mutable callees use this authenticated storage contract without
 requiring one immutable function identity. The proof anchors the contract in the defining writer, then checks replacement and

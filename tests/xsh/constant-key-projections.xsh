@@ -32,6 +32,28 @@ export let maybe: Str? = null
 
 type ProjectionConfig = {workers: Int, value: Str?, if: Bool}
 
+test test_constant_key_projection_validates_loaded_callable_signatures { |ctx|
+  let root = test.temp_dir(ctx, name: "projection-callable-mismatch")?
+  let module_path = fp"{root}/plugin.xsh"
+  module_path.write(r"""##! An incompatible callable export.
+## Returns text instead of an integer.
+export pure increment(value: Int = 1) -> Str { f"{value}" }
+""")
+  let output = test.expect(
+    ctx,
+    r"""type Plugin = module { export pure increment(value: Int = 1) -> Int }
+let loaded = module.load(Path(args[0]))?
+match loaded.require(Plugin) {
+  Err(is MismatchedExport) => print "rejected"
+  _ => exit 98
+}
+""",
+    status: 0,
+    args: [module_path],
+  )?
+  assert output.stdout == "rejected\n"
+}
+
 test test_constant_key_projection_nullable_and_keyword_labels {
   let config = ProjectionConfig(4, null, true)
   const field = "workers"

@@ -11526,13 +11526,33 @@ impl<'a> FullDecoder<'a> {
     fn checked_module_get_relationship(&self, instruction: usize, registered: &Type, checked: &Type) -> Result<bool, IrVerifyError> {
         let (Type::Result(registered_success, registered_error), Type::Result(checked_success, checked_error)) = (registered, checked) else { return Ok(false); };
         if registered_error != checked_error { return Ok(false); }
-        let schema::ExprView::Method { name: "get", args, .. } = self.expression_view(instruction)? else { return Ok(false); };
+        let schema::ExprView::Method { receiver, name: "get", mut args, .. } = self.expression_view(instruction)? else { return Ok(false); };
         if args.len() != 1 { return Ok(false); }
+        if let (Type::Function(kind), Type::Callable(callable)) = (registered_success.as_ref(), checked_success.as_ref()) {
+            let key = args.next().unwrap()?.raw() as usize;
+            let Some(key) = self.checked_literal_string(key)? else { return Ok(false); };
+            return Ok(*kind == callable.kind
+                && self.checked_module_callable_value_type(receiver.raw() as usize, &key)?.as_ref() == Some(checked_success.as_ref()));
+        }
         self.checked_imported_callable_relationship(instruction, registered_success, checked_success)
+    }
+
+    fn checked_module_callable_value_type(&self, receiver: usize, field: &str) -> Result<Option<Type>, IrVerifyError> {
+        let Some(Type::Module(module)) = self.derive_checked_expression_type(receiver)?.map(Type::into_unvalidated) else { return Ok(None); };
+        let Some(ModuleExportType::Callable { kind, sig, optional: false }) = module.exports.get(&Name::intern(field)) else { return Ok(None); };
+        let mut callable = crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() };
+        callable.sig.effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(callable.kind));
+        Ok(Some(Type::Callable(Arc::new(callable))))
     }
 
     fn checked_imported_callable_relationship(&self, instruction: usize, registered: &Type, checked: &Type) -> Result<bool, IrVerifyError> {
         if let (Type::Function(kind), Type::Callable(callable)) = (registered, checked) {
+            if let schema::ExprView::Index { base, index, .. } = self.expression_view(instruction)? {
+                let Some(index) = index.ordinary() else { return Ok(false); };
+                let Some(key) = self.checked_literal_string(index.raw() as usize)? else { return Ok(false); };
+                return Ok(*kind == callable.kind
+                    && self.checked_module_callable_value_type(base.raw() as usize, &key)?.as_ref() == Some(checked));
+            }
             let schema::ExprView::Field { base, name, .. } = self.expression_view(instruction)? else { return Ok(false); };
             let Some(Type::Module(module)) = self.derive_checked_expression_type(base.raw() as usize)?.map(Type::into_unvalidated) else { return Ok(false); };
             return Ok(module.exact && *kind == callable.kind
@@ -44216,6 +44236,52 @@ assert selected_right.collect() == [22]
                 .expect("known field function exists");
             assert_eq!(result.unwrap(), Value::Int(8));
         });
+    }
+
+    #[test]
+    fn module_callable_projection_facts_match_their_selected_export_signatures() {
+        for (selector, tag, message) in [
+            ("plugin.get(\"increment\")?", FullTag::ExprMethod, "checked method result disagrees with its receiver's registry signature"),
+            ("plugin[\"increment\"]", FullTag::ExprIndex, "checked index fact disagrees with its collection producer"),
+        ] {
+            for (parameters, effects, initialization) in [
+                ("plugin: Plugin", "[error]", ""),
+                ("file: Path", "", "let plugin = module.load(file)?.require(Plugin)?"),
+            ] {
+                let source = format!(r#"
+type Plugin = module {{
+    export pure increment(value: Int = 1) -> Int
+    export pure label(value: Str) -> Str
+}}
+proc apply({parameters}) {effects} -> Int {{
+    {initialization}
+    let increment = {selector}
+    increment(4)
+}}
+"#);
+                let program = fixture("module-callable-projection.xsh", &source);
+                FullVerifier::verify(&program).unwrap();
+                let owner = scheme_fixture_root_function(&program, "apply");
+                let decoder = function_view_decoder(&program.store, owner);
+                let instruction = function_instruction_indices(&program, "apply", tag)[0];
+                let key = match decoder.expression_view(instruction).unwrap() {
+                    schema::ExprView::Method { mut args, .. } => args.next().unwrap().unwrap().raw() as usize,
+                    schema::ExprView::Index { index, .. } => index.ordinary().unwrap().raw() as usize,
+                    _ => unreachable!(),
+                };
+                let mut forged = program.clone();
+                let label_start = forged.store.string_bytes.len() as u32;
+                forged.store.string_bytes.extend_from_slice(b"label");
+                forged.store.strings.push(IrRange::new(label_start, 5));
+                let label = forged.store.strings.len() as u32;
+                let start = forged.store.extra.len() as u32;
+                forged.store.extra.push(label);
+                forged.store.tags[key] = FullTag::ExprStr;
+                forged.store.data[key] = IrData::new(start, 1);
+                let failure = FullVerifier::verify(&forged).unwrap_err();
+                assert_eq!(failure.message, message);
+            }
+        }
     }
 
     #[test]

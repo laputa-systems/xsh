@@ -65,7 +65,18 @@ impl Checker {
     pub(super) fn materialize_callable_value(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type) -> Type {
         let span = arena.arena.expr(id).span;
         if let Some(named) = self.resolve_callable_alias_target(arena, id) {
-            return self.materialize_named_callable(named, span);
+            let kind = named.kind;
+            let callable = self.materialize_named_callable(named, span);
+            if let ArenaExprKind::Try(inner) = arena.arena.expr(id).kind
+                && self.projections.get(&arena.arena.expr(inner).span)
+                    .is_some_and(|projection| projection.operation == crate::sema::projection::ProjectionOperation::Get)
+                && matches!(callable, Type::Callable(_))
+                && let Some(Type::Result(success, error)) = self.expr_types.get(&arena.arena.expr(inner).span)
+                && success.as_ref() == &Type::Function(kind)
+            {
+                self.record_expr_type(arena.arena.expr(inner).span, Type::Result(Box::new(callable.clone()), error.clone()));
+            }
+            return callable;
         }
         if let Type::SchemeCallable(relationship) = actual {
             return self.materialize_scheme_callable(relationship, span);

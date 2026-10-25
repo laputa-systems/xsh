@@ -95,15 +95,6 @@ Next: 30
 - **Fix with:** error-model
 - **Effort:** M
 
-### XSH-27 · P3 · Decide typed-callable facts for non-exact module projections
-
-- **Area:** Types
-- **Where:** `tests/xsh/constant-key-projections.xsh`
-- **Problem:** `plugin.get("increment")?` on a module required as a declared type is typed as a callable by the checker, but the module is non-exact, so admitting the fact would trust a signature the runtime `require` never validates.
-- **Recommendation:** Decide whether non-exact modules may carry a callable scheme through `get`; if not, make the checker stop typing it.
-- **Fix with:** architect
-- **Effort:** S
-
 ### XSH-28 · P3 · Bound the narrowing proof cost
 
 - **Area:** Performance

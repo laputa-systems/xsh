@@ -4559,7 +4559,20 @@ impl<'a> ProducerProof<'a> {
                     if purpose == ProducerTargetPurpose::Stream { path.push(FunctionProjection::ResultPayload(true)); }
                     pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
                 }
-                schema::ExprView::Require { value, .. } | schema::ExprView::CheckedValue { value, .. } => pending.push((owner, CallableProducer::Expression(value.raw() as usize), path)),
+                schema::ExprView::Require { value, check, .. } => {
+                    if purpose == ProducerTargetPurpose::Callable
+                        && let [FunctionProjection::Field(field)] = path.as_slice()
+                        && let ty @ Type::Module(_) = check.ty.materialize()?
+                        && check.schema.is_none_or(|schema| matches!(schema.as_ref(), crate::runtime::eval::require::PreparedSchema::Validate(actual) if actual == &ty))
+                        && matches!(&ty, Type::Module(module) if matches!(module.exports.get(field), Some(ModuleExportType::Callable { optional: false, .. })))
+                    {
+                        self.expression(owner, instruction, Arc::new(Type::Result(Box::new(ty), Box::new(Type::Error))), false);
+                        has_contract_source = true;
+                        continue;
+                    }
+                    pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
+                }
+                schema::ExprView::CheckedValue { value, .. } => pending.push((owner, CallableProducer::Expression(value.raw() as usize), path)),
                 schema::ExprView::Ok(value) => {
                     if path.last() == Some(&FunctionProjection::ResultPayload(false)) { continue; }
                     if path.last() == Some(&FunctionProjection::ResultPayload(true)) { path.pop(); }
@@ -4638,6 +4651,14 @@ impl<'a> ProducerProof<'a> {
                         Some(super::super::RuntimeOp::RecordGet) => {
                             let argument = args.into_iter().next().ok_or_else(|| IrVerifyError::new("callable record get has no field argument"))??;
                             let field = decoder.checked_literal_string(argument.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable record get has no literal field"))?;
+                            if purpose == ProducerTargetPurpose::Callable && path.is_empty()
+                                && matches!(source.as_ref(), Type::Module(module) if matches!(module.exports.get(&Name::intern(&field)), Some(ModuleExportType::Callable { optional: false, .. })))
+                                && let Some(actual) = self.need_context(&decoder, instruction)?
+                                && matches!(actual.as_ref(), Type::Result(success, _) if matches!(success.as_ref(), Type::Callable(_)))
+                            {
+                                self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, name, &[argument.raw() as usize], &actual)?;
+                                has_contract_source = true;
+                            }
                             path.push(FunctionProjection::Field(Name::intern(&field)));
                         }
                         _ if host_stream => {
@@ -4652,12 +4673,24 @@ impl<'a> ProducerProof<'a> {
                 schema::ExprView::Index { base, index, .. } => {
                     let source = self.need_context(&decoder, base.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable index has no receiver contract"))?;
                     let field = if let Type::Module(module) = source.unvalidated()
-                        && module.exact
                     {
                         let index = index.ordinary().ok_or_else(|| IrVerifyError::new("callable module index has a negative literal key"))?;
                         let key = decoder.checked_literal_string(index.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable module index has no literal key"))?;
                         let field = Name::intern(&key);
-                        matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { optional: false, .. })).then_some(field)
+                        if purpose == ProducerTargetPurpose::Callable && path.is_empty()
+                            && matches!(module.exports.get(&field), Some(ModuleExportType::Callable { optional: false, .. }))
+                            && let Some(actual) = self.need_context(&decoder, instruction)?
+                            && matches!(actual.as_ref(), Type::Callable(_))
+                        {
+                            if decoder.checked_module_callable_value_type(base.raw() as usize, &key)?.as_ref() != Some(actual.as_ref()) {
+                                return Err(IrVerifyError::new("callable module index disagrees with its selected export signature"));
+                            }
+                            self.expression(owner, instruction, actual, false);
+                            has_contract_source = true;
+                            Some(field)
+                        } else {
+                            (module.exact && matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { optional: false, .. }))).then_some(field)
+                        }
                     } else { None };
                     path.push(field.map_or(FunctionProjection::Element, FunctionProjection::Field));
                     pending.push((owner, CallableProducer::Expression(base.raw() as usize), path));
@@ -5733,7 +5766,9 @@ impl<'a> ProducerProof<'a> {
                         let index = index.ordinary().ok_or_else(|| IrVerifyError::new("constant index producer has a negative literal key"))?;
                         let key = decoder.checked_literal_string(index.raw() as usize)?;
                         let actual = FullDecoder::checked_keyed_index_type((*source).clone(), key.as_deref())?;
-                        if !decoder.checked_type_fits(&actual, &expected) { return Err(IrVerifyError::new("constant index producer disagrees with its selected field")); }
+                        if !decoder.checked_type_fits(&actual, &expected)
+                            && !decoder.checked_imported_callable_relationship(instruction, &actual, &expected)?
+                        { return Err(IrVerifyError::new("constant index producer disagrees with its selected field")); }
                         Type::Str
                     }
                     _ => return Err(IrVerifyError::new("ground index source is not a keyed collection")),
