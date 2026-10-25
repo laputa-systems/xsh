@@ -18,7 +18,7 @@ Next: 35
 - **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
 - **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed. Focused repairs need qualification, and UDP failures and full-corpus timeouts remain unexplained. Private/resource close remains unrun.
 - **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
-- **Blocked:** XSH-29 retains an unresolved full-corpus timeout mismatch. The replacement image is available and its qualification launcher is repaired; historical passes do not qualify it. XSH-25's stream-effect decision and focused implementation are complete, but combined qualification remains pending.
+- **Unmet:** Full combined qualification remains manual-only on a stable source. The known XSH-29 deadline causes have focused written/desugared proof; that does not supply full-corpus acceptance. The replacement image and repaired launcher are available, and historical passes do not qualify them.
 - **Fix with:** orchestrate
 - **Effort:** M
 
@@ -48,16 +48,6 @@ Next: 35
 - **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The accepted baseline is still pending, so deletion must follow G1.
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
-- **Effort:** M
-
-### XSH-29 · P3 · Finish the XSHT integration failures
-
-- **Area:** Tests
-- **Where:** `crates/xsht/tests/cli.rs`, `crates/xsht/tests/lint_format_invariance.rs`, `crates/xsht/tests/desugar.rs`, branch `campaign/xsht-integration` (`e23c43739`, unreviewed)
-- **Problem:** On `de42880c8` five XSHT tests fail: `test_roots_lower_contextual_nominal_imports_in_the_selected_scope` (verifier rejection), three `lint_format_invariance` tests (the corpus includes inference-erased `*.erased.xsh` witnesses; a redundant-parentheses fixture loses lints after formatting), and the desugared `core/tests/test-gnu-cp.xsh` run. Later merges may have fixed some.
-- **Recommendation:** Rerun the five on current `master`, then fix the owners; reuse the WIP commit only where it still applies.
-- **Blocked:** Candidate `6bc0df51d` on `backlog-park-xsht-29` remains outside integration. The four original non-desugar checks and a new collection-return lint control pass, as do isolated written/desugared GNU cp and fold files. Two full parity runs retain different timeout mismatches on the busy host. The existing eight-case per-file limit disproves the proposed oversubscription fix; resume with a quiet-host comparison or a demonstrated deadline cause, not another unchanged full run.
-- **Fix with:** root-cause
 - **Effort:** M
 
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation

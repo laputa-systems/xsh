@@ -464,35 +464,65 @@ test test_gnu_cp_parent_perm_log { |ctx|
   }
 }
 
-# origin: gnu cp/perm.log
-test test_gnu_cp_perm_log { |ctx|
-  let s = uu.scene(ctx)?
-  for mask in [0o031, 0o037, 0o002] {
-    for command in ["mv", "preserve", "cp"] {
-      for force in [false, true] {
-        for existing in [true, false] {
-          for group_bits in [4, 2, 1, 6, 3, 5, 7] {
-            for other in [4, 2, 1, 6, 3, 5, 7] {
-              if uu.exists(s, "src") { fs.set_times(uu.at(s, "src"), atime_now: true, mtime_now: true) } else { uu.touch(s, "src") }
-              uu.set_mode(s, "src", 0o450)
-              uu.remove(s, "dest")
-              if existing { uu.touch(s, "dest"); uu.set_mode(s, "dest", 0o600 + group_bits * 8 + other) }
-              let util = if command == "mv" { "mv" } else { "cp" }
-              let args = [@if command == "preserve" { ["-p"] } else { [] }, @if force { ["-f"] } else { [] }, "src", "dest"]
-              uu.succeeds(uu.invoke(s, util, args, umask: mask)?)
-              if command == "mv" { assert !uu.exists(s, "src")? }
-              if command == "cp" { assert uu.file_exists(s, "src")? }
-              let expected = if command != "cp" { 0o450 } else if existing { 0o600 + group_bits * 8 + other } else if mask == 0o031 { 0o440 } else if mask == 0o037 { 0o440 } else { 0o450 }
-              assert fs.stat(uu.at(s, "dest"))?.kind == "file"
-              assert uu.mode(s, "dest")? == expected, f"{command} force={force} existing={existing} mask={mask} group={group_bits} other={other}"
-              break unless existing
-            }
-            break unless existing
-          }
+proc permission_cases(s: uu.Scene, mask: Int, command: Str) [fs, process, env, error] {
+  for force in [false, true] {
+    for existing in [true, false] {
+      for group_bits in [4, 2, 1, 6, 3, 5, 7] {
+        for other in [4, 2, 1, 6, 3, 5, 7] {
+          if uu.exists(s, "src") { fs.set_times(uu.at(s, "src"), atime_now: true, mtime_now: true) } else { uu.touch(s, "src") }
+          uu.set_mode(s, "src", 0o450)
+          uu.remove(s, "dest")
+          if existing { uu.touch(s, "dest"); uu.set_mode(s, "dest", 0o600 + group_bits * 8 + other) }
+          let util = if command == "mv" { "mv" } else { "cp" }
+          let args = [@if command == "preserve" { ["-p"] } else { [] }, @if force { ["-f"] } else { [] }, "src", "dest"]
+          uu.succeeds(uu.invoke(s, util, args, umask: mask)?)
+          if command == "mv" { assert !uu.exists(s, "src")? }
+          if command == "cp" { assert uu.file_exists(s, "src")? }
+          let expected = if command != "cp" { 0o450 } else if existing { 0o600 + group_bits * 8 + other } else if mask == 0o031 { 0o440 } else if mask == 0o037 { 0o440 } else { 0o450 }
+          assert fs.stat(uu.at(s, "dest"))?.kind == "file"
+          assert uu.mode(s, "dest")? == expected, f"{command} force={force} existing={existing} mask={mask} group={group_bits} other={other}"
+          break unless existing
         }
+        break unless existing
       }
     }
   }
+}
+
+test test_gnu_cp_perm_mv_031_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o031, "mv")
+}
+
+test test_gnu_cp_perm_preserve_031_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o031, "preserve")
+}
+
+test test_gnu_cp_perm_cp_031_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o031, "cp")
+}
+
+test test_gnu_cp_perm_mv_037_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o037, "mv")
+}
+
+test test_gnu_cp_perm_preserve_037_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o037, "preserve")
+}
+
+test test_gnu_cp_perm_cp_037_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o037, "cp")
+}
+
+test test_gnu_cp_perm_mv_002_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o002, "mv")
+}
+
+test test_gnu_cp_perm_preserve_002_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o002, "preserve")
+}
+
+test test_gnu_cp_perm_cp_002_log { |ctx|
+  permission_cases(uu.scene(ctx)?, 0o002, "cp")
 }
 
 # origin: gnu cp/preserve-2.log

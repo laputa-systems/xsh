@@ -65,10 +65,6 @@ test test_gnu_fold_multiple_files_log { |ctx|
   uu.stderr_is(r, "fold: missing: No such file or directory\n")
 }
 
-pure shell_word(value: Str) -> Str {
-  "'" + value.replace("'", with: "'\\''") + "'"
-}
-
 # Apply the address-space limit after the isolation launcher has finished. Its
 # compilation is outside the memory budget of the applet selected by uu.
 pure constrained(words: List[Path], kib: Int) -> List[Path] {
@@ -78,33 +74,93 @@ pure constrained(words: List[Path], kib: Int) -> List[Path] {
 
 proc limited(s: uu.Scene, words: List[Path], kib: Int, input: Path, output: Path, diagnostic: Path, vars: Record) [process, env, error] -> Result[Bool, Error] {
   let args = constrained(words, kib)
-  let command = process.command_argv(args[0], args, s.root, vars, input, output, diagnostic, timeout: 10s)
+  let command = process.command_argv(args[0], args, s.root, vars, input, output, diagnostic)
   Ok(process.run(command)?.exited_with(0))
 }
 
-# origin: gnu fold/fold-zero-width.log
-test test_gnu_fold_fold_zero_width_log { |ctx|
-  test.timeout(ctx, 600 * 1s)
+proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str]) [fs, process, env, error] {
   let s = uu.scene(ctx)?
-  let zero = bytes.from_ints([0 for n in range(BUFFER * 2)])?
-  for case in [{name: "nul", data: zero}, {name: "inp", data: bytes.from_text(["​" for n in range(BUFFER * 2)].join(""))}] {
-    uu.write_bytes(s, case.name, case.data)
-    for args in [[], ["--characters"]] {
-      let r = uu.invoke(s, "fold", args + [case.name], vars: {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, timeout: 600s)?
-      uu.succeeds(r)
-      uu.no_stderr(r)
-      let line_count = r.stdout.utf8()?.split("\n").len() - 1
-      assert line_count == (if args.is_empty() { 0 } else { BUFFER * 2 / 80 })
+  uu.write_bytes(s, name, data)
+  let r = uu.invoke(s, "fold", args + [name], vars: {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, timeout: 600s)?
+  uu.succeeds(r)
+  uu.no_stderr(r)
+  let line_count = r.stdout.utf8()?.split("\n").len() - 1
+  assert line_count == (if args.is_empty() { 0 } else { BUFFER * 2 / 80 })
+}
+
+test test_gnu_fold_zero_width_nul_columns_log { |ctx|
+  test.timeout(ctx, 600s)
+  zero_width_file(ctx, "nul", bytes.zero(BUFFER * 2)?, [])
+}
+
+test test_gnu_fold_zero_width_nul_characters_log { |ctx|
+  test.timeout(ctx, 600s)
+  zero_width_file(ctx, "nul", bytes.zero(BUFFER * 2)?, ["--characters"])
+}
+
+test test_gnu_fold_zero_width_unicode_columns_log { |ctx|
+  test.timeout(ctx, 600s)
+  zero_width_file(ctx, "inp", bytes.from_text(["​" for n in range(BUFFER * 2)].join("")), [])
+}
+
+test test_gnu_fold_zero_width_unicode_characters_log { |ctx|
+  test.timeout(ctx, 600s)
+  zero_width_file(ctx, "inp", bytes.from_text(["​" for n in range(BUFFER * 2)].join("")), ["--characters"])
+}
+
+proc fold_argv(s: uu.Scene, script: Path, args: List[Path], vars: Record) [fs, error] -> Result[List[Path], Error] {
+  let words = uu.argv(s, "fold", args, vars:)?
+  Ok([@words[..4], script, @words[5..]])
+}
+
+proc full_output(s: uu.Scene, script: Path, character: Str, allowance: Int) [fs, process, env, net, error] {
+  let ready = uu.at(s, "ready.fifo")
+  fs.mkfifo(ready, 0o600)
+  defer ready.remove()
+  let ready_fd = unix.open_fd(ready, nonblock: true)?
+  defer unix.close_fd(ready_fd)
+  let vars = {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C", XSH_FOLD_READY: ready.display()}
+  let words = constrained(fold_argv(s, script, [], vars)?, allowance)
+  let diagnostic = uu.at(s, "err")
+  let shell = p"tr '\\0' \"$1\" </dev/zero | { shift; \"$@\" > /dev/full; }"
+  let args = [p"sh", p"-c", shell, p"fold-stream", fp"{character}", @words]
+  let consumer = spawn process.command_argv(p"/bin/sh", args, s.root, vars, b"", uu.at(s, "out"), diagnostic)?
+  loop {
+    let events = unix.poll_fd(ready_fd, ["readable"], timeout_ms: 20)?
+    if "readable" in events {
+      assert unix.read_fd(ready_fd, 1)? == b"R", "fold runtime readiness was not acknowledged"
+      break
+    }
+    assert ! ("error" in events or "invalid" in events or "hangup" in events), "fold exited before runtime readiness"
+    if let completed = process.wait_timeout([consumer], 0ms)? {
+      assert false, f"fold exited before runtime readiness with status {completed.status.shell_code()?}: {diagnostic.read_text()?}"
     }
   }
+  let completed = process.wait_timeout([consumer], 10s)?
+  assert completed != null, "fold did not diagnose the full output device within ten seconds after runtime readiness"
+  let status = completed.status
+  assert status.exited_with(1), f"fold write-error status: {status.shell_code()?}"
+  let errors = diagnostic.read_text()?
+  assert "No space left on device" in errors, f"input {character}, limit {allowance} KiB: {errors}"
+}
 
+test test_gnu_fold_zero_width_full_output_log { |ctx|
+  test.timeout(ctx, 600s)
+  let s = uu.scene(ctx)?
+  let script = uu.at(s, "fold.xsh")
+  let source = fp"{ctx.core_dir}/fold.xsh".read_text()?
+  script.write(source + r"""
+if let Ok(ready) = e"XSH_FOLD_READY" {
+  let fd = unix.open_fd(Path(ready), write: true)?
+  defer unix.close_fd(fd)
+  assert unix.write_fd(fd, b"R")? == 1
+}
+""")
+  uu.at(s, "lib").symlink(to: fp"{ctx.core_dir}/lib")
   let stream_locale = {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}
-  let empty_words = uu.argv(s, "fold", [p"/dev/null"], vars: stream_locale)?
+  let empty_words = fold_argv(s, script, [p"/dev/null"], stream_locale)?
   var minimum = 0
   var probe_results = []
-  # Cold interpreter startup can exceed the standalone utility probe ceiling.
-  # Extend only baseline discovery; the stream still gets 6000 KiB above the
-  # measured startup minimum, including the same page-alignment allowance.
   let candidates = [@[n * 5000 for n in range(1, 11)], 100000, 200000, 400000, 800000]
   for candidate in candidates {
     let code = limited(s, empty_words, candidate, p"/dev/null", p"/dev/null", uu.at(s, "probe.err"), stream_locale)?
@@ -121,17 +177,7 @@ test test_gnu_fold_fold_zero_width_log { |ctx|
     previous = candidate
   }
   let allowance = previous + 4 + 6000
-  let fold_words = constrained(uu.argv(s, "fold", [], vars: stream_locale)?, allowance)
   for character in ["\\n", "\\0", "\\303"] {
-    let producer_words = uu.argv(s, "tr", [p"\\0", fp"{character}"])?
-    let producer = [shell_word(word.display()) for word in producer_words].join(" ")
-    let script = fp"{producer} < /dev/zero | \"$@\" > /dev/full"
-    let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"fold-stream", @fold_words],
-      s.root, {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, b"", uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
-    let status = process.run(command)?
-    assert !status.exited_with(124), "fold did not diagnose the full output device within ten seconds"
-    let diagnostic = uu.read_text(s, "err")?
-    assert "No space left on device" in diagnostic, f"input {character}, minimum {previous + 4} KiB, limit {allowance} KiB: {diagnostic}"
+    full_output(s, script, character, allowance)
   }
-
 }
