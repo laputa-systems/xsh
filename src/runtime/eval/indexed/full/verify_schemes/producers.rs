@@ -361,7 +361,17 @@ impl ProducerPrefixContext<'_> {
         Ok((super::super::lowered_type_to_type(kind).as_ref() == Some(ty)).then_some(kind))
     }
 
+    fn narrowing_runtime_kind(ty: &Type, work: &mut SchemeInstantiationBudget) -> Result<Option<super::super::LoweredType>, IrVerifyError> {
+        if let Some(kind) = Self::exact_runtime_kind(ty, work)? { return Ok(Some(kind)); }
+        if matches!(ty, Type::Validated(validated) if matches!(validated.validation(), crate::sema::validated::Validation::Nominal(_))) || !super::runtime_complete_value_check_type(ty, work, 0)? { return Ok(None); }
+        Ok(super::super::lowered_type_for_type(ty).filter(|kind| *kind != super::super::LoweredType::Any))
+    }
+
     fn union_member_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize, declared: &Type) -> Result<Option<Type>, IrVerifyError> {
+        self.union_member_read_type_of(decoder, instruction, declared, declared)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn union_member_read_type_of(&self, decoder: &FullDecoder<'_>, instruction: usize, declared: &Type, stored_contract: &Type) -> Result<Option<Type>, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range || !self.evidence.range.contains(&instruction) {
             return Err(IrVerifyError::new("union type-test context disagrees with its owner range"));
         }
@@ -370,13 +380,19 @@ impl ProducerPrefixContext<'_> {
         let Some(target) = decoder.checked_binding_path(instruction, &mut charge)? else { return Ok(None) };
         let Some(stored_id) = decoder.checked_binding_path_type_id(instruction, &target, &mut charge)? else { return Ok(None) };
         let stored = decoder.store.semantic.to_type_with_budget(stored_id, &mut self.evidence.work.borrow_mut().semantic_types)?;
-        self.evidence.work.borrow_mut().charge_clone(declared)?;
-        if &stored != declared { return Ok(None); }
+        self.evidence.work.borrow_mut().charge_clone(stored_contract)?;
+        if &stored != stored_contract { return Ok(None); }
         self.evidence.work.borrow_mut().charge(1)?;
         if let Some(&kind) = self.evidence.completed_union_reads.borrow().get(&(instruction, stored_id)) {
-            let ty = super::super::lowered_type_to_type(kind).ok_or_else(|| IrVerifyError::new("runtime kind has no unique semantic type"))?;
-            self.evidence.work.borrow_mut().charge_clone(&ty)?;
-            return Ok(Some(ty));
+            for member in members {
+                let mut work = self.evidence.work.borrow_mut();
+                work.charge(1)?;
+                if Self::narrowing_runtime_kind(member, &mut work)? == Some(kind) {
+                    work.charge_clone(member)?;
+                    return Ok(Some(member.clone()));
+                }
+            }
+            return Err(IrVerifyError::new("runtime kind has no unique semantic type"));
         }
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
         if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? { return Ok(None); }
@@ -384,29 +400,40 @@ impl ProducerPrefixContext<'_> {
         for member in members {
             let mut work = self.evidence.work.borrow_mut();
             work.charge(1 + kinds.len())?;
-            let Some(kind) = Self::exact_runtime_kind(member, &mut work)? else { return Ok(None) };
+            let Some(kind) = Self::narrowing_runtime_kind(member, &mut work)? else { return Ok(None) };
             if kinds.contains(&kind) { return Ok(None); }
             kinds.push(kind);
         }
         let mut narrowed = None;
+        let mut remaining = vec![true; members.len()];
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
             |guard, charge| {
                 let BindingReadGuard::Condition { condition, when_true, is_boolean, .. } = guard else { return Ok(false) };
-                let Some((tested, outcome)) = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)? else { return Ok(false) };
+                let Some((alternatives, outcome)) = decoder.checked_type_test_alternatives(condition, when_true, is_boolean, instruction, &target, charge)? else { return Ok(false) };
+                if self.evidence.visible_binding(decoder.store, decoder.owner, condition, target.0)? != Some(binding) { return Ok(false); }
                 let mut work = self.evidence.work.borrow_mut();
-                let tested = decoder.store.semantic.to_type_with_budget(tested, &mut work.semantic_types)?;
-                let Some(tested_kind) = Self::exact_runtime_kind(&tested, &mut work)? else { return Ok(false) };
-                let mut selected = None;
-                for (member, kind) in members.iter().zip(&kinds) {
-                    work.charge(1)?;
-                    let accepted = member.matches_expected(&tested);
-                    if accepted != (*kind == tested_kind) { return Ok(false); }
-                    if accepted == (outcome == super::super::TypeTestOutcome::Accepted)
-                        && selected.replace((member, *kind)).is_some() { return Ok(false); }
+                let mut tested = Vec::with_capacity(alternatives.len());
+                for alternative in alternatives {
+                    let alternative = decoder.store.semantic.to_type_with_budget(alternative, &mut work.semantic_types)?;
+                    let Some(kind) = Self::narrowing_runtime_kind(&alternative, &mut work)? else { return Ok(false) };
+                    tested.push((alternative, kind));
                 }
-                let Some((selected, kind)) = selected else { return Ok(false) };
+                let mut surviving = remaining.clone();
+                for ((member, kind), survives) in members.iter().zip(&kinds).zip(&mut surviving) {
+                    let mut accepted = false;
+                    for (alternative, tested_kind) in &tested {
+                        work.charge(1)?;
+                        let fits = member.matches_expected(alternative);
+                        if fits != (*kind == *tested_kind) { return Ok(false); }
+                        accepted |= fits;
+                    }
+                    *survives &= accepted == (outcome == super::super::TypeTestOutcome::Accepted);
+                }
+                remaining = surviving;
+                let mut candidates = members.iter().zip(&kinds).zip(&remaining).filter(|(_, survives)| **survives).map(|(member, _)| member);
+                let (Some((selected, kind)), None) = (candidates.next(), candidates.next()) else { return Ok(false) };
                 work.charge_clone(selected)?;
-                narrowed = Some((selected.clone(), kind));
+                narrowed = Some((selected.clone(), *kind));
                 Ok(true)
             }, None, &mut charge)?;
         if proven && let Some((ty, kind)) = narrowed {
@@ -3817,7 +3844,17 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn need_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        if let Some(ty) = self.declared_type(decoder, instruction)? { return self.declared_read_type(decoder, instruction, ty).map(Some); }
+        if let Some(ty) = self.declared_type(decoder, instruction)? {
+            let read = self.declared_read_type(decoder, instruction, ty)?;
+            if let Type::Optional(payload) = read.as_ref()
+                && matches!(payload.as_ref(), Type::Union(_))
+                && decoder.producer_prefix.is_some()
+                && self.optional_read_is_narrowed(decoder, instruction, &read)?
+                && let Some(prefix) = &decoder.producer_prefix
+                && let Some(member) = prefix.union_member_read_type_of(decoder, instruction, payload, &read)?
+            { return Ok(Some(Arc::new(member))); }
+            return Ok(Some(read));
+        }
         self.contextual_producer_type(decoder, instruction)
     }
 
@@ -6788,7 +6825,15 @@ impl<'a> ProducerProof<'a> {
 
     fn checked_record_field_fits(&mut self, decoder: &FullDecoder<'a>, value: usize, actual: &Type, expected: &Type) -> Result<bool, IrVerifyError> {
         let checked = expected;
-        let expected = match expected { Type::Validated(validated) => validated.base(), _ => expected };
+        let optional_base;
+        let expected = match expected {
+            Type::Validated(validated) => validated.base(),
+            Type::Optional(payload) if matches!(payload.as_ref(), Type::Validated(_)) => {
+                optional_base = Type::Optional(Box::new(payload.unvalidated().clone()));
+                &optional_base
+            }
+            _ => expected,
+        };
         if decoder.checked_type_fits(actual, expected) { return Ok(true); }
         if matches!((actual, expected), (Type::Record(_), Type::Record(_))) && self.checked_storage_record_fields_fit(decoder, actual, expected, 0)? { return Ok(true); }
         if actual == &Type::ErasedRecord && matches!(checked, Type::Record(_))
@@ -7270,12 +7315,25 @@ impl<'a> ProducerProof<'a> {
         {
             self.budget.charge_clone(&tested)?;
             Arc::new(tested)
+        } else if matches!(receiver_type.as_ref(), Type::Int | Type::UInt | Type::Path | Type::List(_))
+            && let Some(prefix) = &decoder.producer_prefix
+            && let Some(tested) = prefix.validated_read_type(decoder, receiver, &receiver_type)?
+        {
+            self.budget.charge_clone(&tested)?;
+            Arc::new(tested)
         } else { receiver_type };
         let receiver_type = if let Type::Optional(payload) = receiver_type.unvalidated()
             && self.optional_read_is_narrowed(decoder, receiver, &receiver_type)?
         {
             self.budget.charge_clone(payload)?;
-            Arc::new((**payload).clone())
+            let payload = Arc::new((**payload).clone());
+            match &decoder.producer_prefix {
+                Some(prefix) if matches!(payload.as_ref(), Type::Union(_)) => match prefix.union_member_read_type_of(decoder, receiver, &payload, &receiver_type)? {
+                    Some(member) => Arc::new(member),
+                    None => payload,
+                },
+                _ => payload,
+            }
         } else if let Type::Optional(payload) = receiver_type.unvalidated()
             && self.pushes_expected_to_results(decoder, receiver, payload, true)?
         {
@@ -8130,7 +8188,10 @@ impl<'a> ProducerProof<'a> {
         };
         Ok(match self.need_context(decoder, value)? {
             Some(actual) if FullDecoder::checked_binary_result_type(binary, expected, &actual).is_some_and(|result| result.matches_expected(expected)) => actual,
-            _ => Arc::clone(expected),
+            _ => match expected.as_ref() {
+                Type::Validated(validated) if !matches!(validated.validation(), crate::sema::validated::Validation::Nominal(_)) => Arc::new(validated.base().clone()),
+                _ => Arc::clone(expected),
+            },
         })
     }
 

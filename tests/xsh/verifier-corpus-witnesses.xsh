@@ -2,6 +2,34 @@ type Port = Int range 1..=65535
 
 type Scale = pure(value: Int) -> Int
 
+type Payload = Union[Str, Path, List[Str], Bytes]
+
+type Word = Union[Str, Path]
+
+pure measure(payload: Payload) -> Str {
+  return "text " + payload.trim() when payload is Str
+  return "file " + payload.name() when payload is Path
+  return "list " + payload.join("+") when payload is List[Str]
+  f"bytes {payload.len()}"
+}
+
+pure pick(maybe: Word?, fallback: Word = "default") -> Str {
+  let word = maybe ?? fallback
+  return maybe.upper() when maybe != null and maybe is Str
+  if let file is Path = word {
+    return file.name()
+  }
+  word
+}
+
+pure number_or_text(value: Union[Int, Float, Str]) -> Str {
+  if value is (Int | Float) {
+    let number: Union[Int, Float] = value
+    return if number is Int { "int" } else { "float" }
+  }
+  value
+}
+
 type Envelope = {values: Map[Int]}
 
 pure widen(port: Port) -> Int { port }
@@ -148,4 +176,38 @@ test test_with_binds_a_relative_path_result_and_proc_call_is_dynamic { |ctx|
   } else { |failure| test.fail(failure.message) }
   assert relative == "link"
   assert call_dynamic(bump, 1) is Ok(_)
+}
+
+test test_validated_union_member_is_narrowed_by_a_type_test {
+  let names: NonEmpty[Str] = ["x"]
+  let word: Union[NonEmpty[Str], Int] = names
+  if word is NonEmpty[Str] {
+    assert word.first() == "x"
+  }
+  let plain = ["ls", "-l"]
+  if plain is NonEmpty[Str] {
+    assert plain.last() == "-l"
+  }
+  var grown: NonEmpty[Str] = ["a"]
+  grown += []
+  let maybe: NonEmpty[Str]? = ["only"]
+  assert maybe != null and maybe.first() == "only"
+}
+
+test test_alternative_type_tests_narrow_a_dynamic_value {
+  let dynamic = json.decode("\"item\"")?
+  if dynamic is (_ is Str | _ is Str) {
+    assert dynamic.upper() == "ITEM"
+  }
+}
+
+test test_earlier_exits_exclude_union_members {
+  assert measure("x") == "text x"
+  assert measure(b"ab") == "bytes 2"
+  assert measure(["a", "b"]) == "list a+b"
+  assert pick("x") == "X"
+  assert pick(null, fallback: "y") == "y"
+  assert number_or_text(1) == "int"
+  assert number_or_text(1.5) == "float"
+  assert number_or_text("t") == "t"
 }

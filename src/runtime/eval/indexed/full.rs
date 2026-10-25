@@ -14454,13 +14454,28 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_type_test_contract(
         &self,
+        condition: usize,
+        when_true: bool,
+        is_boolean: bool,
+        use_site: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(TypeId, TypeTestOutcome)>, IrVerifyError> {
+        Ok(match self.checked_type_test_alternatives(condition, when_true, is_boolean, use_site, target, charge)? {
+            Some((tested, outcome)) if tested.len() == 1 => Some((tested[0], outcome)),
+            _ => None,
+        })
+    }
+
+    fn checked_type_test_alternatives(
+        &self,
         mut condition: usize,
         mut when_true: bool,
         mut is_boolean: bool,
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(TypeId, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(Vec<TypeId>, TypeTestOutcome)>, IrVerifyError> {
         for _ in self.instruction_range.clone() {
             charge(1)?;
             if is_boolean {
@@ -14478,6 +14493,12 @@ impl<'a> FullDecoder<'a> {
                         when_true = !when_true;
                         continue;
                     }
+                    schema::BoolView::And(left, right) if when_true => {
+                        return self.checked_type_test_in_either(left.raw() as usize, right.raw() as usize, when_true, use_site, target, charge);
+                    }
+                    schema::BoolView::Or(left, right) if !when_true => {
+                        return self.checked_type_test_in_either(left.raw() as usize, right.raw() as usize, when_true, use_site, target, charge);
+                    }
                     _ => return Ok(None),
                 }
             }
@@ -14487,6 +14508,12 @@ impl<'a> FullDecoder<'a> {
                     let Some(initializer) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(None) };
                     (condition, is_boolean) = initializer;
                 }
+                schema::ExprView::Binary { op: BinaryOp::And, left, right, .. } if when_true => {
+                    return self.checked_type_test_in_either(left.raw() as usize, right.raw() as usize, when_true, use_site, target, charge);
+                }
+                schema::ExprView::Binary { op: BinaryOp::Or, left, right, .. } if !when_true => {
+                    return self.checked_type_test_in_either(left.raw() as usize, right.raw() as usize, when_true, use_site, target, charge);
+                }
                 schema::ExprView::MatchExpr { value, mut arms, .. } => {
                     charge(2)?;
                     if arms.len() != 2 { return Ok(None); }
@@ -14495,17 +14522,46 @@ impl<'a> FullDecoder<'a> {
                     if guard.is_some() || fallback_guard.is_some() { return Ok(None); }
                     let (schema::ExprView::Bool(yes), schema::ExprView::Bool(no)) = (self.expression_view(accepted.raw() as usize)?, self.expression_view(rejected.raw() as usize)?) else { return Ok(None) };
                     if yes == no { return Ok(None); }
-                    let schema::PatternView::Type { ty, slot: None } = self.checked_pattern_view(pattern.raw())? else { return Ok(None) };
+                    let mut tested = Vec::new();
+                    match self.checked_pattern_view(pattern.raw())? {
+                        schema::PatternView::Type { ty, .. } => tested.push(ty.id),
+                        schema::PatternView::Alternation { mut patterns } => {
+                            for alternative in &mut patterns {
+                                charge(1)?;
+                                let schema::PatternView::Type { ty, slot: None } = self.checked_pattern_view(alternative?.raw())? else { return Ok(None) };
+                                if !tested.contains(&ty.id) { tested.push(ty.id); }
+                            }
+                            if tested.is_empty() { return Ok(None); }
+                        }
+                        _ => return Ok(None),
+                    }
                     if !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
                         || self.checked_binding_path(value.raw() as usize, charge)?.as_ref() != Some(target)
                     { return Ok(None); }
                     let outcome = if yes == when_true { TypeTestOutcome::Accepted } else { TypeTestOutcome::Rejected };
-                    return Ok(Some((ty.id, outcome)));
+                    return Ok(Some((tested, outcome)));
                 }
                 _ => return Ok(None),
             }
         }
         Err(IrVerifyError::new("type-test condition has a cyclic initializer path"))
+    }
+
+    fn checked_type_test_in_either(
+        &self,
+        left: usize,
+        right: usize,
+        when_true: bool,
+        use_site: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(Vec<TypeId>, TypeTestOutcome)>, IrVerifyError> {
+        for operand in [left, right] {
+            charge(1)?;
+            let boolean = self.store.tags.get(operand).is_some_and(|tag| tag.kind() == schema::InstructionKind::Bool);
+            if let Some(found) = self.checked_type_test_alternatives(operand, when_true, boolean, use_site, target, charge)? { return Ok(Some(found)); }
+        }
+        Ok(None)
     }
 
     fn checked_optional_value_matches_path(
