@@ -54,6 +54,7 @@ ARENA_ENUMS = (
     "ArenaPatternKind",
     "ArenaExprTag",
     "ArenaExprKind",
+    "UnknownFields",
     "ArenaCompQualifier",
     "ContextScopeKind",
     "RetrySchedule",
@@ -131,8 +132,8 @@ OWNER_SPECS: dict[str, OwnerSpec] = {
         "crates/xsh-registry/src/types.rs", "builtin_type_names!", "builtin-type-names"
     ),
     "types.lowered": OwnerSpec("src/runtime/eval.rs", "LoweredType", "rust-enum"),
-    "types.lowered_function": OwnerSpec(
-        "src/runtime/eval.rs", "LoweredFunctionKind", "rust-enum"
+    "types.callable_kind": OwnerSpec(
+        "src/sema/types.rs", "CallableKind", "rust-enum"
     ),
     "types.lowered_return": OwnerSpec(
         "src/runtime/eval.rs", "LoweredReturnKind", "rust-enum"

@@ -116,15 +116,6 @@ Next: 35
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-33 · P3 · Align the provisional formal inventory with Rust owners
-
-- **Area:** Tests
-- **Where:** `formal/scripts/check-inventory.py:135`, `formal/coverage.json`
-- **Problem:** `python3 formal/scripts/check-inventory.py` fails because its named `LoweredFunctionKind` enum no longer exists. The runtime-operation inventory also predates `CryptoEd25519Verify` and `NetValidateRootBundle`. Both drifts predate this backlog's API work; updating XSH-20's owned operations does not repair them.
-- **Recommendation:** Update the provisional owner mapping and missing runtime operations, then run the inventory checker and its rejection controls. Keep this bounded maintenance separate from the paused formal-model campaign.
-- **Fix with:** single-source-of-truth
-- **Effort:** S
-
 ### XSH-34 · P3 · Diagnose unvalidated dynamic error propagation
 
 - **Area:** Errors
