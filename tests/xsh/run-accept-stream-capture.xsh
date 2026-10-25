@@ -1,8 +1,8 @@
-test test_accept_late_stream_completion_is_a_checked_process_error { |ctx|
+test test_accept_late_stream_completion_retains_its_process_error { |ctx|
   let output = test.run_script(
     ctx,
     r"""
-let rejected: Result[Unit, ProcessError] = try {
+let rejected: Result[Unit, Error] = try {
   ctx "stream completion" {
     let rows = run.stream --text --accept=[1] sh -c "printf 'row\nfinal'; exit 0" ?
     for row in rows { print $row }
@@ -27,6 +27,19 @@ match rejected {
 final
 captured
 """
+}
+
+test test_process_stream_pull_cannot_establish_a_nominal_error_contract { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let outcome: Result[Unit, ProcessError] = try {
+  let rows = run.stream --text sh -c "printf row" ?
+  for row in rows { let _ = row }
+}
+""",
+  )?
+  assert !output.success
+  assert "expected ProcessError, found Error" in output.stderr, output.stderr
 }
 
 test test_default_stream_completion_still_rejects_nonzero_exit { |ctx|

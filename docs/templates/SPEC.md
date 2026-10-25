@@ -4409,6 +4409,14 @@ them. Its completion check (exit status, `--accept`, decoding) can fail after
 rows were consumed, and a consumer that stops early cancels and reaps the
 child.
 
+Starting a process stream propagates `ProcessError`. Pulling its items has the
+same checked error contract as any fallible `Stream[T]`: `Error`, because the
+stream type carries no pull-error type. A `try` that consumes the stream must
+therefore allow `Error`, even when the stream came directly from `run.stream`.
+The runtime error keeps its concrete family and variant, so the captured value
+can still match `ProcessError.UnexpectedExit`, `ProcessError.Timeout`, or another
+process error.
+
 Timed `run.stream` needs the host to retain child exit status. Starting a timed
 stream while `SIGCHLD` is ignored or `SA_NOCLDWAIT` is set fails with `HostIo`
 before the child starts. Setting `SIGCHLD` to ignore or enabling `SA_NOCLDWAIT`

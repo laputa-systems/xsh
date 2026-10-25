@@ -95,15 +95,6 @@ Next: 30
 - **Fix with:** error-model
 - **Effort:** M
 
-### XSH-26 · P3 · Type the pull error of a process stream
-
-- **Area:** Errors
-- **Where:** `tests/xsh/run-accept-stream-capture.xsh`, `src/sema/check`
-- **Problem:** `Stream[T]` has no pull-error type, so a typed `ProcessError` is lost on stream iteration. Typing it in the checker made the verifier fail with "captured error producer disagrees with its nominal error contract".
-- **Recommendation:** Add process-stream provenance to the checker and the verifier's captured error types together, or record that pull errors stay untyped.
-- **Fix with:** error-model
-- **Effort:** M
-
 ### XSH-27 · P3 · Decide typed-callable facts for non-exact module projections
 
 - **Area:** Types
