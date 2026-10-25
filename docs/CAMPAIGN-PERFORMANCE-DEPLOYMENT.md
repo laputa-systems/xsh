@@ -7,8 +7,7 @@ source is **not qualified**.
 ## Active backlog run (2026-10-25)
 
 The owner expanded the starting queue to all remaining tickets through XSH-34,
-except owner-deferred XSH-23. Seventeen starting tickets and XSH-33 are closed; thirteen remain open,
-including discoveries XSH-30 through XSH-32 and XSH-34. Each closure
+except owner-deferred XSH-23. Twenty-six tickets are closed; five remain active, plus deferred XSH-23. Each closure
 includes the ticket removal and accepted change in one local commit. Local
 commits are authorized; publication and default-branch integration remain separate.
 
@@ -20,14 +19,35 @@ hold up independent implementation.
 
 Accepted backlog checkpoint: `79f420b64`. XSH-29's partial repair is integrated
 provisionally as `de6c74d9f`; its remaining timeout acceptance is still open.
-The current uncommitted wave implements XSH-4, XSH-7, XSH-10, XSH-30, XSH-31,
-XSH-32 and XSH-34. XSH-33 is closed at `f4d43aaee`: the inventory checker
-passes 92 owner sets and all 51 focused rejection controls pass. Seventeen selected
-native cases pass on the combined 4/7/31/32/34 source. CLI comparison matches
-37 cases; its required default-catalog check exposed a separately reproduced
-list-splice verifier defect, now owned as a prerequisite rather than skipped.
-The final combined products and generated documentation are pending. None of
-this evidence qualifies a baseline or closes an incomplete ticket.
+The accepted feature wave closes XSH-4 (`26f4c6754`), XSH-7 (`75e382e34`),
+XSH-31 (`c5e8ec717`), XSH-32 (`4468224a9`), XSH-33 (`f4d43aaee`) and
+XSH-34 (`ab6e84fde`). Seventeen selected native cases pass on their combined
+source, and generated documents were rendered with the matching verification
+products. XSH-33's 92 owner sets and 51 focused controls pass without changing
+Lean obligations. These are focused acceptance results, not baseline qualification.
+
+XSH-28 is closed at `01041b1e6`: an authenticated immediate-child check
+removes repeated transitive walks, with a deterministic linear work bound and
+forged-child controls. XSH-30 is closed at `6429b56d1`: the complete-result cache
+passes the unchanged 256-alias witness and all twelve surrounding native cases.
+Positive-only caching had failed that witness; errors and active cycles remain
+uncached. These are algorithmic and behavioral results, not timing claims.
+
+XSH-29 is closed at `bbcafa860`. The cp matrix keeps all 900 cases in nine
+100-case selectors. Fold preserves finite inputs, three stream byte classes and
+its memory allowance, and starts its ten-second ENOSPC deadline at runtime
+readiness. Written/desugared cp (9/9 each) and fold (5/5 each), byte-source
+controls and the actual timeout-error case pass. Reuse the earlier non-desugar
+repair evidence; comprehensive parity remains unclaimed under XSH-3.
+
+XSH-10 remains uncommitted. The CLI matches 37 comparison cases. Review fixes
+cover computed-default minimum validation and invalid Path diagnostics; a UInt
+omission-sentinel prerequisite is in the final build. All production users of
+the retired parser are migrated to typed operations, including seed, installer
+and Asterinas callers. Their six focused tests and the cross-consumer test pass.
+The required catalog check progressed past the repaired list-splice proof and a
+missing public Deno field contract, then exposed an iptables task-list inference
+failure. That compiler prerequisite is active; no package or test was skipped.
 
 | Closed ticket | Commit | Decisive evidence |
 |---|---|---|
@@ -79,23 +99,12 @@ as `cb8c23d6d` on `backlog-lane-diagnostics`. Its live worktree
 `.work/wt/backlog-diagnostics` retains the immutable products and guarded timing
 runner; it must remain until timing acceptance or explicit retirement.
 
-XSH-29's contextual-import and three lint-invariance checks passed with the
-combined API changes. Corpus desugar comparison exposed competing cat fixture
-deadlines, then different GNU cp and fold timeouts. The cat fixture correction
-passes written, desugared and owned-process timeout controls. Both GNU files
-pass in isolated written and desugared runs. The proposed concurrency repair
-was rejected: the existing scheduler already caps active cases at eight per
-file, so its explicit jobs setting would not change the load here. That patch
-is removed. The full-corpus timeout cause remains unproven; repeating the same
-run on the unchanged busy host earns no acceptance credit. Without XSH-14, the
-four original non-desugar checks and the new collection-return lint control
-pass: formatting preserves 1,428 diagnostics and layout perturbs 1,875 files.
-Independent review found a read-permission regression in the new SGID helper;
-the correction passes its mode controls, two cleanup controls and the actual
-native selector under umask 0400, which failed before the fix. The candidate is
-preserved as `6bc0df51d` on `backlog-park-xsht-29` and provisionally integrated
-as `de6c74d9f`; XSH-29 remains open. Its non-desugar evidence predates XSH-25; reassess affected proof
-when combining them. Current feature products have no full qualification credit.
+XSH-29's contextual-import and lint-invariance repairs were provisionally
+integrated as `de6c74d9f`. The final focused deadline repairs and closure are
+recorded above. Earlier full parity attempts exposed distinct cat, cp and fold
+deadlines; unchanged retries and the disproven outer-concurrency change earned
+no acceptance credit. No new full-corpus run was launched for feature closure.
+The remaining comprehensive acceptance belongs to XSH-3.
 
 The owner approved replacement image ef7c796 after the historical local image
 became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
@@ -109,17 +118,14 @@ The old 3b8 receipt and products remain unchanged. This earns artifact credit,
 not timing, functional-close or baseline credit.
 
 The parent owns integration, shared prerequisites and ticket accounting. Source
-stays frozen during each required build. New discoveries remain for later:
-the baseline 256-alias proof stress case hangs, a distinct imported-private
-error alias case is rejected by both baseline and candidate, an unchanged
-process-stream case loses its callable initializer proof, and formal inventory
-still names the removed LoweredFunctionKind owner. These remain outside the
-bounded queue and are not reasons to weaken tests.
+stays frozen during each required build. The owner brought the discovered
+compiler/tooling defects into scope; none earns closure by weakening its test.
 
-XSH-4 and XSH-7 remain parked on draft design decisions. XSH-10 is parked because current
-`cli main` declarations cannot preserve its short-option aliases and required
-option usage contract; new declaration syntax needs an owner decision. No parser
-replacement or CLI contract change has been accepted.
+The accepted ownership rule covers straight-line later subexpressions while
+preserving actual argument evaluation order. Record boundary callers now choose
+preserve, exact rejection, or stripping explicitly; static width typing is unchanged.
+The CLI implementation preserves the old PM command contract through literal
+metadata and typed entry bodies, pending the specific corrections above.
 
 The qualification launcher now plans successfully with the approved image.
 Commit `2ef2c361b` refreshes its one-way tool binding while preserving the old
@@ -131,12 +137,13 @@ The owner accepted the recommended XSH-25 rule: opaque stream pulls require
 effects, early close, cursor sharing and late errors pass their native controls.
 Lists and known infallible producers remain accepted. The existing RelPath
 fixture also needed explicit Error validation after Pure.call, whose result is
-Any; its output assertions remain intact and pass. XSH-34 records the remaining
-checker diagnostic gap, which reproduced in pre-change products.
+Any; its output assertions remain intact and pass. XSH-34 now diagnoses that
+boundary in the checker, with opaque-data and validated-error controls.
 
 Baseline qualification follows the remaining compiler/tooling repairs on one stable tree.
 XSH-1 requires scheduler qualification; XSH-19 follows completed G1 acceptance;
-XSH-28 and XSH-23 require the post-inference baseline. Historical passes below
+XSH-28 timing qualification requires the post-inference baseline. XSH-23 remains
+owner-deferred. Historical passes below
 do not qualify this source. Timing gates wait for a confirmed quiet host; the
 earlier XSH-14 timing attempt overlapped a corpus check and was discarded.
 Focused correctness checks run in isolated lane products. No full native
@@ -154,7 +161,7 @@ or branch deletion occurred. The diagnostics and requalify-57a-ef7 trees have
 live artifact consumers described above. Pre-existing owner worktrees remain
 untouched, including the dirty `xsht-integration` checkout.
 
-## Current state (2026-10-25)
+## Earlier qualification checkpoint (superseded by active backlog state)
 
 `master` now holds the whole full-inference integration (merged by the owner as
 `08810c3b9`) plus these local merges: the XSH-22 ground-comprehension verifier
@@ -188,28 +195,18 @@ First command:
 git -C /home/josh/d/laputa-systems/xsh status --short --branch && git log --oneline -3
 ```
 
-Read the active backlog section and `TODO.md` before dispatch. Reuse completed
-focused evidence; do not replay closed tickets. XSH-25's decision and focused
-implementation are complete. Resume XSH-29 from
-`backlog-park-xsht-29` only for a quiet-host parity comparison or a demonstrated
-deadline repair. Resume XSH-14 from `backlog-lane-diagnostics` only when its
-guarded timing runner can collect valid samples. Neither candidate is integrated.
+Read the active backlog section and `TODO.md` before dispatch. Reuse valid
+focused evidence and finish the uncommitted CLI, list-splice and proof-cost
+repairs before preparing more expensive qualification. XSH-29's known failures are repaired and focused proof is complete; comprehensive
+qualification is separate, not another automatic full-corpus retry. XSH-14 remains separate until valid
+guarded timing can support its performance decision.
 
-After those prerequisites are accepted on one clean source, run one
-`cargo dev test linux` from the main checkout (linked worktrees break the
-container's `.git`), then complete the remaining G1 matrix and split resource
-tests. Take the performance and memory baseline from qualified products only.
-Use the approved ef7 image; the refreshed launcher plans successfully. Do not
-reopen inference architecture, syntax, Lean models, or add harnesses.
-
-Unreviewed work to reuse only where it still applies: branch
-`campaign/xsht-integration` commit `e23c43739` is a stopped agent's partial
-XSHT fixes on an old base. Parked design items are tickets XSH-24 to XSH-29 in
-`TODO.md`. Rulings made this session: the verifier work budget is 32 units per
-instruction; nested empty `[]` payloads stay strict and tests annotate them; a
-rejected call has no result; `xsh-fuzz` is Scenario tier, not automatic;
-`xsh-lane` and `xsh-routine` and the consolidation campaign skill were
-deleted in favor of generic orchestration.
+Full workloads require the owner's explicit named request. A broad feature
+change, prerequisite or failed focused test must not launch `cargo dev test linux`
+or full parity automatically. Preserve the remaining G1/resource/baseline work as
+unmet until it is deliberately executed on qualified matching products. Use the
+approved ef7 image and existing repaired launcher; do not reopen inference
+architecture, Lean models, or create another harness.
 
 ## Historical resume (2026-10-24 pause, superseded above)
 
