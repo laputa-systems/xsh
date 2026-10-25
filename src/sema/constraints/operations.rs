@@ -650,7 +650,7 @@ impl TypeConstraints {
                 right = this.resolve_with_changes(&operation.right, 0, changes)?;
                 if signature == ArithmeticSignature::ListConcatenation
                     && let (Type::List(left_item), Type::List(right_item)) = (left.unvalidated(), right.unvalidated())
-                    && (matches!(**left_item, Type::Inference(_)) || matches!(**right_item, Type::Inference(_)))
+                    && (matches!(**left_item, Type::Inference(_)) != matches!(**right_item, Type::Inference(_)))
                 {
                     this.constrain_operation_type(left_item, right_item, operation.span, changes)?;
                     left = this.resolve_with_changes(&operation.left, 0, changes)?;

@@ -769,6 +769,7 @@ impl Checker {
             }
         };
         let mut inferred = None;
+        let forwards_applications = candidates.iter().any(|candidate| !candidate.origin.return_applications().contains(&None));
         for candidate in candidates {
             let applications = candidate.origin.return_applications();
             let retain_applications = !applications.contains(&None);
@@ -807,7 +808,7 @@ impl Checker {
                     }
                 } else if let Some(error) = &completion_error {
                     Self::proc_completion_envelope(candidate_ty.clone(), error)
-                } else if errors.is_empty() && !matches!(candidate_ty, Type::Result(_, _) | Type::Unit) {
+                } else if errors.is_empty() && !forwards_applications && !matches!(candidate_ty, Type::Result(_, _) | Type::Unit) {
                     Type::Result(Box::new(candidate_ty.clone()), Box::new(Type::Unknown))
                 } else {
                     inferred_proc_return_envelope(candidate_ty.clone(), &errors)
