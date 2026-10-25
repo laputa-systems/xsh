@@ -1112,6 +1112,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 signature(),
                 opt(r("effects")),
                 opt(returns()),
+                opt(seq([w("with"), r("expression")])),
                 block(),
             ]),
         ),

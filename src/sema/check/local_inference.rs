@@ -376,6 +376,31 @@ impl Checker {
         self.local_inference.collecting
     }
 
+    pub(super) fn local_list_record_input_context(
+        &self,
+        expected: &Type,
+        actual: &Type,
+    ) -> Result<bool, crate::sema::constraints::ConstraintResolutionError> {
+        if !expected.contains_inference() || !actual.contains_any() && !actual.contains_inference() { return Ok(false); }
+        let Some(owner) = self.local_inference_owner() else { return Ok(false); };
+        let expected = self.type_constraints.resolve(expected)?;
+        let actual = self.type_constraints.resolve(actual)?;
+        let (expected, actual) = match (&expected, &actual) {
+            (Type::List(expected), Type::List(actual)) => (expected.as_ref(), actual.as_ref()),
+            (Type::Inference(_), _) => (&expected, &actual),
+            _ => return Ok(false),
+        };
+        if !matches!(expected, Type::Inference(_)) || !matches!(actual, Type::Record(_))
+            || !actual.contains_any() || actual.contains_inference() || actual.contains_recovery()
+            || actual.contains_builtin_parameter()
+        { return Ok(false); }
+        for inference in self.local_inference.bindings.values().filter(|inference| inference.owner == Some(owner)) {
+            let Type::List(item) = &inference.ty else { continue; };
+            if self.type_constraints.resolve(item)? == *expected { return Ok(true); }
+        }
+        Ok(false)
+    }
+
     pub(super) fn prepared_nullable_seed(&self, ty: &Type) -> Option<TypeVariableId> {
         let Type::Optional(inner) = ty else {
             return None;

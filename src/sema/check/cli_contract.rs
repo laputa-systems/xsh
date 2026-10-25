@@ -36,15 +36,15 @@ impl CheckedCliEntryContract {
 
     /// Compares source identity, command path, ordered checked parameters,
     /// parser domains, declared effect bounds, and defaults, ignoring arena
-    /// IDs and source offsets. Help text and body effect summaries remain
-    /// separate facts.
+    /// IDs and source offsets. Body effect summaries remain separate facts.
     pub fn equivalent_to(&self, other: &Self) -> bool {
         self.source_name == other.source_name && self.name == other.name && self.plan.path == other.plan.path
+            && self.plan.metadata == other.plan.metadata
             && self.effects == other.effects
             && self.plan.parameters.len() == other.plan.parameters.len()
             && self.plan.parameters.iter().zip(&other.plan.parameters).enumerate().all(|(index, (left, right))| {
                 left.name == right.name && left.ty == right.ty && left.parser_type == right.parser_type
-                    && left.rest == right.rest && match (&left.default, &right.default) {
+                    && left.rest == right.rest && left.metadata == right.metadata && match (&left.default, &right.default) {
                         (None, None) => true,
                         (Some(CliEntryDefault::Constant(left)), Some(CliEntryDefault::Constant(right))) => left == right,
                         (Some(CliEntryDefault::Computed(_)), Some(CliEntryDefault::Computed(_))) => {
@@ -107,6 +107,39 @@ mod tests {
             CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         checked.checked_declarations.cli_entry_contracts(&parsed.arena, &sources).unwrap()
+    }
+
+    #[test]
+    fn checked_cli_invalid_path_default_returns_a_diagnostic() {
+        let source = r#"cli main(root: Path = p"bad\0path") {}"#;
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckCliEntry)
+            && diagnostic.message.contains("cannot be represented as Path")));
+    }
+
+    #[test]
+    fn checked_cli_metadata_rejects_numeric_short_aliases() {
+        let source = "cli main(workers: Int = 1) with {parameters: {workers: {form: \"-1 N\"}}} {}";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckCliEntry)));
+    }
+
+    #[test]
+    fn checked_cli_metadata_preserves_named_options_and_group_fallbacks() {
+        let source = "const HELP = \"help\"\ncli main(...unknown: List[Str]) with {name: \"pm\", help: HELP} {}\ncli main repo build(input: Path, store: Path, jobs: Int = 4) with {parameters: {store: {form: \"--store ARTIFACT_STORE\"}, jobs: {form: \"-j --jobs N\", min: 1}}} {}\n";
+        let entries = contracts(source);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].plan.metadata.name.as_deref(), Some("pm"));
+        assert_eq!(entries[1].plan.parameters[1].metadata.form.as_deref(), Some("--store ARTIFACT_STORE"));
+        assert_eq!(entries[1].plan.parameters[2].metadata.min, Some(1));
+        let changed = contracts(&source.replace("min: 1", "min: 2"));
+        assert!(!entries[1].equivalent_to(&changed[1]));
     }
 
     #[test]

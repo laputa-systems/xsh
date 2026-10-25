@@ -220,6 +220,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "constants",
     "schema-validation",
     "procs",
+    "cli-main",
     "context-scopes",
     "pure-functions",
     "records",
@@ -829,6 +830,10 @@ fn cli_doc(form: &str) -> ReferenceDoc {
 
 fn core_doc(item: &str) -> ReferenceDoc {
     let (summary, contract) = match item {
+        "cli-main" => (
+            "Declares typed command-line entries and group fallbacks.",
+            "cli main PATH(parameters) [effects] -> Return with {name, help, parameters: {parameter: {form, min}}} declares an entry. Metadata is optional and must be compile-time literal data. Types and defaults come only from the signature; explicit forms supply operands, required named options, aliases and singular repeated names. Explicit forms show their declared spelling without inferred type/default descriptions. Unknown fields, invalid forms, alias collisions and invalid constant defaults fail checking. Parent entries take no parameters or one rest List[Str]; the longest matching path selects the entry and a nearest parent rest fallback receives unmatched raw words. Exact groups run their bodies. Custom group help accepts -h, --help or help; custom leaf help applies only to a sole help argument. Other leaf help uses strict generated usage. Parse failures exit 2; body failures retain ordinary error/status behavior. A command tree consumes one leading --; a flat entry retains ordinary end-of-options parsing. Help and argument parsing failures do not evaluate computed defaults. Minimum constraints also check all resolved scalar and list default values before the entry body; a violation prints usage and exits 2 after any computed-default effects.",
+        ),
         "source-files" => (
             "Defines source-file and module loading boundaries.",
             "Source files are parsed and checked as modules; imports retain their source boundaries for diagnostics and runtime loading.",

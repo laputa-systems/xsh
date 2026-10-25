@@ -3006,7 +3006,7 @@ where
     }
 }
 
-fn cli_constant_value(
+pub(crate) fn cli_constant_value(
     value: &LiteralConstant,
     enums: &crate::sema::wire_enums::PreparedWireEnums,
 ) -> Option<crate::runtime::value::Value> {

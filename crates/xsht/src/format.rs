@@ -1346,6 +1346,10 @@ impl<'a> Writer<'a> {
         } else {
             self.write_multiline_function_signature(keyword, def_id, indent, output);
         }
+        if let Some(metadata) = def.cli_metadata {
+            output.push_str(" with ");
+            self.write_expr_safe(metadata, output);
+        }
         output.push(' ');
         self.write_block(body, indent, output);
     }

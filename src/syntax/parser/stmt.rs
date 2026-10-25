@@ -1245,7 +1245,7 @@ impl<'a> Parser<'a> {
             name.push(' ');
             name.push_str(&self.expect_ident("expected subcommand name")?.as_str());
         }
-        self.parse_function_signature_and_body_arena_only(start, Name::intern(&name), true, arena)
+        self.parse_function_signature_and_body_arena_only(start, Name::intern(&name), true, true, arena)
     }
 
     fn parse_function_arena_only(
@@ -1260,7 +1260,7 @@ impl<'a> Parser<'a> {
         } else {
             self.expect_ident("expected pure function name")?
         };
-        self.parse_function_signature_and_body_arena_only(start, name, proc_def, arena)
+        self.parse_function_signature_and_body_arena_only(start, name, proc_def, false, arena)
     }
 
     fn parse_function_signature_and_body_arena_only(
@@ -1268,6 +1268,7 @@ impl<'a> Parser<'a> {
         start: usize,
         name: Name,
         proc_def: bool,
+        cli_entry: bool,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         if self.consume(TokenKindMatch::LParen).is_none() {
@@ -1295,6 +1296,12 @@ impl<'a> Parser<'a> {
                 true,
             )
         };
+        let metadata = if cli_entry && self.peek_keyword(0) == Some(Keyword::With) {
+            self.bump();
+            Some(self.parse_expr_id_arena_only(arena)?)
+        } else {
+            None
+        };
         let body_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
         let params_range = arena.push_params(&params);
@@ -1311,6 +1318,7 @@ impl<'a> Parser<'a> {
             proc_def,
             span,
         );
+        arena.set_cli_metadata(metadata);
         Some(())
     }
 

@@ -389,7 +389,7 @@ cli main(src: Path, dest: Path, jobs: UInt = 4, verbose = false) {
 - Required parameters are positional operands, in order. Parameters with
   defaults are options named in kebab case (`dry_run` becomes `--dry-run`). A
   final rest parameter of type `List[Str]` or `List[Path]` receives the
-  remaining operands. Required parameters come before defaulted ones.
+  remaining operands. Required positional parameters come before defaulted ones.
 - Parameter types may be `Str`, `Int`, `UInt`, `Bool`, `Path`, or `Duration`,
   or aliases of them. `Bool` options accept a bare switch or an explicit value.
   Defaulted `List` options append repeated occurrences.
@@ -448,20 +448,63 @@ cli main version() {
   missing or unknown word prints the same listing after the error and exits
   `2`. As for a single entry, this happens before any top-level statement
   runs.
-- A bare `cli main(...)` cannot be declared beside subcommand entries, two
-  entries cannot have the same path, and a path cannot continue another
-  entry's path (a word names an entry or a group, not both). `help` is
-  reserved. Each is `check.cli-entry`:
+- Two entries cannot have the same path. An entry may prefix another entry
+  only when it takes no parameters or one rest `List[Str]`. `help` remains a
+  reserved path word. Invalid declarations are `check.cli-entry`.
+- An exact group invocation runs its entry body. Declared child paths take
+  precedence over their parent. If no child matches, the nearest declared
+  parent with a rest parameter receives the unmatched raw words, including
+  option-like words, without leaf option parsing. The body can report a typed
+  domain error. A parameterless parent rejects unknown words with generated
+  usage. Groups without a declared entry retain the missing/unknown-word
+  behavior above.
+- A command tree consumes one leading `--` before selecting its path. A single
+  flat entry keeps ordinary `--` end-of-options parsing.
+
+An entry may attach literal metadata after its signature, effects and return
+annotation:
 
 ```xsh
-cli main version() {
-  print "1.0"
-}
-
-cli main(root: Path) { # error: check.cli-entry
-  print f"{root}"
+cli main repo build(input: Path, store: Path, jobs: Int = 4, roots: List[Str] = []) with {
+  name: "pm repo build",
+  help: "usage: pm repo build PLAN --store STORE [-j N|--jobs N]",
+  parameters: {
+    input: {form: "PLAN"},
+    store: {form: "--store STORE"},
+    jobs: {form: "-j --jobs N", min: 1},
+    roots: {form: "--root PACKAGE"},
+  },
+} {
+  print $input $store $jobs $roots
 }
 ```
+
+The complete optional fields are `name: Str`, `help: Str`, and `parameters`, a
+record keyed by signature parameter names. Each parameter record accepts only
+`form: Str` and `min: Int`. Metadata is compile-time literal data, including
+references to constants; it executes no code. Unknown fields or parameters,
+malformed forms, duplicate aliases, unsupported constraints and constant defaults
+below a minimum fail checking.
+
+A `form` explicitly names a positional metavar or option aliases followed by a
+metavar. Explicit forms accept only their declared aliases. Each short alias has
+one ASCII letter. Types and defaults still come
+from the signature. An option without a default is required; `List` supplies
+repeated collection. Required named options may follow defaulted parameters.
+`min` constrains every resolved integer argument and every element of an integer
+list, including computed defaults. Bound arguments are checked after defaults
+resolve and before the body. A minimum violation prints usage and exits `2`;
+computed defaults may already have performed their declared effects. Explicit forms display their declared
+spelling without inferred type/default descriptions; unmodified parameters keep
+generated descriptions. `name` replaces the complete displayed command name for
+that entry only.
+
+A custom `help` replaces a leaf's help only when its sole argument is `-h`,
+`--help` or `help`. Mixed leaf arguments retain strict generated help. On a
+group, any of those words in the next path position prints its custom help and
+ignores later words. Help exits `0` before initializers and computed defaults.
+Missing or malformed leaf arguments keep strict usage and status `2`; errors
+raised by entry bodies keep their ordinary error family and exit status.
 
 For dynamic schemas or other advanced policies, use `cli.parse`,
 `cli.parse_full`, and `cli.commands`. A `cli.parse` error propagated with `?`
@@ -1812,7 +1855,9 @@ An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
 including writes in branches and loops. Fresh empty lists nested in a local
 record or list initializer follow the same rule. Each surviving empty list has
-one element type across all writers. A discarded empty list or `map.empty()`,
+one element type across all writers. A closed record written before a
+projection fixes the element's full shape, retaining nested `Any` fields.
+A discarded empty list or `map.empty()`,
 or such a field replaced by a later record spread, contributes no unresolved
 type. These expressions and their record wrappers still evaluate in source order. Explicit `Any` domains and heterogeneous
 list literals keep their declared or inferred domains. Parameter defaults and

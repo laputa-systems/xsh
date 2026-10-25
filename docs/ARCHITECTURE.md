@@ -82,7 +82,10 @@ success and error, so later proofs can reuse the decoder safely.
 
 Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
-type information does not relax those contracts.
+type information does not relax those contracts. Inferred mutable lists with
+nested `Any` values carry their closed storage type on their declaration.
+Verification checks the initializer and every replacement against this owned
+contract.
 An explicitly annotated Optional record argument may retain its closed source
 type when a null field prevents standalone constructor derivation. Its owned
 writer still requires the ordinary producer proof or a complete declaration

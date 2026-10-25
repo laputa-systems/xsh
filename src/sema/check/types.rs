@@ -353,6 +353,11 @@ impl Checker {
                 self.type_constraints
                     .check_nullable_seed(seed, actual, span)
             }
+        } else if self.local_list_record_input_context(expected, actual).map_err(|error| crate::sema::constraints::ConstraintConflict {
+            expected: expected.clone(), actual: actual.clone(), initializer: None, established: None,
+            contribution: span, resolution_error: Some(error),
+        })? {
+            self.type_constraints.constrain_context(expected, actual, span)
         } else if expected.contains_inference() {
             self.type_constraints.constrain(expected, actual, span)
         } else {

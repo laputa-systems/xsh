@@ -423,6 +423,7 @@ impl ScopeChecker<'_> {
     fn function(&mut self, function: FunctionDefId) {
         let previous = self.callable.replace(function);
         let def = self.program.arena.function_def(function);
+        if let Some(metadata) = def.cli_metadata { self.expr(metadata); }
         for parameter in self.program.arena.params(def.params) {
             if let Some(default) = parameter.default { self.expr(default); }
         }

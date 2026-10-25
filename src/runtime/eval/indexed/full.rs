@@ -26434,6 +26434,34 @@ proc capture_binding(binary: Str, payload) {
     }
 
     #[test]
+    fn inferred_mutable_list_storage_authenticates_opaque_fields() {
+        run_with_large_stack(|| {
+            let mut program = fixture("list-splice-opaque-fields.xsh", include_str!("../../../../tests/fixtures/runtime/list-splice-opaque-fields.xsh"));
+            program.store.in_place.take();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "build");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let declaration = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction),
+                Ok(schema::StmtView::Let { annotation: Some(annotation), .. }) if annotation.materialize().unwrap().contains_any())).unwrap();
+            let words = program.store.data[declaration].range().bounds(program.store.extra.len()).unwrap();
+            let mut missing_contract = program.clone();
+            missing_contract.store.extra[words.start + 2] = 0;
+            missing_contract.store.data[declaration] = IrData::new(words.start as u32, (words.len() - 1) as u32);
+            let error = FullVerifier::verify(&missing_contract).expect_err("optional slot facts cannot supply an opaque mutable storage declaration");
+            assert!(error.message.contains("fresh list splice"), "{error:?}");
+            let list = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprList).unwrap();
+            let replacement = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListBuild).unwrap();
+            let mut wrong_items = program;
+            wrong_items.store.tags[replacement] = FullTag::ExprList;
+            wrong_items.store.data[replacement] = wrong_items.store.data[list];
+            let error = FullVerifier::verify(&wrong_items).expect_err("the owned list storage contract must authenticate every replacement item");
+            assert!(!error.message.contains("work bound"), "{error:?}");
+        });
+    }
+
+    #[test]
     fn default_process_streams_authenticate_their_cold_initializer() {
         run_with_large_stack(|| {
             let mut program = fixture("default-process-stream-proof.xsh", r#"

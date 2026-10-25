@@ -5049,6 +5049,7 @@ impl Evaluator {
                             type_name: parameter.parser_type.clone(),
                             default,
                             rest: parameter.rest,
+                            metadata: parameter.metadata.clone(),
                         })
                     })
                     .collect::<Result<Vec<_>, Diagnostic>>()?;
@@ -5067,6 +5068,7 @@ impl Evaluator {
                 let parser = crate::modules::cli::PreparedSignatureCli::prepare(
                     parameters,
                     description,
+                    &entry.metadata,
                     span,
                 )
                 .map_err(|error| {
@@ -5354,10 +5356,19 @@ impl Evaluator {
         // give: the entry evaluates those defaults itself, as any call that
         // omits an argument does, so their failures and effects are its own.
         let mut main_omitted = Vec::new();
+        let mut main_cli_entry = None;
         if let Some(cli) = &plan.signature_cli {
             match cli.commands.parse(&cli.argv, &self.command_name) {
                 Ok((command, arguments)) => {
                     main_function = cli.functions[command];
+                    let entry = &cli.commands.commands[command];
+                    if entry.parser.requires_bound_validation() {
+                        let mut parser = entry.parser.clone();
+                        if parser.name.is_none() {
+                            parser.name = Some(std::iter::once(self.command_name.as_str()).chain(entry.path.iter().map(String::as_str)).collect::<Vec<_>>().join(" "));
+                        }
+                        main_cli_entry = Some(Box::new(parser));
+                    }
                     main_omitted = arguments
                         .iter()
                         .enumerate()
@@ -5615,6 +5626,7 @@ impl Evaluator {
                 CallableKind::Proc,
                 &main_arguments,
                 &main_omitted,
+                main_cli_entry,
                 zero,
             );
             if let Some(call_result) = call_result {
@@ -5632,7 +5644,11 @@ impl Evaluator {
                     }
                     Ok(value) => last_value = value,
                     Err(error) => {
-                        if let Some(signal) = error.abort {
+                        if let Some(stop_status) = self.handle_cli_error_stop(&error) {
+                            status = stop_status;
+                            stopped = true;
+                            self.pending_traceback = None;
+                        } else if let Some(signal) = error.abort {
                             abort = Some(signal);
                             status = signal.status;
                         } else {
@@ -6335,6 +6351,10 @@ impl Evaluator {
         let Value::Error(error) = value else {
             return None;
         };
+        self.handle_cli_error_stop(error)
+    }
+
+    fn handle_cli_error_stop(&mut self, error: &RuntimeError) -> Option<u8> {
         if error.kind == "cli-help" {
             self.write_stdout_line(&error.message);
             return Some(0);

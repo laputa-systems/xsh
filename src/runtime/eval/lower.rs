@@ -6877,6 +6877,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let annotation = match ty {
                     Some(ty) => Some(self.canonical_checked_type_annotation(ty)?),
+                    None if matches!(self.program.arena.stmt(id).kind, ArenaStmtKind::Var { .. }) => binding_ty.as_ref()
+                        .filter(|ty| matches!(ty, Type::List(item) if !matches!(item.as_ref(), Type::Any))
+                            && ty.contains_any() && !ty.contains_inference() && !ty.contains_recovery()
+                            && !ty.contains_builtin_parameter())
+                        .map(|ty| self.canonicalize_checked_type(ty.clone())),
                     None => None,
                 };
                 let value = if self.is_empty_record_in_map_context(value, ty) {

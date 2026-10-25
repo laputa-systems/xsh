@@ -624,7 +624,7 @@ mod child_tests {
         let body = BlockId::from_index(0);
         lowerer.arena.params.push(ArenaParam { name, annotation: Some(parameter_ty), default: Some(default), rest: false, span: SpanId::from_index(0) });
         lowerer.arena.function_defs.push(ArenaFunctionDef {
-            test_declaration: false, name, params: ArenaRange::new(0, 1), effects: None, return_ty, return_ty_defaulted: false, body,
+            cli_metadata: None, test_declaration: false, name, params: ArenaRange::new(0, 1), effects: None, return_ty, return_ty_defaulted: false, body,
         });
         let stmt = lowerer.push_stmt_kind(ArenaStmtKind::ProcDef(FunctionDefId::from_index(0)), span());
         let mut children = Vec::new();
@@ -3339,6 +3339,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             return_ty_defaulted,
             body,
             test_declaration: false,
+            cli_metadata: None,
         });
         id
     }
@@ -3441,6 +3442,10 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_stmt_kind(ArenaStmtKind::Loop { block }, span);
         self.push_current_statement(id);
         id
+    }
+
+    pub(crate) fn set_cli_metadata(&mut self, metadata: Option<ExprId>) {
+        self.lowerer.arena.function_defs.last_mut().expect("parsed function").cli_metadata = metadata;
     }
 
     pub fn mark_last_function_as_cli_main(&mut self) {
@@ -4898,6 +4903,7 @@ impl AstArena {
             | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
                 let def = self.function_def(def);
                 self.for_each_param_child(def.params, &mut visit);
+                if let Some(metadata) = def.cli_metadata { visit(Child::Expr(metadata)); }
                 visit(Child::TypeExpr(def.return_ty));
                 visit(Child::Block(def.body));
             }
@@ -7615,6 +7621,7 @@ pub struct ArenaBlockParam {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaFunctionDef {
+    pub cli_metadata: Option<ExprId>,
     /// Harness registration keeps this frame out of the ordinary callable namespace.
     pub test_declaration: bool,
     pub name: Name,

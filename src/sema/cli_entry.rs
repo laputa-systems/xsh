@@ -25,6 +25,7 @@ pub(crate) struct CliEntryParameter {
     pub parser_type: String,
     pub default: Option<CliEntryDefault>,
     pub rest: bool,
+    pub metadata: CliParameterMetadata,
 }
 
 /// Entry metadata carries prepared data and concrete bindings independently
@@ -34,9 +35,21 @@ pub(crate) struct CliEntryPlan {
     pub statement: StmtId,
     pub definition: FunctionDefId,
     /// The subcommand words as typed on the command line, in kebab case.
-    /// Empty for a bare `cli main`, which is then the only entry.
     pub path: Vec<String>,
     pub parameters: Vec<CliEntryParameter>,
+    pub metadata: CliEntryMetadata,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct CliEntryMetadata {
+    pub name: Option<String>,
+    pub help: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct CliParameterMetadata {
+    pub form: Option<String>,
+    pub min: Option<i64>,
 }
 
 /// The command-line spelling of a subcommand word or option name.
@@ -91,25 +104,26 @@ pub(crate) fn validate_cli_entry(
             error(statement.span, "a signature CLI entry must be named `main`");
         }
         let path = words.map(cli_word).collect::<Vec<_>>();
-        if let Some(other) = entries.first() {
-            if path.is_empty() || other.path.is_empty() {
-                error(
-                    statement.span,
-                    "a bare `cli main` cannot be declared beside another CLI entry; name every entry by a subcommand path, as in `cli main build(...)`",
-                );
-            } else if entries.iter().any(|other| other.path == path) {
-                error(
-                    statement.span,
-                    "this subcommand path is already declared; subcommand words must be unique after snake_case maps to kebab-case",
-                );
-            } else if entries
-                .iter()
-                .any(|other| other.path.starts_with(&path) || path.starts_with(&other.path))
-            {
-                error(
-                    statement.span,
-                    "a subcommand path cannot continue another entry's path: a word is either an entry or a group of entries",
-                );
+        if entries.iter().any(|other| other.path == path) {
+            error(statement.span, "this subcommand path is already declared; subcommand words must be unique after snake_case maps to kebab-case");
+        }
+        let (metadata, parameter_metadata) = match function.cli_metadata {
+            None => (CliEntryMetadata::default(), std::collections::BTreeMap::new()),
+            Some(expression) => match default_value(expression).as_ref().map(read_metadata) {
+                Some(Ok(value)) => value,
+                Some(Err(message)) => {
+                    error(statement.span, &message);
+                    continue;
+                }
+                None => {
+                    error(statement.span, "CLI metadata must be a compile-time literal record");
+                    continue;
+                }
+            },
+        };
+        for name in parameter_metadata.keys() {
+            if !program.arena.params(function.params).iter().any(|parameter| parameter.name == *name) {
+                error(statement.span, &format!("CLI metadata names unknown parameter `{name}`"));
             }
         }
         if path.iter().any(|word| word == "help") {
@@ -152,7 +166,18 @@ pub(crate) fn validate_cli_entry(
             if parameter.rest && parameter.default.is_some() {
                 error(span, "a CLI rest parameter cannot have a default");
             }
-            if !parameter.rest && parameter.default.is_none() && default_seen {
+            let metadata = parameter_metadata.get(&parameter.name).cloned().unwrap_or_default();
+            if let Some(form) = &metadata.form {
+                if let Err(message) = validate_form(form) { error(span, &message); }
+                if parameter.rest && form.starts_with('-') { error(span, "a CLI rest parameter must be positional"); }
+            }
+            if metadata.min.is_some() && !matches!(ty, Type::Int | Type::UInt)
+                && !matches!(&ty, Type::List(item) if matches!(item.as_ref(), Type::Int | Type::UInt))
+            {
+                error(span, "CLI minimum requires an Int or UInt parameter");
+            }
+            let positional = metadata.form.as_ref().is_none_or(|form| !form.starts_with('-'));
+            if !parameter.rest && parameter.default.is_none() && default_seen && positional {
                 error(
                     span,
                     "required CLI positionals must precede defaulted options",
@@ -174,11 +199,21 @@ pub(crate) fn validate_cli_entry(
             };
             let supported = if parameter.rest {
                 matches!(&ty, Type::List(item) if matches!(item.as_ref(), Type::Str | Type::Path))
-            } else if parameter.default.is_some() {
+            } else if parameter.default.is_some() || metadata.form.as_ref().is_some_and(|form| form.starts_with('-')) {
                 scalar(&ty) || matches!(&ty, Type::List(item) if scalar(item))
             } else {
                 scalar(&ty)
             };
+            if let Some(form) = &metadata.form {
+                let option = form.starts_with('-');
+                let metavar = form.split_whitespace().any(|word| !word.starts_with('-'));
+                if option && !metavar && !matches!(ty, Type::Bool) {
+                    error(span, "a value option form requires a metavar");
+                }
+                if form.starts_with("...") && !matches!(ty, Type::List(_)) {
+                    error(span, "a repeated CLI form requires a List parameter");
+                }
+            }
             if !supported || parser_type.is_empty() {
                 error(
                     span,
@@ -219,6 +254,7 @@ pub(crate) fn validate_cli_entry(
                 parser_type,
                 default,
                 rest: parameter.rest,
+                metadata,
             });
         }
         entries.push(CliEntryPlan {
@@ -226,7 +262,42 @@ pub(crate) fn validate_cli_entry(
             definition,
             path,
             parameters,
+            metadata,
         });
+    }
+    for entry in &entries {
+        let span = program.arena.stmt(entry.statement).span;
+        if entries.iter().any(|other| other.path.len() > entry.path.len() && other.path.starts_with(&entry.path))
+            && !(entry.parameters.is_empty() || entry.parameters.len() == 1 && entry.parameters[0].rest && entry.parameters[0].ty == Type::List(Box::new(Type::Str)))
+        {
+            diagnostics.push(Diagnostic::new(Severity::Error, "a CLI group entry requires no parameters or one rest List[Str]")
+                .with_code(DiagnosticCode::CheckCliEntry).with_label(Label::primary(span, "invalid CLI group signature")));
+        }
+        let parameters = entry.parameters.iter().map(|parameter| {
+            use crate::modules::cli::{SignatureDefault, SignatureParameter};
+            let default = match parameter.default.as_ref() {
+                None => None,
+                Some(CliEntryDefault::Constant(value)) => {
+                    let value = crate::sema::constants::cli_constant_value(value, &Default::default())
+                        .ok_or_else(|| format!("CLI default for `{}` cannot be represented as {}", parameter.name, parameter.parser_type))?;
+                    Some(SignatureDefault::Value(value))
+                }
+                Some(CliEntryDefault::Computed(_)) => Some(SignatureDefault::Computed(String::new())),
+            };
+            Ok(SignatureParameter { name: parameter.name.to_string(), type_name: parameter.parser_type.clone(), default, rest: parameter.rest, metadata: parameter.metadata.clone() })
+        }).collect::<Result<Vec<_>, String>>();
+        let parameters = match parameters {
+            Ok(parameters) => parameters,
+            Err(message) => {
+                diagnostics.push(Diagnostic::new(Severity::Error, &message).with_code(DiagnosticCode::CheckCliEntry)
+                    .with_label(Label::primary(span, message)));
+                continue;
+            }
+        };
+        if let Err(error) = crate::modules::cli::PreparedSignatureCli::prepare(parameters, String::new(), &entry.metadata, span) {
+            diagnostics.push(Diagnostic::new(Severity::Error, &error.message).with_code(DiagnosticCode::CheckCliEntry)
+                .with_label(Label::primary(span, error.message)));
+        }
     }
     if diagnostics.is_empty() {
         (entries, diagnostics)
@@ -245,4 +316,56 @@ fn inferred_parser_type(ty: &Type) -> Option<String> {
         Type::List(item) => Some(format!("List[{}]", inferred_parser_type(item)?)),
         _ => None,
     }
+}
+
+fn read_metadata(value: &LiteralConstant) -> Result<(CliEntryMetadata, std::collections::BTreeMap<Name, CliParameterMetadata>), String> {
+    let LiteralConstant::Record(fields) = value else { return Err("CLI metadata must be a literal record".into()); };
+    let mut metadata = CliEntryMetadata::default();
+    let mut parameters = std::collections::BTreeMap::new();
+    for (name, value) in fields.iter() {
+        match name.as_str().as_str() {
+            "name" | "help" => {
+                let LiteralConstant::Str(value) = value else { return Err(format!("CLI metadata `{name}` must be Str")); };
+                if *name == "name" {
+                    if value.is_empty() || value.contains(['\n', '\r']) { return Err("CLI display name must be nonempty and contain no newline".into()); }
+                    metadata.name = Some(value.to_string());
+                } else { metadata.help = Some(value.to_string()); }
+            }
+            "parameters" => {
+                let LiteralConstant::Record(fields) = value else { return Err("CLI parameter metadata must be a record".into()); };
+                for (parameter, value) in fields.iter() {
+                    let LiteralConstant::Record(fields) = value else { return Err(format!("CLI parameter metadata `{parameter}` must be a record")); };
+                    let mut metadata = CliParameterMetadata::default();
+                    for (field, value) in fields.iter() {
+                        match (field.as_str().as_str(), value) {
+                            ("form", LiteralConstant::Str(value)) => metadata.form = Some(value.to_string()),
+                            ("min", LiteralConstant::Int(value)) => metadata.min = Some(*value),
+                            _ => return Err(format!("unknown or malformed CLI parameter metadata `{field}`")),
+                        }
+                    }
+                    parameters.insert(*parameter, metadata);
+                }
+            }
+            _ => return Err(format!("unknown CLI metadata `{name}`")),
+        }
+    }
+    Ok((metadata, parameters))
+}
+
+fn validate_form(form: &str) -> Result<(), String> {
+    let words = form.split_whitespace().collect::<Vec<_>>();
+    let valid_metavar = |word: &str| !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    let valid_option = |word: &str| word.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
+        && word.as_bytes().last().is_some_and(u8::is_ascii_alphanumeric)
+        && word.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+    let valid = if form.starts_with('-') {
+        let options = words.iter().take_while(|word| word.starts_with('-')).count();
+        options > 0 && words.len() <= options + 1 && words[..options].iter().all(|word| {
+            if let Some(long) = word.strip_prefix("--") { valid_option(long) }
+            else { word.len() == 2 && word.as_bytes()[1].is_ascii_alphabetic() }
+        }) && words.get(options).is_none_or(|word| valid_metavar(word))
+    } else {
+        words.len() == 1 && valid_metavar(words[0].trim_start_matches("..."))
+    };
+    if valid { Ok(()) } else { Err(format!("malformed CLI form `{form}`")) }
 }

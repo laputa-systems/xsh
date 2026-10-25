@@ -12,6 +12,12 @@ mod gnu;
 use gnu::GnuConfig;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum LongNames {
+    FieldOrAlias,
+    DeclaredAliases,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct OptionSpec {
     value_ty: ArgValueType,
     repeated: bool,
@@ -19,6 +25,7 @@ struct OptionSpec {
     flag: bool,
     positional: bool,
     long: Vec<String>,
+    long_names: LongNames,
     short: Vec<String>,
     form: Option<String>,
     help: Option<String>,
@@ -61,6 +68,7 @@ pub(crate) struct SignatureParameter {
     pub type_name: String,
     pub default: Option<SignatureDefault>,
     pub rest: bool,
+    pub metadata: crate::sema::cli_entry::CliParameterMetadata,
 }
 
 /// A signature-derived schema uses the same conversion, help and usage-error
@@ -71,6 +79,8 @@ pub(crate) struct PreparedSignatureCli {
     specs: BTreeMap<String, OptionSpec>,
     parameters: Vec<SignatureParameter>,
     description: String,
+    pub name: Option<String>,
+    pub help: Option<String>,
     pub span: Span,
 }
 
@@ -78,6 +88,7 @@ impl PreparedSignatureCli {
     pub(crate) fn prepare(
         parameters: Vec<SignatureParameter>,
         description: String,
+        metadata: &crate::sema::cli_entry::CliEntryMetadata,
         span: Span,
     ) -> Result<Self, RuntimeError> {
         let mut schema = RecordMap::new();
@@ -89,18 +100,23 @@ impl PreparedSignatureCli {
                 ),
                 (
                     Arc::from("positional"),
-                    Value::Bool(parameter.default.is_none()),
+                    Value::Bool(parameter.metadata.form.as_ref().map_or(parameter.default.is_none(), |form| !form.starts_with('-'))),
                 ),
                 (
                     Arc::from("required"),
                     Value::Bool(parameter.default.is_none() && !parameter.rest),
                 ),
-                (
-                    Arc::from("help"),
-                    Value::Str(signature_parameter_help(parameter).into()),
-                ),
             ]);
-            if parameter.rest {
+            if parameter.metadata.form.is_none() {
+                descriptor.insert(Arc::from("help"), Value::Str(signature_parameter_help(parameter).into()));
+            }
+            if let Some(form) = &parameter.metadata.form {
+                descriptor.insert(Arc::from("form"), Value::Str(form.clone().into()));
+            }
+            if let Some(min) = parameter.metadata.min {
+                descriptor.insert(Arc::from("min"), Value::Int(min));
+            }
+            if parameter.rest && parameter.metadata.form.is_none() {
                 descriptor.insert(
                     Arc::from("form"),
                     Value::Str(format!("...{}", parameter.name.to_ascii_uppercase()).into()),
@@ -116,19 +132,54 @@ impl PreparedSignatureCli {
         }
         let mut specs = parse_schema(schema, span)?;
         for (index, parameter) in parameters.iter().enumerate() {
-            specs
-                .get_mut(&parameter.name)
-                .expect("prepared signature has a schema entry")
-                .positional_order = Some(index);
+            let spec = specs.get_mut(&parameter.name).expect("prepared signature has a schema entry");
+            spec.positional_order = Some(index);
+            if parameter.metadata.form.is_some() { spec.long_names = LongNames::DeclaredAliases; }
         }
-        long_option_specs(&specs, span)?;
+        let long_names = long_option_specs(&specs, span)?;
         short_option_specs(&specs, span)?;
+        for (alias, owner) in &long_names {
+            if alias != owner && specs.get(alias).is_some_and(|spec| !spec.positional && spec.long_names == LongNames::FieldOrAlias) {
+                return Err(cli_error(format!("long option `--{alias}` collides with parameter `{alias}`"), span));
+            }
+        }
+        for (name, spec) in &specs {
+            if let Some(default) = &spec.default {
+                validate_signature_argument(name, spec, default, span)?;
+            }
+        }
         Ok(Self {
             specs,
             parameters,
             description,
+            name: metadata.name.clone(),
+            help: metadata.help.clone(),
             span,
         })
+    }
+
+    pub(crate) fn requires_bound_validation(&self) -> bool {
+        self.specs.values().any(|spec| spec.min.is_some())
+    }
+
+    pub(crate) fn parameter_count(&self) -> usize {
+        self.parameters.len()
+    }
+
+    pub(crate) fn validate_resolved_arguments(&self, values: &[Value], command: &str) -> Result<(), RuntimeError> {
+        for (parameter, value) in self.parameters.iter().zip(values) {
+            let spec = &self.specs[parameter.name.as_str()];
+            if spec.min.is_some() {
+                validate_signature_argument(&parameter.name, spec, value, self.span)
+                    .map_err(|error| cli_usage_error(error, self.usage(command)))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn usage(&self, command: &str) -> String {
+        let usage = usage_text(&self.specs, self.name.as_deref().unwrap_or(command));
+        if self.description.is_empty() { usage } else { format!("{}\n\n{usage}", self.description) }
     }
 
     /// The entry's arguments in parameter order, the rest parameter's items
@@ -139,12 +190,13 @@ impl PreparedSignatureCli {
         argv: &[String],
         command: &str,
     ) -> Result<Vec<Option<Value>>, RuntimeError> {
-        let usage = usage_text(&self.specs, command);
-        let usage = if self.description.is_empty() {
-            usage
-        } else {
-            format!("{}\n\n{usage}", self.description)
-        };
+        let command = self.name.as_deref().unwrap_or(command);
+        if argv.len() == 1 && matches!(argv[0].as_str(), "help" | "--help" | "-h")
+            && let Some(help) = &self.help
+        {
+            return Err(cli_help_error(help.clone(), self.span));
+        }
+        let usage = self.usage(command);
         if argv_requests_help(argv, &self.specs, ParsePolicy::Strict) {
             return Err(cli_help_error(usage, self.span));
         }
@@ -188,17 +240,13 @@ impl PreparedSignatureCli {
 /// parser of its own signature.
 #[derive(Clone, Debug)]
 pub(crate) struct SignatureCommand {
-    /// The words as typed, in kebab case. Empty for a script's only entry.
+    /// The command path as typed, in kebab case.
     pub path: Vec<String>,
     /// The first line of the entry's doc comment, for the listings.
     pub summary: String,
     pub parser: PreparedSignatureCli,
 }
 
-/// The signature CLI entries of a script. A script has either one entry with
-/// an empty path or entries with distinct paths, none of which continues
-/// another, so the words before the first that names no group select at most
-/// one entry.
 #[derive(Clone, Debug)]
 pub(crate) struct PreparedSignatureCommands {
     pub commands: Vec<SignatureCommand>,
@@ -208,56 +256,54 @@ pub(crate) struct PreparedSignatureCommands {
 }
 
 impl PreparedSignatureCommands {
-    /// Selects the entry the leading words of `argv` name and parses the
-    /// rest with it: the entry's index and its arguments.
-    ///
-    /// Words are read while they extend a declared path. `-h` or `--help`
-    /// where a word is expected is help for the group read so far; anything
-    /// else there, or nothing, is a usage error that lists the group.
     pub(crate) fn parse(
         &self,
         argv: &[String],
         command: &str,
     ) -> Result<(usize, Vec<Option<Value>>), RuntimeError> {
+        let tree = self.commands.iter().any(|entry| !entry.path.is_empty());
+        let argv = if tree && argv.first().is_some_and(|word| word == "--") { &argv[1..] } else { argv };
         let mut taken = 0;
+        let mut fallback = None;
         loop {
             let prefix = &argv[..taken];
-            if let Some(index) = self
-                .commands
-                .iter()
-                .position(|entry| entry.path.as_slice() == prefix)
+            let exact = self.commands.iter().position(|entry| entry.path.as_slice() == prefix);
+            let has_children = self.commands.iter().any(|entry| entry.path.len() > taken && entry.path.starts_with(prefix));
+            if !has_children && let Some(index) = exact {
+                let name = std::iter::once(command).chain(prefix.iter().map(String::as_str)).collect::<Vec<_>>().join(" ");
+                return self.commands[index].parser.parse(&argv[taken..], &name).map(|arguments| (index, arguments));
+            }
+            if let Some(index) = exact { fallback = Some(index); }
+            let word = argv.get(taken);
+            if word.is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
+                && let Some(help) = exact.and_then(|index| self.commands[index].parser.help.as_ref())
             {
-                let mut name = command.to_string();
-                for word in prefix {
-                    name.push(' ');
-                    name.push_str(word);
+                return Err(cli_help_error(help.clone(), self.span));
+            }
+            if word.is_some_and(|word| word == "-h" || word == "--help") {
+                return Err(cli_help_error(self.group_usage(prefix, command), self.span));
+            }
+            let continues = word.is_some_and(|word| self.commands.iter().any(|entry| {
+                entry.path.len() > taken && entry.path.starts_with(prefix) && entry.path[taken] == *word
+            }));
+            if continues { taken += 1; continue; }
+            if let Some(index) = fallback {
+                let entry = &self.commands[index];
+                let unmatched = &argv[entry.path.len()..];
+                if entry.parser.parameters.is_empty() {
+                    if unmatched.is_empty() { return Ok((index, Vec::new())); }
+                } else {
+                    return Ok((index, unmatched.iter().map(|word| Some(Value::Str(word.clone().into()))).collect()));
                 }
-                return self.commands[index]
-                    .parser
-                    .parse(&argv[taken..], &name)
-                    .map(|arguments| (index, arguments));
             }
             let listing = self.group_usage(prefix, command);
-            let Some(word) = argv.get(taken) else {
-                return Err(cli_usage_error(
-                    cli_error("missing subcommand", self.span),
-                    listing,
-                ));
+            let Some(word) = word else {
+                return Err(cli_usage_error(cli_error("missing subcommand", self.span), listing));
             };
             if word == "-h" || word == "--help" {
                 return Err(cli_help_error(listing, self.span));
             }
-            if !self.commands.iter().any(|entry| {
-                entry.path.len() > taken
-                    && entry.path[..taken] == *prefix
-                    && entry.path[taken] == *word
-            }) {
-                return Err(cli_usage_error(
-                    cli_error(format!("unknown subcommand `{word}`"), self.span),
-                    listing,
-                ));
-            }
-            taken += 1;
+            return Err(cli_usage_error(cli_error(format!("unknown subcommand `{word}`"), self.span), listing));
         }
     }
 
@@ -269,10 +315,13 @@ impl PreparedSignatureCommands {
             name.push(' ');
             name.push_str(word);
         }
+        if let Some(display) = self.commands.iter().find(|entry| entry.path == prefix).and_then(|entry| entry.parser.name.as_ref()) {
+            name.clone_from(display);
+        }
         let entries = self
             .commands
             .iter()
-            .filter(|entry| entry.path.starts_with(prefix))
+            .filter(|entry| entry.path.len() > prefix.len() && entry.path.starts_with(prefix))
             .map(|entry| (entry.path[prefix.len()..].join(" "), entry.summary.as_str()))
             .collect::<Vec<_>>();
         let width = entries
@@ -1141,6 +1190,7 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 required: false,
                 positional: false,
                 long: Vec::new(),
+                long_names: LongNames::FieldOrAlias,
                 short: Vec::new(),
                 form: None,
                 help: None,
@@ -1256,6 +1306,7 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 positional,
                 flag,
                 long,
+                long_names: LongNames::FieldOrAlias,
                 short,
                 form: form.raw,
                 help,
@@ -1924,7 +1975,8 @@ fn parse_values(
             let name = long_specs.get(&key).cloned().unwrap_or_else(|| key.clone());
             let Some(spec) = specs
                 .get(&name)
-                .filter(|spec| !spec.positional || spec.positional_order.is_none())
+                .filter(|spec| (!spec.positional || spec.positional_order.is_none())
+                    && (spec.long_names == LongNames::FieldOrAlias || spec.long.contains(&key)))
             else {
                 return Err(cli_error(
                     format!("unknown argument at argv[{index}]: --{raw_name}"),
@@ -2583,7 +2635,9 @@ fn usage_option_names(name: &str, spec: &OptionSpec) -> String {
         names.push(format!("-{short}"));
     }
     if spec.long.is_empty() {
-        names.push(format!("--{}", name.replace('_', "-")));
+        if spec.long_names == LongNames::FieldOrAlias {
+            names.push(format!("--{}", name.replace('_', "-")));
+        }
     } else {
         for long in &spec.long {
             names.push(format!("--{}", long.replace('_', "-")));
@@ -2617,6 +2671,14 @@ fn usage_metavar(name: &str, spec: &OptionSpec) -> String {
         }
     }
     name.to_ascii_uppercase()
+}
+
+fn validate_signature_argument(name: &str, spec: &OptionSpec, value: &Value, span: Span) -> Result<(), RuntimeError> {
+    match value {
+        Value::List(values) => for value in values { validate_option_value(name, spec, value, 0, span)?; },
+        value => validate_option_value(name, spec, value, 0, span)?,
+    }
+    Ok(())
 }
 
 fn validate_option_value(

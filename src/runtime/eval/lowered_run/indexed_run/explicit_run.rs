@@ -3056,6 +3056,7 @@ enum ProducerSuspension {
 pub(super) struct ExplicitFrames<'a, 'p> {
     evaluator: &'a mut Evaluator,
     program: &'p FullProgram,
+    cli_entry: Option<Box<crate::modules::cli::PreparedSignatureCli>>,
     /// Inline room for one frame: a block run for the recursive evaluator
     /// usually never calls, so it does not allocate a call stack.
     calls: smallvec::SmallVec<[CallFrame<'p>; 1]>,
@@ -3143,11 +3144,13 @@ impl Evaluator {
         function: LoweredFunctionKey,
         kind: CallableKind,
         slots: Vec<LoweredValue>,
+        cli_entry: Option<Box<crate::modules::cli::PreparedSignatureCli>>,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
         let _machine = self.enter_frame_machine(call_span)?;
         let mut frames = ExplicitFrames::new(self, program);
         frames.push_call_with_slots(function, kind, slots, call_span, None)?;
+        frames.cli_entry = cli_entry;
         frames.run()
     }
 
@@ -3767,6 +3770,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Self {
             evaluator,
             program,
+            cli_entry: None,
             calls: smallvec::SmallVec::new(),
             result: None,
             pending_error: None,
@@ -5480,6 +5484,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     /// Runs the next statement of the list on top of the work stack. The list
     /// stays in place and comes off the stack once it is exhausted.
     fn step_statements(&mut self, index: usize) -> Result<(), RuntimeError> {
+        if index == 0 && let Some(parser) = self.cli_entry.as_ref() {
+            let slots = &self.calls[index].slots[..parser.parameter_count()];
+            if !slots.iter().any(|value| matches!(value, LoweredValue::OmittedArgument)) {
+                let values = slots.iter().cloned().map(LoweredValue::into_value).collect::<Vec<_>>();
+                parser.validate_resolved_arguments(&values, &self.evaluator.command_name)?;
+                self.cli_entry = None;
+            }
+        }
         if self.pending_error.is_none() {
             self.evaluator.rearm_swallowed_interruptions();
         }

@@ -4006,7 +4006,7 @@ fn validate_unsigned_runtime_args(
                 .param_defaults
                 .get(index)
                 .and_then(Option::as_ref)
-                .is_none_or(|value| value_matches_static_type(ValueView::Lowered(value), &check.ty))
+                .is_none_or(|value| matches!(value, LoweredValue::OmittedArgument) || value_matches_static_type(ValueView::Lowered(value), &check.ty))
         };
         if !valid {
             return Err(RuntimeError::new(

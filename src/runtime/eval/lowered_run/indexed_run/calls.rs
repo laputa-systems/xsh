@@ -82,7 +82,7 @@ impl Evaluator {
         args: &[Value],
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
-        self.call_indexed_direct_omitting(function, kind, args, &[], call_span)
+        self.call_indexed_direct_omitting(function, kind, args, &[], None, call_span)
     }
 
     /// A direct call in which the arguments at the `omitted` positions were
@@ -94,11 +94,12 @@ impl Evaluator {
         kind: CallableKind,
         args: &[Value],
         omitted: &[usize],
+        cli_entry: Option<Box<crate::modules::cli::PreparedSignatureCli>>,
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
         let program = Arc::clone(self.indexed_program.as_ref()?);
         let _symbols = program.symbol_owner().enter();
-        self.call_indexed_direct_in_program(program, function, kind, args, omitted, call_span)
+        self.call_indexed_direct_in_program(program, function, kind, args, omitted, cli_entry, call_span)
             .map(|result| {
                 result.and_then(|mut value| {
                     self.register_returned_runtime_streams(&mut value, call_span)?;
@@ -114,6 +115,7 @@ impl Evaluator {
         kind: CallableKind,
         args: &[Value],
         omitted: &[usize],
+        cli_entry: Option<Box<crate::modules::cli::PreparedSignatureCli>>,
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
         let view = match program.function_view(function, kind) {
@@ -132,6 +134,7 @@ impl Evaluator {
                     dynamic.kind,
                     args,
                     omitted,
+                    cli_entry,
                     call_span,
                 );
             }
@@ -158,6 +161,7 @@ impl Evaluator {
                     function,
                     kind,
                     slots,
+                    cli_entry,
                     call_span,
                 )
                 .map(LoweredValue::into_value),

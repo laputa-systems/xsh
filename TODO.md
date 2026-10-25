@@ -22,15 +22,6 @@ Next: 35
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-10 · P3 · Replace Laputa's manual command parser
-
-- **Area:** Navigability
-- **Where:** `../laputa/pm/cli.xsh`, `../laputa/pm.xsh`
-- **Problem:** Laputa parses subcommands with eleven placeholder-and-match blocks across about 850 lines. The parser duplicates behavior provided by `cli main` entries.
-- **Recommendation:** Move the entries to `pm.xsh`, preserve the command contract, and delete the manual parser.
-- **Fix with:** none
-- **Effort:** M
-
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
 - **Area:** Performance

@@ -530,6 +530,7 @@ impl CanonicalWriter<'_> {
         self.params(def.params);
         self.effects(def.effects);
         self.ty(def.return_ty);
+        self.opt_expr(def.cli_metadata);
         self.block(def.body);
     }
 

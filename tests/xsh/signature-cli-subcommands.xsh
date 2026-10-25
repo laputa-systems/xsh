@@ -147,15 +147,15 @@ test test_subcommand_declarations_are_checked { |ctx|
   for {source, message} in [
     {
       source: """cli main build() [] {}
-cli main() [] {}
+cli main(root: Path) [] { let _ = root }
 """,
-      message: "a bare `cli main` cannot be declared beside another CLI entry",
+      message: "a CLI group entry requires no parameters or one rest List[Str]",
     },
     {
       source: """cli main() [] {}
 cli main() [] {}
 """,
-      message: "a bare `cli main` cannot be declared beside another CLI entry",
+      message: "this subcommand path is already declared",
     },
     {
       source: """cli main sync_all() [] {}
@@ -167,7 +167,7 @@ cli main sync_all() [] {}
       source: """cli main repo(name: Str) [] { let _ = name }
 cli main repo check() [] {}
 """,
-      message: "a subcommand path cannot continue another entry's path",
+      message: "a CLI group entry requires no parameters or one rest List[Str]",
     },
     {
       source: "cli main help() [] {}\n",
