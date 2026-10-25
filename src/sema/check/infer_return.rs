@@ -807,7 +807,7 @@ impl Checker {
                     }
                 } else if let Some(error) = &completion_error {
                     Self::proc_completion_envelope(candidate_ty.clone(), error)
-                } else if errors.is_empty() && !matches!(candidate_ty, Type::Result(_, _)) {
+                } else if errors.is_empty() && !matches!(candidate_ty, Type::Result(_, _) | Type::Unit) {
                     Type::Result(Box::new(candidate_ty.clone()), Box::new(Type::Unknown))
                 } else {
                     inferred_proc_return_envelope(candidate_ty.clone(), &errors)
