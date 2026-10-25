@@ -150,3 +150,26 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "3\n2\n"
 }
+
+test test_type_tested_dynamic_receiver_resolves_its_method { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""pure refine(value: Any) -> Str {
+  guard value is Str else {
+    return "unknown"
+  }
+  value.trim()
+}
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    out += [refine(" a "), refine(3)]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "a\nunknown\n"
+}

@@ -318,6 +318,10 @@ impl ProducerPrefixContext<'_> {
     }
 
     pub(in crate::runtime::eval::indexed::full) fn runtime_list_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        Ok(self.runtime_tested_read_type(decoder, instruction)?.filter(|ty| matches!(ty, Type::List(_))))
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn runtime_tested_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range || !self.evidence.range.contains(&instruction) {
             return Err(IrVerifyError::new("type-test list context disagrees with its owner range"));
         }
@@ -339,7 +343,7 @@ impl ProducerPrefixContext<'_> {
         let mut work = self.evidence.work.borrow_mut();
         let ty = decoder.store.semantic.to_type_with_budget(ty, &mut work.semantic_types)?;
         ensure_closed_type(&ty)?;
-        if matches!(ty, Type::List(_)) && super::runtime_complete_value_check_type(&ty, &mut work, 0)? { Ok(Some(ty)) } else { Ok(None) }
+        if super::runtime_complete_value_check_type(&ty, &mut work, 0)? { Ok(Some(ty)) } else { Ok(None) }
     }
 
     fn exact_runtime_kind(ty: &Type, work: &mut SchemeInstantiationBudget) -> Result<Option<super::super::LoweredType>, IrVerifyError> {
@@ -7098,6 +7102,13 @@ impl<'a> ProducerProof<'a> {
             None => self.checked_fresh_list_method_receiver(decoder, instruction, expected)?.ok_or_else(|| IrVerifyError::new(format!("ground method has no receiver contract at owner {}, instruction {instruction}, receiver {receiver}, method {name}", decoder.owner)))?,
         };
         self.expression_with_fact(decoder.owner, receiver, Arc::clone(&receiver_type), false, receiver_fact);
+        let receiver_type = if receiver_type.as_ref() == &Type::Any
+            && let Some(prefix) = &decoder.producer_prefix
+            && let Some(tested) = prefix.runtime_tested_read_type(decoder, receiver)?
+        {
+            self.budget.charge_clone(&tested)?;
+            Arc::new(tested)
+        } else { receiver_type };
         let receiver_type = if let Type::Optional(payload) = receiver_type.unvalidated()
             && self.optional_read_is_narrowed(decoder, receiver, &receiver_type)?
         {
