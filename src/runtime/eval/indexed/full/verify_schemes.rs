@@ -5959,6 +5959,18 @@ fn expected_list_item(ty: &Type, nonempty: bool) -> Option<&Type> {
             };
             Some(item)
         }
+        Type::Optional(inner) => expected_list_item(inner, nonempty),
+        Type::Union(members) => {
+            let mut found = None;
+            for member in members {
+                if let Some(item) = expected_list_item(member, nonempty)
+                    && found.replace(item).is_some()
+                {
+                    return None;
+                }
+            }
+            found
+        }
         _ => None,
     }
 }
