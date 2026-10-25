@@ -212,3 +212,81 @@ check()?
   assert output.success, output.stderr
   assert output.stdout == "ok\n"
 }
+
+test test_returned_conditional_tails_check_each_arm_against_the_result_contract { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""type R0 = {weight: Float, f1: Int, f2: Bool?}
+proc rows(pick: Bool) [] -> Result[List[R0?]] {
+  match pick {
+    false => if true {
+      [R0(f1: 8, weight: 2500.0, f2: false), R0(f1: 21, f2: null, weight: 0.1)]
+    } else {
+      [null, R0(f1: 7, f2: false, weight: -7.75)]
+    }
+    true => if false {
+      [R0(f1: 30, f2: null, weight: 1.25)]
+    } else {
+      [R0(f1: 6, f2: false, weight: 0.001), R0(f1: 10, weight: 0.5, f2: true)]
+    }
+  }
+}
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    out += [f"{rows(false)?.len()}", f"{rows(true)?.len()}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n2\n"
+}
+
+test test_returned_context_tail_checks_its_map_literal_against_the_function_contract { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""pure labels(flag: Bool) -> Map[Str?] {
+  if flag {
+    {["a"]: "x", ["b"]: null}
+  } else {
+    ctx "scope" {
+      {["c"]: "y"}
+    }
+  }
+}
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    out += [f"{labels(true).len()}", f"{labels(false).len()}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n1\n"
+}
+
+test test_comprehension_over_a_context_block_of_a_narrowed_optional_iterates_the_payload { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    let p0: Str? = if true { "ab" } else { null }
+    if p0 != null {
+      out += [f"{[x for x in ctx "" { p0 }].len()}"]
+    }
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n"
+}
