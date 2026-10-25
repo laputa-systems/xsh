@@ -1,7 +1,7 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: active 2026-10-25 on `backlog-2026-10-25`, cut from
-`master` at `da96b5274`. No default-branch merge has been performed. The working
+Status: active 2026-10-25 on `master`. The owner merged
+`backlog-2026-10-25` and requested all further work on `master`. The working
 source is **not qualified**.
 
 ## Active backlog run (2026-10-25)
@@ -10,7 +10,8 @@ The owner expanded the starting queue to all remaining tickets through XSH-34,
 except owner-deferred XSH-23. Twenty-seven tickets are closed; XSH-1, XSH-3, XSH-14 and XSH-19 remain
 active, plus deferred XSH-23. Each closure
 includes the ticket removal and accepted change in one local commit. Local
-commits are authorized; publication and default-branch integration remain separate.
+commits on `master` are authorized. The owner performed the branch integration;
+this workflow still has no push grant.
 
 Feature completeness takes priority over waiting for a quiet performance host.
 Use focused Edit and Change checks, reuse valid evidence, and batch compatible
@@ -76,6 +77,26 @@ sides; current typed PM source `c8cdb73` has its separate focused proof above.
 The repaired launcher plans with ef7, one product build and five isolated Linux
 contexts; the canonical owner alone runs the full native suite. This is the
 existing manual requalification request, with no push or default-branch merge.
+
+The ef7 bootstrap passed for `b7ee26773d6db31cc262f8600977d5be66e436e8`
+(tree `74d61784a517370eb53d2c29b68f18d6790e03ee`). The owner's branch switch
+retained that exact commit/tree, so the bootstrap remained valid. Canonical
+attempt `canonical-features-ef7-20261025` then stopped at Rust integration:
+230 passed, two failed, one filtered. The full native and documentation stages
+were not reached; this run has no acceptance credit.
+
+Repairs on `master`: `a7bf70336` replaces the daemon's descriptor-flag syscall
+with the async-safe Rustix wrapper and preserves each errno; the exact hygiene
+scan and compiler check pass. `a492b03cc` isolates callable parameter defaults
+from enclosing expression boundaries; its minimal red/green case, parameter
+control and all 19,997 recognized deep generated sentences pass without grammar
+or generator changes. The new-product daemon readiness check and sealed-source
+canonical retry remain pending.
+
+The isolated repair trees `.work/wt/qualify-daemon` and
+`.work/wt/grammar-deep` are detached at the failed b7 source. Their accepted
+patches are integrated, but their dirty snapshots are preserved until applicable
+proof is complete. All further main-checkout work stays on `master`.
 
 | Closed ticket | Commit | Decisive evidence |
 |---|---|---|
