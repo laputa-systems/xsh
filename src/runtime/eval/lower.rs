@@ -5477,6 +5477,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                    if let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind
+                        && facts.expression_types().contains_key(&base)
+                    {
+                        let binding = self.expression_binding(base)?;
+                        let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
+                        let Some(Type::Module(module)) = facts.expression_types().get(&base)?.closed_ground_type() else { return self.block_scheme_lowering_expr(callee); };
+                        if !declaration.global || !matches!(declaration.kind, BindingKind::Module(_)) || !module.exact
+                            || module.get(&name)?.static_callable_value_type().is_none()
+                            || !visited.insert(base)
+                        { return self.block_scheme_lowering_expr(callee); }
+                    }
                     let function = self.function_index().checked_target_key(target)?;
                     let scheme = self.checked_function_scheme(function);
                     let arguments = if scheme.as_ref().is_none_or(|scheme| scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()) {

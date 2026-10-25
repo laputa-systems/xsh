@@ -113,15 +113,6 @@ Next: 30
 - **Fix with:** api-surface-and-module-boundaries
 - **Effort:** L
 
-### XSH-24 · P3 · Close the parked verifier narrowing and typing gaps
-
-- **Area:** Types
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes/`, `tests/xsh/signature-cli.xsh`, `tests/xsh/proof-provenance.xsh`, `tests/xsh/guarded-control-proofs.xsh`, `tests/xsh/pattern-tests.xsh`, `tests/xsh/wait-until.xsh`, `tests/xsh/default-parameters.xsh`
-- **Problem:** The checker accepts these programs and the indexed-IR verifier rejects them. Witnesses: `cli main(...operands: List[Str]) [] { print ${operands.join(",")} }` reaches the verifier as `List(Any)`; a type-test proof joined across if/else branches (`if c { assert a } else { assert a }` then a guarded read); top-level `for raw in xs { continue when raw == null; let s: Str = raw }`; top-level `let outcome = Err("failed")`; `try { wait until false within 50ms backoff 10ms..20ms }`; top-level `let shared = combine` then `shared.call(left: 9)`; `.call` on an erased `Pure` handle typed `Any` instead of `Result[Any]`; a generic body calling an `export let` alias (lowering blocker).
-- **Recommendation:** Give each a verified link to the evidence the checker already holds, as the earlier narrowing repairs did; never admit unauthenticated IR.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-25 · P3 · Decide the error effect of a stream parameter
 
 - **Area:** Errors

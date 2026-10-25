@@ -504,3 +504,23 @@ print ${(entries(5, label: "stream") |> first()) ?? "missing"} ${(entries(6) |> 
 5 stream 6 default
 """
 }
+
+test test_default_parameters_exported_alias_is_callable_inside_a_generic_body { |ctx|
+  let root = test.temp_dir(ctx, name: "default-alias-module")?
+  fp"{root}/defaults.xsh".write(r"""##! Callable alias defaults.
+pure combine(left: Int = 1, right: Int = 2) -> Int { left + right }
+## Combines two numbers with defaults.
+export let shared = combine
+""")
+  let output = test.expect(
+    ctx,
+    r"""use defaults
+pure wrapper(value) { {value, number: defaults.shared(left: 9)} }
+let answer = wrapper("ready")
+print $answer.value $answer.number
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert output.stdout == "ready 11\n"
+}

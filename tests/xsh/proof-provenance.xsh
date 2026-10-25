@@ -303,3 +303,39 @@ test test_record_projection_type_and_presence_aliases {
   let value = shape.payload.require(Str)?
   assert value == "present"
 }
+
+test test_record_projection_join_preserves_the_common_type_test { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Item = {value: Any}
+proc select(item: Item, choose: Bool) [error] -> Str {
+  let text = item.value is Str
+  if choose { assert text } else { assert text }
+  item.value
+}
+print ${select({value: "left"}, true)} ${select({value: "right"}, false)}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "left right\n"
+  for source in [
+    r"""type Item = {value: Any}
+proc select(item: Item, choose: Bool) [error] -> Str {
+  let text = item.value is Str
+  if choose { assert text } else { let _ = 1 }
+  item.value
+}
+""",
+    r"""type Item = {value: Any, other: Any}
+proc select(item: Item, choose: Bool) [error] -> Str {
+  let text = item.value is Str
+  let other_text = item.other is Str
+  if choose { assert text } else { assert other_text }
+  item.value
+}
+""",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert !rejected.success
+  }
+}

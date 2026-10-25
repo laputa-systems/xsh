@@ -259,6 +259,14 @@ impl ProducerPrefixContext<'_> {
                 _ => return Ok(None),
             };
             let binding = evidence.binding(decoder.store, owner, instruction, slot)?;
+            if let Some(pattern) = evidence.pattern_sources.get(&binding) {
+                self.evidence.work.borrow_mut().charge(1)?;
+                if !evidence.writers.get(&binding).is_none_or(Vec::is_empty)
+                    || !matches!(source.checked_pattern_view(pattern.pattern)?, schema::PatternView::Bind { slot: bound } if bound == slot)
+                { return Ok(None); }
+                instruction = pattern.source;
+                continue;
+            }
             if let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding {
                 let writers = evidence.writers.get(&binding).map(Vec::as_slice).unwrap_or(&[]);
                 self.evidence.work.borrow_mut().charge(writers.len())?;
@@ -1076,10 +1084,9 @@ impl ProducerOwner {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError> {
         let local_declaration = if let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding {
             charge(1)?;
-            super::super::driver_owner_index(decoder.owner).is_none()
-                && declared_slot == slot
+            declared_slot == slot
                 && self.writers.get(&binding).is_some_and(|writers| writers.as_slice() == [declaration])
-                && matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { slot: written, .. } if written == slot)
+                && matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { slot: written, .. } | schema::StmtView::For { slot: written, .. } if written == slot)
                 && !decoder.is_parameter_or_capture_slot(slot, &mut |amount| charge(amount))?
         } else { false };
         if !local_declaration && ((!self.pattern_sources.contains_key(&binding) && !matches!(binding, ProducerBinding::HeaderParameter(_)))
@@ -1223,6 +1230,40 @@ impl ProducerOwner {
         Ok(true)
     }
 
+    fn joined_assertion_condition(&self, decoder: &FullDecoder<'_>, instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        let mut blocks = Vec::new();
+        match decoder.statement_view(instruction)? {
+            schema::StmtView::If { branches, else_body: Some(otherwise) } => {
+                for branch in branches { charge(1)?; blocks.push(branch?.1.block_identity().index()); }
+                blocks.push(otherwise.block_identity().index());
+            }
+            schema::StmtView::IfBool { branches, else_body: Some(otherwise) } => {
+                for branch in branches { charge(1)?; blocks.push(branch?.1.block_identity().index()); }
+                blocks.push(otherwise.block_identity().index());
+            }
+            _ => return Ok(None),
+        }
+        let mut common = None;
+        for block in blocks {
+            charge(1)?;
+            if !self.block_can_complete[&block] { continue; }
+            let Some(&tail) = self.block_statements[&block].last() else { return Ok(None); };
+            let schema::StmtView::Assert { value, .. } = decoder.statement_view(tail)? else { return Ok(None); };
+            let condition = value.raw() as usize;
+            let schema::ExprView::Param(slot) = decoder.expression_view(condition)? else { return Ok(None); };
+            let binding = self.binding(decoder.store, decoder.owner, condition, slot)?;
+            if !self.binding_path_is_snapshot(decoder, binding, slot, charge)? { return Ok(None); }
+            match common {
+                Some((previous, _, _)) if previous != binding => return Ok(None),
+                Some(_) => {},
+                None => common = Some((binding, condition, slot)),
+            }
+        }
+        Ok(common.map(|(_, condition, _)| condition))
+    }
+
     fn guarded_binding_read_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize, binding: ProducerBinding,
         mut proves: impl FnMut(BindingReadGuard<'_>, &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
         mut active: Option<&mut dyn FnMut(usize, usize, &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>>,
@@ -1295,6 +1336,9 @@ impl ProducerOwner {
                             if proves(BindingReadGuard::OptionalPresence { source: value.raw() as usize, anchor: at, roots: &self.block_statements[&block][index + 1..position] }, charge)? { return Ok(true); }
                         }
                         _ => {}
+                    }
+                    if let Some(condition) = self.joined_assertion_condition(decoder, preceding, charge)? {
+                        conditions.push((condition, true, false, 0));
                     }
                     for (condition, when_true, is_boolean, branch_index) in conditions {
                         charge(1)?;
@@ -3305,6 +3349,19 @@ impl<'a> ProducerProof<'a> {
         Ok(types)
     }
 
+    fn storage_initializer_type(&mut self, decoder: &FullDecoder<'a>, value: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let ty = self.need_context(decoder, value)?;
+        if matches!(decoder.expression_view(value)?, schema::ExprView::Err { .. } | schema::ExprView::Fail { .. })
+            && let Some(ty) = ty.as_ref()
+            && let Type::Result(ok, error) = ty.as_ref()
+            && **ok == Type::Unknown
+        {
+            self.budget.charge_clone(error)?;
+            return Ok(Some(Arc::new(Type::Result(Box::new(Type::Any), error.clone()))));
+        }
+        Ok(ty)
+    }
+
     fn driver_binding_type(&mut self, binding: u32) -> Result<Option<Arc<Type>>, IrVerifyError> {
         self.budget.charge(1)?;
         let identity = self.store.binding_identities.get(binding as usize).ok_or_else(|| IrVerifyError::new("driver value binding identity is invalid"))?;
@@ -3329,7 +3386,7 @@ impl<'a> ProducerProof<'a> {
                 let value = payload.raw()? as usize;
                 match annotation {
                     Some(annotation) => self.contract_type(annotation.id).map(Some),
-                    None => self.need_context(&decoder, value),
+                    None => self.storage_initializer_type(&decoder, value),
                 }
             }
             super::super::FullDriverTag::LetRecord => Ok(self.driver_output_types(step)?.get(&binding).cloned()),
@@ -3638,10 +3695,8 @@ impl<'a> ProducerProof<'a> {
                 }
             }
             schema::ExprView::ContextScope { mut body, .. } => {
-                let block = body.block_identity();
                 let payload = match decoder.derive_checked_block_tail_expression(&mut body)? {
                     Some(tail) => match self.need_context(decoder, tail)? { Some(payload) => payload, None => return Ok(None) },
-                    None if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? => return Ok(None),
                     None => Arc::new(Type::Unit),
                 };
                 self.budget.charge_clone(&payload)?;
@@ -5999,7 +6054,7 @@ impl<'a> ProducerProof<'a> {
                             }
                             None => return Err(IrVerifyError::new("checked value input has no producer contract")),
                         };
-                        let optional_payload = !runtime_complete && Self::checked_optional_payload_source(&actual, &checked);
+                        let optional_payload = Self::checked_optional_payload_source(&actual, &checked);
                         if optional_payload {
                             let prefix = decoder.producer_prefix.as_ref()
                                 .ok_or_else(|| IrVerifyError::new("checked optional payload has no verified owner prefix"))?;
@@ -8400,7 +8455,7 @@ impl<'a> ProducerProof<'a> {
                 let value = payload.raw()? as usize;
                 root_contract = match annotation {
                     Some(annotation) => self.contract_type(annotation.id)?,
-                    None => match self.need_context(&decoder, value)? {
+                    None => match self.storage_initializer_type(&decoder, value)? {
                         Some(context) => context,
                         None if relation == StorageContractRelation::ReadCompatible => Arc::clone(&expected),
                         None => return Err(IrVerifyError::new("storage initializer has no monomorphic contract")),

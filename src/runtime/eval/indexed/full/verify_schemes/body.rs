@@ -7842,6 +7842,35 @@ assert "file" in merged(KINDS, {"link",})
         assert_eq!(failure.message, "membership operands have no checked domain");
     }
 
+    #[test]
+    fn joined_assertions_require_the_same_authenticated_boolean_binding() {
+        let program = build(r#"
+proc narrow(value: Str?, unrelated: Bool, choose: Bool) [error] -> Str {
+    let available = value != null
+    if choose { assert available } else { assert available }
+    value
+}
+test joined { assert narrow("ready", true, false) == "ready" }
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "narrow").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut conditions = Vec::new();
+        for instruction in program.store.function_instruction_range(owner).unwrap() {
+            if program.store.tags[instruction] != FullTag::StmtAssert { continue; }
+            let schema::StmtView::Assert { value, .. } = decoder.statement_view(instruction).unwrap() else { unreachable!() };
+            assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(_)));
+            conditions.push(program.store.data[value.raw() as usize].range().start as usize);
+        }
+        assert_eq!(conditions.len(), 2);
+        let mut forged = program.clone();
+        forged.store.extra[conditions[1]] = 1;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "ground producer value disagrees with its checked contract");
+        forged.store.extra[conditions[0]] = 1;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "ground producer value disagrees with its checked contract");
+    }
 }
 
 #[cfg(test)]

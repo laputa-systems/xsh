@@ -4641,7 +4641,10 @@ impl FullBuilder {
                     }
                     None => match body.param_kinds[index] {
                         LoweredParamKind::Typed(kind) => {
-                            Some(self.intern_lowered_type(kind)?)
+                            Some(match &body.param_checks[index] {
+                                Some(check) => self.intern_checked_type(&executable_type(&check.ty))?,
+                                None => self.intern_lowered_type(kind)?,
+                            })
                         }
                         LoweredParamKind::Erased => None,
                     },
@@ -7658,7 +7661,7 @@ impl<'a> FullDecoder<'a> {
                     .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
                     as usize;
                 let expected = self.store.semantic.to_type(signature)?;
-                self.immutable_local_callable_matches_type(slot, &expected)?;
+                self.immutable_callable_matches_type(callee, slot, &expected)?;
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -10389,7 +10392,7 @@ impl<'a> FullDecoder<'a> {
                     )
                 })
             {
-                return self.immutable_local_callable_matches_type(slot, expected);
+                return self.immutable_callable_matches_type(instruction, slot, expected);
             }
             return Err(IrVerifyError::new(
                 "checked callable expression slot disagrees with its expected type",
@@ -10441,7 +10444,7 @@ impl<'a> FullDecoder<'a> {
                         )
                     })
                 {
-                    self.immutable_local_callable_matches_type(slot, expected)
+                    self.immutable_callable_matches_type(instruction, slot, expected)
                 } else {
                     Err(IrVerifyError::new(
                         "checked callable expression slot disagrees with its expected type",
@@ -10865,11 +10868,15 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    fn immutable_local_callable_matches_type(
+    fn immutable_callable_matches_type(
         &self,
+        instruction: usize,
         slot: usize,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
+        if self.producer_prefix.is_some() {
+            return self.function_reference_matches_callable(instruction, expected);
+        }
         let mut slot = slot;
         let mut visited = BTreeSet::new();
         loop {
@@ -12470,7 +12477,7 @@ impl<'a> FullDecoder<'a> {
                     Ok(Some(actual)) => actual,
                     Ok(None) => {
                         if stream_read(instruction, slot, &ty)? { return Ok(()); }
-                        return self.immutable_local_callable_matches_type(slot, &ty);
+                        return self.immutable_callable_matches_type(instruction, slot, &ty);
                     },
                     Err(error)
                         if error
@@ -12478,7 +12485,7 @@ impl<'a> FullDecoder<'a> {
                             .starts_with("typed callee slot has no checked type fact:") =>
                     {
                         if stream_read(instruction, slot, &ty)? { return Ok(()); }
-                        return self.immutable_local_callable_matches_type(slot, &ty);
+                        return self.immutable_callable_matches_type(instruction, slot, &ty);
                     }
                     Err(error) => return Err(error),
                 };
@@ -12512,7 +12519,7 @@ impl<'a> FullDecoder<'a> {
                         (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
                     )
                 {
-                    return self.immutable_local_callable_matches_type(slot, &ty);
+                    return self.immutable_callable_matches_type(instruction, slot, &ty);
                 } else {
                     return Err(IrVerifyError::new(
                         "checked expression fact disagrees with its structural producer",
