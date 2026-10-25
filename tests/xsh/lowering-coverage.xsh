@@ -199,7 +199,7 @@ test test_signal_hooks_read_top_level_stream_run_bindings { |ctx|
   let output = test.expect(
     ctx,
     r"""let rows = run.stream --text printf "a\nb\n" ?
-on USR1 [] {
+on USR1 [process] {
   print rows.collect().len()
   exit 0
 }
