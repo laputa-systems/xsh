@@ -3355,6 +3355,21 @@ impl<'a> ProducerProof<'a> {
         })
     }
 
+    fn skips_derived_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type, returned: bool) -> Result<bool, IrVerifyError> {
+        if !self.pushes_expected_to_results(decoder, instruction, expected, true)? { return Ok(false); }
+        if !returned { return Ok(true); }
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::ValueBlock { mut body, .. } | schema::ExprView::ErrorContext { mut body, .. } => {
+                let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? else { return Ok(false) };
+                Ok(matches!(decoder.expression_view(tail)?,
+                    schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap
+                    | schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. }
+                    | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. }))
+            }
+            _ => Ok(true),
+        }
+    }
+
     fn has_underivable_result(&mut self, decoder: &FullDecoder<'a>, root: usize) -> Result<bool, IrVerifyError> {
         let mut pending = vec![root];
         while let Some(instruction) = pending.pop() {
@@ -4938,7 +4953,7 @@ impl<'a> ProducerProof<'a> {
                 checked_expression_type_id(self.store, instruction as u32)
                     .map(|ty| self.contract_type(ty)).transpose()?
             }
-            None if !returned && self.pushes_expected_to_results(&decoder, instruction, &expected, true)? => None,
+            None if self.skips_derived_type(&decoder, instruction, &expected, returned)? => None,
             None => self.declared_type(&decoder, instruction)?,
         };
         if (matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _)) || matches!(expected.as_ref(), Type::Record(_)) && actual.is_none())
@@ -7735,7 +7750,17 @@ impl<'a> ProducerProof<'a> {
 
     fn comprehension_source_type(&mut self, decoder: &FullDecoder<'a>, iter: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         match self.need_context(decoder, iter)? {
-            Some(source) => Ok(Some(source)),
+            Some(source) => match source.unvalidated() {
+                Type::Optional(payload) if payload.iteration_item_type().is_some()
+                    && self.pushes_expected_to_results(decoder, iter, payload, true)? =>
+                {
+                    self.budget.charge_clone(payload)?;
+                    let payload = Arc::new((**payload).clone());
+                    self.expression(decoder.owner, iter, Arc::clone(&payload), false);
+                    Ok(Some(payload))
+                }
+                _ => Ok(Some(source)),
+            },
             None => self.appended_comprehension_source(decoder, iter),
         }
     }
