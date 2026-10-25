@@ -77,15 +77,6 @@ Next: 30
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-16 · P3 · Make Laputa Linux package tests hermetic
-
-- **Area:** Tests
-- **Where:** `../laputa/packages/linux/tests/main.xsh`
-- **Problem:** Seven Laputa tests require writes to `/var/cache/laputa/linux-kbuild`. They fail under the unprivileged x86-64 Alpine test environment.
-- **Recommendation:** Route the cache through a test-owned root or fixture and rerun the seven selectors without host privileges.
-- **Fix with:** isolate-effects
-- **Effort:** S
-
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
