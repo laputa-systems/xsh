@@ -210,20 +210,21 @@ fallback
 fallback
 """
 
-  for body in [
-    "if flag { null } else { 1 }",
-    "if flag { 1 } else { null }",
+  for case in [
+    {body: "if flag { null } else { 1 }", stdout: "0 1\n"},
+    {body: "if flag { 1 } else { null }", stdout: "1 0\n"},
   ] {
-    let rejected = test.run_script(
+    let joined = test.run_script(
       ctx,
-      """pure incompatible(flag: Bool) -> Int? {
-  let selected = """ + body + """
+      r"""pure joined(flag: Bool) -> Int? {
+  let selected = """ + case.body + r"""
   selected
 }
+print ${joined(true) ?? 0} ${joined(false) ?? 0}
 """,
     )?
-    assert ! rejected.success
-    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+    assert joined.success, joined.stderr
+    assert joined.stdout == case.stdout, joined.stdout
   }
 
   let strict = test.run_script(
