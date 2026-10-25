@@ -10,11 +10,11 @@ The bounded queue is the 27 tickets in `TODO.md` at `da96b5274`. New discoveries
 remain outside this run. Each closure includes the ticket removal and its
 accepted change in one local commit. The owner authorized unattended execution,
 then local integration after backlog completion, followed by campaign work.
-Sixteen starting tickets are closed; eleven remain open with the blockers below.
-Four discoveries, XSH-30 through XSH-33, are saved for a later run. Their
-priorities are assumed from the ticket policy. No new discovery was executed.
+Seventeen starting tickets are closed; ten remain open with the blockers below.
+Five discoveries, XSH-30 through XSH-34, are saved for a later run. Their
+priorities are assumed from the ticket policy. No newly filed defect was implemented.
 
-Accepted backlog checkpoint: `291713253`, with focused proof reused where the
+Accepted backlog checkpoint: `79f420b64`, with focused proof reused where the
 relevant code and inputs remain unchanged. This is not combined qualification.
 
 | Closed ticket | Commit | Decisive evidence |
@@ -35,6 +35,7 @@ relevant code and inputs remain unchanged. This is not combined qualification.
 | XSH-27 | `0186d37b9` | All nine projection tests pass; cold controls cover both module origins, get/index selection and forged keys. |
 | XSH-20 | `09c95c896` | Mdev 13 native passes, daemon 8/8 and byte environments 2/2; offline Docker covers privileged device creation and foreground reload/termination. |
 | XSH-8 | `291713253` | Filesystem 47/47, rooted report readers 18/18, source 4/4, collection 7/7, API 67/67; both migrated Laputa files check and lower. |
+| XSH-25 | `79f420b64` | Owner accepted error for opaque stream pulls; 13 checker tests, one verifier control, 12 native cases and two frame-route replays pass; make docs succeeds. |
 
 XSH-8 and XSH-16 need source commits in Laputa and queue-removal commits here
 because the source and ticket belong to different Git repositories. Neither
@@ -80,8 +81,9 @@ Independent review found a read-permission regression in the new SGID helper;
 the correction passes its mode controls, two cleanup controls and the actual
 native selector under umask 0400, which failed before the fix. The candidate is
 committed as `6bc0df51d` on `backlog-park-xsht-29`, outside integration; XSH-29
-remains open. The normal verification products still contain that candidate and
-must not be treated as products qualified from the integration branch.
+remains open. Its non-desugar evidence predates XSH-25; reassess affected proof
+when combining them. Current verification and release products were rebuilt
+for XSH-25 without the parked candidates. They have no full qualification credit.
 
 The owner approved replacement image ef7c796 after the historical local image
 became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
@@ -102,8 +104,7 @@ process-stream case loses its callable initializer proof, and formal inventory
 still names the removed LoweredFunctionKind owner. These remain outside the
 bounded queue and are not reasons to weaken tests.
 
-XSH-4 and XSH-7 remain parked on draft design decisions. XSH-25 requires the
-owner's opaque-stream error-effect decision. XSH-10 is parked because current
+XSH-4 and XSH-7 remain parked on draft design decisions. XSH-10 is parked because current
 `cli main` declarations cannot preserve its short-option aliases and required
 option usage contract; new declaration syntax needs an owner decision. No parser
 replacement or CLI contract change has been accepted.
@@ -113,11 +114,15 @@ Commit `2ef2c361b` refreshes its one-way tool binding while preserving the old
 resource and privilege plan. All 52 launcher controls pass, including real
 detached-worktree admission and wrong-source rejection.
 
-Baseline qualification follows the compiler/tooling repairs on one stable tree.
-It also requires XSH-25's owner decision: a current exact run of
-`tests/xsh/yield-delegation.xsh::test_yield_delegation_aliases_share_one_cursor`
-fails with the expected-pass test's indexed effect-contract rejection. A full
-native gate cannot qualify this source while that known conflict remains.
+The owner accepted the recommended XSH-25 rule: opaque stream pulls require
+`error`. Delegation now uses iteration's propagation check. Declared and inferred
+effects, early close, cursor sharing and late errors pass their native controls.
+Lists and known infallible producers remain accepted. The existing RelPath
+fixture also needed explicit Error validation after Pure.call, whose result is
+Any; its output assertions remain intact and pass. XSH-34 records the remaining
+checker diagnostic gap, which reproduced in pre-change products.
+
+Baseline qualification follows the remaining compiler/tooling repairs on one stable tree.
 XSH-1 requires scheduler qualification; XSH-19 follows completed G1 acceptance;
 XSH-28 and XSH-23 require the post-inference baseline. Historical passes below
 do not qualify this source. Timing gates wait for a confirmed quiet host; the
@@ -172,8 +177,8 @@ git -C /home/josh/d/laputa-systems/xsh status --short --branch && git log --onel
 ```
 
 Read the active backlog section and `TODO.md` before dispatch. Reuse completed
-focused evidence; do not replay closed tickets. XSH-25 needs the owner's stream
-effect decision before full native qualification. Resume XSH-29 from
+focused evidence; do not replay closed tickets. XSH-25's decision and focused
+implementation are complete. Resume XSH-29 from
 `backlog-park-xsht-29` only for a quiet-host parity comparison or a demonstrated
 deadline repair. Resume XSH-14 from `backlog-lane-diagnostics` only when its
 guarded timing runner can collect valid samples. Neither candidate is integrated.
