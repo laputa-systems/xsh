@@ -44,6 +44,7 @@ mod scheme_values;
 
 const SCHEME_TYPE_WORK_PER_NODE: usize = 8;
 const SCHEME_TYPE_WORK_BASE: usize = 128;
+const PRODUCER_WORK_PER_INSTRUCTION: usize = 32;
 
 #[derive(Clone)]
 pub(super) struct SchemeScope {
@@ -212,7 +213,7 @@ impl SchemeInstantiationBudget {
     pub(super) fn new(store: &FullStore) -> Self {
         Self {
             remaining: scheme_type_work_limit(store)
-                .saturating_add(store.tags.len().saturating_mul(8))
+                .saturating_add(store.tags.len().saturating_mul(PRODUCER_WORK_PER_INSTRUCTION))
                 .saturating_add(store.extra.len()),
             semantic_types: TypeMaterializationBudget::default(),
         }
