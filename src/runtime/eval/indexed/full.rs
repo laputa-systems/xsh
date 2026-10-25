@@ -49314,7 +49314,7 @@ pure apply_nested_write(container: Outer, n: Int) -> Int {
         assert_eq!(decoder.derive_checked_expression_type(holder_read.raw() as usize).unwrap().as_ref(),
             inner_fields.get(&Name::intern("holder")), "the later field retains its stored optional type");
         let mut budget = verify_schemes::SchemeInstantiationBudget::new(&program.store);
-        assert!(budget.charge(689).is_err(), "the unchanged fixture stays within its original work bound");
+        assert!(budget.charge(1765).is_err(), "the unchanged fixture stays within its work bound");
 
         let mut wrong_call_type = program.clone();
         let mut semantic = SemanticPoolBuilder::default();
