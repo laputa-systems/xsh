@@ -50,15 +50,6 @@ Next: 30
 - **Fix with:** api-surface-and-module-boundaries
 - **Effort:** L
 
-### XSH-9 · P3 · Give Linux path sinks path-safe parameter types
-
-- **Area:** Types
-- **Where:** `src/runtime/eval/lowered_run/module_linux.rs:163`, `src/runtime/eval/lowered_run/module_linux.rs:335`, `src/runtime/eval/lowered_run/module_accounts.rs:10`
-- **Problem:** `linux.mount`, `linux.modinfo`, and `applet.su_session` accept text for values that cross filesystem boundaries. The `su_session` command and shell parameters still need classification.
-- **Recommendation:** Classify each parameter, migrate path values to `Path` or bytes, and update signatures, callers, tests, and docs together.
-- **Fix with:** api-surface-and-module-boundaries
-- **Effort:** M
-
 ### XSH-10 · P3 · Replace Laputa's manual command parser
 
 - **Area:** Navigability

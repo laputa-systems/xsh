@@ -6,8 +6,8 @@ use super::{
     lowered_path_arg, lowered_path_list, lowered_record_arg, lowered_result_ok,
     lowered_runtime_result, lowered_runtime_value, lowered_str_arg_owned,
     lowered_stream_from_values, lowered_value_from_runtime_any, module_error, module_io_error,
-    lowered_bytes_arg_or_empty,
-    path_value_from_pathbuf, process_module, unix_require_arg, validate_linux_file_attrs_flags,
+    lowered_bytes_arg_or_empty, path_value_from_pathbuf, pathbuf_from_path_value,
+    process_module, unix_require_arg, validate_linux_file_attrs_flags,
     validate_linux_file_version, validate_linux_sysctl_key, validate_mknod_args,
 };
 
@@ -159,9 +159,21 @@ macro_rules! with_linux_call_rows {
                     linux_module::blkid(&host_path, $span)
                 }
                 callable; RuntimeOp::LinuxModinfo => {
-                    let name =
-                        lowered_str_arg_owned($values.first().cloned(), "", "linux.modinfo", $span)?;
-                    linux_module::modinfo(&name, $span)
+                    match unix_require_arg($values.first().cloned(), "linux.modinfo", $span)? {
+                        LoweredValue::Path(path) => {
+                            let host_path = $this.host_path(&path);
+                            linux_module::modinfo_path(&host_path, $span)
+                        }
+                        value => {
+                            let name = lowered_str_arg_owned(
+                                Some(value),
+                                "",
+                                "linux.modinfo",
+                                $span,
+                            )?;
+                            linux_module::modinfo(&name, $span)
+                        }
+                    }
                 }
                 callable; RuntimeOp::LinuxPartitionTable => {
                     let device = lowered_path_arg(
@@ -332,7 +344,7 @@ macro_rules! with_linux_call_rows {
                 }
                 callable; RuntimeOp::LinuxMount => {
                     let source =
-                        lowered_str_arg_owned($values.first().cloned(), "", "linux.mount", $span)?;
+                        lowered_bytes_arg_or_empty($values.first().cloned(), "linux.mount", $span)?;
                     let target = lowered_path_arg(
                         unix_require_arg($values.get(1).cloned(), "linux.mount", $span)?,
                         "linux.mount",
@@ -521,7 +533,7 @@ macro_rules! with_linux_call_rows {
             }
             RuntimeOp::LinuxMount => {
                 let source =
-                    lowered_str_arg_owned($values.first().cloned(), "", "linux.mount", $span)?;
+                    lowered_bytes_arg_or_empty($values.first().cloned(), "linux.mount", $span)?;
                 let target = lowered_path_arg(
                     unix_require_arg($values.get(1).cloned(), "linux.mount", $span)?,
                     "linux.mount",
@@ -531,14 +543,14 @@ macro_rules! with_linux_call_rows {
                     lowered_str_arg_owned($values.get(2).cloned(), "", "linux.mount", $span)?;
                 let options =
                     lowered_optional_str_list($values.get(3).cloned(), "linux.mount", $span)?;
-                $this.linux_fake_log(
+                $this.linux_fake_log_with_bytes(
                     "mount",
                     &[
-                        ("source", source),
                         ("target", target.display()),
                         ("fstype", fstype),
                         ("options", options.join(",")),
                     ],
+                    &[("source", &source)],
                     $span,
                 )?;
                 Ok(Value::ok(Value::Unit))
@@ -1043,16 +1055,36 @@ macro_rules! with_linux_call_rows {
                 ]))))
             }
             RuntimeOp::LinuxModinfo => {
-                let name =
-                    lowered_str_arg_owned($values.first().cloned(), "", "linux.modinfo", $span)?;
-                $this.linux_fake_log("modinfo", &[("name", name.clone())], $span)?;
+                let (name, filename) = match unix_require_arg(
+                    $values.first().cloned(),
+                    "linux.modinfo",
+                    $span,
+                )? {
+                    LoweredValue::Path(path) => {
+                        let filename = pathbuf_from_path_value(&path);
+                        $this.linux_fake_log_with_bytes(
+                            "modinfo",
+                            &[],
+                            &[("path", &path.bytes)],
+                            $span,
+                        )?;
+                        ("demo".to_string(), filename)
+                    }
+                    value => {
+                        let name =
+                            lowered_str_arg_owned(Some(value), "", "linux.modinfo", $span)?;
+                        $this.linux_fake_log("modinfo", &[("name", name.clone())], $span)?;
+                        (
+                            name,
+                            PathBuf::from("/lib/modules/dry-run/demo.ko"),
+                        )
+                    }
+                };
                 Ok(Value::ok(Value::Record(RecordMap::from([
                     (Arc::from("name"), Value::Str(name.into())),
                     (
                         Arc::from("filename"),
-                        Value::Path(path_value_from_pathbuf(PathBuf::from(
-                            "/lib/modules/dry-run/demo.ko",
-                        ))?),
+                        Value::Path(path_value_from_pathbuf(filename)?),
                     ),
                     (
                         Arc::from("description"),

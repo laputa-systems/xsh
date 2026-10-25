@@ -159,7 +159,9 @@ export proc modinfo(raw: List[Str]) {
   if names.is_empty() { gnu.missing_operand() }
   var ok = true
   for name in names {
-    match linux.modinfo(name) {
+    let candidate = fp"{name}"
+    let result = if candidate.exists()? { linux.modinfo(candidate) } else { linux.modinfo(name) }
+    match result {
       Ok(info) => {
         if selected == "filename" { gnu.write_text(f"{info.filename}{delimiter}") } else if selected == "name" { gnu.write_text(f"{info.name}{delimiter}") } else {
           if selected == "" { gnu.write_text(f"filename:       {info.filename}{delimiter}") }

@@ -281,7 +281,7 @@ fn linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup() {
     let source = format!(
         "\
 let target = Path({})
-  linux.mount(\"none\", target, fstype: \"tmpfs\", options: [\"size=4m\", \"nosuid\", \"nodev\"])?
+  linux.mount(b\"none\", target, fstype: \"tmpfs\", options: [\"size=4m\", \"nosuid\", \"nodev\"])?
   let mounted = linux.is_mountpoint(target)?
   let usage = linux.disk_usage(target)?.collect()
   print ${{mounted}} ${{usage[0].mount == target.display()}} ${{usage[0].fstype == \"tmpfs\"}} ${{usage[0].total > 0}}
@@ -347,7 +347,7 @@ fn linux_priv_mount_and_switch_root_fail_within_private_namespace() {
         "\
 let target = Path({})
 let missing_root = Path({})
-  match linux.mount(\"none\", target, fstype: \"xsh_missing_fs\") {{
+  match linux.mount(b\"none\", target, fstype: \"xsh_missing_fs\") {{
     Err(error) => test.error_kind(error, \"linux-mount\")?
     Ok(_) => test.fail(\"mount with unknown filesystem succeeded\")?
   }}

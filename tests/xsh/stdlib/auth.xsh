@@ -37,10 +37,17 @@ test test_applet_auth_helpers_and_sessions { |ctx|
   let home = fp"{root}/home"
   home.mkdir()
   let shell = fp"{root}/session-shell"
+  let raw_shell = Path.parse_bytes(bytes.concat([root.bytes(), b"/session\xff-shell"]))?
 
   shell.write(
     """#!/bin/sh
 exit 17
+""",
+    mode: 0o755,
+  )
+  raw_shell.write(
+    """#!/bin/sh
+exit 19
 """,
     mode: 0o755,
   )
@@ -65,8 +72,10 @@ exit 17
   assert applet.current_exe()?.exists()?, "current_exe path does not exist"
   assert applet.login_session(session_user, false, "")? == 17
   assert applet.sulogin_session(session_user)? == 17
-  assert applet.su_session(session_user, false, false, shell.display(), "", [])? == 17
-  assert applet.su_session(session_user, false, false, "/bin/sh", "exit 19", [])? == 19
+  assert applet.su_session(session_user, false, false, shell, "", [])? == 17
+  assert applet.su_session(session_user, false, false, raw_shell, "", [])? == 19
+  assert applet.su_session(session_user, false, false, p"/bin/sh", "exit 19", [])? == 19
+  assert applet.su_session(session_user, false, false, null, "", [])? == 17
   test.error_kind(applet.hash_password("secret", "bogus"), "applet-hash-password")
 }
 

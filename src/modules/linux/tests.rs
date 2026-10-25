@@ -8,7 +8,8 @@ mod tests {
         fsck_impl_with_path, page_size, write_partition_table_impl,
     };
     use crate::modules::linux::kernel::{
-        depmod_impl_in_root, modinfo_impl_in_root, module_info_record, test_module_plan,
+        depmod_impl_in_root, modinfo_impl_in_root, modinfo_path_impl, module_info_record,
+        test_module_plan,
     };
     #[cfg(target_os = "linux")]
     use crate::modules::linux::process::open_files_impl;
@@ -25,6 +26,7 @@ mod tests {
     use crate::source::{SourceId, Span};
     use std::fs::{self, File};
     use std::io::{Seek, SeekFrom, Write};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::Arc;
@@ -448,6 +450,50 @@ mod tests {
         assert_eq!(str_field(record, "description"), "Demo module");
         assert_eq!(str_field(record, "license"), "MIT");
         assert_eq!(str_field(record, "version"), "2");
+        let outside = TempDir::new().expect("outside tempdir");
+        let outside_module_path = outside.path().join("outside-name.ko");
+        fs::write(
+            &outside_module_path,
+            module_bytes(&["description=Outside module", "license=BSD", "version=3"]),
+        )
+        .expect("write outside module");
+        let string_path = outside_module_path
+            .to_str()
+            .expect("UTF-8 fixture path");
+        assert_eq!(
+            modinfo_impl_in_root(string_path, root.path(), span())
+                .expect_err("module-name query must not read a path")
+                .message,
+            "module not found"
+        );
+        let path_record =
+            modinfo_path_impl(&outside_module_path, span()).expect("explicit module path");
+        assert_eq!(
+            str_field(record_value(&path_record), "name"),
+            "outside_name"
+        );
+        assert_eq!(
+            str_field(record_value(&path_record), "description"),
+            "Outside module"
+        );
+        let raw_module_path = outside
+            .path()
+            .join(std::ffi::OsString::from_vec(b"raw-\xff-name.ko".to_vec()));
+        fs::write(
+            &raw_module_path,
+            module_bytes(&["description=Raw filename module", "license=BSD", "version=4"]),
+        )
+        .expect("write non-UTF-8 module path");
+        let raw_record =
+            modinfo_path_impl(&raw_module_path, span()).expect("non-UTF-8 module path");
+        let raw_record = record_value(&raw_record);
+        assert_eq!(str_field(raw_record, "name"), r#"b"raw_\xff_name""#);
+        match raw_record.get("filename") {
+            Some(Value::Path(filename)) => {
+                assert_eq!(filename.bytes, raw_module_path.as_os_str().as_bytes());
+            }
+            value => panic!("expected path filename, got {value:?}"),
+        }
         let params = list_field(record, "params");
         let param = record_value(&params[0]);
         assert_eq!(str_field(param, "name"), "debug");

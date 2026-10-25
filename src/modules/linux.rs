@@ -186,7 +186,7 @@ pub(crate) use imp::{
     dhcp_close, dhcp_recv, dhcp_send, dhcp_send_release, dhcp_socket, disk_usage, dmesg,
     file_attrs, file_version, file_project, set_file_project, flush_ipv4_addresses, fsck, halt, hwclock, insmod, interfaces,
     is_mountpoint, kill_all, link_down, link_up, loop_attach, loop_detach, loop_list, meminfo,
-    mknod, mkswap, modinfo, modules, mount, mount_all, network_dump, open_files,
+    mknod, mkswap, modinfo, modinfo_path, modules, mount, mount_all, network_dump, open_files,
     partition_table, pivot_root, poweroff, read_device, reboot_system, rfkill_list, rfkill_set,
     rmmod, root_device, routes, set_file_attrs, set_file_version, set_hwclock, set_ipv4_address,
     set_system_clock, swapoff, swapoff_all, swapon, swapon_all, switch_root, sysctl_get,

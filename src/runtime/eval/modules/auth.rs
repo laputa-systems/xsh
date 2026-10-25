@@ -5,7 +5,8 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, Read};
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -95,15 +96,13 @@ pub(crate) fn su_session(
     user: &SessionUser,
     login: bool,
     preserve_env: bool,
-    shell: &str,
+    shell: Option<&Path>,
     script: &str,
     extra_args: &[String],
 ) -> io::Result<i32> {
-    let shell = if shell.is_empty() {
-        default_shell(&user.shell)
-    } else {
-        shell.to_string()
-    };
+    let shell = shell
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(default_shell(&user.shell)));
 
     let mut command = if !script.is_empty() {
         let mut command = Command::new(&shell);
@@ -123,7 +122,9 @@ pub(crate) fn su_session(
     };
 
     if login {
-        command.arg0(format!("-{}", login_name(&shell)));
+        let mut login_name = OsString::from("-");
+        login_name.push(shell.file_name().unwrap_or(shell.as_os_str()));
+        command.arg0(login_name);
         command.env_clear();
         if let Ok(term) = env::var("TERM") {
             command.env("TERM", term);

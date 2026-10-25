@@ -289,7 +289,7 @@ fn applet_module() -> ModuleSig {
                     user(),
                     param("login", Type::Bool),
                     param("preserve_env", Type::Bool),
-                    param("shell", Type::Str),
+                    param("shell", Type::Optional(Box::new(Type::Path))),
                     param("command", Type::Str),
                     param("extra_args", Type::List(Box::new(Type::Str))),
                 ],
@@ -2392,7 +2392,7 @@ fn linux_module() -> ModuleSig {
             "mount",
             sig(
                 vec![
-                    param("source", Type::Str),
+                    param("source", Type::Bytes),
                     param("target", Type::Path),
                     default_param("fstype", Type::Str),
                     default_param("options", list_str()),
@@ -2916,7 +2916,7 @@ fn linux_module() -> ModuleSig {
         (
             "modinfo",
             sig(
-                vec![param("name", Type::Str)],
+                vec![param("name", Type::Union(vec![Type::Str, Type::Path]))],
                 result(linux_modinfo_type()),
                 false,
                 RuntimeOp::LinuxModinfo,

@@ -231,7 +231,7 @@ test test_linux_mount_retains_kernel_errno_on_owned_missing_target { |ctx|
   }
   let root = test.temp_dir(ctx, name: "mount-failure")?
   let missing = fp"{root}/missing"
-  let errno = failure_errno(linux.mount("none", missing, fstype: "tmpfs"), "linux-mount")
+  let errno = failure_errno(linux.mount(b"none", missing, fstype: "tmpfs"), "linux-mount")
   assert errno == 1 or errno == 2
   assert ! missing.exists()?
 }

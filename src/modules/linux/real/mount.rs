@@ -15,7 +15,7 @@ use std::io;
 use std::path::Path;
 
 pub(crate) fn mount(
-    source: &str,
+    source: &[u8],
     target: &Path,
     fstype: &str,
     options: &[String],
@@ -37,7 +37,7 @@ pub(crate) fn mount_all(span: Span) -> Result<Value, RuntimeError> {
             continue;
         }
         if let Err(error) = mount_one(
-            &entry.spec,
+            entry.spec.as_bytes(),
             Path::new(&entry.file),
             &entry.vfstype,
             &entry.mntops,
@@ -129,7 +129,7 @@ pub(crate) fn root_device(span: Span) -> Result<Value, RuntimeError> {
 }
 
 fn mount_one(
-    source: &str,
+    source: &[u8],
     target: &Path,
     fstype: &str,
     options: &[String],

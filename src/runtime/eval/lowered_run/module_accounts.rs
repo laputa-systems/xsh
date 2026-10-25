@@ -13,7 +13,11 @@ impl Evaluator {
         let value = {
             let extra_args = lowered_str_list_arg(values.pop(), "applet.su_session", span)?;
             let command = lowered_str_arg_owned(values.pop(), "", "applet.su_session", span)?;
-            let shell = lowered_str_arg_owned(values.pop(), "", "applet.su_session", span)?;
+            let shell = match values.pop() {
+                None | Some(LoweredValue::Null) => None,
+                Some(value) => Some(lowered_path_arg(value, "applet.su_session", span)?),
+            };
+            let shell = shell.as_ref().map(|path| self.host_path(path));
             let preserve_env =
                 lowered_bool_arg_or(values.pop(), false, "applet.su_session", span)?;
             let login = lowered_bool_arg_or(values.pop(), false, "applet.su_session", span)?;
@@ -24,7 +28,7 @@ impl Evaluator {
                 &user,
                 login,
                 preserve_env,
-                &shell,
+                shell.as_deref(),
                 &command,
                 &extra_args,
             ) {

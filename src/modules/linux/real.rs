@@ -188,6 +188,6 @@ pub(crate) use net::{
 };
 pub(crate) use netlink::{interfaces, network_dump, routes};
 pub(crate) use parity::{
-    blkid, block_devices, depmod, fsck, modinfo, open_files, partition_table,
+    blkid, block_devices, depmod, fsck, modinfo, modinfo_path, open_files, partition_table,
     write_partition_table,
 };

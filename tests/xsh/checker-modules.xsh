@@ -774,7 +774,7 @@ for event in uevents {
   let _uevent: Uevent = event
   break
 }
-let _mount = linux.mount("proc", /proc, fstype: "proc", options: ["nosuid", "noexec", "nodev"])?
+let _mount = linux.mount(b"proc", /proc, fstype: "proc", options: ["nosuid", "noexec", "nodev"])?
 let _mount_all = linux.mount_all()?
 let _umount_all = linux.umount_all(types: ["proc", "tmpfs"])?
 let _swapon = linux.swapon_all()?

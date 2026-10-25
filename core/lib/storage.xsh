@@ -868,14 +868,14 @@ proc mount(argv: List[Str]) {
     }
     return
   }
-  if args.operands.len() == 1 and "remount" in options { linux.mount("none", fp"{args.operands[0]}", fstype: types, options:); return }
+  if args.operands.len() == 1 and "remount" in options { linux.mount(b"none", fp"{args.operands[0]}", fstype: types, options:); return }
   require_operands(args, 2, 2)
   if "," in types { unsupported("multiple filesystem types for a direct mount") }
   if (types == "" or types == "auto") and ! ("bind" in options or "rbind" in options or "move" in options) {
     types = linux.blkid(fp"{args.operands[0]}")?.type
     if types == "" { gnu.usage_error("cannot identify filesystem type; specify --types") }
   }
-  linux.mount(args.operands[0], fp"{args.operands[1]}", fstype: types, options:)
+  linux.mount(bytes.from_text(args.operands[0]), fp"{args.operands[1]}", fstype: types, options:)
 }
 
 proc blkid(argv: List[Str]) {

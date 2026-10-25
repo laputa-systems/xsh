@@ -8,7 +8,8 @@ test test_linux_fake_covers_module_surface { |ctx|
   test.linux_fake(ctx, {log: log})
   linux.write_device(/dev/urandom, seed)
   linux.read_device(/dev/urandom, random, bytes: 4)
-  linux.mount("proc", /proc, fstype: "proc", options: ["nosuid"])
+  linux.mount(b"proc", /proc, fstype: "proc", options: ["nosuid"])
+  linux.mount(b"proc\xff", /proc, fstype: "proc")
   linux.mount_all()
   linux.umount_all(types: ["tmpfs"])
   linux.swapon_all()
@@ -68,6 +69,9 @@ test test_linux_fake_covers_module_surface { |ctx|
   linux.swapoff(seed)
   assert linux.blkid(seed)?.type == "ext4"
   assert linux.modinfo("demo")?.params[0].name == "debug"
+  let fake_module_path = Path.parse_bytes(b"/fake\xff.ko")?
+  assert linux.modinfo(fake_module_path)?.filename == fake_module_path
+  assert linux.modinfo(p"/fake/module.ko")?.filename == p"/fake/module.ko"
   linux.modprobe("demo", params: "debug=1")
   linux.depmod("dry-run")
   assert linux.open_files(123)?.collect()[0].type == "file"
@@ -93,6 +97,9 @@ test test_linux_fake_covers_module_surface { |ctx|
   assert random.read_bytes()? == b"\0\0\0\0"
   let log_text = log.read_text()?
   assert "\"op\":\"mount\"" in log_text
+  assert "\"source\":[112,114,111,99]" in log_text
+  assert "\"source\":[112,114,111,99,255]" in log_text
+  assert "\"path\":[47,102,97,107,101,255,46,107,111]" in log_text
   assert "\"op\":\"meminfo\"" in log_text
   assert "\"op\":\"routes\"" in log_text
   assert "\"op\":\"set_ipv4_address\"" in log_text
@@ -402,17 +409,28 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   fp"{root}/dep.ko".write(
     linux_module_fixture(b"description=dep module\0license=GPL\0version=1\0")?,
   )
+  let outside = test.temp_dir(ctx, name: "linux-module-path")?
+  let raw_path = Path.parse_bytes(bytes.concat([outside.bytes(), b"/raw", b"\xff-name.ko"]))?
+  raw_path.write(
+    linux_module_fixture(b"description=raw module\0license=MIT\0version=4\0")?,
+  )
+  fp"{outside}/outside-name.ko".write(
+    linux_module_fixture(b"description=Outside module\0license=MIT\0version=3\0")?,
+  )
 
-  # The nested source is a template rather than an f-string: its `${...}`
-  # interpolations belong to the nested script, so the outer checker must not
-  # resolve them, and only the tree's path is substituted.
   let nested_template = """\nproc main() [io, fs, error] {
+  let raw_path = Path.parse_bytes(bytes.concat([b"{RAW_DIR}/raw", b"\\xff-name.ko"]))?
   let info = linux.modinfo(\"demo-name\")?
   print f\"{info.name}|{info.description}|{info.license}|{info.version}\"
   for param in info.params {
     print f\"param={param.name}|{param.type}|{param.description}\"
   }
-  print f\"explicit={linux.modinfo(p\"{ROOT_DIR}/demo-name.ko\".display())?.name}\"
+  print f\"explicit={linux.modinfo(p\"{ROOT_DIR}/demo-name.ko\")?.name}\"
+  assert linux.modinfo(raw_path)?.filename == raw_path
+  match linux.modinfo(\"{OUTSIDE_PATH}\") {
+    Ok(_) => { print \"unexpected-string-path\" }
+    Err(failure) => { print f\"string-path={failure.message}\" }
+  }
   match linux.modinfo(\"nothing-here\") {
     Ok(_) => { print \"unexpected\" }
     Err(failure) => { print f\"missing={failure.message}\" }
@@ -421,7 +439,10 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   print p\"{ROOT_DIR}/modules.dep\".read_text()?
 }
 """
-  let source = nested_template.replace("{ROOT_DIR}", with: f"{root}")
+  let source = nested_template
+    .replace("{ROOT_DIR}", with: f"{root}")
+    .replace("{RAW_DIR}", with: f"{outside}")
+    .replace("{OUTSIDE_PATH}", with: f"{outside}/outside-name.ko")
 
   let environment = {XSH_MODULES_DIR: f"{root}"}
 
@@ -442,6 +463,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
 param=debug|bool|Enable debug
 param=mode|charp|Mode
 explicit=demo_name
+string-path=module not found
 missing=module not found
 demo-name.ko: dep.ko
 dep.ko:

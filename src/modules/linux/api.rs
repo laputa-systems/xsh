@@ -1,7 +1,9 @@
 use super::block::{
     blkid_info, blkid_record, fsck_impl, io_error, partition_table_impl, write_partition_table_impl,
 };
-use super::kernel::{depmod_impl, modinfo_impl, modprobe_impl_with, module_plan_impl};
+use super::kernel::{
+    depmod_impl, modinfo_impl, modinfo_path_impl, modprobe_impl_with, module_plan_impl,
+};
 use super::process::open_files_impl;
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
@@ -17,6 +19,14 @@ pub(crate) fn blkid(device: &Path, span: Span) -> Result<Value, RuntimeError> {
 #[allow(clippy::single_call_fn)]
 pub(crate) fn modinfo(name: &str, span: Span) -> Result<Value, RuntimeError> {
     match modinfo_impl(name, span) {
+        Ok(record) => Ok(Value::ok(record)),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+#[allow(clippy::single_call_fn)]
+pub(crate) fn modinfo_path(path: &Path, span: Span) -> Result<Value, RuntimeError> {
+    match modinfo_path_impl(path, span) {
         Ok(record) => Ok(Value::ok(record)),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }

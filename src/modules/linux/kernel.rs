@@ -12,6 +12,7 @@ use std::fs::File;
 use std::io::{self, Read};
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -26,24 +27,20 @@ pub(super) fn modinfo_impl_in_root(
     root: &Path,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let entry = if Path::new(name).exists() {
-        let path = PathBuf::from(name);
-        ModuleEntry {
-            name: module_name_from_path(name),
-            relative_path: path.to_string_lossy().into_owned(),
-            metadata: read_module_metadata(&path)
-                .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?,
-            path,
-        }
-    } else {
-        let index = ModuleIndex::scan(root)
-            .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?;
-        index
-            .get(name)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("linux-modinfo", "module not found").with_span(span))?
-    };
+    let index = ModuleIndex::scan(root)
+        .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?;
+    let entry = index
+        .get(name)
+        .cloned()
+        .ok_or_else(|| RuntimeError::new("linux-modinfo", "module not found").with_span(span))?;
     module_info_record(&entry, span)
+}
+
+pub(super) fn modinfo_path_impl(path: &Path, span: Span) -> Result<Value, RuntimeError> {
+    let metadata = read_module_metadata(path)
+        .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?;
+    let name = module_name_from_os_path(path);
+    module_info_record_parts(&name, path, &metadata, span)
 }
 
 pub(super) fn modprobe_impl_with(name: &str, params: &str, remove: bool, span: Span) -> Result<(), RuntimeError> {
@@ -227,8 +224,16 @@ impl ModuleIndex {
 }
 
 pub(super) fn module_info_record(entry: &ModuleEntry, span: Span) -> Result<Value, RuntimeError> {
-    let params = entry
-        .metadata
+    module_info_record_parts(&entry.name, &entry.path, &entry.metadata, span)
+}
+
+fn module_info_record_parts(
+    name: &str,
+    path: &Path,
+    metadata: &ModuleMetadata,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let params = metadata
         .values("parm")
         .map(|value| {
             let (name, rest) = value.split_once(':').unwrap_or((value, ""));
@@ -241,7 +246,7 @@ pub(super) fn module_info_record(entry: &ModuleEntry, span: Span) -> Result<Valu
                     )
                 })
                 .unwrap_or_else(|| (rest.to_string(), String::new()));
-            let kind = entry.metadata.values("parmtype")
+            let kind = metadata.values("parmtype")
                 .find_map(|value| value.split_once(':').filter(|(field, _)| *field == name).map(|(_, kind)| kind.to_string()))
                 .unwrap_or(kind);
             Value::Record(crate::runtime::value::RecordMap::from([
@@ -252,25 +257,25 @@ pub(super) fn module_info_record(entry: &ModuleEntry, span: Span) -> Result<Valu
         })
         .collect();
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
-        (Arc::from("name"), str_value(entry.name.clone())),
+        (Arc::from("name"), str_value(name.to_string())),
         (
             Arc::from("filename"),
-            Value::Path(path_value(&entry.path, span)?),
+            Value::Path(path_value(path, span)?),
         ),
         (
             Arc::from("description"),
-            str_value(entry.metadata.first("description")),
+            str_value(metadata.first("description")),
         ),
         (
             Arc::from("license"),
-            str_value(entry.metadata.first("license")),
+            str_value(metadata.first("license")),
         ),
         (
             Arc::from("version"),
-            str_value(entry.metadata.first("version")),
+            str_value(metadata.first("version")),
         ),
         (Arc::from("params"), Value::List(params)),
-        (Arc::from("fields"), Value::List(entry.metadata.fields.iter().map(|(name, value)| {
+        (Arc::from("fields"), Value::List(metadata.fields.iter().map(|(name, value)| {
             Value::Record(crate::runtime::value::RecordMap::from([
                 (Arc::from("name"), str_value(name.clone())),
                 (Arc::from("value"), str_value(value.clone())),
@@ -390,6 +395,25 @@ fn normalize_module_name(name: &str) -> String {
 
 fn module_name_from_path(path: &str) -> String {
     normalize_module_name(path)
+}
+
+fn module_name_from_os_path(path: &Path) -> String {
+    let filename = path.file_name().unwrap_or(path.as_os_str()).as_bytes();
+    let mut name = filename;
+    for suffix in MODULE_EXTENSIONS {
+        if let Some(stripped) = name.strip_suffix(suffix.as_bytes()) {
+            name = stripped;
+            break;
+        }
+    }
+    let normalized = name
+        .iter()
+        .map(|byte| if *byte == b'-' { b'_' } else { *byte })
+        .collect::<Vec<_>>();
+    match String::from_utf8(normalized) {
+        Ok(name) => name,
+        Err(error) => crate::trace::TraceArg::bytes(error.into_bytes()).quoted(),
+    }
 }
 
 

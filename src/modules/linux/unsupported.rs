@@ -26,7 +26,7 @@ pub(crate) fn uevent_stream(span: Span) -> Result<Value, RuntimeError> {
 }
 
 pub(crate) fn mount(
-    _source: &str,
+    _source: &[u8],
     _target: &Path,
     _fstype: &str,
     _options: &[String],
@@ -284,6 +284,10 @@ pub(crate) fn blkid(_device: &Path, span: Span) -> Result<Value, RuntimeError> {
 }
 
 pub(crate) fn modinfo(_name: &str, span: Span) -> Result<Value, RuntimeError> {
+    Ok(unsupported(span))
+}
+
+pub(crate) fn modinfo_path(_path: &Path, span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }
 

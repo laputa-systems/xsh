@@ -44,3 +44,24 @@ test test_modinfo_missing_module_in_empty_tree { |ctx|
   )?
   assert output.stdout == ""
 }
+
+test test_modinfo_cli_treats_relative_existing_filename_as_path { |ctx|
+  guard system.uname()?.sysname == "Linux" else { test.skip("module metadata requires Linux"); return }
+  let root = test.temp_dir(ctx, name: "modinfo-relative-path")?
+  let modules = fp"{root}/modules"
+  modules.mkdir()
+  fp"{root}/relative.ko".write("not a kernel module")
+  let output = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    [ctx.xsh_bin, fp"{ctx.core_dir}/modinfo.xsh", "relative.ko"],
+    root,
+    {XSH_MODULE_PATH: f"{ctx.core_dir}", XSH_MODULES_DIR: f"{modules}"},
+    b"",
+    output,
+    stderr,
+  )
+  assert process.run(plan)?.exit_code()? == 1
+  assert "module is not an ELF image" in stderr.read_text()?
+}

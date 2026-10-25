@@ -102,7 +102,7 @@ test test_linux_namespaces_reports_a_bound_namespace_file { |ctx|
   bound.write("")
   # A mount namespace of its own lets the child bind its network namespace
   # file without touching the caller's mounts.
-  let helper = test.temp_file(ctx, name: "bound.xsh", contents: bytes.from_text(f"""linux.mount("/proc/self/ns/net", fp"{bound}", options: ["bind"])?
+  let helper = test.temp_file(ctx, name: "bound.xsh", contents: bytes.from_text(f"""linux.mount(b"/proc/self/ns/net", fp"{bound}", options: ["bind"])?
 let rows = linux.namespaces(process.current_pid()?)?
 for row in rows {{
   if row.type == "net" {{ print row.nsfs.len() }}

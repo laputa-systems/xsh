@@ -152,6 +152,19 @@ impl Evaluator {
         };
         append_fake_log(path, "linux-fake-log", op, fields, span)
     }
+
+    pub(in crate::runtime::eval) fn linux_fake_log_with_bytes(
+        &self,
+        op: &str,
+        fields: &[(&str, String)],
+        byte_fields: &[(&str, &[u8])],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let Some(path) = self.linux_fake_setting("log") else {
+            return Ok(());
+        };
+        append_fake_log_with_bytes(path, "linux-fake-log", op, fields, byte_fields, span)
+    }
 }
 
 /// Append one JSON line naming `op` and its `fields` to a test fake's call log,
@@ -163,6 +176,17 @@ pub(super) fn append_fake_log(
     fields: &[(&str, String)],
     span: Span,
 ) -> Result<(), RuntimeError> {
+    append_fake_log_with_bytes(path, kind, op, fields, &[], span)
+}
+
+pub(super) fn append_fake_log_with_bytes(
+    path: &str,
+    kind: &'static str,
+    op: &str,
+    fields: &[(&str, String)],
+    byte_fields: &[(&str, &[u8])],
+    span: Span,
+) -> Result<(), RuntimeError> {
     let path = std::path::PathBuf::from(path);
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -170,12 +194,20 @@ pub(super) fn append_fake_log(
         std::fs::create_dir_all(parent)
             .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     }
-    let mut json_fields = Vec::with_capacity(fields.len() + 1);
+    let mut json_fields = Vec::with_capacity(fields.len() + byte_fields.len() + 1);
     json_fields.push(("op".to_string(), crate::modules::json::raw_json_string(op)));
     for (name, value) in fields {
         json_fields.push((
             (*name).to_string(),
             crate::modules::json::raw_json_string(value.clone()),
+        ));
+    }
+    for (name, bytes) in byte_fields {
+        json_fields.push((
+            (*name).to_string(),
+            crate::modules::json::raw_json_array(
+                bytes.iter().map(|byte| crate::modules::json::raw_json_u64(u64::from(*byte))),
+            ),
         ));
     }
     let line =

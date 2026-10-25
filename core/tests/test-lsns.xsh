@@ -187,8 +187,8 @@ test test_lsns_lists_where_a_namespace_file_is_bound { |ctx|
   first.write("")
   second.write("")
   let lsns_script = fp"{ctx.core_dir}/lsns.xsh"
-  let script = test.temp_file(ctx, name: "bind.xsh", contents: bytes.from_text(f"""linux.mount("/proc/self/ns/net", fp"{first}", options: ["bind"])?
-linux.mount("/proc/self/ns/net", fp"{second}", options: ["bind"])?
+  let script = test.temp_file(ctx, name: "bind.xsh", contents: bytes.from_text(f"""linux.mount(b"/proc/self/ns/net", fp"{first}", options: ["bind"])?
+linux.mount(b"/proc/self/ns/net", fp"{second}", options: ["bind"])?
 let plan = process.command_argv(fp"{ctx.xsh_bin}", ["xsh", "{lsns_script}", "-r", "-t", "net", "-o", "NS,NSFS"])
 let status = process.run(plan)?
 exit status.shell_code()?

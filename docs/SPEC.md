@@ -5880,6 +5880,15 @@ signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
 
 Contracts worth knowing without consulting the reference:
 
+- `linux.mount(source, target)` accepts the kernel source operand as `Bytes` so
+  symbolic sources and filesystem paths keep their exact bytes; `target` is a
+  `Path` resolved through the host filesystem boundary. `linux.modinfo` treats a
+  `Str` only as a module name and reads a file only when given a `Path`. For a
+  Path whose filename is not UTF-8, `name` uses the reversible byte-quoted
+  representation and `filename` retains the original Path bytes.
+- `applet.su_session` takes an optional shell `Path`. `null` keeps the selected
+  account's existing passwd-shell policy; `command` remains `Str` text passed
+  to that executable with `-c`.
 - `crypto.ed25519_verify(message, public_key, signature)` verifies a detached
   PureEd25519 signature under RFC 8032. It passes the exact `Bytes` message to
   the verifier without UTF-8 decoding or prehashing. Public keys must be 32
@@ -6494,8 +6503,10 @@ reported as a timeout failure.
 double for the rest of the test and for scripts the test runs through
 `test.run_script` and `test.run_xsh` (not `test.run_xsht_trace`). The fake
 never touches the host. Supported operations return fixed data and append a
-JSON line naming their operation and arguments when `log` is set. The three
-IPC observation functions in §15 return `linux-ipc-observation` errors without
+JSON line naming their operation and arguments when `log` is set. The
+`linux.mount` logs `source` and a Path query to `linux.modinfo` logs `path` as
+arrays of byte values. The three IPC observation functions in §15 return
+`linux-ipc-observation` errors without
 writing a log entry. The other
 settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
 `hwclock_epoch_ms`) choose the values some queries report; `storage_fixture`
