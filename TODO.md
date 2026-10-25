@@ -56,6 +56,7 @@ Next: 30
 - **Where:** `crates/xsht/src/lint.rs`, `crates/xsht/src/cli`
 - **Problem:** Each lint candidate probe parses, loads, and checks the unchanged import graph again. Large fix runs repeat the same work for every candidate.
 - **Recommendation:** Measure shared checking, grouped candidates, and clean-corpus probe skipping. Keep the smallest design that preserves diagnostics and fix safety.
+- **Blocked:** Guarded timing needs a quiet host. Candidate `cb8c23d6d` is preserved on `backlog-lane-diagnostics`, outside integration; `.work/wt/backlog-diagnostics` retains the comparison products and runner. Memory and diagnostic controls pass, but no valid timing samples exist.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
