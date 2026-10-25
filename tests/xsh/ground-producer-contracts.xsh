@@ -195,3 +195,20 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "1\n15\n"
 }
+
+test test_plain_run_value_is_a_status { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc check() [process] -> Result[Unit] {
+  let status = run true
+  guard status else {
+    return error.fail("true failed")
+  }
+  print "ok"
+}
+check()?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "ok\n"
+}

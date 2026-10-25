@@ -5543,7 +5543,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::RunCapture(run) => {
-                let result = (match run.kind { crate::syntax::node::RunKind::Status => Some(Type::Status), _ => Type::run_capture_result(run.kind) }).ok_or_else(|| IrVerifyError::new("ground run value has no capture contract"))?;
+                let result = (match run.kind { crate::syntax::node::RunKind::Plain | crate::syntax::node::RunKind::Status => Some(Type::Status), _ => Type::run_capture_result(run.kind) }).ok_or_else(|| IrVerifyError::new("ground run value has no capture contract"))?;
                 if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground capture kind disagrees with its result contract")); }
                 self.verify_operands(&decoder, instruction)
             }
