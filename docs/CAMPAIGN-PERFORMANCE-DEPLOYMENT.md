@@ -42,7 +42,7 @@ repair evidence; comprehensive parity remains unclaimed under XSH-3.
 
 XSH-10 remains uncommitted. The CLI matches 37 comparison cases. Review fixes
 cover computed-default minimum validation and invalid Path diagnostics; a UInt
-omission-sentinel prerequisite is in the final build. All production users of
+omission-sentinel prerequisite now passes all eight metadata native cases. All production users of
 the retired parser are migrated to typed operations, including seed, installer
 and Asterinas callers. Their six focused tests and the cross-consumer test pass.
 The required catalog check progressed past the repaired list-splice proof and a
@@ -97,7 +97,11 @@ its first sample when an unrelated build started: perf gate deferred: host busy.
 The unmeasured optimization is excluded from the integration tree and preserved
 as `cb8c23d6d` on `backlog-lane-diagnostics`. Its live worktree
 `.work/wt/backlog-diagnostics` retains the immutable products and guarded timing
-runner; it must remain until timing acceptance or explicit retirement.
+runner; it must remain until timing acceptance or explicit retirement. Profile
+inspection found both products use optimized verification, while performance
+measurements require release. After features are integrated, build a matched
+release pair before collecting guarded timing; a quiet verification-profile run
+would not qualify the production decision.
 
 XSH-29's contextual-import and lint-invariance repairs were provisionally
 integrated as `de6c74d9f`. The final focused deadline repairs and closure are
