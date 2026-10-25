@@ -14118,7 +14118,7 @@ impl<'a> FullDecoder<'a> {
                     && matches!(self.store.tags[instruction], FullTag::StmtIf | FullTag::StmtIfBool)
                 {
                     let mut branches_to_visit: Vec<(Option<usize>, Vec<usize>)> = Vec::new();
-                    let mut body_ids = |mut body: ListView<'_, BuildStmtId>| -> Result<Vec<usize>, IrVerifyError> {
+                    let body_ids = |mut body: ListView<'_, BuildStmtId>| -> Result<Vec<usize>, IrVerifyError> {
                         let completes = prefix.block_can_complete(body.block_identity().index());
                         let mut ids = Vec::new();
                         if completes { for statement in &mut body { ids.push(statement?.raw() as usize); } }
