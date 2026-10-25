@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 30
+Next: 34
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
@@ -11,6 +11,24 @@ Next: 30
 - **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks.
 - **Fix with:** benchmark-checklist
 - **Effort:** S
+
+### XSH-31 · P2 · Preserve error identity through private import aliases
+
+- **Area:** Types
+- **Where:** `src/sema/check`, `src/runtime/eval/lower.rs`
+- **Problem:** A facade privately imports `model as internal` and exports `missing() -> Result[Int, internal.Trouble]`. A caller importing the same model as `local` cannot assign `facade.missing()` to `Result[Int, local.Trouble]`, although both name the same exported error family. Baseline and candidate reject this case; direct imported-family capture is a separate XSH-29 repair.
+- **Recommendation:** Keep the three-module case as a regression and canonicalize the public signature to the declaring family's identity. Preserve nominal-family rejection controls.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-32 · P2 · Retain callable initialization proof for process streams
+
+- **Area:** Errors
+- **Where:** `src/runtime/eval/indexed/full.rs:10887`, `src/runtime/eval/lower.rs`
+- **Problem:** `let rows = run.stream --text sh -c "printf row; exit 7" ?; for row in rows { print $row }` is rejected before execution with `checked callable slot has no immutable callable initializer`. The same failure occurs on baseline and candidate, before the child can produce output or report its completion error. This differs from XSH-25's opaque-stream effect decision and XSH-26's error-family annotation.
+- **Recommendation:** Add the minimal default process-stream regression and repair its initializer producer or evidence transport without relaxing the verifier's authority check.
+- **Fix with:** root-cause
+- **Effort:** M
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
@@ -94,8 +112,27 @@ Next: 30
 - **Where:** `crates/xsht/tests/cli.rs`, `crates/xsht/tests/lint_format_invariance.rs`, `crates/xsht/tests/desugar.rs`, branch `campaign/xsht-integration` (`e23c43739`, unreviewed)
 - **Problem:** On `de42880c8` five XSHT tests fail: `test_roots_lower_contextual_nominal_imports_in_the_selected_scope` (verifier rejection), three `lint_format_invariance` tests (the corpus includes inference-erased `*.erased.xsh` witnesses; a redundant-parentheses fixture loses lints after formatting), and the desugared `core/tests/test-gnu-cp.xsh` run. Later merges may have fixed some.
 - **Recommendation:** Rerun the five on current `master`, then fix the owners; reuse the WIP commit only where it still applies.
+- **Blocked:** Candidate `6bc0df51d` on `backlog-park-xsht-29` remains outside integration. The four original non-desugar checks and a new collection-return lint control pass, as do isolated written/desugared GNU cp and fold files. Two full parity runs retain different timeout mismatches on the busy host. The existing eight-case per-file limit disproves the proposed oversubscription fix; resume with a quiet-host comparison or a demonstrated deadline cause, not another unchanged full run.
 - **Fix with:** root-cause
 - **Effort:** M
+
+### XSH-30 · P3 · Bound the alias-DAG proof witness
+
+- **Area:** Performance
+- **Where:** `tests/xsh/proof-provenance.xsh:155`, `src/runtime/eval/indexed/full/verify_schemes/producers.rs`
+- **Problem:** `test_record_projection_alias_dag_is_bounded_without_expansion` builds 256 aliases, each combining the previous alias with itself. Bounded baseline and candidate runs do not finish. The failing stage and cause remain unproven; this is not evidence of a new campaign regression.
+- **Recommendation:** Reproduce the existing selector with a bounded run, separate checker and verifier cost, then preserve DAG sharing at the responsible owner. Keep the witness and do not raise its proof budget to hide the cost. Coordinate with XSH-28 if the owners coincide.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-33 · P3 · Align the provisional formal inventory with Rust owners
+
+- **Area:** Tests
+- **Where:** `formal/scripts/check-inventory.py:135`, `formal/coverage.json`
+- **Problem:** `python3 formal/scripts/check-inventory.py` fails because its named `LoweredFunctionKind` enum no longer exists. The runtime-operation inventory also predates `CryptoEd25519Verify` and `NetValidateRootBundle`. Both drifts predate this backlog's API work; updating XSH-20's owned operations does not repair them.
+- **Recommendation:** Update the provisional owner mapping and missing runtime operations, then run the inventory checker and its rejection controls. Keep this bounded maintenance separate from the paused formal-model campaign.
+- **Fix with:** single-source-of-truth
+- **Effort:** S
 
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
