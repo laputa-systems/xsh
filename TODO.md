@@ -140,15 +140,6 @@ Next: 30
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-17 · P4 · Diagnose two inherited Laputa package-manager failures
-
-- **Area:** Tests
-- **Where:** `../laputa/tests/pm/pm_execute.xsh`
-- **Problem:** Two `pm_execute` tests lose the proof's error text. They fail on both old and current toolchains, so the XSH migration did not establish their cause.
-- **Recommendation:** Reproduce each test in Laputa, trace the missing diagnostic, and fix the owner only after the failing boundary is known.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
 - **Area:** Performance
