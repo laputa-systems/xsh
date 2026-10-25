@@ -1480,12 +1480,37 @@ fn run_native_test(
 
     let mut outcome = run_native_test_in_directory(case, options, route_witness_output_dir, cancellation, &temp_root);
     if !options.keep_temp
-        && let Err(error) = fs::remove_dir_all(&temp_root)
-        && error.kind() != std::io::ErrorKind::NotFound
+        && let Err(error) = remove_native_test_directory(&temp_root)
     {
         outcome.cleanup_error = Some(format!("cannot remove native test directory {}: {error}", temp_root.display()));
     }
     outcome
+}
+
+fn remove_native_test_directory(root: &Path) -> std::io::Result<()> {
+    match fs::remove_dir_all(root) {
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            restore_owner_access(root)?;
+            fs::remove_dir_all(root)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
+fn restore_owner_access(directory: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    const OWNER_ACCESS: u32 = 0o700;
+    const PERMISSION_BITS: u32 = 0o7777;
+    let metadata = fs::symlink_metadata(directory)?;
+    if !metadata.file_type().is_dir() { return Ok(()); }
+    let mode = metadata.permissions().mode() & PERMISSION_BITS;
+    if mode & OWNER_ACCESS != OWNER_ACCESS { fs::set_permissions(directory, fs::Permissions::from_mode(mode | OWNER_ACCESS))?; }
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() { restore_owner_access(&entry.path())?; }
+    }
+    Ok(())
 }
 
 fn run_native_test_in_directory(
@@ -2263,6 +2288,31 @@ mod tests {
         let outcome = super::wait_native_test(worker, rx, xsh::execution::evaluator::TestCancellation::default(), None, &stopped);
         assert!(matches!(outcome.kind, super::TestOutcomeKind::Passed));
         assert!(outcome.cleanup_error.is_none());
+    }
+
+    #[test]
+    fn native_test_directory_removal_repairs_restricted_modes_without_following_links() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let sandbox = tempfile::TempDir::new_in(scratch).unwrap();
+        let outside = sandbox.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("kept"), "kept").unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let root = sandbox.path().join("root");
+        let nested = root.join("read-only").join("sealed");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("file"), "contents").unwrap();
+        std::fs::write(root.join("read-only").join("file"), "contents").unwrap();
+        symlink(&outside, root.join("read-only").join("link")).unwrap();
+        std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::set_permissions(root.join("read-only"), std::fs::Permissions::from_mode(0o550)).unwrap();
+        super::remove_native_test_directory(&root).unwrap();
+        assert!(!root.exists());
+        assert_eq!(std::fs::metadata(&outside).unwrap().permissions().mode() & 0o7777, 0o500);
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(std::fs::read_to_string(outside.join("kept")).unwrap(), "kept");
     }
 
     #[test]
