@@ -1,7 +1,8 @@
 # Make XSH fast to run and dependable in Laputa
 
 Status: backlog execution resumed 2026-10-25 on `backlog-2026-10-25`, cut from
-`master` at `da96b5274`. Nothing pushed. The merged source is **not qualified**.
+`master` at `da96b5274`. Nothing pushed or merged from this branch. The working
+source is **not qualified**.
 
 ## Active backlog run (2026-10-25)
 
@@ -10,7 +11,7 @@ remain outside this run. Each closure includes the ticket removal and its
 accepted change in one local commit. The owner authorized unattended execution,
 then local integration after backlog completion, followed by campaign work.
 
-Accepted backlog checkpoint: `ebb669499`, with focused proof reused where the
+Accepted backlog checkpoint: `291713253`, with focused proof reused where the
 relevant code and inputs remain unchanged. This is not combined qualification.
 
 | Closed ticket | Commit | Decisive evidence |
@@ -26,27 +27,57 @@ relevant code and inputs remain unchanged. This is not combined qualification.
 | XSH-6 | `8e94afd5a` | No production consumer needs another error family; four existing facet recovery controls pass. |
 | XSH-13 | `40e40bebb` | Plan regression and existing example lint corpus test pass. |
 | XSH-17 | `ebb669499` | Current exact selectors retain proof cause and PM context; no source fix justified. |
+| XSH-9 | `7df8c7b42` | Linux 14/14, auth 2/2, modinfo 4/4, and non-UTF-8 metadata and shell controls. |
+| XSH-26 | `24c5058e0` | Corrected the wrong nominal test annotation; broad Error capture retains its concrete ProcessError variant and rejects the narrower annotation. |
+| XSH-27 | `0186d37b9` | All nine projection tests pass; cold controls cover both module origins, get/index selection and forged keys. |
+| XSH-20 | `09c95c896` | Mdev 13 native passes, daemon 8/8 and byte environments 2/2; offline Docker covers privileged device creation and foreground reload/termination. |
+| XSH-8 | `291713253` | Filesystem 47/47, rooted report readers 18/18, source 4/4, collection 7/7, API 67/67; both migrated Laputa files check and lower. |
 
-XSH-16 needs one source commit in Laputa and one queue-removal commit here
+XSH-8 and XSH-16 need source commits in Laputa and queue-removal commits here
 because the source and ticket belong to different Git repositories. Neither
-repository has been pushed.
+repository has been pushed. The Laputa caller migration is `f201300`, following
+the XSH-16 source commit `284c1d7`.
 
-The next milestone is combined API and tooling acceptance: XSH-8 rooted-path
-migration and obsolete lint retirement, XSH-9 byte-preserving Linux boundaries,
-XSH-20 command policy plus generic Unix mechanisms, and XSH-29 tooling repairs.
-XSH-14 preserves individual annotation proofs while sharing import checks; its
-review found ordering regressions across late diagnostic insertions, which are
-being repaired before acceptance. Independent XSH-20 review found concurrent
-directory creation, host-regex dialect and signed-positive number regressions;
-the reference behavior remains binding. One owner is refreshing the combined
-mdev and host API products. Final documentation generation waits for that API
-group, avoiding repeated release builds.
+The accepted API changes require RelPath for rooted operations, distinguish
+Linux byte operands and paths, and remove applet.mdev in favor of XSH policy.
+The obsolete prefer-rel-path lint is gone; unknown lint configuration keys fail.
+Command environments accept byte maps. SPEC sources and generated references
+are updated; `make docs` succeeds with the release products.
+
+Integration found an XSH-24 regression in returning directory scopes. Correction
+`5ee20e012` preserves absent success payloads without inventing Unit; runtime and
+forgery controls cover both indexed routes and the existing timeout witness.
+The actual development launcher now checks and lowers successfully. XSH-8 also
+authenticates formatted paths and named-argument temporary origins; forged
+traversal text, plain-Path holes and absolute literals are rejected.
+
+XSH-14 remains open pending timing. Its candidate preserves diagnostic order
+and individual deletion proofs, batches two roots, and releases transient entry
+records while retaining imports. The additive CheckSession.check_transient_entry
+API and its reuse test pass. Five interleaved RSS pairs pass the memory limit;
+default and focused diagnostic outputs match. A timing attempt stopped before
+its first sample when an unrelated build started: perf gate deferred: host busy.
+XSH-29's original five acceptance tests are being repeated on the combined tree
+because caller types and lint ordering changed since the isolated corpus proof.
+
+The owner approved replacement image ef7c796 after the historical local image
+became unavailable. Commit `81aac218b` makes versions.lock.json authoritative
+for active qualification runners and binds reference products to their recorded
+build image. Six policy controls pass. A fresh artifacts-only build of frozen
+source `57a0f631` under ef7 reproduced the protected hashes at
+`.work/wt/requalify-57a-ef7/.work/consolidation/final-performance-gates/profile-cost-57a-ef7`.
+Its receipt truthfully records corpus `284c1d7`; that variable is not a product
+build input. Future comparisons must use clean corpus `f201300` on both sides.
+The old 3b8 receipt and products remain unchanged. This earns artifact credit,
+not timing, functional-close or baseline credit.
 
 The parent owns integration, shared prerequisites and ticket accounting. Source
 stays frozen during each required build. New discoveries remain for later:
-the baseline 256-alias proof stress case hangs, and a distinct imported-private
-error alias case is rejected by both baseline and candidate. Neither is a
-claimed XSH-24 pass or a reason to weaken its tests.
+the baseline 256-alias proof stress case hangs, a distinct imported-private
+error alias case is rejected by both baseline and candidate, an unchanged
+process-stream case loses its callable initializer proof, and formal inventory
+still names the removed LoweredFunctionKind owner. These remain outside the
+bounded queue and are not reasons to weaken tests.
 
 XSH-4 and XSH-7 remain parked on draft design decisions. XSH-25 requires the
 owner's opaque-stream error-effect decision. XSH-10 is parked because current
@@ -58,7 +89,7 @@ Baseline qualification follows the compiler/tooling repairs on one stable tree.
 XSH-1 requires scheduler qualification; XSH-19 follows completed G1 acceptance;
 XSH-28 and XSH-23 require the post-inference baseline. Historical passes below
 do not qualify this source. Timing gates wait for a confirmed quiet host; the
-first XSH-14 timing attempt overlapped a corpus check and was discarded.
+earlier XSH-14 timing attempt overlapped a corpus check and was discarded.
 Focused correctness checks run in isolated lane products. No full native
 suites run concurrently. The next steering checkpoint follows API/tooling
 integration and its required proof, before baseline qualification.
