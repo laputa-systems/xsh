@@ -177,9 +177,11 @@ def exercise_autoremoval_race():
             absent,
         ]) as command:
             result = owned_containers.cleanup_cidfile_container(
-                cidfile, owner="self-test-run", stage="self-test-stage"
+                cidfile, owner="self-test-run", stage="self-test-stage", stop_grace_seconds=17
             )
         assert "--no-trunc" in command.call_args_list[0].args[0]
+        assert command.call_args_list[2].args[0] == ["docker", "stop", "--time", "17", container_id]
+        assert command.call_args_list[2].kwargs["timeout"] == 17 + owned_containers.CLEANUP_TIMEOUT_SECONDS
         assert result["resolved"] is True
         assert result["container_ids"] == [container_id]
         assert result["cleaned_container_ids"] == [container_id]

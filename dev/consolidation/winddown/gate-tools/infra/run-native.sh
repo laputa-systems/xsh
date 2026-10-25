@@ -19,6 +19,7 @@ TASK_GID=$(id -g)
 TASK_DOCKER=(docker run --rm --init --platform linux/amd64 --cpus=12 --memory=24g --tmpfs /tmp:rw,exec,nosuid,mode=1777
   -v "$TASK_TREE:$TASK_TREE"
   -v "$TASK_ROOT/.git:$TASK_ROOT/.git:ro"
+  -v "$TASK_ROOT/dev/consolidation/winddown/gate-tools/infra/container-build.sh:/usr/local/bin/xsh-container-build.sh:ro"
   -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro
   -v "$TASK_BASELINE:$TASK_BASELINE:ro"
   -w "$TASK_TREE"
@@ -45,7 +46,7 @@ case "$TASK_MODE" in
     esac
     exec 9>"$TASK_INFRA/cargo.lock"
     flock 9
-    "${TASK_DOCKER[@]}" -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e TASK_UID="$TASK_UID" -e TASK_GID="$TASK_GID" sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/bash -c 'LD_PRELOAD=/usr/lib/libjemalloc.so.2 "$@"; TASK_EXIT=$?; chown -R "$TASK_UID:$TASK_GID" "$CARGO_TARGET_DIR"; exit "$TASK_EXIT"' bash "$@"
+    "${TASK_DOCKER[@]}" --stop-timeout 60 -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e TASK_UID="$TASK_UID" -e TASK_GID="$TASK_GID" sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/bash /usr/local/bin/xsh-container-build.sh --output "$TASK_TREE/target" -- /usr/bin/env LD_PRELOAD=/usr/lib/libjemalloc.so.2 "$@"
     ;;
   run)
     case " $* " in

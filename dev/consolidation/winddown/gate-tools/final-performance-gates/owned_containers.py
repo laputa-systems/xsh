@@ -13,6 +13,8 @@ from typing import Any, Callable
 
 
 CLEANUP_TIMEOUT_SECONDS = 5
+CLEANUP_STOP_GRACE_SECONDS = 3
+BUILD_OUTPUT_STOP_GRACE_SECONDS = 60
 _cleanup_active = False
 
 
@@ -145,8 +147,14 @@ def _inspect(container_id: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
 
 
 def cleanup_cidfile_container(
-    cidfile: Path, *, owner: str, stage: str
+    cidfile: Path,
+    *,
+    owner: str,
+    stage: str,
+    stop_grace_seconds: int = CLEANUP_STOP_GRACE_SECONDS,
 ) -> dict[str, Any]:
+    if type(stop_grace_seconds) is not int or stop_grace_seconds < 0:
+        raise ValueError("container stop grace must be a nonnegative integer")
     ids, commands, resolved = _owned_ids(owner, stage, cidfile)
     cleaned: list[str] = []
     for container_id in ids:
@@ -164,7 +172,10 @@ def cleanup_cidfile_container(
         ):
             resolved = False
             continue
-        stop = _command(["docker", "stop", "--time", "3", container_id])
+        stop = _command(
+            ["docker", "stop", "--time", str(stop_grace_seconds), container_id],
+            timeout=stop_grace_seconds + CLEANUP_TIMEOUT_SECONDS,
+        )
         commands.append(stop)
         remove = _command(["docker", "rm", "--force", container_id])
         commands.append(remove)

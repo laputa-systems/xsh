@@ -2,8 +2,11 @@ from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_st
 from importlib.util import module_from_spec, spec_from_file_location
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import re
+import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -93,6 +96,157 @@ def test_profile_build_context_has_no_baseline_xsh_dependency():
             if argument.startswith("PATH=")
         )
         assert path == "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def test_profile_build_uses_the_container_output_owner():
+    with make_working_tree() as (tree, _close_record, _commit):
+        target_dir = tree / ".work/consolidation/profile/target"
+        repository_tmp = tree / ".work/tmp/container"
+        laputa_corpus = tree.parent / "laputa-container-owner"
+        laputa_corpus.mkdir()
+        with patch.object(profile, "ROOT", tree), patch.object(profile, "INFRA", tree / "infra"):
+            command = profile.profile_build(
+                tree, target_dir, 3, "0-11", "sha256:test-image", repository_tmp,
+                laputa_corpus=laputa_corpus,
+            )
+        image = command.index("sha256:test-image")
+        assert not (tree / "dev/consolidation/winddown/gate-tools/infra/container-build.sh").exists()
+        assert f"{profile.CONTAINER_BUILD_WRAPPER}:{profile.CONTAINER_BUILD_PATH}:ro" in command
+        assert command[image + 1:image + 5] == ["/bin/bash", profile.CONTAINER_BUILD_PATH, "--output", str(target_dir)]
+        assert command[image + 5:image + 8] == ["--output", "/t", "--"]
+        assert command[image + 8:image + 11] == ["/usr/bin/env", "LD_PRELOAD=/usr/lib/libjemalloc.so.2", "cargo"]
+
+
+def test_container_build_reowns_outputs_after_success_failure_and_signal():
+    script = Path.cwd() / "dev/consolidation/winddown/gate-tools/infra/container-build.sh"
+    uid, gid = os.getuid(), os.getgid()
+    with tempfile.TemporaryDirectory(dir=Path.cwd() / ".work/tmp") as temporary:
+        root = Path(temporary)
+        output = root / "target"
+        scratch = root / "scratch"
+        output.mkdir()
+        scratch.mkdir()
+        tools = root / "tools"
+        tools.mkdir()
+        capture = root / "chown.log"
+        fake_chown = tools / "chown"
+        fake_chown.write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$XSH_CHOWN_CAPTURE\"\nexit \"${XSH_CHOWN_STATUS:-0}\"\n",
+            encoding="utf-8",
+        )
+        fake_chown.chmod(0o755)
+        environment = os.environ | {
+            "PATH": f"{tools}:{os.environ['PATH']}",
+            "TASK_UID": str(uid),
+            "TASK_GID": str(gid),
+            "XSH_CHOWN_CAPTURE": str(capture),
+        }
+
+        def command(code):
+            return [
+                "/bin/bash", str(script),
+                "--output", str(output), "--output", str(scratch), "--",
+                sys.executable, "-c", code,
+            ]
+
+        for child_status in (0, 23):
+            capture.write_text("", encoding="utf-8")
+            artifact = output / "debug" / f"exit-{child_status}"
+            code = (
+                "from pathlib import Path; "
+                f"Path({str(artifact.parent)!r}).mkdir(parents=True, exist_ok=True); "
+                f"Path({str(artifact)!r}).write_text('artifact'); "
+                f"exit({child_status})"
+            )
+            result = subprocess.run(command(code), env=environment, capture_output=True, check=False)
+            assert result.returncode == child_status
+            calls = capture.read_text(encoding="utf-8")
+            assert f"{uid}:{gid} {output}" in calls
+            assert f"{uid}:{gid} {scratch}" in calls
+
+        capture.write_text("", encoding="utf-8")
+        failing_cleanup = environment | {"XSH_CHOWN_STATUS": "42"}
+        failed = subprocess.run(command("exit(23)"), env=failing_cleanup, capture_output=True, check=False)
+        assert failed.returncode == 23
+        assert b"output ownership cleanup failed" in failed.stderr
+        failed_cleanup_after_success = subprocess.run(command("exit(0)"), env=failing_cleanup, capture_output=True, check=False)
+        assert failed_cleanup_after_success.returncode == 42
+        assert b"output ownership cleanup failed" in failed_cleanup_after_success.stderr
+
+        capture.write_text("", encoding="utf-8")
+        artifact = output / "debug" / "interrupted"
+        code = (
+            "from pathlib import Path; import signal; "
+            f"Path({str(artifact.parent)!r}).mkdir(parents=True, exist_ok=True); "
+            f"Path({str(artifact)!r}).write_text('artifact'); "
+            "print('ready', flush=True); signal.pause()"
+        )
+        process = subprocess.Popen(command(code), env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if not select.select([process.stdout], [], [], 10)[0]:
+            process.kill()
+            process.communicate(timeout=10)
+            raise AssertionError("container output owner did not start the child")
+        assert process.stdout.readline() == b"ready\n"
+        process.send_signal(signal.SIGTERM)
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=10)
+            raise AssertionError("container output owner did not stop the child after SIGTERM")
+        assert process.returncode == 143, (stdout, stderr)
+        calls = capture.read_text(encoding="utf-8")
+        assert f"{uid}:{gid} {output}" in calls
+        assert f"{uid}:{gid} {scratch}" in calls
+
+
+def test_container_build_escalates_when_child_ignores_sigterm():
+    script = Path.cwd() / "dev/consolidation/winddown/gate-tools/infra/container-build.sh"
+    uid, gid = os.getuid(), os.getgid()
+    with tempfile.TemporaryDirectory(dir=Path.cwd() / ".work/tmp") as temporary:
+        root = Path(temporary)
+        output = root / "target"
+        output.mkdir()
+        tools = root / "tools"
+        tools.mkdir()
+        capture = root / "chown.log"
+        fake_chown = tools / "chown"
+        fake_chown.write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$XSH_CHOWN_CAPTURE\"\n",
+            encoding="utf-8",
+        )
+        fake_chown.chmod(0o755)
+        environment = os.environ | {
+            "PATH": f"{tools}:{os.environ['PATH']}",
+            "TASK_UID": str(uid),
+            "TASK_GID": str(gid),
+            "XSH_CHOWN_CAPTURE": str(capture),
+        }
+        process = subprocess.Popen(
+            [
+                "/bin/bash", str(script), "--output", str(output), "--",
+                sys.executable, "-c",
+                "import os, signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(os.getpid(), flush=True); signal.pause()",
+            ],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if not select.select([process.stdout], [], [], 10)[0]:
+            process.kill()
+            process.communicate(timeout=10)
+            raise AssertionError("container build child did not start")
+        child_process_group = int(process.stdout.readline())
+        process.send_signal(signal.SIGTERM)
+        try:
+            stdout, stderr = process.communicate(timeout=8)
+        except subprocess.TimeoutExpired:
+            os.killpg(child_process_group, signal.SIGKILL)
+            process.kill()
+            process.communicate(timeout=10)
+            raise AssertionError("container build did not escalate after SIGTERM")
+        assert process.returncode == 143, (stdout, stderr)
+        assert f"{uid}:{gid} {output}" in capture.read_text(encoding="utf-8")
 
 
 def test_profile_build_mounts_selected_source_work_directory():
@@ -278,10 +432,20 @@ def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False
     lock_paths = []
     close_record.write_text(json.dumps({"functional_complete": True, "commit": commit}) + "\n", encoding="utf-8")
 
-    def run_stage(command, log, *, run_id, stage, verify_after, measure_timing=True):
+    def run_stage(
+        command,
+        log,
+        *,
+        run_id,
+        stage,
+        verify_after,
+        measure_timing=True,
+        stop_grace_seconds=profile.CLEANUP_STOP_GRACE_SECONDS,
+    ):
         stages.append(stage)
         assert measure_timing is (not artifacts_only)
         if stage.endswith("-build"):
+            assert stop_grace_seconds == profile.BUILD_OUTPUT_STOP_GRACE_SECONDS
             target_dir = Path(next(argument.split("=", 1)[1] for argument in command if argument.startswith("CARGO_TARGET_DIR=")))
             binary_dir = target_dir / profile.TARGET / "release"
             binary_dir.mkdir(parents=True)
@@ -289,6 +453,8 @@ def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False
                 binary = binary_dir / name
                 binary.write_bytes(name.encode())
                 binary.chmod(0o755)
+        else:
+            assert stop_grace_seconds == profile.CLEANUP_STOP_GRACE_SECONDS
         log.write_text(f"{stage}\n")
         result = {
             "command": command,
@@ -566,6 +732,9 @@ def test_artifact_qualification_is_resources_only_input():
 
 
 if __name__ == "__main__":
+    test_container_build_reowns_outputs_after_success_failure_and_signal()
+    test_container_build_escalates_when_child_ignores_sigterm()
+    test_profile_build_uses_the_container_output_owner()
     test_profile_build_context_has_no_baseline_xsh_dependency()
     test_profile_build_mounts_selected_source_work_directory()
     test_profile_runtime_context_requires_explicit_candidate_xsh()

@@ -22,6 +22,8 @@ sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 from owned_containers import (
+    BUILD_OUTPUT_STOP_GRACE_SECONDS,
+    CLEANUP_STOP_GRACE_SECONDS,
     CleanupUnresolved,
     InterruptedRun,
     SignalReceived,
@@ -36,6 +38,8 @@ from owned_containers import (
 
 ROOT = Path("/home/josh/d/laputa-systems/xsh")
 INFRA = ROOT / ".work/consolidation/infra"
+CONTAINER_BUILD_WRAPPER = Path(__file__).resolve().parents[1] / "infra/container-build.sh"
+CONTAINER_BUILD_PATH = "/usr/local/bin/xsh-container-build.sh"
 TARGET = "x86_64-unknown-linux-musl"
 NATIVE_IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 CPU_LIMIT = 12
@@ -383,6 +387,7 @@ def docker_base(tree, target_dir, cpus, native_image, repository_tmp, *, laputa_
         ]
     else:
         command += [
+            "-v", f"{CONTAINER_BUILD_WRAPPER}:{CONTAINER_BUILD_PATH}:ro",
             "-v", "/usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro",
             "-v", "xsh-cargo-registry:/root/.cargo/registry",
             "-e", f"TASK_UID={uid}", "-e", f"TASK_GID={gid}",
@@ -405,10 +410,25 @@ def perf_gate_check(after=False):
     }
 
 
-def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=True):
+def run_stage(
+    command,
+    log,
+    *,
+    run_id,
+    stage,
+    verify_after=None,
+    measure_timing=True,
+    stop_grace_seconds=CLEANUP_STOP_GRACE_SECONDS,
+):
     cidfile = log.with_suffix(".cid")
     cidfile.unlink(missing_ok=True)
     owned_command = owned_docker_command(command, cidfile=cidfile, owner=run_id, stage=stage)
+    cleanup_container = lambda: cleanup_cidfile_container(
+        cidfile,
+        owner=run_id,
+        stage=stage,
+        stop_grace_seconds=stop_grace_seconds,
+    )
     precheck = perf_gate_check() if measure_timing else None
     if measure_timing and precheck["exit_code"] != 0:
         return {
@@ -435,7 +455,7 @@ def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=
             )
             status, _, _ = wait_for_owned_process(
                 process,
-                lambda: cleanup_cidfile_container(cidfile, owner=run_id, stage=stage),
+                cleanup_container,
             )
         elapsed = time.perf_counter_ns() - started if started is not None else None
         postcheck = perf_gate_check(after=True) if started is not None else None
@@ -463,18 +483,17 @@ def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=
             "cidfile": str(cidfile) if not error.cleanup["resolved"] else None,
         }
     except SignalReceived as error:
-        cleanup_fn = lambda: cleanup_cidfile_container(cidfile, owner=run_id, stage=stage)
         if process is not None and process.poll() is None:
-            cleanup = cleanup_container_process(process, cleanup_fn)
+            cleanup_result = cleanup_container_process(process, cleanup_container)
         else:
             with cleanup_window():
-                container_cleanup = cleanup_fn()
-            cleanup = {
-                "resolved": container_cleanup["resolved"],
+                containers = cleanup_container()
+            cleanup_result = {
+                "resolved": containers["resolved"],
                 "process": {"resolved": True, "commands": []},
-                "containers": container_cleanup,
+                "containers": containers,
             }
-        if cleanup["resolved"]:
+        if cleanup_result["resolved"]:
             cidfile.unlink(missing_ok=True)
         return {
             "command": owned_command,
@@ -485,18 +504,18 @@ def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=
             "timing_discarded": True,
             "interrupted": True,
             "signal": signal.Signals(error.signum).name,
-            "cleanup_resolved": cleanup["resolved"],
-            "container_cleanup": cleanup,
+            "cleanup_resolved": cleanup_result["resolved"],
+            "container_cleanup": cleanup_result,
             "performance_gate": {"before": precheck, "after": None},
-            "cidfile": str(cidfile) if not cleanup["resolved"] else None,
+            "cidfile": str(cidfile) if not cleanup_result["resolved"] else None,
             "stage_validation": stage_validation,
             "stage_validation_error": validation_error,
         }
     with cleanup_window():
-        cleanup = cleanup_cidfile_container(cidfile, owner=run_id, stage=stage)
-    if cleanup["resolved"]:
+        cleanup_result = cleanup_container()
+    if cleanup_result["resolved"]:
         cidfile.unlink(missing_ok=True)
-    accepted = postcheck is not None and postcheck["exit_code"] == 0 and cleanup["resolved"] and validation_error is None
+    accepted = postcheck is not None and postcheck["exit_code"] == 0 and cleanup_result["resolved"] and validation_error is None
     result = {
         "command": owned_command,
         "status": status,
@@ -506,8 +525,8 @@ def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=
         "timing_accepted": accepted,
         "timing_discarded": not accepted,
         "performance_gate": {"before": precheck, "after": postcheck},
-        "container_cleanup": cleanup,
-        "cidfile": str(cidfile) if not cleanup["resolved"] else None,
+        "container_cleanup": cleanup_result,
+        "cidfile": str(cidfile) if not cleanup_result["resolved"] else None,
         "stage_validation": stage_validation,
         "stage_validation_error": validation_error,
     }
@@ -521,7 +540,13 @@ def profile_build(tree, target_dir, level, cpus, image, repository_tmp, *, laput
     profile_env = ["-e", f"CARGO_PROFILE_RELEASE_OPT_LEVEL={level}"]
     image_index = command.index(image)
     command[image_index:image_index] = profile_env
-    wrapped = ["/bin/bash", "-c", 'LD_PRELOAD=/usr/lib/libjemalloc.so.2 "$@"', "bash", "cargo", "build", "--locked", "--release", "--target", TARGET, "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xsh", "--bin", "xsh-test-helper"]
+    wrapped = [
+        "/bin/bash", CONTAINER_BUILD_PATH,
+        "--output", str(target_dir), "--output", "/t", "--",
+        "/usr/bin/env", "LD_PRELOAD=/usr/lib/libjemalloc.so.2", "cargo", "build", "--locked",
+        "--release", "--target", TARGET, "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht",
+        "-p", "xsh", "--bin", "xsh-test-helper",
+    ]
     return command + wrapped
 
 
@@ -674,6 +699,7 @@ def run(args):
                         stage=f"release-opt{level}-build",
                         verify_after=lambda: verify_stage(binaries),
                         measure_timing=not args.artifacts_only,
+                        stop_grace_seconds=BUILD_OUTPUT_STOP_GRACE_SECONDS,
                     )
                 result = {"name": f"release-opt{level}", "profile": "release", "opt_level": level, "lto": "thin", "codegen_units": 16, "build_command": build["command"], "build": build}
                 receipt["results"].append(result)
