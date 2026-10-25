@@ -89,3 +89,23 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "2\n"
 }
+
+test test_map_comprehension_arguments_and_membership_containers_have_a_producer_contract { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc measure(counts: Map[Int, Str], bonus: Int = 1) -> Int { counts.len() + bonus }
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    out += [f"{measure(counts: {[7]: "a" for x in [1, 2, 3]})}"]
+    out += [f"{measure(...{counts: {[x]: "b" for x in [1, 2, 3]}, bonus: 10})}"]
+    out += [f"{2 in {[x]: x for x in [1, 2]}}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n13\ntrue\n"
+}

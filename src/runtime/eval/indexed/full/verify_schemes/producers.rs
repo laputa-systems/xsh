@@ -3630,6 +3630,13 @@ impl<'a> ProducerProof<'a> {
                     None => Some(list),
                 }
             }
+            schema::ExprView::MapComp { key, value, .. } => {
+                let Some(key) = self.need_context(decoder, key.raw() as usize)? else { return Ok(None) };
+                let Some(value) = self.need_context(decoder, value.raw() as usize)? else { return Ok(None) };
+                self.budget.charge_clone(&key)?;
+                self.budget.charge_clone(&value)?;
+                Some(Type::Map(Box::new((*key).clone()), Box::new((*value).clone())))
+            }
             schema::ExprView::ListBuild(mut values) => {
                 let mut items = Vec::new();
                 for value in &mut values {
