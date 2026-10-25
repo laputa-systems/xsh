@@ -860,3 +860,100 @@ test solved_locals_keep_exact_types_without_widening_or_dropping_null { |ctx|
     assert "check.type-mismatch" in output.stderr, output.stderr
   }
 }
+
+test nullable_local_fallback_after_non_null_proof_keeps_the_proven_value { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure ascending(samples: List[Int]) -> Bool {
+  var previous = null
+  for sample in samples {
+    if previous != null and sample <= (previous ?? sample) {
+      return false
+    }
+    previous = sample
+  }
+  true
+}
+pure last_before_gap(samples: List[Int]) -> Int {
+  var previous = null
+  for sample in samples {
+    if previous != null {
+      return previous ?? -1
+    }
+    previous = sample
+  }
+  -1
+}
+print ${ascending([1, 2, 3])}
+print ${ascending([1, 3, 3])}
+print ${last_before_gap([7, 8])}
+print ${last_before_gap([7])}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """true
+false
+7
+-1
+"""
+}
+
+test recursive_statement_call_propagates_the_inferred_unit_result { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc descend(depth: Int) [error] {
+  return when depth == 0
+  descend(depth - 1)
+  return Err(error.failure("stopped")) when depth == 2
+  print "unwound $depth"
+}
+for depth in [1, 3] {
+  if let Err(failure) = descend(depth) { print "failed $depth" } else { print "completed $depth" }
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """unwound 1
+completed 1
+unwound 1
+failed 3
+"""
+
+  let rejected = test.run_script(
+    ctx,
+    r"""proc descend(depth: Int) {
+  return when depth == 0
+  descend(depth - 1)
+  return Ok(depth) when depth == 3
+}
+""",
+  )?
+  assert ! rejected.success
+  assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+}
+
+test compound_assignment_resolves_deferred_operand_to_the_target_numeric_type { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure radix_digits(rounds: List[Int]) -> List[Int] {
+  var digits = []
+  var carry = 0
+  for round in rounds {
+    carry = round
+    for i in range(digits.len()) {
+      carry += digits[i] * 256
+      digits[i] = carry % 58
+      carry /= 58
+    }
+    while carry > 0 { digits += [carry % 58]; carry /= 58 }
+  }
+  digits
+}
+let digits = radix_digits([1, 2, 3])
+print ${digits[0]} ${digits[1]} ${digits[2]}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """47 36 19
+"""
+}

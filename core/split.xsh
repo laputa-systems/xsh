@@ -47,11 +47,11 @@ CHUNKS may be:
 """
 
 # Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
-on INT [] {
+on INT [process] {
   exit 130
 }
 
-on TERM [] {
+on TERM [process] {
   exit 143
 }
 
@@ -1347,7 +1347,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
             gnu.error("memory exhausted")
             exit 1
           }
-          return Err(failure)?
+          return Err(failure)
         }
       }
     }

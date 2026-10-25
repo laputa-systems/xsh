@@ -3,7 +3,7 @@ use super::{
     BTreeMap, BTreeSet, CheckedArgumentType, FullCallableContract, FullDecoder, FullStore, FullTag,
     IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
     checked_argument_type, checked_expression_type_id, decoder_for_driver_step,
-    decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
+    decoder_for_function, driver_owner, ensure_closed_type, ensure_producer_context_type, ensure_substitution_type, schema,
     merge_list_item_types, expected_list_item, PropagationBoundary, ProducerContextRole, producer_context_role,
 };
 use crate::sema::types::{CallableKind, ConditionRole, ModuleExportType, TypedCallable};
@@ -3446,7 +3446,13 @@ impl<'a> ProducerProof<'a> {
                 self.expression(decoder.owner, value, Arc::clone(checked), false);
                 continue;
             }
-            let Some(actual) = self.declared_type(decoder, value)? else { return Ok(false) };
+            let Some(actual) = self.declared_type(decoder, value)? else {
+                if matches!(decoder.expression_view(value)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)) {
+                    self.expression(decoder.owner, value, Arc::clone(checked), false);
+                    continue;
+                }
+                return Ok(false);
+            };
             let Type::List(item) = actual.unvalidated() else { return Ok(false) };
             let fits = if runtime_complete {
                 self.checked_record_field_fits(decoder, value, item, expected_item)?
@@ -3761,6 +3767,11 @@ impl<'a> ProducerProof<'a> {
             Some(CheckedArgumentType::EmptyMap) => None,
             None => None,
         })
+    }
+
+    fn is_erased_record_field(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::Field { base, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        Ok(self.need_context(decoder, base.raw() as usize)?.is_some_and(|base| base.unvalidated() == &Type::ErasedRecord))
     }
 
     fn need_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
@@ -4918,7 +4929,7 @@ impl<'a> ProducerProof<'a> {
             None if !returned && self.pushes_expected_to_results(&decoder, instruction, &expected, true)? => None,
             None => self.declared_type(&decoder, instruction)?,
         };
-        if matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _))
+        if (matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _)) || matches!(expected.as_ref(), Type::Record(_)) && actual.is_none())
             && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
             && let Some(source) = self.fresh_contextual_argument_source(&decoder, instruction)?
             && self.declared_type(&decoder, source)?.is_none()
@@ -4957,6 +4968,12 @@ impl<'a> ProducerProof<'a> {
             let record_branches = actual.as_ref() == &Type::ErasedRecord && matches!(container, Type::Record(_))
                 && self.is_conditional_record_source(&decoder, instruction)?;
             let checked_comprehension = self.runtime_checked_comprehension(&decoder, instruction, container)?;
+            let branch_verified_source = !fits && match self.store.tags[instruction] {
+                FullTag::ExprValueBlock => !returned,
+                FullTag::ExprIf | FullTag::ExprPatternIf | FullTag::ExprMatch | FullTag::ExprStrMatch | FullTag::ExprTagMatch =>
+                    matches!(actual.unvalidated(), Type::Optional(payload) if payload.matches_expected(container)),
+                _ => false,
+            };
             let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
                 if decoder.checked_guarded_record_read_matches_type(instruction, actual, container, &mut |amount| self.budget.charge(amount))? {
                     true
@@ -4977,7 +4994,7 @@ impl<'a> ProducerProof<'a> {
             let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
             let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
-            if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !branch_verified_source && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())
@@ -5196,7 +5213,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 let left_type = self.need_context(&decoder, left.raw() as usize)?;
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;
-                let left_type = left_type.or_else(|| right_type.clone()).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
+                let dynamic_fields = left_type.is_none() && right_type.is_none()
+                    && self.is_erased_record_field(&decoder, left.raw() as usize)?
+                    && self.is_erased_record_field(&decoder, right.raw() as usize)?;
+                let left_type = left_type.or_else(|| right_type.clone()).or_else(|| dynamic_fields.then(|| Arc::new(Type::Any))).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
                 let right_type = right_type.unwrap_or_else(|| Arc::clone(&left_type));
                 self.budget.charge_clone(&left_type)?;
                 self.budget.charge_clone(&right_type)?;
@@ -6023,6 +6043,9 @@ impl<'a> ProducerProof<'a> {
                 self.budget.charge_clone(&error)?;
                 self.budget.charge_clone(&expected)?;
                 let boundary = super::PropagationBoundary::for_function(self.store, decoder.owner, &crate::sema::schemes::SchemeType::Ground((*expected).clone()), &mut self.budget)?;
+                if matches!(boundary, super::PropagationBoundary::Unavailable)
+                    && self.store.function_metadata[function].callable_kind == CallableKind::Proc
+                { return Ok(Some(error)); }
                 super::body_propagated_error_matches_owner(
                     self.store,
                     None,
@@ -6102,7 +6125,8 @@ impl<'a> ProducerProof<'a> {
                             self.budget.charge(1)?;
                             recorded_transfers.insert(value);
                             None
-                        } else { Some((value, CapturedResultUse::Discard)) }
+                        } else if self.store.tags[value] == FullTag::ExprAbort { None }
+                        else { Some((value, CapturedResultUse::Discard)) }
                     }
                     FullTag::StmtFor | FullTag::StmtForRecord => {
                         let (schema::StmtView::For { iter, .. } | schema::StmtView::ForRecord { iter, .. }) = decoder.statement_view(instruction)? else { unreachable!() };
@@ -6434,7 +6458,7 @@ impl<'a> ProducerProof<'a> {
         self.budget.charge(1)?;
         if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
         let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(instruction)? else { return Ok(None); };
-        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap) { return Ok(None); }
+        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
         self.checked_match_binding(decoder, instruction)
     }
 
@@ -6443,7 +6467,7 @@ impl<'a> ProducerProof<'a> {
         let key = (decoder.owner, argument);
         if let Some(source) = self.fresh_lists.get(&key) { return Ok(*source); }
         let source = match decoder.expression_view(argument)? {
-            schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap => Some(argument),
+            schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. } => Some(argument),
             schema::ExprView::Param(slot) => {
                 let binding = self.binding(decoder.owner, argument, slot)?;
                 match binding {
@@ -6468,14 +6492,15 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn contextual_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
-        if !matches!(expected, Type::List(_) | Type::Map(_, _)) { return Ok(false); }
+        if !matches!(expected, Type::List(_) | Type::Map(_, _) | Type::Record(_)) { return Ok(false); }
         let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(false) };
+        if matches!(expected, Type::Record(_)) && self.declared_type(decoder, argument)?.is_some() { return Ok(false); }
         let Some(source) = self.fresh_contextual_argument_source(decoder, argument)? else { return Ok(false) };
         if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
         if !matches!((self.store.tags[source], expected),
-            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap, Type::Map(_, _)))
+            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)))
         { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
-        ensure_substitution_type(expected)?;
+        ensure_producer_context_type(self.store.tags[source], expected)?;
         let binding = self.binding(decoder.owner, argument, slot)?;
         let key = (decoder.owner, binding);
         self.deferred_sources.insert(key, source);
@@ -6930,7 +6955,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn checked_fresh_list_method_receiver(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        let Type::Set(item) = expected else { return Ok(None) };
+        let (Type::Set(item) | Type::List(item)) = expected else { return Ok(None) };
         let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else { return Ok(None) };
         let receiver = receiver.raw() as usize;
         if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)

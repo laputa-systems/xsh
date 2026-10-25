@@ -2895,7 +2895,25 @@ impl Checker {
         rhs_span: Span,
     ) -> Type {
         let Ok(mut left) = self.resolve_compound_operand(left, op_span) else { return Type::Invalid };
-        let Ok(right) = self.resolve_compound_operand(right, rhs_span) else { return Type::Invalid };
+        let Ok(mut right) = self.resolve_compound_operand(right, rhs_span) else { return Type::Invalid };
+        if matches!(right, Type::Inference(_)) {
+            let target = match (&left, op) {
+                (Type::Int | Type::UInt, _) => Some(left.clone()),
+                (Type::Float, op) if op != AssignOp::Rem => Some(Type::Float),
+                (Type::Duration, AssignOp::Add | AssignOp::Sub) => Some(Type::Duration),
+                (Type::Duration, AssignOp::Mul | AssignOp::Div) => Some(Type::Int),
+                _ => None,
+            };
+            if let Some(target) = target {
+                let diagnostic_start = self.diagnostics.len();
+                self.expect_type(&target, &right, rhs_span);
+                if self.diagnostics[diagnostic_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                    return Type::Invalid;
+                }
+                let Ok(resolved) = self.resolve_compound_operand(&right, rhs_span) else { return Type::Invalid };
+                right = resolved;
+            }
+        }
         let right = right.unvalidated();
         if op == AssignOp::Add && matches!(left, Type::Inference(_)) && matches!(right, Type::List(_)) {
             let diagnostic_start = self.diagnostics.len();
@@ -3083,6 +3101,20 @@ impl Checker {
         true
     }
 
+    fn statement_result_with_unit_payload(&mut self, actual: &Type, value: Span) -> Type {
+        let Type::Result(payload, _) = actual else { return actual.clone() };
+        if !payload.contains_inference() {
+            return actual.clone();
+        }
+        let Ok(resolved) = self.type_constraints.resolve(actual) else { return actual.clone() };
+        let Type::Result(payload, _) = &resolved else { return resolved };
+        if matches!(**payload, Type::Inference(_)) {
+            self.expect_type(&Type::Unit, payload, value);
+            return self.type_constraints.resolve(&resolved).unwrap_or(resolved);
+        }
+        resolved
+    }
+
     pub(super) fn check_unit_statement_value_tail(
         &mut self,
         source: Option<&str>,
@@ -3092,6 +3124,7 @@ impl Checker {
         copy_update: Option<CopyUpdateMistake>,
         discard_fix: bool,
     ) -> Type {
+        let actual = &self.statement_result_with_unit_payload(actual, value);
         if actual.is_result() {
             self.reject_discarded_value(actual, statement, value, discard_fix, copy_update);
             if expr_ty_auto_propagates(actual) {
@@ -3147,6 +3180,7 @@ impl Checker {
         discard_fix: bool,
         copy_update: Option<CopyUpdateMistake>,
     ) {
+        let ty = &self.statement_result_with_unit_payload(ty, value);
         if *ty == Type::Bool
             || ty.is_result_unit()
             || ty.matches_expected(&Type::Unit)
@@ -3816,6 +3850,16 @@ impl Checker {
                 _ => return None,
             }
         }
+    }
+
+    pub(super) fn is_proven_nonnull_subject_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
+        self.proof_subject_arena(arena, expr).is_some_and(|(_, path, _, binding)| {
+            binding
+                .unrefined_ty
+                .as_ref()
+                .and_then(|ty| super::proof::projected_type(ty, &path))
+                .is_some_and(|ty| matches!(ty, Type::Optional(_)))
+        })
     }
 
     pub(super) fn infer_condition_proof_arena(

@@ -25,7 +25,7 @@ pure add_dir_finding(
   findings.push({severity, kind, path: item_path, detail})
 }
 
-proc main(...argv: List[Str]) [fs, env, error] {
+proc main(...argv: List[Str]) [fs, process, env, error] {
   let opts: Opts = cli.parse(
     argv,
     {

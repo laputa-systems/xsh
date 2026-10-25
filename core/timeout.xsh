@@ -21,11 +21,11 @@ const SIGNAL_POLL = 50ms
 
 # The evaluator forwards these signals to the managed child group when each
 # hook exits, while these statuses preserve timeout's shell-facing result.
-on INT [] {
+on INT [process] {
   exit 130
 }
 
-on TERM [] {
+on TERM [process] {
   exit 143
 }
 

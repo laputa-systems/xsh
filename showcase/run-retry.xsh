@@ -5,11 +5,11 @@
 # Attempts have no implicit deadline; SIGINT/SIGTERM stop retries and cancel the child group.
 # Usage: xsh showcase/run-retry.xsh -- COMMAND [ARGS...]
 # Example: xsh showcase/run-retry.xsh -- curl -fsS https://example.com
-on SIGINT [error] {
+on SIGINT [process, error] {
   exit 3
 }
 
-on SIGTERM [error] {
+on SIGTERM [process, error] {
   exit 3
 }
 

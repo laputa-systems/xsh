@@ -7,7 +7,7 @@
 # Example: xsh showcase/wait-for.xsh -- http://localhost:8080/health --status 200
 type Opts = {url: Str, timeout: Int, interval: Int, status: Int}
 
-proc main(...argv: List[Str]) [net, time, error] {
+proc main(...argv: List[Str]) [net, process, time, error] {
   let opts: Opts = cli.parse(
     argv,
     {
