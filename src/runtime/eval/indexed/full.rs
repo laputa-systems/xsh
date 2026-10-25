@@ -9952,6 +9952,39 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn checked_block_last_statement(
+        &self,
+        statements: &mut ListView<'a, BuildStmtId>,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        let mut last = None;
+        for statement in statements {
+            last = Some(statement?.raw() as usize);
+        }
+        Ok(last)
+    }
+
+    fn checked_trailing_run_status(
+        &self,
+        statements: &mut ListView<'a, BuildStmtId>,
+    ) -> Result<Option<(usize, Type)>, IrVerifyError> {
+        let Some(last) = self.checked_block_last_statement(statements)? else { return Ok(None) };
+        self.checked_run_status_statement(last)
+    }
+
+    fn checked_run_status_statement(&self, instruction: usize) -> Result<Option<(usize, Type)>, IrVerifyError> {
+        let schema::StmtView::Run { value, propagate_result: false } = self.statement_view(instruction)? else { return Ok(None) };
+        let value = value.raw() as usize;
+        let schema::ExprView::RunCapture(run) = self.expression_view(value)? else { return Ok(None) };
+        Ok(matches!(run.kind, crate::syntax::node::RunKind::Status).then_some((value, Type::Status)))
+    }
+
+    fn checked_statement_value_tail(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        match self.statement_view(instruction)? {
+            schema::StmtView::Value { value } => Ok(Some(value.raw() as usize)),
+            _ => Ok(None),
+        }
+    }
+
     fn checked_block_tail_expression(
         &self,
         statements: &mut ListView<'a, BuildStmtId>,
@@ -11746,6 +11779,9 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Path(_)
             | schema::ExprView::PathFrom { .. }
             | schema::ExprView::PathFmtString { .. } => Ok(Some(Type::Path)),
+            schema::ExprView::Index { base, .. } | schema::ExprView::IndexFromEnd { base, .. }
+                if self.expression_checked_type_id(base.raw() as usize)?.is_none()
+                    && self.derive_checked_expression_type(base.raw() as usize)?.is_none() => Ok(None),
             schema::ExprView::Index { base, index, .. } => self.checked_index_result_type(
                 base.raw() as usize,
                 index.ordinary().map(|index| index.raw() as usize),
@@ -12967,7 +13003,13 @@ impl<'a> FullDecoder<'a> {
                     CheckedValueBlockResult::Tail(value) => require_child(value, ok)?,
                     CheckedValueBlockResult::DoesNotComplete => {}
                     CheckedValueBlockResult::Unit if Type::Unit.matches_expected(ok) => {}
-                    CheckedValueBlockResult::Unit => return Err(IrVerifyError::new("checked capture completes without a compatible value tail")),
+                    CheckedValueBlockResult::Unit => {
+                        let schema::ExprView::Capture { body: mut again, .. } = self.expression_view(instruction)? else { unreachable!("capture tag and generated view disagree") };
+                        match self.checked_trailing_run_status(&mut again)? {
+                            Some((_, status)) if status.matches_expected(ok) => {}
+                            _ => return Err(IrVerifyError::new("checked capture completes without a compatible value tail")),
+                        }
+                    }
                 }
             }
             schema::ExprView::Retry { delays, mut body, .. } => {

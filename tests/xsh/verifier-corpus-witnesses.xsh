@@ -263,3 +263,23 @@ test test_boolean_alias_survives_a_disjoint_write_and_an_exiting_mutation {
   assert alias_guard_after_exit_mutation(false) == "ready"
   assert alias_guard_after_exit_mutation(true) == "early"
 }
+
+test test_capture_may_end_in_a_status_run {
+  let captured = try { run.status sh -c "exit 3" }
+  assert captured is Ok(_)
+}
+
+test test_pipeline_over_an_empty_list_literal_has_no_items {
+  let none = [] |> map(twice)
+  assert none.len() == 0
+}
+
+test test_never_completing_scope_in_a_capture_is_not_a_source {
+  let outcome = try {
+    env ({XSH_WITNESS_SCOPE: "inner"}) {
+      assert false
+    }
+    7
+  }
+  assert outcome is Err(_)
+}

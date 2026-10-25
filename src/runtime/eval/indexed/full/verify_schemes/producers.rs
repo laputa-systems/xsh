@@ -5878,12 +5878,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Try { value, .. } => {
                 if self.prove_error_transfer(&decoder, instruction)?.is_some() { return Ok(()); }
                 let Some(source) = self.need_context(&decoder, value.raw() as usize)? else {
-                    let never_completes = match decoder.expression_view(value.raw() as usize)? {
-                        schema::ExprView::ContextScope { mut body, .. } | schema::ExprView::ValueBlock { mut body, .. } =>
-                            matches!(decoder.checked_value_block_result(&mut body)?, super::super::CheckedValueBlockResult::DoesNotComplete),
-                        _ => !super::super::indexed_expr_can_complete(&decoder, value.raw() as usize, 0)?,
-                    };
-                    if !never_completes { return Err(IrVerifyError::new("ground propagation has no result contract")); }
+                    if !Self::expression_never_completes(&decoder, value.raw() as usize)? { return Err(IrVerifyError::new("ground propagation has no result contract")); }
                     self.expression(owner, value.raw() as usize, Arc::new(Type::Result(Box::new(Type::Unit), Box::new(Type::Error))), false);
                     return Ok(());
                 };
@@ -6171,6 +6166,14 @@ impl<'a> ProducerProof<'a> {
         Ok(may_error)
     }
 
+    fn expression_never_completes(decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        Ok(match decoder.expression_view(instruction)? {
+            schema::ExprView::ContextScope { mut body, .. } | schema::ExprView::ValueBlock { mut body, .. } =>
+                matches!(decoder.checked_value_block_result(&mut body)?, super::super::CheckedValueBlockResult::DoesNotComplete),
+            _ => !super::super::indexed_expr_can_complete(decoder, instruction, 0)?,
+        })
+    }
+
     fn run_capture_error_policy<'view>(&mut self, operands: super::super::decode::RunOperandsView<'view>) -> Result<(bool, bool), IrVerifyError> {
         self.budget.charge(1 + operands.options.len())?;
         let spliced = matches!(operands.target.kind, super::super::decode::RunArgKindView::Splice(_) | super::super::decode::RunArgKindView::SingleOrSplice(_));
@@ -6432,7 +6435,7 @@ impl<'a> ProducerProof<'a> {
                 if let Some((value, use_kind)) = result {
                     let source = match self.need_context(decoder, value)? {
                         Some(source) => Some(source),
-                        None if use_kind == CapturedResultUse::Discard && !super::super::indexed_expr_can_complete(decoder, value, 0)? => None,
+                        None if use_kind == CapturedResultUse::Discard && Self::expression_never_completes(decoder, value)? => None,
                         None => return Err(IrVerifyError::new("captured propagation has no executable source contract")),
                     };
                     if let Some(source) = source {
@@ -6507,7 +6510,8 @@ impl<'a> ProducerProof<'a> {
 
     fn verify_block_value<'view>(&mut self, decoder: &FullDecoder<'view>, mut body: super::super::decode::ListView<'view, super::super::BuildStmtId>, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
         let block = body.block_identity();
-        if let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? {
+        let last = decoder.checked_block_last_statement(&mut body)?;
+        if let Some(tail) = last.map(|last| decoder.checked_statement_value_tail(last)).transpose()?.flatten() {
             self.expression(decoder.owner, tail, expected, returned);
             return Ok(());
         }
@@ -6518,6 +6522,10 @@ impl<'a> ProducerProof<'a> {
             return Ok(());
         }
         if Type::Unit.matches_expected(&expected) { return Ok(()); }
+        if let Some((value, status)) = last.map(|last| decoder.checked_run_status_statement(last)).transpose()?.flatten() && status.matches_expected(&expected) {
+            self.expression(decoder.owner, value, Arc::new(status), false);
+            return Ok(());
+        }
         Err(IrVerifyError::new("ground completing block produces Unit instead of its checked contract"))
     }
 
@@ -7746,7 +7754,10 @@ impl<'a> ProducerProof<'a> {
         let decoder = self.owner(owner)?;
         if end == 0 {
             let schema::ExprView::ListPipeline { input, .. } = decoder.expression_view(pipeline)? else { unreachable!("pipeline prefix has another expression") };
-            let source = self.need_context(&decoder, input.raw() as usize)?.ok_or_else(|| IrVerifyError::new("pipeline source has no iterable contract"))?;
+            let Some(source) = self.need_context(&decoder, input.raw() as usize)? else {
+                if self.is_untyped_empty_list(&decoder, input.raw() as usize)? { return Ok(()); }
+                return Err(IrVerifyError::new("pipeline source has no iterable contract"));
+            };
             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("pipeline source is not iterable"))?;
             if !item.matches_expected(&expected) { return Err(IrVerifyError::new("pipeline source item disagrees with its callback input")); }
             self.expression(owner, input.raw() as usize, source, false);
