@@ -658,6 +658,7 @@ impl Checker {
                 );
                 let conflicts = self.return_conflicts.take().unwrap_or_default();
                 if let Some((left, right, span)) = conflicts.into_iter().next() {
+                    let (left, right) = (completion_success_type(&left), completion_success_type(&right));
                     let message = format!("completions of proc `{}` produce `{left}` and `{right}`", decl.name);
                     self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message)
                         .with_code(DiagnosticCode::CheckTypeMismatch)
@@ -710,6 +711,7 @@ impl Checker {
             } else {
                 (right, left)
             };
+            let (left, right) = (completion_success_type(&left), completion_success_type(&right));
             let message = format!(
                 "completions of proc `{}` produce `{left}` and `{right}`",
                 decl.name
@@ -873,6 +875,13 @@ impl Checker {
                 Type::Invalid
             }
         }
+    }
+}
+
+fn completion_success_type(envelope: &Type) -> &Type {
+    match envelope {
+        Type::Result(ok, _) => ok,
+        other => other,
     }
 }
 
