@@ -235,7 +235,6 @@ fn applet_user_type() -> Type {
 }
 
 fn applet_module() -> ModuleSig {
-    let argv = || vec![param("argv", Type::List(Box::new(Type::Str)))];
     let user = || param("user", applet_user_type());
     module_sig(vec![
         (
@@ -306,10 +305,6 @@ fn applet_module() -> ModuleSig {
                 false,
                 RuntimeOp::AppletSuloginSession,
             ),
-        ),
-        (
-            "mdev",
-            sig(argv(), result(Type::Int), false, RuntimeOp::AppletMdev),
         ),
     ])
 }
@@ -1065,6 +1060,7 @@ fn mime_module() -> ModuleSig {
 fn regex_module() -> ModuleSig {
     module_sig(vec![
         ("captures_bytes", sig(vec![param("pattern", Type::Str), param("input", Type::Bytes), default_param("offset", Type::Int), default_param("extended", Type::Bool), default_param("ignore_case", Type::Bool)], result(Type::List(Box::new(Type::Optional(Box::new(Type::Record(btree_map(vec![("start", Type::Int), ("end", Type::Int)]))))))), true, RuntimeOp::RegexCapturesBytes)),
+        ("captures_host_bytes", sig(vec![param("pattern", Type::Str), param("input", Type::Bytes), default_param("offset", Type::Int), default_param("extended", Type::Bool), default_param("ignore_case", Type::Bool)], result(Type::List(Box::new(Type::Optional(Box::new(Type::Record(btree_map(vec![("start", Type::Int), ("end", Type::Int)]))))))), true, RuntimeOp::RegexCapturesHostBytes)),
         ("find_bytes", sig(vec![param("pattern", Type::Str), param("input", Type::Bytes), default_param("extended", Type::Bool), default_param("ignore_case", Type::Bool)], result(Type::List(Box::new(Type::Record(btree_map(vec![("start", Type::Int), ("end", Type::Int)]))))), true, RuntimeOp::RegexFindBytes)),
         (
         "compile",
@@ -3024,6 +3020,9 @@ fn path_module() -> ModuleSig {
 
 fn unix_module() -> ModuleSig {
     module_sig(vec![
+        ("daemon_start", sig(vec![param("command", Type::Command), param("signals", Type::List(Box::new(Type::Str)))], result(Type::Optional(Box::new(Type::Status))), false, RuntimeOp::UnixDaemonStart)),
+        ("signal_setup", sig(vec![param("signals", Type::List(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixSignalSetup)),
+        ("take_signals", sig(Vec::new(), result(Type::List(Box::new(Type::Str))), false, RuntimeOp::UnixTakeSignals)),
         ("cpu_features", sig(Vec::new(), Type::List(Box::new(Type::Str)), false, RuntimeOp::UnixCpuFeatures)),
         ("read_fd", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int)], result(Type::Bytes), false, RuntimeOp::UnixReadFd)),
         ("write_fd", sig(vec![param("fd", Type::Int), param("data", Type::Bytes)], result(Type::Int), false, RuntimeOp::UnixWriteFd)),
@@ -3432,6 +3431,10 @@ fn unix_module() -> ModuleSig {
     ])
 }
 
+fn process_command_environment_type() -> Type {
+    Type::Union(vec![Type::Record(BTreeMap::new()), Type::Map(Box::new(Type::Str), Box::new(Type::Bytes))])
+}
+
 fn process_module() -> ModuleSig {
     module_sig(vec![
         (
@@ -3569,7 +3572,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Str))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     default_param("stdin", Type::Path),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3595,7 +3598,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Path))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     default_param("stdin", Type::Path),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3621,7 +3624,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Str))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     default_param("stdin", Type::Path),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3647,7 +3650,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Path))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     default_param("stdin", Type::Path),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3673,7 +3676,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Str))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     param("stdin", Type::Bytes),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3699,7 +3702,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Path))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     param("stdin", Type::Bytes),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3725,7 +3728,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Str))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     param("stdin", Type::Bytes),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),
@@ -3751,7 +3754,7 @@ fn process_module() -> ModuleSig {
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Path))),
                     default_param("cwd", Type::Path),
-                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("env", process_command_environment_type()),
                     param("stdin", Type::Bytes),
                     default_param("stdout", Type::Path),
                     default_param("stderr", Type::Path),

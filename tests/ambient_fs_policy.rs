@@ -18,10 +18,6 @@ const AMBIENT_CRATES: &[&str] = &["directories", "tempfile"];
 
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "crates/xsh-applets/src/",
-        "privileged applets intentionally operate on host device trees",
-    ),
-    (
         "src/runtime/eval/modules/auth.rs",
         "auth helpers intentionally access host user databases and login shell state",
     ),

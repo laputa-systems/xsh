@@ -145,6 +145,38 @@ macro_rules! with_unix_call_rows {
             }
                 }
                 callable {
+            callable; RuntimeOp::UnixDaemonStart => {
+                if !$this.signal_handler_guards.is_empty() {
+                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-signal", "signal capture conflicts with entry-script signal hooks").with_span($span)))));
+                }
+                let plan = lowered_command_arg(unix_require_arg($values.first().cloned(), "unix.daemon_start", $span)?, "unix.daemon_start", $span)?;
+                let signals = lowered_str_list_arg($values.get(1).cloned(), "unix.daemon_start", $span)?;
+                if plan.detach || plan.new_session || plan.ignore_hup || plan.same_group {
+                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-daemon", "daemon command requires default lifecycle options").with_span($span)))));
+                }
+                let invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                $this.flush_shared_stdio();
+                match unix_module::daemon::daemon_start(&invocation, &signals, $span) {
+                    Ok(status) => Ok(Value::ok(status.map(Value::Status).unwrap_or(Value::Null))),
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
+            }
+            callable; RuntimeOp::UnixSignalSetup => {
+                if !$this.signal_handler_guards.is_empty() {
+                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-signal", "signal capture conflicts with entry-script signal hooks").with_span($span)))));
+                }
+                let signals = lowered_str_list_arg($values.first().cloned(), "unix.signal_setup", $span)?;
+                match unix_module::daemon::signal_setup(&signals, $span) {
+                    Ok(capture) => { $this.daemon_signal_capture = Some(capture); Ok(Value::ok(Value::Unit)) }
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
+            }
+            callable; RuntimeOp::UnixTakeSignals => {
+                let Some(capture) = $this.daemon_signal_capture.as_ref() else {
+                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-signal", "signal capture is not installed").with_span($span)))));
+                };
+                Ok(Value::ok(Value::List(capture.take().into_iter().map(|name| Value::Str(name.into())).collect())))
+            }
             callable; RuntimeOp::UnixReapChildEvents => unix_module::reap_child_events($span),
             callable; RuntimeOp::UnixPid1Setup => {
                 let signals =

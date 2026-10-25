@@ -3,16 +3,24 @@ use std::ffi::CString;
 pub(crate) struct PosixRegex { inner: libc::regex_t }
 impl PosixRegex {
     pub(crate) fn compile(pattern: &str, extended: bool, ignore_case: bool) -> Result<Self, String> {
+        Self::compile_with_dialect(pattern, extended, ignore_case, false)
+    }
+    pub(crate) fn compile_host(pattern: &str, extended: bool, ignore_case: bool) -> Result<Self, String> {
+        Self::compile_with_dialect(pattern, extended, ignore_case, true)
+    }
+    fn compile_with_dialect(pattern: &str, extended: bool, ignore_case: bool, host_dialect: bool) -> Result<Self, String> {
         let mut at = 0;
         let source = pattern.as_bytes();
-        while at < source.len() {
-            if source[at] == b'\\' {
-                at += 1;
-                if source.get(at).is_some_and(|b| matches!(b, b'b' | b'B' | b'<' | b'>')) {
-                    return Err("GNU word-boundary regex escapes are unsupported by the POSIX byte matcher".into());
+        if !host_dialect {
+            while at < source.len() {
+                if source[at] == b'\\' {
+                    at += 1;
+                    if source.get(at).is_some_and(|b| matches!(b, b'b' | b'B' | b'<' | b'>')) {
+                        return Err("GNU word-boundary regex escapes are unsupported by the POSIX byte matcher".into());
+                    }
                 }
+                at += 1;
             }
-            at += 1;
         }
         let pattern = CString::new(pattern).map_err(|_| "NUL in regular expression".to_owned())?;
         let mut inner = unsafe { std::mem::zeroed::<libc::regex_t>() };

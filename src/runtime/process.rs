@@ -102,6 +102,14 @@ fn begin_timed_child_launch(
     Ok(authority)
 }
 
+pub(crate) struct ChildStatusRetention {
+    _authority: MutexGuard<'static, ChildStatusAuthority>,
+}
+
+pub(crate) fn retain_child_status() -> io::Result<ChildStatusRetention> {
+    begin_timed_child_launch().map(|authority| ChildStatusRetention { _authority: authority })
+}
+
 fn signal_action_retains_child_status(action: &libc::sigaction) -> bool {
     action.sa_sigaction != libc::SIG_IGN && action.sa_flags & libc::SA_NOCLDWAIT == 0
 }

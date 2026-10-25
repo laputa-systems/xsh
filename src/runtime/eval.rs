@@ -3259,6 +3259,7 @@ pub struct Evaluator {
     utils_cache: FxHashMap<lowered_run::UtilsCacheKey, Value>,
     signal_hooks: FxHashMap<String, RegisteredSignalHook>,
     signal_handler_guards: Vec<SignalHandlerGuard>,
+    daemon_signal_capture: Option<crate::modules::unix::daemon::SignalCapture>,
     active_process_groups: Vec<ActiveProcessGroup>,
     next_process_handle_id: u64,
     process_handles: BTreeMap<u64, LiveProcessHandle>,
@@ -3629,6 +3630,7 @@ impl Evaluator {
             utils_cache: FxHashMap::default(),
             signal_hooks: FxHashMap::default(),
             signal_handler_guards: Vec::new(),
+            daemon_signal_capture: None,
             active_process_groups: Vec::new(),
             next_process_handle_id: 1,
             process_handles: BTreeMap::new(),
@@ -3756,6 +3758,9 @@ impl Evaluator {
         slot_count: usize,
         span: Span,
     ) -> Result<(), RuntimeError> {
+        if self.daemon_signal_capture.is_some() {
+            return Err(RuntimeError::new("signal-hook", "entry-script signal hooks conflict with signal capture").with_span(span));
+        }
         let signal = normalize_hook_signal(signal, span).map_err(|rejection| {
             RuntimeError::new("signal-hook", signal_rejection_message(signal, rejection))
                 .with_span(span)
@@ -3879,6 +3884,7 @@ impl Evaluator {
             utils_cache: FxHashMap::default(),
             signal_hooks: FxHashMap::default(),
             signal_handler_guards: Vec::new(),
+            daemon_signal_capture: None,
             active_process_groups: Vec::new(),
             next_process_handle_id: 1,
             process_handles: BTreeMap::new(),

@@ -439,7 +439,7 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.affinity(pid: Int = default) -> Result[List[Int], Error]` — Reads or changes the CPUs a process may run on.
 - `process.argv_words(text: Str) -> Result[List[Str], Error]` — Splits a command string into an argv vector.
 - `process.command() -> Command` — Builds a typed command plan without starting it.
-- `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default, same_group: Bool = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
+- `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Union[Record, Map[Bytes]] = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default, same_group: Bool = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
 - `process.current_pid() -> Result[Int, Error]` — Returns the current process ID.
 - `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
 - `process.io_priority(who: Int = default, which: Str = default) -> Result[{class: Str, level: Int}, Error]` — Reads or changes the I/O scheduling class and level of a process, group, or user.
@@ -482,6 +482,7 @@ Process discovery, command construction, execution, spawning, and signals.
 Regex compilation, matching, captures, and replacement.
 
 - `regex.captures_bytes(pattern: Str, input: Bytes, offset: Int = default, extended: Bool = default, ignore_case: Bool = default) -> Result[List[{end: Int, start: Int}?], Error]` — Matches POSIX byte captures at an input offset.
+- `regex.captures_host_bytes(pattern: Str, input: Bytes, offset: Int = default, extended: Bool = default, ignore_case: Bool = default) -> Result[List[{end: Int, start: Int}?], Error]` — Captures a host libc regular expression against bytes and returns byte offsets.
 - `regex.compile(pattern: Str) -> Result[Regex, Error]` — Compiles a regular expression into a reusable Regex value.
 - `regex.find_bytes(pattern: Str, input: Bytes, extended: Bool = default, ignore_case: Bool = default) -> Result[List[{end: Int, start: Int}], Error]` — Finds nonoverlapping POSIX regular expression matches as byte offsets.
 
@@ -596,6 +597,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.close_fd(fd: Int) -> Result[Unit, Error]` — Opens a path as a bare descriptor number, or closes one.
 - `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.cpu_features() -> List[Str]` — Lists supported host CPU features used by hardware-accelerated utilities.
+- `unix.daemon_start(command: Command, signals: List[Str]) -> Result[Status?, Error]` — Starts a daemon worker and waits for its readiness acknowledgment or exit.
 - `unix.dup_fd(source: Int, target: Int) -> Result[Unit, Error]` — Duplicates a current process descriptor onto another descriptor.
 - `unix.duplicate_fd(source: Int, min_fd: Int = default) -> Result[Int, Error]` — Saves a current process descriptor as a new close-on-exec descriptor.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
@@ -629,10 +631,12 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.set_uid(uid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
 - `unix.set_window_size(rows: Int, cols: Int, xpixel: Int = default, ypixel: Int = default, fd: Int = default) -> Result[Unit, Error]` — Reads or sets a terminal's window size.
 - `unix.shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -> Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.signal_setup(signals: List[Str]) -> Result[Unit, Error]` — Captures selected signals for a daemon worker before unblocking them.
 - `unix.spawn_logged_process_group(command: Command, logger: Command) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_process_group(command: Command, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_process_group_log(command: Command, log: Path, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_with_tty(command: Command, tty: Str) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
+- `unix.take_signals() -> Result[List[Str], Error]` — Drains the distinct pending signals installed by signal_setup.
 - `unix.tty() -> Result[Str, Error]` — Reads or changes Unix terminal state.
 - `unix.tty_attrs(fd: Int = default) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Reads or changes Unix terminal state.
 - `unix.tty_mode(attrs: Record, mode: Str) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Applies raw, cooked, cbreak, or sane to a terminal attributes record.

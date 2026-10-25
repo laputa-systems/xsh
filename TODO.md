@@ -77,15 +77,6 @@ Next: 30
 - **Fix with:** dead-code-archaeology
 - **Effort:** M
 
-### XSH-20 · P3 · Move mdev command policy out of the native backend
-
-- **Area:** Architecture
-- **Where:** `core/mdev.xsh:2`, `crates/xsh-applets/src/mdev.rs:212`, `crates/xsh-applets/src/mdev.rs:379`
-- **Problem:** The XSH command delegates argument parsing, configuration rules and event policy to Rust. This conflicts with the documented division between XSH command policy and Rust host operations.
-- **Recommendation:** Preserve the existing behavior in XSH and retain only required device and sysfs operations in Rust. Require measurements and an XSH implementation for any native performance exception.
-- **Fix with:** api-surface-and-module-boundaries
-- **Effort:** L
-
 ### XSH-25 · P3 · Decide the error effect of a stream parameter
 
 - **Area:** Errors

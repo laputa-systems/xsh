@@ -25,3 +25,15 @@ test test_regex_bytes_capture_empty_matches_and_errors {
   test.error_kind(regex.captures_bytes("a", b"ab", offset: -1), "regex-match")
   test.error_kind(regex.captures_bytes("a", b"ab", offset: 3), "regex-match")
 }
+
+test test_regex_host_byte_captures_use_host_dialect {
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("GNU word-boundary syntax is Linux libc-specific")
+    return
+  }
+
+  let captures = regex.captures_host_bytes(r"\bdev0\b", b"dev0", extended: true)?
+  assert captures.len() == 10
+  assert captures[0] == {start: 0, end: 4}
+  test.error_kind(regex.captures_bytes(r"\bdev0\b", b"dev0", extended: true), "regex-match")
+}

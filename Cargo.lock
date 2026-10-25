@@ -1880,20 +1880,10 @@ dependencies = [
  "tempfile",
  "unicode-width",
  "walkdir",
- "xsh-applets",
  "xsh-net",
  "xsh-registry",
  "xsh-root",
  "zstd",
-]
-
-[[package]]
-name = "xsh-applets"
-version = "0.0.1"
-dependencies = [
- "libc",
- "rustc-hash",
- "rustix",
 ]
 
 [[package]]

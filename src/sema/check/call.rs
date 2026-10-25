@@ -2761,9 +2761,13 @@ impl Checker {
             );
         }
         self.check_process_command_argv_argv_arena(arena, source, slots[1], span);
+        let signature = api_spec().module("process")
+            .and_then(|module| module.function_overloads("command_argv"))
+            .and_then(|overloads| overloads.first())
+            .expect("process.command_argv must have a canonical signature");
         let expected = [
             Type::Path,
-            Type::ErasedRecord,
+            signature.params[3].ty.clone(),
             Type::Path,
             Type::Path,
             Type::Path,
@@ -2796,13 +2800,7 @@ impl Checker {
         if let Some(arg) = slots[14] {
             self.check_static_accepted_exit_codes(arena, call_arg_expr_id_arena(arg));
         }
-        if let Some(sig) = api_spec()
-            .module("process")
-            .and_then(|module| module.function_overloads("command_argv"))
-            .and_then(|overloads| overloads.first())
-        {
-            self.publish_api_call(arena, args, span, None, sig, sig);
-        }
+        self.publish_api_call(arena, args, span, None, signature, signature);
         Type::Command
     }
 

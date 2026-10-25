@@ -1152,7 +1152,9 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
   128 plus the signal. `!status` is `!status.ok`.
 - `ProcessHandle` is a live child started by `spawn` (see 11.7).
 - `Command` is a typed process plan from `process.command { ... }` or
-  `process.command_argv(...)`. It is not a block literal and runs only when
+  `process.command_argv(...)`. The `env:` option of `process.command_argv` accepts a record or a
+  `Map[Str, Bytes]`; byte map values overlay inherited entries losslessly and
+  share record environment-name and NUL validation. It is not a block literal and runs only when
   passed to `spawn`, `process.run`, or `process.spawn`.
 - `NetJob` is a live network transfer from `net.start` (see 11.8).
 - `FsRoot` is an open directory capability; see the standard modules.
@@ -4631,6 +4633,28 @@ Hook exit status: `exit status` in the hook commits `status`, still
 cancelling owned children (`force: true` also skips defers). A hook that
 finishes normally exits `3` for `INT` and `TERM` and `128 + signal` for other
 signals. A hook that fails exits `3` with a traceback.
+
+`unix.signal_setup(signals)` installs evaluator-owned capture before unblocking
+those signals inherited from a daemon launcher. `unix.take_signals()` returns
+`Result[List[Str]]`, draining canonical signal names while preserving distinct
+signal kinds and coalescing repeats. Without installed capture it returns
+`Err` with kind `unix-signal`. The daemon-start, signal-setup, and signal-drain
+APIs cannot be combined with entry-script signal hooks; daemon-start rejects
+hooks before spawning a child or replacing handlers. Capture restores the
+previous dispositions and the thread signal mask when the evaluator ends.
+Uncatchable signals and `CHLD` are rejected.
+
+`unix.daemon_start(command, signals)` starts a fresh worker with inherited stdio,
+the command environment and cwd, and the existing process group and session.
+It forwards captured startup signals until the worker writes a readiness byte
+to the inherited `NOTIFY_FD` writer or exits. Its `Result[Status?]` contains
+`null` only after readiness, transferring daemon ownership to the service policy;
+a non-null `Status` is the actual exit before readiness. It observes and reaps
+only its worker. Before spawning, it rejects a `CHLD` disposition that discards
+child status (`ignore` or `SA_NOCLDWAIT`). It retains child-status authority
+until startup ownership transfers or its worker is waited for. A worker
+duplicates the readiness descriptor with `unix.duplicate_fd`, closes the inherited original before running commands,
+and acknowledges only after its initialization and session changes succeed.
 
 ### 12.3 Exit statuses
 

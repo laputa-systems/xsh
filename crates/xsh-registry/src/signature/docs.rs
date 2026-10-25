@@ -459,11 +459,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "This crosses a privilege and process boundary; the returned status is data and environment preservation is explicit.",
             &["auth", "privileged", "process"],
         )),
-        ("applet", "mdev") => Some((
-            "Runs the maintained mdev device-management applet.",
-            "Device setup is host-global and platform-specific; use it only from the shipped applet workflow.",
-            &["applet", "device", "privileged"],
-        )),
         ("bytes", "zero") => Some((
             "Allocates a zero-filled byte buffer.",
             "The requested length controls allocation size; allocation and capacity failures return HostIo with ENOMEM.",
@@ -1282,7 +1277,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command_argv") => Some((
             "Builds a command plan from an executable and argv list.",
-            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits. Optional same_group applies to spawn: the child stays in the caller's process group instead of leading its own, so its handle signals and cancels address the child's pid alone and never the caller's group; it conflicts with detach and new_session.",
+            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Env accepts a Record or Map[Str, Bytes]; map values overlay inherited environment entries without UTF-8 conversion, with the same environment-name and NUL validation as record entries. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits. Optional same_group applies to spawn: the child stays in the caller's process group instead of leading its own, so its handle signals and cancels address the child's pid alone and never the caller's group; it conflicts with detach and new_session.",
             &["process", "argv", "plan"],
         )),
         ("process", "run") => Some((
@@ -1309,6 +1304,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Compiles a regular expression into a reusable Regex value.",
             "Dynamic patterns return structured regex-compile errors. Static patterns can use raw rx literals validated once during checked program preparation.",
             &["regex", "parsing", "compiled"],
+        )),
+        ("regex", "captures_host_bytes") => Some((
+            "Captures a host libc regular expression against bytes and returns byte offsets.",
+            "Uses the regular expression dialect accepted by the platform libc, including host extensions. Defaults to basic, case-sensitive syntax. Extended syntax and case folding are explicit; offsets are half-open. NUL input returns an error on platforms whose POSIX engine cannot match it. Use captures_bytes when the portable POSIX pattern restrictions are required.",
+            &["regex", "bytes", "host-dialect"],
         )),
         ("regex", "find_bytes") => Some((
             "Finds nonoverlapping POSIX regular expression matches as byte offsets.",
@@ -1653,6 +1653,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Reads a secret from a terminal without echoing it.",
             "The operation requires an interactive or supplied terminal boundary and returns input as explicit text data.",
             &["tui", "terminal", "secret"],
+        )),
+        ("unix", "daemon_start") => Some((
+            "Starts a daemon worker and waits for its readiness acknowledgment or exit.",
+            "Inherits stdio and the command cwd and environment, without changing its session or process group. Rejects command redirections, timeouts, CPU limits, namespace changes, accepted-exit policies, and nondefault lifecycle options. NOTIFY_FD names an inherited writer. A byte acknowledges readiness and transfers daemon ownership to the caller's service policy; null reports that transfer. A Status is the actual child exit before acknowledgment. Rejects entry-script signal hooks before spawning or changing handlers. Requested catchable signals are retained distinctly and forwarded during startup. Requires SIGCHLD to retain child status, rejecting ignore and SA_NOCLDWAIT before spawning. Child-status retention stays locked through startup handoff or wait; only this child is observed or reaped. Close the original readiness writer after duplicating it with duplicate_fd so rule commands cannot inherit it.",
+            &["unix", "process", "ownership", "signals"],
+        )),
+        ("unix", "signal_setup") => Some((
+            "Captures selected signals for a daemon worker before unblocking them.",
+            "Installs capture before unblocking inherited signals on the evaluator thread. Captured signal kinds coalesce individually until take_signals drains them. Capture belongs to the evaluator and restores previous dispositions and its thread signal mask when it ends. Rejects uncatchable signals, CHLD, an existing capture, and entry-script signal hooks. Names use the process.signal_info parser.",
+            &["unix", "signals", "lifecycle"],
+        )),
+        ("unix", "take_signals") => Some((
+            "Drains the distinct pending signals installed by signal_setup.",
+            "Returns canonical names in setup order. Repeated occurrences of one signal coalesce; different signal kinds remain distinct. Returns Result[List[Str]]; calling before signal_setup returns Err with kind unix-signal, without installing handlers. Capture APIs cannot be combined with entry-script signal hooks.",
+            &["unix", "signals"],
         )),
         ("unix", "reap_child_events") => Some((
             "Reaps available Unix child events.",

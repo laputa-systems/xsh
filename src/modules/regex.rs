@@ -22,9 +22,22 @@ pub(crate) fn find_bytes(pattern: &str, input: &[u8], extended: bool, ignore_cas
 }
 
 pub(crate) fn captures_bytes(pattern: &str, input: &[u8], offset: i64, extended: bool, ignore_case: bool, span: Span) -> Result<crate::runtime::value::Value, RuntimeError> {
+    captures_with_dialect(pattern, input, offset, extended, ignore_case, span, false)
+}
+
+pub(crate) fn captures_host_bytes(pattern: &str, input: &[u8], offset: i64, extended: bool, ignore_case: bool, span: Span) -> Result<crate::runtime::value::Value, RuntimeError> {
+    captures_with_dialect(pattern, input, offset, extended, ignore_case, span, true)
+}
+
+fn captures_with_dialect(pattern: &str, input: &[u8], offset: i64, extended: bool, ignore_case: bool, span: Span, host_dialect: bool) -> Result<crate::runtime::value::Value, RuntimeError> {
     use crate::runtime::value::{RecordMap, Value};
     let fail = |message| RuntimeError::new("regex-match", message).with_span(span);
-    let regex = posix::PosixRegex::compile(pattern, extended, ignore_case).map_err(fail)?;
+    let regex = if host_dialect {
+        posix::PosixRegex::compile_host(pattern, extended, ignore_case)
+    } else {
+        posix::PosixRegex::compile(pattern, extended, ignore_case)
+    }
+    .map_err(fail)?;
     let offset = usize::try_from(offset).map_err(|_| fail("match offset must be nonnegative".to_string()))?;
     let found = regex.captures(input, offset).map_err(fail)?;
     Ok(Value::List(found.unwrap_or_default().into_iter().map(|capture| match capture {

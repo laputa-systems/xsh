@@ -19,7 +19,7 @@ use super::{
     lowered_bytes_parts, lowered_bytes_value,
     empty_command_plan, lowered_command_plan_value, lowered_command_redirections,
     lowered_contains_value,
-    lowered_count_key, lowered_duration_arg, lowered_env_record_arg,
+    lowered_count_key, lowered_duration_arg, lowered_command_env_arg,
     lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
     lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
     lowered_int_arg, lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
@@ -795,7 +795,7 @@ fn convert_frame_apply_operand(
         FrameApplyOperand::String(operation) => Ok(FrameApplyValue::String(lowered_str_arg_owned(Some(value), "", operation, span)?)),
         FrameApplyOperand::StringList(operation) => Ok(FrameApplyValue::StringList(lowered_str_list_arg(Some(value), operation, span)?)),
         FrameApplyOperand::PathList(operation) => Ok(FrameApplyValue::PathList(lowered_path_list_arg(value, operation, span)?)),
-        FrameApplyOperand::Environment(operation) => Ok(FrameApplyValue::Environment(lowered_env_record_arg(value, operation, span)?)),
+        FrameApplyOperand::Environment(operation) => Ok(FrameApplyValue::Environment(lowered_command_env_arg(value, operation, span)?)),
         FrameApplyOperand::Duration(operation) => Ok(FrameApplyValue::Duration(lowered_duration_arg(Some(value), operation, span)?)),
         FrameApplyOperand::PositiveInt(operation) => {
             let value = lowered_int_arg(Some(value), operation, span)?;

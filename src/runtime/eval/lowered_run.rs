@@ -2299,7 +2299,7 @@ fn lowered_env_value_bytes(value: &LoweredValue, span: Span) -> Result<Vec<u8>, 
     Ok(text.into_bytes())
 }
 
-fn lowered_env_record_arg(
+fn lowered_command_env_arg(
     value: LoweredValue,
     operation: &str,
     span: Span,
@@ -2316,9 +2316,18 @@ fn lowered_env_record_arg(
                 env.insert(name.to_string(), lowered_env_value_bytes(value, span)?);
             }
         }
+        LoweredValue::Map(fields) => {
+            for (key, value) in fields.iter() {
+                let MapKey::Str(name) = key else {
+                    return Err(RuntimeError::new("type-error", format!("{operation} env expected string keys")).with_span(span));
+                };
+                let bytes = lowered_bytes_value(value).ok_or_else(|| RuntimeError::new("type-error", format!("{operation} env expected byte values")).with_span(span))?;
+                env.insert(name.to_string(), bytes.to_vec());
+            }
+        }
         _ => {
             return Err(
-                RuntimeError::new("type-error", format!("{operation} expected Record"))
+                RuntimeError::new("type-error", format!("{operation} expected Record or Map[Str, Bytes]"))
                     .with_span(span),
             );
         }
@@ -2482,7 +2491,7 @@ fn lowered_command_plan_value(
         .map(|value| lowered_path_like_arg(value, "process.command_argv", span))
         .transpose()?;
     let env = env
-        .map(|value| lowered_env_record_arg(value, "process.command_argv", span))
+        .map(|value| lowered_command_env_arg(value, "process.command_argv", span))
         .transpose()?
         .unwrap_or_default();
     let stdout_append = lowered_bool_arg_or(stdout_append, false, "process.command_argv", span)?;
@@ -4594,26 +4603,6 @@ impl Evaluator {
                     ),
                 }
             }
-            callable; RuntimeOp::AppletMdev if values.len() == 1 => {
-                let argv = lowered_str_list_arg(values.pop(), "applet.mdev", span)?
-                    .into_iter()
-                    .map(OsString::from)
-                    .collect::<Vec<_>>();
-                #[cfg(target_os = "linux")]
-                {
-                    lowered_result_ok(LoweredValue::Int(i64::from(xsh_applets::mdev::main_args(
-                        &argv,
-                    ))))
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    let _ = argv;
-                    lowered_result_err_value(
-                        RuntimeError::new("applet-platform", "mdev is only available on Linux")
-                            .with_span(span),
-                    )
-                }
-            }
             callable; RuntimeOp::ArchiveCompress if (2..=5).contains(&values.len()) => return self.eval_lowered_archive_compress_values(values, span),
             callable; RuntimeOp::ArchiveDecompress if (2..=4).contains(&values.len()) => {
                 let overwrite =
@@ -6576,6 +6565,16 @@ impl Evaluator {
                 let extended = lowered_bool_arg_or(values.get(3).cloned(), false, "regex.captures_bytes", span)?;
                 let ignore_case = lowered_bool_arg_or(values.get(4).cloned(), false, "regex.captures_bytes", span)?;
                 match regex_module::captures_bytes(&pattern, &input, offset, extended, ignore_case, span) {
+                    Ok(value) => lowered_result_ok(lowered_runtime_value(value, span)?), Err(error) => lowered_result_err_value(error),
+                }
+            }
+            callable; RuntimeOp::RegexCapturesHostBytes => {
+                let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.captures_host_bytes", span)?;
+                let input = lowered_bytes_arg_or_empty(values.get(1).cloned(), "regex.captures_host_bytes", span)?;
+                let offset = lowered_int_arg_or(values.get(2).cloned(), 0, "regex.captures_host_bytes", span)?;
+                let extended = lowered_bool_arg_or(values.get(3).cloned(), false, "regex.captures_host_bytes", span)?;
+                let ignore_case = lowered_bool_arg_or(values.get(4).cloned(), false, "regex.captures_host_bytes", span)?;
+                match regex_module::captures_host_bytes(&pattern, &input, offset, extended, ignore_case, span) {
                     Ok(value) => lowered_result_ok(lowered_runtime_value(value, span)?), Err(error) => lowered_result_err_value(error),
                 }
             }
