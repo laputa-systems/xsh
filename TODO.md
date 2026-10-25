@@ -176,15 +176,6 @@ Next: 30
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-6 · P4 · Add a named contract validation error
-
-- **Area:** Errors
-- **Where:** `docs/SPEC.md`, `src/runtime`
-- **Problem:** A failed `.require(Contract)` raises plain `Error` facets. Callers cannot match contract validation failures by a stable family name.
-- **Recommendation:** Add `ContractError` only if real callers need typed recovery, then update propagation, matching, tests, and the SPEC together.
-- **Fix with:** error-model
-- **Effort:** M
-
 ### XSH-17 · P4 · Diagnose two inherited Laputa package-manager failures
 
 - **Area:** Tests
