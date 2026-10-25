@@ -176,7 +176,7 @@ xs == [1, 2] # a trailing comment
 xs.len() ==
     2
 pure positive(n: Int) -> Bool { n > 0 }
-proc check(n: Int) {
+proc check(n: Int) -> Result[Unit] {
     if n > 0 {
         n > 0
     }
@@ -205,7 +205,7 @@ assert flag
 assert xs.len() ==
     2
 pure positive(n: Int) -> Bool { n > 0 }
-proc check(n: Int) {
+proc check(n: Int) -> Result[Unit] {
     if n > 0 {
         assert n > 0
     }

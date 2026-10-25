@@ -72,6 +72,28 @@ fn capture_success_underconstrained(ty: &Type) -> bool {
 }
 
 impl Checker {
+    fn scope_tail_statement_result(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block: BlockId,
+        body_type: Type,
+    ) -> Type {
+        if self.inferred_returns.is_none() || !expr_ty_auto_propagates(&body_type) {
+            return body_type;
+        }
+        let Some(tail) = arena.arena.stmt_ids(arena.arena.block(block).statements).last() else {
+            return body_type;
+        };
+        let tail = arena.arena.core_stmt_id(tail);
+        let statement = arena.arena.stmt(tail);
+        let crate::syntax::arena::ArenaStmtKind::Expr(value) = statement.kind else {
+            return body_type;
+        };
+        self.propagating_statements.insert(statement.span);
+        self.check_unit_statement_value_tail(Some(source), &body_type, statement.span, arena.arena.expr(value).span, None, false)
+    }
+
     pub(super) fn schema_expectation_for_expr(
         &self,
         arena: &ArenaProgram,
@@ -1123,6 +1145,11 @@ impl Checker {
                     self.check_block_arena(arena, source, *block);
                     Type::Unit
                 };
+                let body_type = if tail_value && !*value_body && expected.is_none() {
+                    self.scope_tail_statement_result(arena, source, *block, body_type)
+                } else {
+                    body_type
+                };
                 self.boundary.within_block_depth -= within;
                 self.pop_scope();
                 self.boundary.context_scope_depths.pop();
@@ -1180,6 +1207,11 @@ impl Checker {
                 } else {
                     self.check_statement_block_contents_arena(arena, source, *block);
                     Type::Unit
+                };
+                let body_type = if tail_value && !*value_body && expected.is_none() {
+                    self.scope_tail_statement_result(arena, source, *block, body_type)
+                } else {
+                    body_type
                 };
                 self.pop_scope();
                 self.boundary.context_scope_tail_value = tail_value;
@@ -1241,6 +1273,11 @@ impl Checker {
                 } else {
                     self.check_statement_block_contents_arena(arena, source, *block);
                     Type::Unit
+                };
+                let body_type = if tail_value && !*value_body && expected.is_none() {
+                    self.scope_tail_statement_result(arena, source, *block, body_type)
+                } else {
+                    body_type
                 };
                 self.pop_scope();
                 self.boundary.context_scope_tail_value = tail_value;

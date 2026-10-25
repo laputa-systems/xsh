@@ -883,7 +883,7 @@ proc main(roots: List[Path], fields: Fields) -> Result[Unit] {
   assert "err[check.arity]: incorrect function arity: expected 2 arguments, found 1" in stderr, stderr
   assert count(stderr, "err[check.type-mismatch]") == 2, stderr
   assert "err[check.named-arg]" in stderr, stderr
-  assert count(stderr, "err[check.callable-mismatch]: a call through a callable type passes each argument explicitly") == 2, stderr
+  assert count(stderr, "err[check.callable-mismatch]: a call through a fixed-arity callable type requires explicit arguments") == 2, stderr
   assert "is called directly, as `name(...)`; it has no `.call` method" in stderr, stderr
 }
 

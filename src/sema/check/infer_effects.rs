@@ -1694,7 +1694,7 @@ impl Checker {
         self.type_constraints.owns_generalized_effect_predicate(self.constraint_scope_at(owner, span), callable, scope, contract, predicate).unwrap_or(false)
     }
 
-    fn validate_callable_effects(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
+    fn validate_callable_effects(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span, report_clause: bool) {
         let resolved = match self.type_constraints.resolve_effect(effects.contract()) {
             Ok(contract) => contract,
             Err(_) => {
@@ -1704,7 +1704,7 @@ impl Checker {
         };
         match resolved.concrete() {
             Ok(effects) => {
-                if let Some(caller) = self.boundary.current_effects.clone() { self.check_callee_effects(&caller, &effects, name, span); }
+                if report_clause && let Some(caller) = self.boundary.current_effects.clone() { self.check_callee_effects(&caller, &effects, name, span); }
                 self.check_callee_not_excluded(&effects, &[], name, span);
             }
             Err(_) => {
@@ -1922,9 +1922,11 @@ impl Checker {
                                     Err(_) => self.error(check.span, "invocation error flow escaped its effect scope", DiagnosticCode::CheckLocalInference),
                                 },
                             }
-                            self.validate_callable_effects(&effects, &name, check.span);
-                            if matches!(effects.contract(), EffectContract::Unknown) && !unknown_chain.is_empty() && self.boundary.current_effects.is_some() {
-                                self.error(check.span, &format!("proc `{name}` has an unknown effect summary: {}", unknown_chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
+                            let reports_chain = matches!(effects.contract(), EffectContract::Unknown) && !unknown_chain.is_empty() && self.boundary.current_effects.is_some();
+                            self.validate_callable_effects(&effects, &name, check.span, !reports_chain);
+                            if reports_chain {
+                                let chain = std::iter::once(name.as_str()).chain(unknown_chain.iter().map(String::as_str)).collect::<Vec<_>>();
+                                self.error(check.span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
                             }
                         }
                         Err(_) => self.error(check.span, "callable invocation has no settled declaration effect contract", DiagnosticCode::CheckLocalInference),

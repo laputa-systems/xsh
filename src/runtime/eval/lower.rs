@@ -3005,7 +3005,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         .is_some_and(Type::is_result_unit),
                     _ => false,
                 });
-        let forwards_result_unit = if result_unit_tail && let Some(&tail) = body.last() {
+        let owner_excludes_error = self.declarations.function_signatures.get(&body_span)
+            .and_then(|signature| signature.effects.as_ref())
+            .is_some_and(|effects| !effects.contains(&crate::syntax::node::Effect::Error));
+        let tail_is_call = self.program.arena.stmt_ids(self.program.arena.block(def.body).statements)
+            .last()
+            .map(|tail| self.program.arena.core_stmt_id(tail))
+            .is_some_and(|tail| matches!(self.program.arena.stmt(tail).kind,
+                ArenaStmtKind::Expr(expression) if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Call { .. })));
+        let forwards_result_unit = if result_unit_tail && (owner_excludes_error || !tail_is_call) && let Some(&tail) = body.last() {
             let row = self.scratch.borrow().statements[tail.index()].clone();
             if let BuildStmtRow::Expr { value, .. } = row {
                 self.scratch.borrow_mut().statements[tail.index()] = BuildStmtRow::Return { value };

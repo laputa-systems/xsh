@@ -115,6 +115,12 @@ impl LocalInference {
 }
 
 impl Checker {
+    pub(super) fn seeded_local_inference_type(&self, initializer: Span) -> Option<Type> {
+        self.local_inference.bindings.values()
+            .find(|inference| inference.initializer == initializer)
+            .and_then(|inference| self.type_constraints.resolve(&inference.ty).ok())
+    }
+
     pub(super) fn record_expr_type(&mut self, span: Span, ty: Type) {
         self.expr_types.insert(span, ty);
     }

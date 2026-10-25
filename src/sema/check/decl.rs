@@ -1272,6 +1272,9 @@ impl Checker {
             let def = program.arena.function_def(def_id);
             let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
             let Some(function) = self.declaration_inference.checked(declaration).cloned() else {
+                if self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                    signature.values.insert(def.name, Type::Invalid);
+                }
                 continue;
             };
             match kind {

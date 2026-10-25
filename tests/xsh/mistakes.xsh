@@ -372,7 +372,7 @@ print $level
     },
     {
       name: "untyped_parameters",
-      source: r"""proc add(a, b) { a + b }
+      source: r"""type Adder = pure(a, b) -> Int
 """,
       code: "parse.expected-param-type",
       cause: "write `a: Type`",

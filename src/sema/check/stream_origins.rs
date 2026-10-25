@@ -1238,6 +1238,7 @@ impl Checker {
     pub(super) fn finish_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
         let owner = self.effect_declaration_id(arena, definition.body);
         let mut origin = self.stream_block_origin(arena, definition.body);
+        if !definition.return_ty_defaulted && !type_may_carry_stream_origin(expected) { origin = StreamOrigins::default(); }
         let tail = arena.arena.stmt_ids(arena.arena.block(definition.body).statements).last().map(|statement| arena.arena.stmt(arena.arena.core_stmt_id(statement)).span);
         if expected.is_result() && tail.is_some_and(|span| !self.stream_stmt_results.contains(&span)) {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(owner.body); return; } }
@@ -1267,6 +1268,22 @@ impl Checker {
             Ok(origins) => summary.returned = origins,
             Err(_) => self.report_stream_origin_boundary(owner.body),
         }
+    }
+}
+
+fn type_may_carry_stream_origin(ty: &Type) -> bool {
+    match ty {
+        Type::Null | Type::Bool | Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Bytes
+        | Type::Digest | Type::Regex | Type::Path | Type::Status | Type::EnvPathList | Type::Error | Type::ErrorFamily(_)
+        | Type::ErrorVariant { .. } | Type::ErrorFacet(_) | Type::ProcessError | Type::Command | Type::ProcessHandle
+        | Type::NetJob | Type::FsRoot | Type::FsLock | Type::Unit => false,
+        Type::List(item) | Type::Set(item) | Type::Optional(item) => type_may_carry_stream_origin(item),
+        Type::Map(_, item) => type_may_carry_stream_origin(item),
+        Type::Result(ok, error) => type_may_carry_stream_origin(ok) || type_may_carry_stream_origin(error),
+        Type::Record(fields) => fields.values().any(type_may_carry_stream_origin),
+        Type::Union(members) => members.iter().any(type_may_carry_stream_origin),
+        Type::Validated(validated) => type_may_carry_stream_origin(validated.base()),
+        _ => true,
     }
 }
 

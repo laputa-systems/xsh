@@ -307,7 +307,7 @@ proc note(value: Int) -> Int {
     print "eval ${value}"
     value
 }
-proc check(n: Int) {
+proc check(n: Int) -> Result[Unit] {
     match n {
         1 => note(0) < note(n),
         _ => {},

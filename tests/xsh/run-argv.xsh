@@ -86,10 +86,11 @@ test test_lint_rewrites_a_rebuilt_command_vector { |ctx|
   assert after.stdout == before.stdout
 }
 
+pure make(spec, target, argv) {
+  process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment)
+}
+
 test test_inferred_command_argv_keeps_text_and_path_word_domains {
-  pure make(spec, target, argv) {
-    process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment)
-  }
   let spec = {cwd: p".", environment: {}}
   let text: Any = make(spec, "not-launched", ["not-launched", "--flag"])
   let path_plan: Any = make(spec, p"/not-launched", [p"/not-launched", p"--flag"])

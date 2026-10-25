@@ -232,8 +232,6 @@ test test_default_parameters_require_anchors_and_keep_parameter_scope { |ctx|
 """,
     """pure choose(left: Int = 1, right = left) -> Int { right }
 """,
-    """proc choose(value) -> Int { 1 }
-""",
     """pure choose(...values = [1]) -> Int { 1 }
 """,
   ] {
