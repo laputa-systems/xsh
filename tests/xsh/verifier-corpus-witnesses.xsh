@@ -8,6 +8,12 @@ pure widen(port: Port) -> Int { port }
 
 pure twice(value: Int) -> Int { value * 2 }
 
+proc bump(n: Int) -> Int { n + 1 }
+
+proc call_dynamic(handle: Proc, argument: Any) -> Result[Any] {
+  handle.call(argument)
+}
+
 pure joined(dir: RelPath, name: RelPath) -> RelPath { fp"{dir}/{name}" }
 
 pure only_text(value: Any) -> Str {
@@ -105,4 +111,41 @@ test test_callable_lookup_in_an_empty_map_falls_back {
   let callbacks: Map[Str, Scale] = {}
   let selected = callbacks.get("thrice") ?? twice
   assert selected(4) == 8
+}
+
+test test_retry_whose_body_always_fails_or_exits_has_no_result_to_check {
+  let exhausted = retry [0ms] {
+    Err(error.failure("x"))?
+  }
+  assert exhausted is Err(_)
+  if false {
+    let never = retry [0ms] {
+      exit 7
+    }
+  }
+}
+
+test test_collection_updates_keep_the_callables_they_store {
+  let callbacks: List[Scale] = []
+  let updated = callbacks.push(twice)
+  assert updated[0](4) == 8
+  let additions: List[Scale] = [twice]
+  let extended = callbacks.extend([@additions])
+  assert extended[0](4) == 8
+  let by_name: Map[Str, Scale] = {}
+  let stored = by_name.set("twice", twice)
+  with selected = stored.get("twice")? {
+    assert selected(4) == 8
+  } else { |failure| test.fail(failure.message) }
+}
+
+test test_with_binds_a_relative_path_result_and_proc_call_is_dynamic { |ctx|
+  let root = test.temp_dir(ctx, name: "verifier-witness")?
+  let link = fp"{root}/link"
+  var relative = ""
+  with stripped = link.strip_prefix(root)? {
+    relative = stripped.display()
+  } else { |failure| test.fail(failure.message) }
+  assert relative == "link"
+  assert call_dynamic(bump, 1) is Ok(_)
 }

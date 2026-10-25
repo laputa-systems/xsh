@@ -4485,6 +4485,16 @@ impl<'a> ProducerProof<'a> {
                     if path.last() == Some(&FunctionProjection::ResultPayload(true)) { path.pop(); }
                     match operation {
                         Some(super::super::RuntimeOp::MapGet | super::super::RuntimeOp::ListGet) => path.push(FunctionProjection::Element),
+                        Some(super::super::RuntimeOp::MapSet | super::super::RuntimeOp::ListPush | super::super::RuntimeOp::ListExtend) if path.last() == Some(&FunctionProjection::Element) => {
+                            let operation = operation.ok_or_else(|| IrVerifyError::new("callable collection method has no registry operation"))?;
+                            let position = if operation == super::super::RuntimeOp::MapSet { 1 } else { 0 };
+                            let argument = args.into_iter().nth(position).ok_or_else(|| IrVerifyError::new("callable collection update has no stored argument"))??;
+                            let mut argument_path = path.clone();
+                            if operation != super::super::RuntimeOp::ListExtend { argument_path.pop(); }
+                            pending.push((owner, CallableProducer::Expression(argument.raw() as usize), argument_path));
+                            pending.push((owner, CallableProducer::Expression(receiver.raw() as usize), path));
+                            continue;
+                        }
                         Some(super::super::RuntimeOp::RecordGet) => {
                             let argument = args.into_iter().next().ok_or_else(|| IrVerifyError::new("callable record get has no field argument"))??;
                             let field = decoder.checked_literal_string(argument.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable record get has no literal field"))?;
@@ -4495,7 +4505,7 @@ impl<'a> ProducerProof<'a> {
                             has_contract_source = true;
                             continue;
                         }
-                        _ => return Err(IrVerifyError::new("callable registered method has no value projection")),
+                        _ => return Err(IrVerifyError::new(format!("callable registered method has no value projection: {name}"))),
                     }
                     pending.push((owner, CallableProducer::Expression(receiver.raw() as usize), path));
                 }
@@ -4576,6 +4586,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::ExprView::Null => {}
                 schema::ExprView::MatchExpr { mut arms, .. } => { for arm in &mut arms { pending.push((owner, CallableProducer::Expression(arm?.2.raw() as usize), path.clone())); } }
+                schema::ExprView::StrMatchExpr { mut arms, fallback, .. } | schema::ExprView::TagMatchExpr { mut arms, fallback, .. } => {
+                    for arm in &mut arms { pending.push((owner, CallableProducer::Expression(arm?.1.raw() as usize), path.clone())); }
+                    if let Some(fallback) = fallback { pending.push((owner, CallableProducer::Expression(fallback.raw() as usize), path)); }
+                }
                 schema::ExprView::PatternIf { mut branches, else_value, .. } => {
                     for branch in &mut branches { pending.push((owner, CallableProducer::Expression(branch?.1.raw() as usize), path.clone())); }
                     pending.push((owner, CallableProducer::Expression(else_value.raw() as usize), path));
@@ -5777,6 +5791,14 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, right.raw() as usize, expected, returned);
                 Ok(())
             }
+            schema::ExprView::ProcCallResult(value) => {
+                if expected.as_ref() != &Type::Any {
+                    let Type::Result(ok, _) = expected.unvalidated() else { return Err(IrVerifyError::new("ground proc call result has no result contract")) };
+                    if ok.as_ref() != &Type::Any { return Err(IrVerifyError::new("ground proc call result has a static success contract")); }
+                }
+                self.expression(owner, value.raw() as usize, Arc::new(Type::Any), false);
+                Ok(())
+            }
             schema::ExprView::Ok(value) => {
                 let Type::Result(ok, _) = expected.unvalidated() else { return Err(IrVerifyError::new("ground success producer has no result contract")) };
                 self.expression(owner, value.raw() as usize, Arc::new((**ok).clone()), false);
@@ -6333,11 +6355,15 @@ impl<'a> ProducerProof<'a> {
 
     fn verify_noncompleting_retry(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
         let schema::ExprView::Retry { delays, mut body, .. } = decoder.expression_view(instruction)? else { return Ok(false); };
-        let Ok(fact) = self.store.checked_expr_types.binary_search_by_key(&(instruction as u32), |fact| fact.instruction) else { return Ok(false); };
-        let fact = self.store.checked_expr_types[fact];
-        if !matches!(fact.purpose, super::super::FullCheckedExprPurpose::CapturedErrorContract(owner) if owner == super::super::ExecutableOwner::from_raw(decoder.owner)?) { return Ok(false); }
+        let fact = self.store.checked_expr_types.binary_search_by_key(&(instruction as u32), |fact| fact.instruction).ok().map(|index| self.store.checked_expr_types[index]);
+        if let Some(fact) = fact && !matches!(fact.purpose, super::super::FullCheckedExprPurpose::CapturedErrorContract(owner) if owner == super::super::ExecutableOwner::from_raw(decoder.owner)?) { return Ok(false); }
         self.budget.charge(body.len())?;
-        if !matches!(decoder.checked_value_block_result(&mut body)?, super::super::CheckedValueBlockResult::DoesNotComplete) { return Ok(false); }
+        let completes = match decoder.checked_value_block_result(&mut body)? {
+            super::super::CheckedValueBlockResult::DoesNotComplete => false,
+            super::super::CheckedValueBlockResult::Tail(tail) => !self.always_propagates_constructed_error(decoder, tail)? && super::super::indexed_expr_can_complete(decoder, tail, 0)?,
+            super::super::CheckedValueBlockResult::Unit => true,
+        };
+        if completes { return Ok(false); }
         for delay in delays {
             self.budget.charge(1)?;
             self.expression(decoder.owner, delay?.raw() as usize, Arc::new(Type::Duration), false);
@@ -6347,10 +6373,22 @@ impl<'a> ProducerProof<'a> {
             self.budget.charge_clone(error)?;
             super::ensure_closed_type(error)?;
         }
-        let actual = self.join_captured_errors(&errors)?;
-        if self.contract_type(fact.type_id)?.as_ref() != &actual { return Err(IrVerifyError::new("captured error contract disagrees with its actual retry errors")); }
+        match fact {
+            Some(fact) => {
+                let actual = self.join_captured_errors(&errors)?;
+                if self.contract_type(fact.type_id)?.as_ref() != &actual { return Err(IrVerifyError::new("captured error contract disagrees with its actual retry errors")); }
+            }
+            None if errors.is_empty() => {}
+            None => return Ok(false),
+        }
         self.producer_owner_contract(decoder.owner)?;
         Ok(true)
+    }
+
+    fn always_propagates_constructed_error(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
+        self.budget.charge(1)?;
+        let schema::ExprView::Try { value, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        Ok(self.store.tags[value.raw() as usize] == FullTag::ExprErr)
     }
 
     fn verify_block_value<'view>(&mut self, decoder: &FullDecoder<'view>, mut body: super::super::decode::ListView<'view, super::super::BuildStmtId>, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
@@ -6687,6 +6725,7 @@ impl<'a> ProducerProof<'a> {
                     }
                 }
                 schema::ExprView::EmptyMap => {}
+                schema::ExprView::Field { .. } if self.is_erased_record_field(decoder, instruction)? => self.verify_operands(decoder, instruction)?,
                 _ => return Err(IrVerifyError::new("record field has no producer contract")),
             }
         }
@@ -8033,7 +8072,7 @@ impl<'a> ProducerProof<'a> {
                         let (bound, value) = binding?;
                         if bound != slot && !failure { continue; }
                         let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground With binding has no producer contract"))?;
-                        let payload = match ty.unvalidated() { Type::Result(ok, _) => ok.as_ref(), other => other };
+                        let payload = match ty.unvalidated() { Type::Result(ok, _) => ok.as_ref(), _ => ty.as_ref() };
                         if !failure && !payload.matches_expected(&expected) { return Err(IrVerifyError::new("ground With writer disagrees with its slot contract")); }
                         self.expression(owner, value.raw() as usize, ty, false);
                         found = true;
