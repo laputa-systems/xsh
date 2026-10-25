@@ -442,7 +442,7 @@ test test_stream_and_dynamic_call_read_rel_paths_as_paths { |ctx|
   yield p"y/z"
 }
 
-proc show(paths: Stream[Path]) [io] {
+proc show(paths: Stream[Path]) [io, error] {
   for entry in paths {
     print ${entry.display()}
   }

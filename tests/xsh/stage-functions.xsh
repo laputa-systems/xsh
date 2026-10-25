@@ -172,7 +172,7 @@ pure bucket(item: Int) -> Str { if item > 1 { "large" } else { "small" } }
 proc observe(item: Int) [] { print f"seen:{item}" }
 proc direction() [] -> Bool { print "direction"; return true }
 pure result(item: Int) -> Result[Int] { Ok(item) }
-proc main() [] {
+proc main() [error] {
   print ${([1, 3, 2] |> sort-by(block: key, desc: direction()))[0]}
   let options = {desc: false}
   print ${([1, 3, 2] |> sort-by(key, ...options))[0]}

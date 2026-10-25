@@ -2916,6 +2916,13 @@ impl Checker {
     }
 
     pub(crate) fn error(&mut self, span: Span, message: &str, code: DiagnosticCode) {
+        if self.diagnostics.iter().any(|reported| {
+            reported.code == Some(code)
+                && reported.message == message
+                && reported.labels.first().is_some_and(|label| label.span == span)
+        }) {
+            return;
+        }
         self.diagnostics.push(
             Diagnostic::error(message)
                 .with_code(code)

@@ -347,6 +347,22 @@ impl Checker {
         }
     }
 
+    fn report_rejected_map_key(&mut self, conflict: &crate::sema::constraints::ConstraintConflict) -> bool {
+        let Some((origin, value)) = [(&conflict.expected, &conflict.actual), (&conflict.actual, &conflict.expected)]
+            .into_iter()
+            .find_map(|(variable, value)| self.type_constraints.map_key_requirement_rejecting(variable, value).map(|origin| (origin, value.clone())))
+        else {
+            return false;
+        };
+        let seeded = self.seeded_local_inference_type(origin);
+        match seeded {
+            Some(Type::Set(_)) => self.error(conflict.contribution, &format!("Set elements require Str, Int, UInt, Bool, Bytes, Path, or Duration, not {value}"), DiagnosticCode::CheckSetElementType),
+            Some(Type::Map(_, _)) => self.error(conflict.contribution, &format!("unsupported Map key type {value}"), DiagnosticCode::CheckMapKey),
+            _ => return false,
+        }
+        true
+    }
+
     pub(super) fn report_inferred_type_conflict(
         &mut self,
         conflict: crate::sema::constraints::ConstraintConflict,
@@ -384,7 +400,11 @@ impl Checker {
                     | Err(
                         crate::sema::constraints::ConstraintResolutionError::ForeignVariable
                         | crate::sema::constraints::ConstraintResolutionError::TypeDepth,
-                    ) => self.report_inferred_type_conflict(conflict),
+                    ) => {
+                        if !self.report_rejected_map_key(&conflict) {
+                            self.report_inferred_type_conflict(conflict);
+                        }
+                    }
                 }
             }
             return;
