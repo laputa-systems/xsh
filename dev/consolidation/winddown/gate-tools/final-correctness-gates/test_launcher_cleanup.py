@@ -54,11 +54,57 @@ def make_git_repository(path):
 
 
 SOURCE_ROOT = source_root(LAUNCHER_PATH)
-FROZEN_E048_SOURCE_ROOT = LAUNCHER.CONTROLLER_ROOT / ".work/wt/consolidation-final-e048"
+TEST_SOURCE_ROOT = LAUNCHER.CONTROLLER_ROOT / ".work/wt/final-correctness-linked-source"
 SCRATCH_ROOT = SOURCE_ROOT / ".work/tmp"
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 NATIVE_RUNNER = SOURCE_DIR / "run-native-final.sh"
 CANONICAL_NATIVE_LOCK = LAUNCHER.CONTROLLER_ROOT / ".work/consolidation/infra/native-suite.lock"
+
+
+def setUpModule():
+    fixture_parent = TEST_SOURCE_ROOT.parent
+    fixture_parent.mkdir(parents=True, exist_ok=True)
+    if (
+        fixture_parent.is_symlink()
+        or fixture_parent.resolve(strict=True) != fixture_parent
+        or TEST_SOURCE_ROOT.exists()
+        or TEST_SOURCE_ROOT.is_symlink()
+    ):
+        raise RuntimeError(f"linked source fixture path is unavailable: {TEST_SOURCE_ROOT}")
+    test_source_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD^"],
+        cwd=SOURCE_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "worktree", "add", "--quiet", "--detach", str(TEST_SOURCE_ROOT), test_source_commit],
+        cwd=LAUNCHER.CONTROLLER_ROOT,
+        check=True,
+    )
+    try:
+        fixture = LAUNCHER.git_snapshot(TEST_SOURCE_ROOT)
+        if fixture["head"] != test_source_commit or fixture["status"]:
+            raise RuntimeError(f"linked source fixture does not match its detached commit: {TEST_SOURCE_ROOT}")
+    except BaseException:
+        subprocess.run(
+            ["git", "worktree", "remove", str(TEST_SOURCE_ROOT)],
+            cwd=LAUNCHER.CONTROLLER_ROOT,
+            check=True,
+        )
+        raise
+
+
+def tearDownModule():
+    fixture = LAUNCHER.git_snapshot(TEST_SOURCE_ROOT)
+    if fixture["status"]:
+        raise RuntimeError(f"linked source fixture became dirty: {TEST_SOURCE_ROOT}: {fixture['status']}")
+    subprocess.run(
+        ["git", "worktree", "remove", str(TEST_SOURCE_ROOT)],
+        cwd=LAUNCHER.CONTROLLER_ROOT,
+        check=True,
+    )
 
 
 class CoverageTests(unittest.TestCase):
@@ -113,19 +159,28 @@ class CoverageTests(unittest.TestCase):
         self.assertIn('["--skip", "syntax::formatter_is_idempotent_on_laputa_corpus"]', workflow)
         self.assertIn('"--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"', workflow)
         batch = re.search(r"export proc batch\(.*?\n}\n", gates, re.S)
+        manual_dispatch = gates[
+            gates.index("proc dispatch_manual("):gates.index("\nproc execute_full(")
+        ]
+        execute_full = gates[
+            gates.index("proc execute_full("):gates.index("\npure tier_name(")
+        ]
         full = re.search(r"export proc full\(.*?\n}\n", workflow, re.S)
         native = re.search(r"export proc native\(.*?\n}\n", workflow, re.S)
         self.assertIsNotNone(batch)
         self.assertIsNotNone(full)
         self.assertIsNotNone(native)
+        self.assertIn("dispatch_catalogue(ctx, profile, request", batch.group(0))
+        self.assertIn("Full => {", manual_dispatch)
+        self.assertIn("return execute_full(ctx, profile, plan)", manual_dispatch)
         native_filters = re.findall(
             r"tests\.native\(ctx,\s*profile,\s*(\[[^\]]*\])\)",
-            batch.group(0),
+            execute_full,
         )
         self.assertEqual([re.sub(r"\s+", "", filters) for filters in native_filters], ['["--jobs","4"]'])
         self.assertRegex(native.group(0), r'xsht\.display\(\),\s*"test",\s*@filters')
-        self.assertNotIn("tests.full(", batch.group(0))
-        self.assertEqual(batch.group(0).count("docs_gate(ctx, profile)"), 1)
+        self.assertNotIn("tests.full(", execute_full)
+        self.assertEqual(execute_full.count("docs_gate(ctx, profile)"), 1)
         self.assertEqual(full.group(0).count("native(ctx, profile, [])"), 1)
         self.assertEqual(self.plan["rust_harness_runs"], [])
         self.assertEqual(self.plan["focused_native_files"], [])
@@ -244,8 +299,8 @@ class CoverageTests(unittest.TestCase):
         )
 
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
-        gate.source_root = FROZEN_E048_SOURCE_ROOT
-        gate.git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)[1]
+        gate.source_root = SOURCE_ROOT
+        gate.git_common_dir = LAUNCHER.resolve_source_root(SOURCE_ROOT)[1]
         gate.laputa_corpus = pathlib.Path("/laputa-integration")
         gate.cid_dir = SCRATCH_ROOT
         gate.step_number = 0
@@ -263,7 +318,7 @@ class CoverageTests(unittest.TestCase):
         )
 
         argv = gate.run.call_args.args[1]
-        scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
+        scratch = SOURCE_ROOT / ".work/tmp"
         volumes = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "-v"]
         tmpfs = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "--tmpfs"]
         environment = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "-e"]
@@ -354,12 +409,13 @@ class SourceAdmissionTests(unittest.TestCase):
         self.assertEqual(source_root, LAUNCHER.CONTROLLER_ROOT)
         self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
 
-    def test_accepts_the_frozen_e048_source_worktree(self):
-        before = LAUNCHER.git_snapshot(FROZEN_E048_SOURCE_ROOT)
-        source_root, git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)
+    def test_accepts_the_detached_linked_worktree(self):
+        before = LAUNCHER.git_snapshot(TEST_SOURCE_ROOT)
+        source_root, git_common_dir = LAUNCHER.resolve_source_root(TEST_SOURCE_ROOT)
         after = LAUNCHER.git_snapshot(source_root)
 
-        self.assertEqual(source_root, FROZEN_E048_SOURCE_ROOT)
+        self.assertEqual(source_root, TEST_SOURCE_ROOT)
+        self.assertNotEqual(before["head"], LAUNCHER.git_snapshot(SOURCE_ROOT)["head"])
         self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
         self.assertEqual(after, before)
 
@@ -388,9 +444,9 @@ class SourceAdmissionTests(unittest.TestCase):
                 LAUNCHER.resolve_source_root(unrelated_root)
 
     def test_rejects_source_commit_and_tree_mismatches_before_build(self):
-        source = LAUNCHER.git_snapshot(FROZEN_E048_SOURCE_ROOT)
+        source = LAUNCHER.git_snapshot(TEST_SOURCE_ROOT)
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
-        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.source_root = TEST_SOURCE_ROOT
         gate.expected_commit = "f" * 40
         gate.expected_tree = source["tree"]
         gate.receipt = {"source_checks": []}
@@ -404,10 +460,12 @@ class SourceAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(LAUNCHER.GateFailure, "source changed or is dirty"):
             gate.verify_source("before-build")
 
-    def test_rejects_a_different_checkout_when_the_frozen_commit_is_expected(self):
-        frozen = LAUNCHER.git_snapshot(FROZEN_E048_SOURCE_ROOT)
+    def test_rejects_a_clean_linked_checkout_when_another_commit_is_expected(self):
+        frozen = LAUNCHER.git_snapshot(SOURCE_ROOT)
+        linked = LAUNCHER.git_snapshot(TEST_SOURCE_ROOT)
+        self.assertNotEqual(linked["head"], frozen["head"])
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
-        gate.source_root = LAUNCHER.CONTROLLER_ROOT
+        gate.source_root = TEST_SOURCE_ROOT
         gate.expected_commit = frozen["head"]
         gate.expected_tree = frozen["tree"]
         gate.receipt = {"source_checks": []}
@@ -418,7 +476,7 @@ class SourceAdmissionTests(unittest.TestCase):
 
     def test_rejects_a_changed_tool_checkout(self):
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
-        gate.tool_root = FROZEN_E048_SOURCE_ROOT
+        gate.tool_root = SOURCE_ROOT
         gate.tool_expected = {"commit": "f" * 40, "tree": "e" * 40}
         gate.receipt = {"tool_checks": []}
         gate.save = mock.Mock()
@@ -534,7 +592,7 @@ class SourceAdmissionTests(unittest.TestCase):
 
     def test_native_build_uses_the_requested_source_worktree(self):
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
-        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.source_root = SOURCE_ROOT
         gate.laputa_corpus = pathlib.Path("/laputa-integration")
         gate.target_dir = SCRATCH_ROOT / "source-admission-target"
         gate.native_lock_file = None
@@ -545,17 +603,17 @@ class SourceAdmissionTests(unittest.TestCase):
         gate.run_native("source-root", "build", ["cargo", "build"])
 
         command = gate.run.call_args.args[1]
-        self.assertEqual(command[:2], [str(LAUNCHER.RUNNER), str(FROZEN_E048_SOURCE_ROOT)])
+        self.assertEqual(command[:2], [str(LAUNCHER.RUNNER), str(SOURCE_ROOT)])
         self.assertEqual(gate.run.call_args.kwargs["env"]["XSH_GATE_LAPUTA_CORPUS"], "/laputa-integration")
 
     def test_supplemental_context_keeps_manifest_target_writable(self):
-        _, git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)
+        _, git_common_dir = LAUNCHER.resolve_source_root(SOURCE_ROOT)
         laputa_temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
         self.addCleanup(laputa_temporary.cleanup)
         laputa_root = pathlib.Path(laputa_temporary.name) / "laputa"
         make_git_repository(laputa_root)
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
-        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.source_root = SOURCE_ROOT
         gate.git_common_dir = git_common_dir
         gate.laputa_corpus = laputa_root
         gate.cid_dir = SCRATCH_ROOT
@@ -575,8 +633,8 @@ class SourceAdmissionTests(unittest.TestCase):
         command = gate.run.call_args.args[1]
         volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-v"]
         environment = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-e"]
-        scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
-        self.assertIn(f"{FROZEN_E048_SOURCE_ROOT}:{FROZEN_E048_SOURCE_ROOT}:rw", volumes)
+        scratch = SOURCE_ROOT / ".work/tmp"
+        self.assertIn(f"{SOURCE_ROOT}:{SOURCE_ROOT}:rw", volumes)
         self.assertIn(f"{git_common_dir}:{git_common_dir}:ro", volumes)
         self.assertIn(f"{laputa_root}:{laputa_root}:ro", volumes)
         self.assertNotIn("/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro", volumes)
@@ -588,7 +646,7 @@ class SourceAdmissionTests(unittest.TestCase):
         self.assertIn(f"TMPDIR={scratch}", environment)
         self.assertIn("--tmpfs", command)
         self.assertEqual(command[command.index("--tmpfs") + 1], "/tmp:rw,nodev,exec,nosuid,mode=1777")
-        self.assertEqual(command[command.index("-w") + 1], str(FROZEN_E048_SOURCE_ROOT))
+        self.assertEqual(command[command.index("-w") + 1], str(SOURCE_ROOT))
 
 
 class LaputaAdmissionTests(unittest.TestCase):
@@ -907,7 +965,7 @@ class HarnessSiblingArtifactStagingTests(unittest.TestCase):
         return {"exit_code": 0}
 
     def test_stages_qualified_xsht_as_the_pty_harness_sibling(self):
-        pty_source = FROZEN_E048_SOURCE_ROOT / "tests/core_compat_extra/pty.rs"
+        pty_source = SOURCE_ROOT / "tests/core_compat_extra/pty.rs"
         self.assertRegex(
             pty_source.read_text(),
             r'Path::new\(test_bin!\("xsh"\)\)\.with_file_name\("xsht"\)',
@@ -1221,7 +1279,7 @@ class RunnerInvocationTests(unittest.TestCase):
             "prepare-cargo": [],
             "run-cargo": ["cargo", "metadata", "--no-deps"],
         }
-        tree = FROZEN_E048_SOURCE_ROOT
+        tree = SOURCE_ROOT
         scratch = tree / ".work/tmp"
         ordinary_read_only_mounts = {
             f"{tree}:{tree}:ro",
