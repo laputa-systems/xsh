@@ -63,7 +63,16 @@ impl Checker {
             let predicate = crate::sema::effects::EffectPredicate::Excluded(contract.clone(), crate::sema::effects::EffectSet::singleton(excluded.effect.clone()));
             if let Err(error) = self.type_constraints.constrain_effect(predicate) {
                 match error {
-                    crate::sema::constraints::EffectConstraintError::Mismatch => self.report_excluded(format!("effect relationship required by `{name}` is excluded by `without {}`", excluded.effect.as_str()), span, &excluded),
+                    crate::sema::constraints::EffectConstraintError::Mismatch => {
+                        let required = contract.concrete().ok().flatten().and_then(|effects| {
+                            effects.into_iter().find(|required| crate::sema::effects::effect_covers(required, &excluded.effect))
+                        });
+                        let message = match required {
+                            Some(required) => Self::excluded_callee_message(&required, &excluded, name),
+                            None => format!("effect relationship required by `{name}` is excluded by `without {}`", excluded.effect.as_str()),
+                        };
+                        self.report_excluded(message, span, &excluded);
+                    }
                     _ => self.error(span, "callable effect exclusion escaped its declaration inference scope", DiagnosticCode::CheckLocalInference),
                 }
             }
@@ -98,6 +107,18 @@ impl Checker {
         self.boundary.current_effects
             .as_ref()
             .is_some_and(|clause| !Self::effects_covers(clause, required))
+    }
+
+    fn excluded_callee_message(required: &Effect, excluded: &ExcludedEffect, callee_name: &str) -> String {
+        let denied = excluded.effect.as_str();
+        if excluded.effect == *required {
+            format!("effect `{denied}` required by `{callee_name}` is excluded by `without {denied}`")
+        } else {
+            format!(
+                "effect `{}` required by `{callee_name}` implies `{denied}`, which `without {denied}` excludes",
+                required.as_str()
+            )
+        }
     }
 
     fn report_excluded(&mut self, message: String, span: Span, excluded: &ExcludedEffect) {
@@ -196,17 +217,7 @@ impl Checker {
             let Some(excluded) = self.excluding_bound(required) else {
                 continue;
             };
-            let denied = excluded.effect.as_str();
-            let message = if excluded.effect == *required {
-                format!(
-                    "effect `{denied}` required by `{callee_name}` is excluded by `without {denied}`"
-                )
-            } else {
-                format!(
-                    "effect `{}` required by `{callee_name}` implies `{denied}`, which `without {denied}` excludes",
-                    required.as_str()
-                )
-            };
+            let message = Self::excluded_callee_message(required, &excluded, callee_name);
             self.report_excluded(message, span, &excluded);
         }
     }
