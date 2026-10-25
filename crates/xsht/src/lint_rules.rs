@@ -1,7 +1,7 @@
 use super::{
     ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind, ArenaRecordFieldKind,
     ArenaStmtKind,
-    AstArena, BinaryOp, Binding, BlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, Label, Linter,
+    AstArena, BinaryOp, Binding, BlockId, Diagnostic, DiagnosticCode, DiagnosticPosition, ExprId, FixHint, Label, Linter,
     LintOptions, Name,
     PatternArm, PatternId, Severity, Span, StmtId, Type, command_name, is_module_call, is_predeclared_script_args, list_splice_element_type_is_precise,
     lint_code_selected, pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
@@ -67,7 +67,7 @@ enum RunCheckSite { CapturePropagation, SegmentChecks }
 type RunCheckHook = for<'source> fn(&mut Linter<'source>, super::RunFormId);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SequenceExitSite { Root, Block }
-type SequenceExitHook = for<'source> fn(&mut Linter<'source>, &[StmtId], usize);
+type SequenceExitHook = for<'source> fn(&mut Linter<'source>, &[StmtId], DiagnosticPosition);
 type ExpressionHook = for<'source> fn(&mut Linter<'source>, ExprId);
 type LoopHook = for<'source> fn(&mut Linter<'source>, StmtId, super::BindingTargetId, ExprId, BlockId, Span);
 type ExpressionAnalysisHook = for<'source> fn(&mut Linter<'source>, ExprId);
@@ -1070,7 +1070,7 @@ pub(super) fn sequence_exit(
     linter: &mut Linter<'_>,
     scope: SequenceExitSite,
     statements: &[StmtId],
-    diagnostic_index: usize,
+    diagnostic_index: super::DiagnosticPosition,
 ) {
     let callback = LINT_RULES
         .iter()
@@ -1087,7 +1087,7 @@ pub(super) fn sequence_exit(
 fn run_redundant_close_sequence_exit(
     linter: &mut Linter<'_>,
     statements: &[StmtId],
-    diagnostic_index: usize,
+    diagnostic_index: super::DiagnosticPosition,
 ) {
     let diagnostics = super::redundant_close::lint_deferred_root_closes(linter, statements);
     linter.insert_diagnostics_at(diagnostic_index, diagnostics);

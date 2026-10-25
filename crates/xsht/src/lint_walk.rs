@@ -1558,7 +1558,7 @@ impl<'a> Linter<'a> {
             .stmt_ids(self.arena.block(block).statements)
             .collect();
         rules::block_sequence(self, &stmts, block);
-        let close_diagnostic_index = self.diagnostics.len();
+        let close_diagnostic_index = self.diagnostic_position_at(self.diagnostics.len());
         let flow = self.lint_statement_sequence(&stmts);
         if let (Some(flow), Some(flow_facts)) = (flow, &mut self.flow_facts) {
             flow_facts.record_block(block, flow);

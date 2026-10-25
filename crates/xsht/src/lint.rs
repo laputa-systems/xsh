@@ -560,6 +560,26 @@ enum AssignmentCandidateCondition {
 }
 
 #[derive(Clone, Copy)]
+pub(super) enum DiagnosticPosition {
+    Index(usize),
+    Tracked(usize),
+}
+
+#[derive(Clone, Copy)]
+enum DiagnosticOrderEntry {
+    Diagnostic(usize),
+    LocalAnnotation(usize),
+    Position(usize),
+}
+
+#[derive(Default)]
+struct DiagnosticOrder {
+    entries: Vec<DiagnosticOrderEntry>,
+    observed_diagnostics: usize,
+    next_position: usize,
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct AssignmentCandidateId(usize);
 
 struct AssignmentCandidate {
@@ -582,6 +602,8 @@ pub struct Linter<'a> {
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     local_annotation_before: Option<Option<CheckedLocalAnnotationFacts>>,
+    pending_local_annotation_proofs: Vec<(Span, Span, Diagnostic)>,
+    diagnostic_order: Option<DiagnosticOrder>,
     source: &'a str,
     format_line_width: usize,
     source_cst: std::sync::OnceLock<xsh::frontend::syntax::cst::SyntaxTree>,
@@ -958,6 +980,8 @@ impl<'a> Linter<'a> {
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
         let rule_selection = rules::RuleSelection::new(&options);
+        let track_diagnostic_order = options.return_proof.is_some()
+            && rule_selection.enabled(DiagnosticCode::LintNeedlessAnnotation);
         let prefer_set_advice = rule_selection.enabled(DiagnosticCode::LintPreferSet)
             && (options.prefer_set || rule_selection.prefer_set_named());
         let fail_candidates = if rule_selection.enabled(DiagnosticCode::LintPreferFail) {
@@ -1038,6 +1062,8 @@ impl<'a> Linter<'a> {
             proc_return_candidates: Vec::new(),
             return_removal_before: None,
             local_annotation_before: None,
+            pending_local_annotation_proofs: Vec::new(),
+            diagnostic_order: track_diagnostic_order.then(DiagnosticOrder::default),
             source,
             format_line_width: line_width,
             source_cst: std::sync::OnceLock::new(),
@@ -1273,6 +1299,7 @@ impl<'a> Linter<'a> {
         ] {
             rules::root_hooks(&mut linter, stage, view, &statements);
         }
+        linter.finalize_local_annotation_proofs();
         rules::assert_fix_policy(&linter.diagnostics);
         let selection = &linter.rule_selection;
         linter
@@ -1546,11 +1573,43 @@ impl<'a> Linter<'a> {
         AssignmentCandidateId(self.assignment_candidates.len() - 1)
     }
 
+    pub(super) fn diagnostic_position_at(&mut self, index: usize) -> DiagnosticPosition {
+        if self.diagnostic_order.is_none() {
+            return DiagnosticPosition::Index(index);
+        }
+        self.synchronize_diagnostic_order();
+        assert!(index <= self.diagnostics.len());
+        let order = self.diagnostic_order.as_mut().unwrap();
+        let position = order.next_position;
+        order.next_position += 1;
+        let order_index = if index == self.diagnostics.len() {
+            order.entries.len()
+        } else {
+            order
+                .entries
+                .iter()
+                .position(|entry| matches!(entry, DiagnosticOrderEntry::Diagnostic(diagnostic) if *diagnostic == index))
+                .unwrap_or(order.entries.len())
+        };
+        order
+            .entries
+            .insert(order_index, DiagnosticOrderEntry::Position(position));
+        DiagnosticPosition::Tracked(position)
+    }
+
     pub(super) fn insert_diagnostics_at(
         &mut self,
-        index: usize,
+        position: DiagnosticPosition,
         diagnostics: Vec<Diagnostic>,
     ) {
+        let index = match position {
+            DiagnosticPosition::Index(index) => index,
+            DiagnosticPosition::Tracked(position) => {
+                self.synchronize_diagnostic_order();
+                let order_index = self.diagnostic_order_index(position);
+                self.diagnostic_index_at_order(order_index)
+            }
+        };
         let inserted = diagnostics.len();
         for candidate in &mut self.assignment_candidates {
             if candidate.diagnostic_index >= index {
@@ -1558,14 +1617,44 @@ impl<'a> Linter<'a> {
             }
         }
         self.diagnostics.splice(index..index, diagnostics);
+        if let DiagnosticPosition::Tracked(position) = position {
+            let order = self.diagnostic_order.as_mut().unwrap();
+            let order_index = order
+                .entries
+                .iter()
+                .position(|entry| matches!(entry, DiagnosticOrderEntry::Position(candidate) if *candidate == position))
+                .unwrap();
+            order.entries.splice(
+                order_index..=order_index,
+                (index..index + inserted).map(DiagnosticOrderEntry::Diagnostic),
+            );
+            self.reindex_diagnostic_order();
+        }
     }
 
-    pub(super) fn move_diagnostics_to(&mut self, start: usize, end: usize, index: usize) {
-        assert!(start <= end && end <= self.diagnostics.len() && index <= start);
-        let moved = end - start;
-        if moved == 0 {
+    pub(super) fn move_diagnostics_to(
+        &mut self,
+        start: usize,
+        end: usize,
+        position: DiagnosticPosition,
+    ) {
+        assert!(start <= end && end <= self.diagnostics.len());
+        if start == end {
+            if let DiagnosticPosition::Index(index) = position {
+                assert!(index <= start);
+            }
             return;
         }
+        let index = match position {
+            DiagnosticPosition::Index(index) => index,
+            DiagnosticPosition::Tracked(position) => {
+                self.synchronize_diagnostic_order();
+                let order_index = self.diagnostic_order_index(position);
+                self.diagnostic_index_at_order(order_index)
+            }
+        };
+        assert!(index <= start);
+        let moved = end - start;
         for candidate in &mut self.assignment_candidates {
             let diagnostic_index = &mut candidate.diagnostic_index;
             if (start..end).contains(diagnostic_index) {
@@ -1581,6 +1670,69 @@ impl<'a> Linter<'a> {
         }
         let diagnostics = self.diagnostics.drain(start..end).collect::<Vec<_>>();
         self.diagnostics.splice(index..index, diagnostics);
+        if let DiagnosticPosition::Tracked(position) = position {
+            let capacity = self.diagnostic_order.as_ref().unwrap().entries.len();
+            let mut entries = Vec::with_capacity(capacity);
+            for entry in self.diagnostic_order.as_mut().unwrap().entries.drain(..) {
+                match entry {
+                    DiagnosticOrderEntry::Diagnostic(diagnostic)
+                        if (start..end).contains(&diagnostic) => {}
+                    DiagnosticOrderEntry::Position(candidate) if candidate == position => {
+                        entries.extend(
+                            (index..index + moved).map(DiagnosticOrderEntry::Diagnostic),
+                        );
+                    }
+                    other => entries.push(other),
+                }
+            }
+            self.diagnostic_order.as_mut().unwrap().entries = entries;
+            self.reindex_diagnostic_order();
+        }
+    }
+
+    fn synchronize_diagnostic_order(&mut self) {
+        let Some(order) = &mut self.diagnostic_order else {
+            return;
+        };
+        for index in order.observed_diagnostics..self.diagnostics.len() {
+            order.entries.push(DiagnosticOrderEntry::Diagnostic(index));
+        }
+        order.observed_diagnostics = self.diagnostics.len();
+    }
+
+    fn reindex_diagnostic_order(&mut self) {
+        let Some(order) = &mut self.diagnostic_order else {
+            return;
+        };
+        let mut index = 0;
+        for entry in &mut order.entries {
+            if let DiagnosticOrderEntry::Diagnostic(diagnostic) = entry {
+                *diagnostic = index;
+                index += 1;
+            }
+        }
+        assert_eq!(index, self.diagnostics.len());
+        order.observed_diagnostics = index;
+    }
+
+    fn diagnostic_order_index(&self, position: usize) -> usize {
+        self.diagnostic_order
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .position(|entry| matches!(entry, DiagnosticOrderEntry::Position(candidate) if *candidate == position))
+            .unwrap()
+    }
+
+    fn diagnostic_index_at_order(&self, order_index: usize) -> usize {
+        self.diagnostic_order
+            .as_ref()
+            .unwrap()
+            .entries[..order_index]
+            .iter()
+            .filter(|entry| matches!(entry, DiagnosticOrderEntry::Diagnostic(_)))
+            .count()
     }
 
     pub(super) fn comparison_chain_suppressors(
@@ -1608,6 +1760,7 @@ impl<'a> Linter<'a> {
     }
 
     fn finalize_assignment_candidates(&mut self) {
+        self.synchronize_diagnostic_order();
         let mut retained = Vec::with_capacity(self.assignment_candidates.len());
         for (candidate_index, candidate) in self.assignment_candidates.iter().enumerate() {
             let condition = match &candidate.condition {
@@ -1631,6 +1784,12 @@ impl<'a> Linter<'a> {
             .filter_map(|(candidate, keep)| (!keep).then_some(candidate.diagnostic_index))
             .collect::<Vec<_>>();
         removed.sort_unstable();
+        if let Some(order) = &mut self.diagnostic_order {
+            order.entries.retain(|entry| match entry {
+                DiagnosticOrderEntry::Diagnostic(index) => removed.binary_search(index).is_err(),
+                _ => true,
+            });
+        }
         let mut removed = removed.into_iter().peekable();
         let mut diagnostic_index = 0;
         self.diagnostics.retain(|_| {
@@ -1642,6 +1801,7 @@ impl<'a> Linter<'a> {
             keep
         });
         self.assignment_candidates.clear();
+        self.reindex_diagnostic_order();
     }
 
     fn lint_program(&mut self, view: &CheckBundleView<'a>, statements: &[StmtId]) {
@@ -1692,7 +1852,7 @@ impl<'a> Linter<'a> {
         }
         rules::root_sequence(self, statements);
         self.assignment_collection_enabled = self.checked_output.is_none();
-        let close_diagnostic_index = self.diagnostics.len();
+        let close_diagnostic_index = self.diagnostic_position_at(self.diagnostics.len());
         let _ = self.lint_statement_sequence(statements);
         self.assignment_collection_enabled = false;
         if let Some(edges) = &mut self.callable_edges {
@@ -6767,11 +6927,14 @@ mod nested_pipeline_index_tests {
 
 #[cfg(test)]
 mod local_annotation_probe_tests {
-    use super::{LintOptions, Linter};
+    use super::{LintOptions, Linter, LintProbeTransport, ReturnProofContext};
     use std::cell::Cell;
-    use xsh::diagnostic::DiagnosticCode;
+    use std::sync::Arc;
+    use xsh::diagnostic::{DiagnosticCode, LabelStyle, Severity};
     use xsh::frontend::check::Checker;
+    use xsh::frontend::load::parse_load_check_text;
     use xsh::frontend::source::SourceId;
+    use xsh::frontend::symbols::SymbolOwner;
     use xsh::frontend::syntax::parser::Parser;
 
     thread_local! {
@@ -6921,6 +7084,246 @@ mod local_annotation_probe_tests {
                 if missing_import { 0 } else { 12 }
             );
         }
+    }
+
+    #[test]
+    fn loaded_local_annotation_batches_keep_each_single_deletion_proof() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("helper.xsh"),
+            "##! Helpers.\n\n## Returns one integer.\nexport pure value() -> Int {\n  1\n}\n",
+        )
+        .unwrap();
+        let mut source = "use helper\n\ntype Row = {value: Int}\npure row() -> Row { Row(value: 1) }\npure measure(rows: List[Any]) -> Int { rows.len() }\npure count() -> Int {\n".to_owned();
+        for index in 0..6 {
+            source.push_str(&format!(
+                "  var values_{index}: List[Int] = []\n  values_{index} = values_{index}.push(1)\n"
+            ));
+        }
+        source.push_str("  let unsafe_rows: List[Any] = [row()]\n");
+        for index in 6..12 {
+            source.push_str(&format!(
+                "  var values_{index}: List[Int] = []\n  values_{index} = values_{index}.push(1)\n"
+            ));
+        }
+        source.push_str("  let unused_value = 9\n");
+        source.push_str("  helper.value() + measure(unsafe_rows)");
+        for index in 0..12 {
+            source.push_str(&format!(" + values_{index}.len()"));
+        }
+        source.push_str("\n}\n");
+        let context = ReturnProofContext {
+            file: directory
+                .path()
+                .join("root.xsh")
+                .to_string_lossy()
+                .into_owned(),
+            module_roots: vec![directory.path().to_path_buf()],
+        };
+        let loaded = SymbolOwner::new().with_current(|| {
+            parse_load_check_text(
+                &context.file,
+                source.clone(),
+                context.module_roots.clone(),
+                xsh::frontend::check::CheckOptions::default(),
+            )
+        });
+        assert!(loaded.parsed.diagnostics.is_empty(), "{:?}", loaded.parsed.diagnostics);
+        let checked = loaded.checked.expect("a valid imported fixture has checked facts");
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        ORIGINALS.with(|originals| originals.set(0));
+        CANDIDATES.with(|candidates| candidates.set(0));
+        let output = loaded.parsed.arena.symbol_owner().with_current(|| {
+            Linter::lint(
+                &loaded.parsed.arena,
+                &source,
+                LintOptions {
+                    checked_output: Some(Arc::new(checked)),
+                    return_proof: Some(context),
+                    only: Some(vec![
+                        DiagnosticCode::LintNeedlessAnnotation,
+                        DiagnosticCode::LintUnusedLocal,
+                    ]),
+                    ..LintOptions::default()
+                },
+            )
+        });
+        assert_eq!(ORIGINALS.with(Cell::get), 1);
+        assert_eq!(CANDIDATES.with(Cell::get), 13);
+        assert_eq!(output.diagnostics.len(), 13, "{:?}", output.diagnostics);
+        let local_diagnostics = &output.diagnostics[..12];
+        assert!(local_diagnostics.iter().all(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::LintNeedlessAnnotation)
+                && diagnostic.severity == Severity::Warning
+                && diagnostic.message
+                    == "local type is determined by consistent checked constraints"
+                && diagnostic.span.is_none()
+                && diagnostic.labels.len() == 1
+                && diagnostic.fix_hints.len() == 1
+                && diagnostic.notes.is_empty()
+        }));
+        assert_eq!(
+            output.diagnostics[12].code,
+            Some(DiagnosticCode::LintUnusedLocal)
+        );
+        assert_eq!(
+            output.diagnostics[12].message,
+            "unused local variable `unused_value`"
+        );
+        let mut actual = local_diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let label = &diagnostic.labels[0];
+                let span = diagnostic.fix_hints[0].span.unwrap();
+                (
+                    diagnostic.severity,
+                    diagnostic.code,
+                    diagnostic.message.clone(),
+                    label.style,
+                    (label.span.start(), label.span.end()),
+                    label.message.clone(),
+                    (span.start(), span.end()),
+                    diagnostic.fix_hints[0].message.clone(),
+                    diagnostic.fix_hints[0].replacement.clone(),
+                    diagnostic.fix_hints[0].dangerous,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut expected = source
+            .match_indices(": List[Int]")
+            .map(|(start, text)| {
+                (
+                    Severity::Warning,
+                    Some(DiagnosticCode::LintNeedlessAnnotation),
+                    "local type is determined by consistent checked constraints".to_owned(),
+                    LabelStyle::Secondary,
+                    (start + 2, start + text.len()),
+                    Some("the whole local binding retains this fixed type without the annotation".to_owned()),
+                    (start, start + text.len()),
+                    "remove the redundant local annotation".to_owned(),
+                    Some(String::new()),
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+        actual.sort_unstable_by_key(|diagnostic| diagnostic.4.0);
+        expected.sort_unstable_by_key(|diagnostic| diagnostic.4.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn loaded_local_annotation_batches_reject_missing_imports() {
+        let directory = tempfile::tempdir().unwrap();
+        let context = ReturnProofContext {
+            file: directory
+                .path()
+                .join("root.xsh")
+                .to_string_lossy()
+                .into_owned(),
+            module_roots: vec![directory.path().to_path_buf()],
+        };
+        let candidates = [
+            "use missing\npure count() -> Int {\n  var values: List[Int] = []\n  values = values.push(1)\n  values.len()\n}\n".to_owned(),
+            "use missing\npure count() -> Int {\n  var values: List[Int] = []\n  values = values.push(2)\n  values.len()\n}\n".to_owned(),
+        ];
+        let facts = LintProbeTransport::loaded_local_annotation_fact_batch(&context, &candidates);
+        assert_eq!(facts.len(), candidates.len());
+        assert!(facts.into_iter().all(|facts| facts.is_none()));
+    }
+
+    fn lint_loaded(
+        source: &str,
+        helper: Option<&str>,
+        only: Vec<DiagnosticCode>,
+    ) -> Vec<xsh::diagnostic::Diagnostic> {
+        let directory = tempfile::tempdir().unwrap();
+        if let Some(helper) = helper {
+            std::fs::write(directory.path().join("helper.xsh"), helper).unwrap();
+        }
+        let context = ReturnProofContext {
+            file: directory
+                .path()
+                .join("root.xsh")
+                .to_string_lossy()
+                .into_owned(),
+            module_roots: vec![directory.path().to_path_buf()],
+        };
+        let loaded = SymbolOwner::new().with_current(|| {
+            parse_load_check_text(
+                &context.file,
+                source.to_owned(),
+                context.module_roots.clone(),
+                xsh::frontend::check::CheckOptions::default(),
+            )
+        });
+        assert!(loaded.parsed.diagnostics.is_empty(), "{:?}", loaded.parsed.diagnostics);
+        let checked = loaded.checked.expect("the loaded source has checked facts");
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        loaded.parsed.arena.symbol_owner().with_current(|| {
+            Linter::lint(
+                &loaded.parsed.arena,
+                source,
+                LintOptions {
+                    checked_output: Some(Arc::new(checked)),
+                    return_proof: Some(context),
+                    only: Some(only),
+                    ..LintOptions::default()
+                },
+            )
+            .diagnostics
+        })
+    }
+
+    #[test]
+    fn batched_local_annotations_keep_their_order_before_deferred_close_findings() {
+        let source = "use helper\nproc count(dir: Path) [fs, error] -> Result[Int] {\n  let root = fs.open_root(dir)?\n  defer root.close()\n  var values: List[Int] = []\n  values = values.push(1)\n  values.len() + helper.value()\n}\nprint ${count(p\".\")?}\n";
+        let diagnostics = lint_loaded(
+            source,
+            Some("##! Helpers.\n\n## Returns one integer.\nexport pure value() -> Int {\n  1\n}\n"),
+            vec![
+                DiagnosticCode::LintRedundantClose,
+                DiagnosticCode::LintNeedlessAnnotation,
+            ],
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.unwrap())
+                .collect::<Vec<_>>(),
+            [
+                DiagnosticCode::LintRedundantClose,
+                DiagnosticCode::LintNeedlessAnnotation,
+            ],
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn batched_local_annotations_keep_order_around_late_stream_and_pair_findings() {
+        let source = "proc generate() [] -> List[Int] {\n  var values: List[Int] = []\n  for item in [1] { values = values.push(item) }\n  return values\n}\npure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\npure combine() -> Int {\n  let input = inner(2)\n  let output: Int = outer(10, value: input)\n  return output\n}\nvar middle = 2\nlet low = 1\nlet high = 3\nlet comparison = low < middle and middle < high\nmiddle = 5\nfor value in generate() {\n  print $value\n}\n";
+        let diagnostics = lint_loaded(
+            source,
+            None,
+            vec![
+                DiagnosticCode::LintPreferStreamProducer,
+                DiagnosticCode::LintPreferValuePipeline,
+                DiagnosticCode::LintNeedlessAnnotation,
+                DiagnosticCode::LintPreferComparisonChain,
+            ],
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.unwrap())
+                .collect::<Vec<_>>(),
+            [
+                DiagnosticCode::LintPreferStreamProducer,
+                DiagnosticCode::LintNeedlessAnnotation,
+                DiagnosticCode::LintPreferValuePipeline,
+                DiagnosticCode::LintNeedlessAnnotation,
+            ],
+            "{diagnostics:?}"
+        );
     }
 }
 
