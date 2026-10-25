@@ -4352,7 +4352,7 @@ impl Evaluator {
         Ok(())
     }
 
-    fn lowered_stream_list_result(
+    fn lowered_materialized_stream_result(
         &mut self,
         result: Result<StreamValue, RuntimeError>,
         span: Span,
@@ -4361,11 +4361,9 @@ impl Evaluator {
             Ok(stream) => stream,
             Err(error) => return Ok(lowered_result_err_value(error)),
         };
-        // fs.dirs materializes this intermediate stream immediately, so stamp
-        // its evaluator owner before the generic consumer validates and drains it.
         self.register_returned_stream(&mut stream, span)?;
         let values = self.collect_stream_values(stream, span)?;
-        lowered_runtime_value(Value::ok(Value::List(values)), span)
+        lowered_runtime_value(Value::ok(Value::stream(StreamValue::from_values(values))), span)
     }
 
     fn collect_lowered_stream_values(
@@ -4894,7 +4892,7 @@ impl Evaluator {
                 let stat = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.dirs", span)?;
                 let gitignore = lowered_bool_arg_or(values.get(1).cloned(), true, "fs.dirs", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.dirs", span)?;
-                self.lowered_stream_list_result(
+                self.lowered_materialized_stream_result(
                     fs_module::walk_filesystem(
                         self.host_path(&path),
                         gitignore,

@@ -537,6 +537,14 @@ impl Checker {
                 self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
+            if (self.procs.contains_key(&name) || self.pures.contains_key(&name) || self.streams.contains_key(&name))
+                && self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+            {
+                for arg in args {
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                }
+                return Type::Invalid;
+            }
             return self.check_constructor_call_arena(
                 arena,
                 source,

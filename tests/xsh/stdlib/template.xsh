@@ -27,7 +27,8 @@ test test_template_fields_and_dot {
 }
 
 test test_template_if_truthiness_and_else_chains {
-  let falsy = {f: false, n: null, zero: 0, real: 0.0, text: "", list: [], map: {}}
+  let no_items: List[Any] = []
+  let falsy = {f: false, n: null, zero: 0, real: 0.0, text: "", list: no_items, map: {}}
   for key in falsy.keys() {
     assert template.render(f"{{{{if .{key}}}}}T{{{{else}}}}F{{{{end}}}}", falsy)? == "F", key
   }
@@ -46,7 +47,8 @@ test test_template_if_truthiness_and_else_chains {
 }
 
 test test_template_range_lists_maps_and_variables {
-  let data = {ports: [80, 443], env: {ZED: "z", ALPHA: "a"}, none: [], missing: null}
+  let no_items: List[Any] = []
+  let data = {ports: [80, 443], env: {ZED: "z", ALPHA: "a"}, none: no_items, missing: null}
   assert template.render("{{range .ports}}[{{.}}]{{end}}", data)? == "[80][443]"
   assert template.render("{{range $port := .ports}}{{$port}};{{end}}", data)? == "80;443;"
   assert template.render("{{range $i, $port := .ports}}{{$i}}={{$port}} {{end}}", data)? == "0=80 1=443 "

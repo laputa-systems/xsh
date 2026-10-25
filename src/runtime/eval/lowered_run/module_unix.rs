@@ -1,6 +1,6 @@
 use super::{
     Evaluator, Arc, BTreeMap, CommandPlan, Duration, Instant, LoweredValue, NativeArgumentValues,
-    ProcessStatus, RecordMap, RuntimeError, RuntimeOp, Span, Value, display_spawn_argv,
+    ProcessStatus, RecordMap, RuntimeError, RuntimeOp, Span, StreamValue, Value, display_spawn_argv,
     lowered_bool_arg_or, lowered_command_arg, lowered_duration_arg, lowered_int_arg,
     lowered_int_arg_or, lowered_int_list_arg, lowered_path_arg, lowered_record_arg,
     lowered_str_arg_owned, lowered_str_list_arg, lowered_value_from_runtime_any, module_error,
@@ -456,7 +456,10 @@ impl Evaluator {
         match op {
             RuntimeOp::UnixReapChildEvents => {
                 self.unix_fake_log("reap_child_events", &[], span)?;
-                Ok(Value::ok(Value::List(self.unix_fake_child_events())))
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "unix.reap_child_events",
+                    self.unix_fake_child_events(),
+                ))))
             }
             RuntimeOp::UnixPid1Setup => {
                 let signals =

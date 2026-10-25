@@ -48,9 +48,9 @@ test test_a_branch_of_the_wrong_type_is_reported_once_at_the_branch { |ctx|
   }
 }
 
-# Two branches of the wrong type are two mistakes, and an argument of the
-# wrong type inside an argument of the wrong type is two as well: neither
-# call is a branch of the other.
+# Two branches of the wrong type are two mistakes. A call whose argument has
+# the wrong type is rejected and has no result, so the call that consumes it
+# reports nothing more.
 test test_separate_mismatches_are_each_reported { |ctx|
   let branches = check_errors(ctx, "pure label(n: Int) -> Str {\n  if n > 1 { n } else { n + 1 }\n}\n")?
   assert count(branches, "err[check.type-mismatch]") == 2, branches
@@ -58,8 +58,9 @@ test test_separate_mismatches_are_each_reported { |ctx|
 
   let nested = check_errors(
     ctx,
-    "pure inner(text: Str) -> Int {\n  text.len()\n}\n\npure outer(text: Str) -> Int {\n  text.len()\n}\n\nlet n = 1\nlet total = outer(inner(n))\nprint $total\n",
+    "pure inner(text: Str) -> Int {\n  text.byte_len()\n}\n\npure outer(text: Str) -> Int {\n  text.byte_len()\n}\n\nlet n = 1\nlet total = outer(inner(n))\nprint $total\n",
   )?
-  assert count(nested, "err[check.type-mismatch]") == 2, nested
+  assert count(nested, "err[") == 1, nested
+  assert count(nested, "err[check.type-mismatch]") == 1, nested
   assert "expected Str, found Int" in nested, nested
 }

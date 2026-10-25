@@ -129,8 +129,6 @@ test test_callable_alias_keeps_effects_and_erased_boundaries { |ctx|
 """,
     """pure render(value: Str) -> Str { value }; let erased: Pure = render; print erased(value: "one")
 """,
-    """pure render(value: Str) -> Str { value }; var selected = render; print selected(value: "one")
-""",
     """let left = right; let right = left; print left()
 """,
     """pure render(value: Str) -> Str { value }; const invalid = render

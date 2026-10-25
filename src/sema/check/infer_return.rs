@@ -658,6 +658,7 @@ impl Checker {
                 );
                 let conflicts = self.return_conflicts.take().unwrap_or_default();
                 if let Some((left, right, span)) = conflicts.into_iter().next() {
+                    let (left, right) = (completion_success_type(&left), completion_success_type(&right));
                     let message = format!("completions of proc `{}` produce `{left}` and `{right}`", decl.name);
                     self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message)
                         .with_code(DiagnosticCode::CheckTypeMismatch)
@@ -710,6 +711,7 @@ impl Checker {
             } else {
                 (right, left)
             };
+            let (left, right) = (completion_success_type(&left), completion_success_type(&right));
             let message = format!(
                 "completions of proc `{}` produce `{left}` and `{right}`",
                 decl.name
@@ -805,6 +807,8 @@ impl Checker {
                     }
                 } else if let Some(error) = &completion_error {
                     Self::proc_completion_envelope(candidate_ty.clone(), error)
+                } else if errors.is_empty() && !matches!(candidate_ty, Type::Result(_, _) | Type::Unit) {
+                    Type::Result(Box::new(candidate_ty.clone()), Box::new(Type::Unknown))
                 } else {
                     inferred_proc_return_envelope(candidate_ty.clone(), &errors)
                 };
@@ -814,7 +818,11 @@ impl Checker {
                 });
             }
         }
-        inferred.unwrap_or(Type::Invalid)
+        match inferred {
+            Some(Type::Result(ok, error)) if *error == Type::Unknown => Type::Result(ok, Box::new(Type::Error)),
+            Some(inferred) => inferred,
+            None => Type::Invalid,
+        }
     }
 
     fn finish_proc_completion_group(
@@ -859,6 +867,15 @@ impl Checker {
                 Type::Invalid
             }
             None if left.contains_inference() || right.contains_inference() => {
+                if let (Type::Result(left_ok, left_error), Type::Result(right_ok, right_error)) = (&left, &right)
+                    && !left_error.contains_inference()
+                    && !right_error.contains_inference()
+                {
+                    return match self.unify_inferred_returns((**left_ok).clone(), (**right_ok).clone(), span) {
+                        Type::Invalid => Type::Invalid,
+                        ok => Type::Result(Box::new(ok), Box::new(join_error_types(left_error, right_error))),
+                    };
+                }
                 let diagnostics = self.diagnostics.len();
                 self.expect_type(&left, &right, span);
                 if self.diagnostics.len() != diagnostics { return Type::Invalid; }
@@ -873,6 +890,13 @@ impl Checker {
                 Type::Invalid
             }
         }
+    }
+}
+
+fn completion_success_type(envelope: &Type) -> &Type {
+    match envelope {
+        Type::Result(ok, _) => ok,
+        other => other,
     }
 }
 

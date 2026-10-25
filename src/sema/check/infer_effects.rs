@@ -1924,7 +1924,8 @@ impl Checker {
                             }
                             self.validate_callable_effects(&effects, &name, check.span);
                             if matches!(effects.contract(), EffectContract::Unknown) && !unknown_chain.is_empty() && self.boundary.current_effects.is_some() {
-                                self.error(check.span, &format!("proc `{name}` has an unknown effect summary: {}", unknown_chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
+                                let chain = std::iter::once(name.as_str()).chain(unknown_chain.iter().map(String::as_str)).collect::<Vec<_>>();
+                                self.error(check.span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
                             }
                         }
                         Err(_) => self.error(check.span, "callable invocation has no settled declaration effect contract", DiagnosticCode::CheckLocalInference),

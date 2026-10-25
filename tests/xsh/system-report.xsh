@@ -117,7 +117,7 @@ type SystemReportCollectors = module {
   export pure parse_pci_hex_value(value: Str) -> Result[Int, Error]
   export pure pci_parent_address(target: Path, child_address: Str) -> Str?
   export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord], Error]
-  export proc read_source_text(root: FsRoot, path: Path, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
+  export proc read_source_text(root: FsRoot, source_path: Path, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
   export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumericObservation
   export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumericObservation
   export pure bounded_size_bytes(source: SourceRead) -> BoundedNumericObservation

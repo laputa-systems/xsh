@@ -85,7 +85,7 @@ test test_process_effects_of_an_external_stream_are_charged_at_creation { |ctx|
 
 test test_network_effects_of_an_external_stream_are_charged_at_creation { |ctx|
   let url = "https://example.test/lexical-effect-bounds"
-  let response = {
+  let response: NetResponse = {
     status: 200,
     reason: "OK",
     bytes: 0,
