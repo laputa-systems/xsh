@@ -2476,6 +2476,10 @@ impl Checker {
             };
             (sig, true)
         };
+        if matches!(sig.binding, crate::modules::signature::ImplBinding::Schema(_)) {
+            self.error(span, "this intrinsic requires an explicit trailing schema operand", DiagnosticCode::CheckRequireTarget);
+            return Type::Invalid;
+        }
         if sig.discardable {
             self.discardable_values.insert(span);
         }

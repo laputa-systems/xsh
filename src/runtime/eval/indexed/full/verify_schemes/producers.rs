@@ -3819,7 +3819,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 return merge_list_item_types(&items, &mut self.budget).map(|ty| ty.map(Arc::new));
             }
-            schema::ExprView::Require { check, .. } => Some(Type::Result(Box::new(check.ty.materialize()?), Box::new(Type::Error))),
+            schema::ExprView::CodecSchema { check, .. } | schema::ExprView::Require { check, .. } => Some(Type::Result(Box::new(check.ty.materialize()?), Box::new(Type::Error))),
             schema::ExprView::CheckedValue { check: ValueCheckView::Materialization(id), .. } => {
                 let (_, destination) = super::materialization_contract(self.store, self.index.scheme_scopes(self.store)?, id, instruction, &mut self.budget)?;
                 return Ok(destination.closed_ground_type().map(Arc::new));
@@ -6142,6 +6142,14 @@ impl<'a> ProducerProof<'a> {
                 let error = FullDecoder::registered_api_operation_return_type(super::super::RuntimeOp::ErrorFailure)?;
                 if !error.matches_expected(expected_error) { return Err(IrVerifyError::new("ground failure producer has an incompatible error contract")); }
                 self.expression(owner, message.raw() as usize, Arc::new(Type::Str), false);
+                Ok(())
+            }
+            schema::ExprView::CodecSchema { op, format, input, check, .. } => {
+                let signature = FullDecoder::codec_schema_signature(op)?;
+                let checked = Type::Result(Box::new(check.ty.materialize()?), Box::new(Type::Error));
+                if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("typed codec producer disagrees with its result contract")); }
+                self.expression(owner, format.raw() as usize, Arc::new(signature.params[0].ty.clone()), false);
+                self.expression(owner, input.raw() as usize, Arc::new(signature.params[1].ty.clone()), false);
                 Ok(())
             }
             schema::ExprView::Require { check, .. } => {

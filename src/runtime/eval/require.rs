@@ -1,3 +1,5 @@
+mod lexical;
+
 use super::ValueView;
 use super::{
     Evaluator, LoweredTagValue, LoweredTypeCheck, LoweredValue, Name, RuntimeError, Span, Type,
@@ -30,6 +32,16 @@ impl PreparedSchema {
         if policy == UnknownFields::Preserve { schema } else { Arc::new(Self::UnknownFields(policy, schema)) }
     }
 
+    pub(super) fn preserves_fields(&self) -> bool {
+        match self {
+            Self::UnknownFields(_, _) => false,
+            Self::Record(fields) => fields.iter().all(|(_, schema)| schema.preserves_fields()),
+            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) | Self::Validated(_, schema) => schema.preserves_fields(),
+            Self::Union(_, members) => members.iter().all(|schema| schema.preserves_fields()),
+            _ => true,
+        }
+    }
+
     pub(super) fn unknown_fields(&self) -> UnknownFields {
         match self { Self::UnknownFields(policy, _) => *policy, _ => UnknownFields::Preserve }
     }
@@ -51,11 +63,7 @@ impl PreparedSchema {
                     .iter()
                     .map(|member| Self::compile_policy(member, enums, policy))
                     .collect::<Vec<_>>();
-                if policy != UnknownFields::Preserve || schemas.iter().any(|schema| schema.rebuilds_value()) {
-                    Self::Union(ty.clone(), schemas)
-                } else {
-                    Self::Validate(ty.clone())
-                }
+                Self::Union(ty.clone(), schemas)
             }
             Type::Validated(validated) => {
                 Self::Validated(ty.clone(), Self::compile_policy(validated.base(), enums, policy))
@@ -197,19 +205,20 @@ impl PreparedSchema {
         path: &str,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        self.decode_policy(evaluator, value, path, span, UnknownFields::Preserve)
+        self.decode_policy(evaluator, value, path, span, UnknownFields::Preserve, false)
     }
 
-    fn decode_policy(&self, evaluator: &Evaluator, value: LoweredValue, path: &str, span: Span, policy: UnknownFields) -> Result<LoweredValue, RuntimeError> {
+    fn decode_policy(&self, evaluator: &Evaluator, value: LoweredValue, path: &str, span: Span, policy: UnknownFields, lexical: bool) -> Result<LoweredValue, RuntimeError> {
         let failure = |message: String| {
-            RuntimeError::new(
-                "schema",
-                format!("schema check failed at {path}: {message}"),
-            )
-            .with_span(span)
+            let mut error = RuntimeError::new("schema", format!("schema check failed at {path}: {message}")).with_span(span);
+            if lexical { error.payload.insert("value_path".into(), super::Value::Str(path.into())); }
+            error
         };
+        let value = if lexical {
+            match value { LoweredValue::Str(text) => self.lexical_atom(&text).unwrap_or(LoweredValue::Str(text)), other => other }
+        } else { value };
         match self {
-            Self::UnknownFields(policy, schema) => schema.decode_policy(evaluator, value, path, span, *policy),
+            Self::UnknownFields(policy, schema) => schema.decode_policy(evaluator, value, path, span, *policy, lexical),
             Self::Validate(ty) => {
                 if let Some(checked) = require_module_contract(evaluator, &value, ty, path, span) {
                     checked.map(|()| value)
@@ -260,11 +269,11 @@ impl PreparedSchema {
                 if matches!(value, LoweredValue::Null) {
                     Ok(value)
                 } else {
-                    schema.decode_policy(evaluator, value, path, span, policy)
+                    schema.decode_policy(evaluator, value, path, span, policy, lexical)
                 }
             }
             Self::Validated(ty, schema) => {
-                let decoded = schema.decode_policy(evaluator, value, path, span, policy)?;
+                let decoded = schema.decode_policy(evaluator, value, path, span, policy, lexical)?;
                 match ty {
                     Type::Validated(validated)
                         if !super::validated::lowered_value_passes(
@@ -280,10 +289,23 @@ impl PreparedSchema {
                     _ => Ok(decoded),
                 }
             }
+            Self::Union(_, members) if lexical && matches!(value, LoweredValue::Str(_)) && !members.iter().any(|schema| schema.admits_text()) => {
+                let LoweredValue::Str(text) = &value else { unreachable!("lexical scalar union") };
+                let mut accepted: Option<(LoweredValue, LoweredValue)> = None;
+                for schema in members {
+                    let primitive = schema.lexical_atom(text).unwrap_or_else(|| value.clone());
+                    if accepted.as_ref().is_some_and(|(previous, _)| previous == &primitive) { continue; }
+                    if let Ok(candidate) = schema.decode_policy(evaluator, primitive.clone(), path, span, policy, true) {
+                        if accepted.is_some() { return Err(failure("ambiguous lexical union interpretations".into())); }
+                        accepted = Some((primitive, candidate));
+                    }
+                }
+                accepted.map(|(_, value)| value).ok_or_else(|| failure("no lexical union interpretation satisfies the schema".into()))
+            }
             Self::Union(ty, members) => {
                 let mut decoded = None;
                 crate::sema::types::first_accepting_union_member(members, |schema| {
-                    decoded = schema.decode_policy(evaluator, value.clone(), path, span, policy).ok();
+                    decoded = schema.decode_policy(evaluator, value.clone(), path, span, policy, lexical && !matches!(value, LoweredValue::Str(_))).ok();
                     decoded.is_some()
                 });
                 decoded
@@ -322,10 +344,10 @@ impl PreparedSchema {
                     let selected =
                         super::lowered_run::lowered_record_field_value(&value, &field.as_str())
                             .ok_or_else(|| failure(format!("missing required field {field}")))?;
-                    let converted = schema.decode_policy(evaluator, selected, &field_path, span, policy)?;
+                    let converted = schema.decode_policy(evaluator, selected, &field_path, span, policy, lexical)?;
                     if policy == UnknownFields::Strip {
                         projected.push((*field, converted));
-                    } else if policy != UnknownFields::Preserve || schema.rebuilds_value() {
+                    } else if lexical || policy != UnknownFields::Preserve || schema.rebuilds_value() {
                         *super::lowered_ops::lowered_record_field_mut(&mut value, *field, span)? =
                             converted;
                     }
@@ -352,6 +374,7 @@ impl PreparedSchema {
                         &format!("{path}[{index}]"),
                         span,
                         policy,
+                        lexical,
                     )?);
                 }
                 Ok(LoweredValue::List(converted))
@@ -410,7 +433,7 @@ impl PreparedSchema {
                 let items = match value {
                     LoweredValue::Map(items) => super::lower::take_shared(items),
                     LoweredValue::Record(items)
-                        if *key_type == Type::Str && schema.converts_wire() =>
+                        if *key_type == Type::Str && (lexical || schema.converts_wire()) =>
                     {
                         super::lower::take_shared(items)
                             .into_iter()
@@ -418,7 +441,7 @@ impl PreparedSchema {
                             .collect()
                     }
                     LoweredValue::RecordVec(items)
-                        if *key_type == Type::Str && schema.converts_wire() =>
+                        if *key_type == Type::Str && (lexical || schema.converts_wire()) =>
                     {
                         super::lower::take_shared(items)
                             .into_iter()
@@ -444,7 +467,7 @@ impl PreparedSchema {
                     if !super::map_key_matches_type(&key, key_type) {
                         return Err(failure(format!("expected {key_type} key at {item_path}")));
                     }
-                    converted.insert(key, schema.decode_policy(evaluator, item, &item_path, span, policy)?);
+                    converted.insert(key, schema.decode_policy(evaluator, item, &item_path, span, policy, lexical)?);
                 }
                 Ok(LoweredValue::Map(Arc::new(converted)))
             }
@@ -470,6 +493,10 @@ pub(super) fn require_module_contract(
         }
         _ => None,
     }
+}
+
+pub(super) fn decode_lexical(evaluator: &Evaluator, format: crate::modules::codec::Format, text: &str, check: &LoweredTypeCheck, span: Span) -> Result<LoweredValue, RuntimeError> {
+    lexical::decode(evaluator, format, text, check.schema.as_ref().expect("typed codec prepared schema").clone(), span)
 }
 
 pub(super) fn require_value(

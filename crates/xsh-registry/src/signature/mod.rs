@@ -318,19 +318,31 @@ pub struct ScriptImpl {
 
 /// Where a public callable entry or overload gets its behavior.
 ///
-/// The binding is closed: an entry either keeps its native operation or is
-/// served by one embedded implementation function. It carries implementation
-/// routing only — the public signature stays the single declaration of record.
+/// Schema intrinsics require a trailing type operand in addition to value parameters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImplBinding {
     /// The existing native `RuntimeOp` body.
     Native,
     /// An embedded XSH implementation function.
     Script(ScriptImpl),
+    Schema(CodecSchemaIntrinsic),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CodecSchemaIntrinsic { Decode, Read }
+
+impl CodecSchemaIntrinsic {
+    pub const fn name(self) -> &'static str { match self { Self::Decode => "decode_as", Self::Read => "read_as" } }
+    pub const fn input_name(self) -> &'static str { match self { Self::Decode => "text", Self::Read => "path" } }
+    pub const fn input_type(self) -> Type { match self { Self::Decode => Type::Str, Self::Read => Type::Path } }
+    pub const fn op(self) -> RuntimeOp { match self { Self::Decode => RuntimeOp::CodecDecodeAs, Self::Read => RuntimeOp::CodecReadAs } }
+    pub const fn pure(self) -> bool { matches!(self, Self::Decode) }
+    pub fn parse(name: &str) -> Option<Self> { [Self::Decode, Self::Read].into_iter().find(|kind| kind.name() == name) }
 }
 
 #[derive(Clone, Debug)]
 pub struct ModuleFnSig {
+    /// Runtime value parameters; Schema bindings additionally require one trailing type operand.
     pub params: Vec<ParamSig>,
     pub return_ty: Type,
     pub pure: bool,
@@ -350,7 +362,7 @@ impl ModuleFnSig {
     /// The embedded implementation this entry routes to, if any.
     pub fn script_impl(&self) -> Option<ScriptImpl> {
         match self.binding {
-            ImplBinding::Native => None,
+            ImplBinding::Native | ImplBinding::Schema(_) => None,
             ImplBinding::Script(script) => Some(script),
         }
     }

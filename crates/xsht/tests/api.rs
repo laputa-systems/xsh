@@ -149,3 +149,13 @@ fn assert_documented(id: &str, docs: &xsh_registry::api_docs::ApiDocs) {
         assert!(!example.trim().is_empty(), "{id} has an empty example");
     }
 }
+
+#[test]
+fn typed_codec_api_renders_schema_operands_separately_from_values() {
+    let output = xsht(&["api", "codec.decode_as", "codec.read_as"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("codec.decode_as(format: Str, text: Str, T) -> Result[T, Error]"), "{text}");
+    assert!(text.contains("codec.read_as(format: Str, path: Path, T) -> Result[T, Error]"), "{text}");
+    assert!(!text.contains("T: Any"), "{text}");
+}

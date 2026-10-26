@@ -100,7 +100,7 @@ pub(super) fn lowered_module_call_args(
         ("fs", "hardlink") => RuntimeOp::FsHardlink,
         ("mime", "lookup_ext") => RuntimeOp::MimeLookupExt,
         ("mime", "lookup_path") => RuntimeOp::MimeLookupPath,
-        _ if sig.script_impl().is_some() || lowered_module_sig_type(sig).is_none() => return None,
+        _ if sig.binding != crate::modules::signature::ImplBinding::Native || lowered_module_sig_type(sig).is_none() => return None,
         _ => sig.op,
     };
     Some(LoweredModuleCallArgs {

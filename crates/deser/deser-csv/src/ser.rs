@@ -365,6 +365,7 @@ impl SerializerConfig {
             },
             names: state.names.take(),
             len: state.len,
+            pending_header: state.pending_header,
             document,
             direct: false,
             is_map: false,
@@ -383,6 +384,7 @@ impl SerializerConfig {
         // which cannot be taken back)
         if rv.is_ok() || had_names {
             state.names = writer.names;
+            state.pending_header = writer.pending_header;
         }
         if rv.is_ok() {
             state.len = writer.len;
@@ -571,6 +573,7 @@ pub(crate) struct WriterState {
     names: Option<Vec<String>>,
     // the number of fields of the records
     len: Option<usize>,
+    pending_header: bool,
     // created with the first record
     dialect: Option<Dialect>,
     buffers: Buffers,
@@ -583,6 +586,7 @@ impl WriterState {
         WriterState {
             len: Some(names.len()),
             names: Some(names),
+            pending_header: false,
             dialect: None,
             buffers: Buffers::default(),
         }
@@ -684,6 +688,23 @@ impl Serializer {
     /// ```
     pub fn document(config: SerializerConfig) -> Serializer {
         Serializer::with_state(config, WriterState::default(), true)
+    }
+
+    /// Creates a serializer for sequences of records with explicit columns.
+    pub fn document_with_headers<I, S>(config: SerializerConfig, names: I) -> Serializer
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let pending_header = config.headers;
+        Serializer::with_state(
+            config,
+            WriterState {
+                pending_header,
+                ..WriterState::with_headers(names.into_iter().map(Into::into).collect())
+            },
+            true,
+        )
     }
 
     fn with_state(config: SerializerConfig, state: WriterState, document: bool) -> Serializer {
@@ -961,6 +982,7 @@ struct RecordWriter<'a> {
     encoder: FieldEncoder<'a>,
     names: Option<Vec<String>>,
     len: Option<usize>,
+    pending_header: bool,
     document: bool,
     /// The fields are written to the output directly.
     direct: bool,
@@ -1023,6 +1045,11 @@ impl RecordWriter<'_> {
         };
         let record_depth = usize::from(self.document);
         match event {
+            Event::SeqStart(_) if self.document && depth == 0 && self.pending_header => {
+                let names = self.names.as_deref().unwrap_or_default();
+                write_names(&self.encoder, self.out, names)?;
+                self.pending_header = false;
+            }
             Event::SeqStart(_) | Event::SeqEnd if self.document && depth == 0 => {}
             _ if depth < record_depth => {
                 return Err(Error::new(
@@ -1031,6 +1058,11 @@ impl RecordWriter<'_> {
                 ));
             }
             Event::MapStart(_) | Event::SeqStart(_) if depth == record_depth => {
+                if self.pending_header {
+                    let names = self.names.as_deref().unwrap_or_default();
+                    write_names(&self.encoder, self.out, names)?;
+                    self.pending_header = false;
+                }
                 if self.names.is_none()
                     && let Some(columns) = self.encoder.config.columns
                 {
@@ -1236,41 +1268,57 @@ impl RecordWriter<'_> {
     /// Ends a record with `len` fields which starts at `start` in the
     /// output.
     fn terminate(&mut self, len: usize, start: usize) -> Result<(), Error> {
-        if len == 1 && self.out.len() == start {
-            // an empty line is a blank line, the only field is quoted
-            match self.encoder.dialect.quote {
-                Some(quote) => self.out.extend_from_slice(&[quote, quote]),
-                None => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidValue,
-                        "a record with a single empty field needs quotes",
-                    ));
-                }
-            }
-        }
-        match self.encoder.config.terminator {
-            Terminator::Newline => self.out.push(b'\n'),
-            Terminator::CrLf => self.out.extend_from_slice(b"\r\n"),
-            Terminator::Byte(byte) => self.out.push(byte),
-        }
-        Ok(())
+        terminate(&self.encoder, self.out, len, start)
     }
 
     /// Writes the names of the columns.
     fn write_names(&mut self, names: &[String]) -> Result<(), Error> {
-        let start = self.out.len();
-        for (index, name) in names.iter().enumerate() {
-            if index > 0 {
-                self.out.push(self.encoder.dialect.delimiter);
-            }
-            let text = Text {
-                bytes: name.as_bytes(),
-                numeric: false,
-            };
-            self.encoder.encode(Some(text), self.out)?;
-        }
-        self.terminate(names.len(), start)
+        write_names(&self.encoder, self.out, names)
     }
+}
+
+fn terminate(
+    encoder: &FieldEncoder<'_>,
+    out: &mut Vec<u8>,
+    len: usize,
+    start: usize,
+) -> Result<(), Error> {
+    if len == 1 && out.len() == start {
+        match encoder.dialect.quote {
+            Some(quote) => out.extend_from_slice(&[quote, quote]),
+            None => {
+                return Err(Error::new(
+                    ErrorKind::InvalidValue,
+                    "a record with a single empty field needs quotes",
+                ));
+            }
+        }
+    }
+    match encoder.config.terminator {
+        Terminator::Newline => out.push(b'\n'),
+        Terminator::CrLf => out.extend_from_slice(b"\r\n"),
+        Terminator::Byte(byte) => out.push(byte),
+    }
+    Ok(())
+}
+
+fn write_names(
+    encoder: &FieldEncoder<'_>,
+    out: &mut Vec<u8>,
+    names: &[String],
+) -> Result<(), Error> {
+    let start = out.len();
+    for (index, name) in names.iter().enumerate() {
+        if index > 0 {
+            out.push(encoder.dialect.delimiter);
+        }
+        let text = Text {
+            bytes: name.as_bytes(),
+            numeric: false,
+        };
+        encoder.encode(Some(text), out)?;
+    }
+    terminate(encoder, out, names.len(), start)
 }
 
 /// The text of a field.

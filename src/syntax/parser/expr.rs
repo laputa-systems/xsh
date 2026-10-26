@@ -1032,6 +1032,15 @@ impl<'a> Parser<'a> {
                 && self.matches_terms(grammar::PostfixForm::Call.lead(command_arg_root), left.span.end())
             {
                 self.bump();
+                if let ArenaExprKind::Field { base, name } = arena.expr_kind(left.id)
+                    && matches!(arena.expr_kind(base), ArenaExprKind::Ident(module) if module == "codec")
+                    && let Some(kind) = xsh_registry::signature::CodecSchemaIntrinsic::parse(&name.as_str())
+                {
+                    let (format, input, schema) = self.parse_codec_schema_args(arena, kind)?;
+                    let span = self.span(left.span.start(), self.previous_end());
+                    left = ArenaOnlyExpr { id: arena.push_codec_schema_expr(kind, format, input, schema, span), span, bare_ident: None };
+                    continue;
+                }
                 let args = self.parse_call_args_arena_only(arena);
                 self.expect(TokenKindMatch::RParen, "expected `)` after call arguments");
                 let span = self.span(left.span.start(), self.previous_end());
@@ -2299,6 +2308,36 @@ impl<'a> Parser<'a> {
             }
         }
         Some(arena.push_comp_qualifiers(qualifiers))
+    }
+
+    fn parse_codec_schema_args(&mut self, arena: &mut ArenaProgramBuilder<'_>, kind: xsh_registry::signature::CodecSchemaIntrinsic) -> Option<(ExprId, ExprId, crate::syntax::arena::TypeExprId)> {
+        self.in_nested_group(|parser| {
+            let mut values = [None, None];
+            for ordinal in 0..2 {
+                parser.skip_call_argument_trivia();
+                let span = parser.current_span();
+                if parser.at(TokenKindMatch::At) || parser.at(TokenKindMatch::Dot) {
+                    parser.diagnostics.push(Diagnostic::error("typed codec schema calls do not accept argument spreads").with_label(Label::primary(span, "supply format, input, and an explicit schema"))); return None;
+                }
+                let slot = if parser.current_label_name().is_some() && parser.peek_tag(1) == Some(TokenTag::Colon) {
+                    let name = parser.current_label_name()?;
+                    parser.bump(); parser.bump();
+                    if name == "format" { 0 } else if name.as_str().as_str() == kind.input_name() { 1 } else {
+                        parser.diagnostics.push(Diagnostic::error("unknown typed codec value argument").with_label(Label::primary(span, "expected format or input argument"))); return None;
+                    }
+                } else { ordinal };
+                if slot != ordinal { parser.diagnostics.push(Diagnostic::error("typed codec schema calls require value operands in declared order").with_label(Label::primary(span, "supply format before input, then the schema"))); return None; }
+                if values[slot].is_some() { parser.diagnostics.push(Diagnostic::error("duplicate typed codec value argument").with_label(Label::primary(span, "argument already supplied"))); return None; }
+                parser.skip_call_argument_trivia();
+                values[slot] = Some(parser.parse_precedence_arena_only(0, arena)?.id);
+                parser.expect(TokenKindMatch::Comma, "expected `,` before the next codec operand");
+            }
+            parser.skip_call_argument_trivia();
+            let schema = parser.parse_type_expr(arena)?;
+            parser.skip_call_argument_trivia();
+            parser.expect(TokenKindMatch::RParen, "expected `)` after codec schema");
+            Some((values[0]?, values[1]?, schema))
+        })
     }
 
     pub(super) fn parse_call_args_arena_only(

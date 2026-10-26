@@ -1273,6 +1273,13 @@ instruction_schema! {
         /// returned, or `Ok` of any other value. A dynamic handle does not say
         /// what its proc returns, so the checker types the call `Result[Any]`
         /// and this makes every proc honor that.
+        CodecSchema {
+            op: RuntimeOp,
+            format: BuildExprId,
+            input: BuildExprId,
+            check: LoweredTypeCheck,
+            span: Span,
+        } => ExprCodecSchema = 159 [EFFECT_HOST | EFFECT_TRACE; Operands; FrameControl];
         ProcCallResult(value: BuildExprId) => ExprProcCallResult = 114 [0; Scheduled; FrameControl];
     }
     BuildStmtRow => StmtView [Stmt] {
@@ -1646,6 +1653,7 @@ mod tests {
             ExprField
             ExprIndex
             ExprIndexFromEnd
+            ExprCodecSchema
             ExprRequire
             ExprCheckedValue
             ExprOk
@@ -1653,7 +1661,7 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 50);
+        assert_eq!(names.len(), 51);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());

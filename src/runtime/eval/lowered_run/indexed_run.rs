@@ -1882,6 +1882,13 @@ impl Evaluator {
                     ControlFlow::Break(value) => ControlFlow::Break(value),
                 }
             }
+            ExprViewKind::CodecSchema => {
+                let ExprView::CodecSchema { op, format, input, check, span } = ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, call_span))? else { unreachable!() };
+                let check = indexed_type_check(check, call_span)?;
+                let format = match self.eval_indexed_expr(execution, format.raw(), slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
+                let input = match self.eval_indexed_expr(execution, input.raw(), slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
+                ControlFlow::Continue(self.eval_lowered_codec_schema(op, format, input, &check, span)?)
+            }
             ExprViewKind::Require => {
                 let ExprView::Require { value, check, span, .. } =
                     ExprView::decode(execution, tag, payload)

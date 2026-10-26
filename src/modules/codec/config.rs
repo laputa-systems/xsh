@@ -1,6 +1,7 @@
 use super::{Decoded, EncodeLimits, Format, Output, decode_context, runtime_error};
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
+use deser::de::DeserializeDriver;
 use deser::{Atom, Error, ErrorKind, Event};
 
 struct DecodeGuard {
@@ -18,7 +19,7 @@ impl deser::de::Layer for DecodeGuard {
         {
             return Err(Error::new(ErrorKind::UnsupportedType, "calendar values are not representable"));
         }
-        charge_scalar_bytes(&mut self.scalar_bytes, event.event())?;
+        super::charge_scalar_bytes(&mut self.scalar_bytes, event.event())?;
         next.emit(event)
     }
 }
@@ -55,6 +56,34 @@ pub(crate) fn decode(format: Format, text: &str, span: Span) -> Result<Value, Ru
         _ => unreachable!("configuration dispatch requires a configuration format"),
     };
     result.map(|value| value.0).map_err(|error| decode_error(error, format, span))
+}
+
+pub(crate) fn drive<'de>(
+    format: Format,
+    text: &'de str,
+    driver: &mut DeserializeDriver<'_, 'de>,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    if format != Format::Ini {
+        return Err(super::failure(
+            "UnsupportedFormat",
+            format.identifier(),
+            "typed lexical decoding is not supported for this format",
+            span,
+        ));
+    }
+    if text.len() > super::INPUT_LIMIT {
+        return Err(runtime_error(Error::new(ErrorKind::LimitExceeded, "codec input exceeds 64 MiB"), format.identifier(), span));
+    }
+    let config = deser_ini::DeserializerConfig::builder()
+        .allow_no_value(false)
+        .lowercase_names(false)
+        .context(decode_context(format))
+        .build();
+    driver.push_layer(DecodeGuard { format, scalar_bytes: 0 });
+    deser_ini::Deserializer::from_str_with_config(text, config)
+        .drive(driver)
+        .map_err(|error| decode_error(error, format, span))
 }
 
 fn decode_error(error: Error, format: Format, span: Span) -> RuntimeError {
@@ -111,17 +140,6 @@ impl deser::ser::Layer for EncodeGuard {
         }
         next.emit(event)
     }
-}
-
-fn charge_scalar_bytes(total: &mut usize, event: &Event<'_>) -> Result<(), Error> {
-    let bytes = match event {
-        Event::Atom(Atom::Str(value) | Atom::Lexical(value)) => value.len(),
-        Event::Atom(Atom::Bytes(value)) => value.len(),
-        _ => 0,
-    };
-    *total = total.checked_add(bytes).filter(|total| *total <= super::OUTPUT_LIMIT)
-        .ok_or_else(|| Error::new(ErrorKind::LimitExceeded, "expanded configuration scalars exceed 128 MiB"))?;
-    Ok(())
 }
 
 pub(crate) fn encode<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<String, RuntimeError> {

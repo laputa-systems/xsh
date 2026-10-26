@@ -1743,7 +1743,7 @@ fn expression_cardinality_uncached(
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }
@@ -2230,7 +2230,7 @@ fn expr_control_flow_inner(
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. } => eager_expr_children_control_flow(arena, id, facts),
@@ -5589,7 +5589,7 @@ impl Checker {
             | ArenaExprKind::Wait(_)
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }
@@ -6621,7 +6621,7 @@ impl Checker {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }
@@ -6903,7 +6903,7 @@ impl Checker {
                 | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Try(_)
                 | ArenaExprKind::Capture(_)
-                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                 | ArenaExprKind::Convert { .. }
                 | ArenaExprKind::Collect { .. }
                 | ArenaExprKind::Loop { .. }
@@ -7724,7 +7724,7 @@ impl Checker {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }
@@ -7857,7 +7857,7 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }
@@ -8024,7 +8024,7 @@ fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) 
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { schema: Some(_), .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { schema: Some(_), .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }

@@ -398,7 +398,7 @@ fn match_expr_structural(
         | ArenaExprKind::SetComp { .. } | ArenaExprKind::If { .. }
         | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::Require { .. }
+        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::TempDirScope { .. } => false,
     }
 }
@@ -845,7 +845,7 @@ fn build_replacement_text(
         | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::Capture(_) | ArenaExprKind::Require { .. }
+        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::Capture(_) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. }
         | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => {
             let text = pattern_source.get(expr.span.start()..expr.span.end())?;

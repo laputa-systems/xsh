@@ -421,7 +421,7 @@ impl LiteralConstant {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }
@@ -3944,7 +3944,7 @@ impl ConstantPreparation<'_> {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }

@@ -123,6 +123,20 @@ fn test_stream_errors_end_the_stream() {
 }
 
 #[test]
+fn test_completed_stream_records_obey_maximum_record_length() {
+    let config = DeserializerConfig::builder()
+        .headers(Headers::None)
+        .max_record_len(3)
+        .build();
+    let mut exact = config.reader(&b"a,b\n"[..]);
+    assert_eq!(exact.read::<Vec<String>>().unwrap(), Some(vec!["a".into(), "b".into()]));
+
+    let mut over = config.reader(&b"a,bc\n"[..]);
+    let error = over.read::<Vec<String>>().unwrap_err();
+    assert_eq!(error.kind(), deser::ErrorKind::LimitExceeded);
+}
+
+#[test]
 fn test_read_borrowed() {
     #[derive(Debug, Deserialize, PartialEq)]
     struct Row<'a> {

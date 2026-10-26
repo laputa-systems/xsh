@@ -395,7 +395,7 @@ fn closed_scalar_expression(
                 | ArenaExprKind::Wait(_)
                 | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Capture(_)
-                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                 | ArenaExprKind::Convert { .. }
                 | ArenaExprKind::Collect { .. }
                 | ArenaExprKind::Loop { .. }

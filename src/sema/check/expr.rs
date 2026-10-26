@@ -128,6 +128,11 @@ impl Checker {
                 .children
                 .get(&SchemaComponent::Success)
                 .cloned(),
+            ArenaExprKind::CodecSchema { schema, .. } => {
+                let context = self.record_constructors.annotation_expectation(&arena.arena, schema, self.current_namespace).ok()?;
+                let mut result = SchemaExpectation::default();
+                result.insert_child(SchemaComponent::Success, context); Some(result)
+            }
             ArenaExprKind::Require { schema, .. } => {
                 let context = match schema {
                     Some(schema) => self
@@ -208,7 +213,7 @@ impl Checker {
                 | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Try(_)
                 | ArenaExprKind::Capture(_)
-                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                 | ArenaExprKind::Convert { .. }
                 | ArenaExprKind::Collect { .. }
                 | ArenaExprKind::Loop { .. }
@@ -1463,6 +1468,22 @@ impl Checker {
             }
             ArenaExprKind::Convert { value, target } => {
                 self.check_conversion_arena(arena, source, *value, *target, expr.span)
+            }
+            ArenaExprKind::CodecSchema { kind, format, input, schema } => {
+                let actual = self.check_expr_arena(arena, source, *format, Some(&Type::Str));
+                self.expect_type(&Type::Str, &actual, arena.arena.expr(*format).span);
+                let input_type = crate::modules::signature::convert_type(&kind.input_type());
+                let actual = self.check_expr_arena(arena, source, *input, Some(&input_type));
+                self.expect_type(&input_type, &actual, arena.arena.expr(*input).span);
+                let ty = self.type_from_arena(arena, *schema);
+                let context = self.record_constructors.annotation_expectation(&arena.arena, *schema, self.current_namespace).unwrap_or_default();
+                self.requirement_targets.insert(expr.span, super::expected::requirement_target(&arena.arena, ty.clone(), context));
+                if self.reject_typed_callable_test(&ty, arena.arena.type_expr_span(*schema)) { return Type::Invalid; }
+                let signature = &api_spec().module_overloads("codec", kind.name()).expect("codec schema registry entry")[0];
+                if signature.binding != crate::modules::signature::ImplBinding::Schema(*kind) { return Type::Invalid; }
+                for effect in signature.effects { self.require_effect(effect.clone(), expr.span, "typed codec input"); }
+                if self.boundary.in_pure && !signature.pure { self.error(expr.span, "effectful codec input is not allowed in pure functions", DiagnosticCode::CheckPureEffect); }
+                Type::Result(Box::new(ty), Box::new(Type::Error))
             }
             ArenaExprKind::Require { value, schema, .. } => {
                 self.requirement_targets.remove(&expr.span);

@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
 pub use registry::{
-    ApiArgCheck, ApiDocs, ImplBinding, LabelRule, MethodReceiver, ScriptImpl, SemanticRule,
+    ApiArgCheck, ApiDocs, CodecSchemaIntrinsic, ImplBinding, LabelRule, MethodReceiver, ScriptImpl, SemanticRule,
 };
 pub use xsh_registry::RuntimeOp;
 
@@ -418,7 +418,7 @@ impl ModuleFnSig {
     /// The embedded implementation this entry routes to, if any.
     pub fn script_impl(&self) -> Option<ScriptImpl> {
         match self.binding {
-            ImplBinding::Native => None,
+            ImplBinding::Native | ImplBinding::Schema(_) => None,
             ImplBinding::Script(script) => Some(script),
         }
     }
@@ -720,7 +720,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
-        effects: if sig.pure { &[] } else { Effect::from_module_call(module, function) },
+        effects: match sig.binding { ImplBinding::Schema(CodecSchemaIntrinsic::Read) => &[Effect::Fs], _ if sig.pure => &[], _ => Effect::from_module_call(module, function) },
         discardable: sig.discardable,
     }
 }
@@ -874,6 +874,21 @@ fn method_required_effects(receiver: MethodReceiver, pure: bool) -> &'static [Ef
 mod tests {
     use super::{api_spec, convert_type};
     use xsh_registry::signature as registry;
+
+    #[test]
+    fn codec_schema_intrinsics_have_explicit_value_operands_and_no_native_dispatch() {
+        use super::{CodecSchemaIntrinsic, ImplBinding};
+        use crate::sema::types::Type;
+        for kind in [CodecSchemaIntrinsic::Decode, CodecSchemaIntrinsic::Read] {
+            let [signature] = super::api_spec().module_overloads("codec", kind.name()).unwrap() else { panic!("one schema intrinsic") };
+            assert_eq!(signature.binding, ImplBinding::Schema(kind));
+            assert_eq!(signature.params.len(), 2);
+            assert_eq!(signature.params[0].ty, Type::Str);
+            assert_eq!(signature.params[1].ty, super::convert_type(&kind.input_type()));
+            assert!(super::native_operation_contracts(kind.op()).is_empty());
+            assert_eq!(signature.effects.contains(&crate::syntax::node::Effect::Fs), !kind.pure());
+        }
+    }
 
     #[test]
     fn process_option_projection_preserves_every_other_contract() {

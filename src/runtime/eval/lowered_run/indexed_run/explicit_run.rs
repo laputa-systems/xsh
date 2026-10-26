@@ -1,3 +1,4 @@
+use crate::modules::RuntimeOp;
 use crate::runtime::eval::indexed::full::{PreparedInvocationBindings, PreparedIndexKeyCheck};
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, IndexedSerialStep, IndexedStageEngine,
@@ -2366,6 +2367,8 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
+    CodecSchemaFormat { op: RuntimeOp, input: u32, check: LoweredTypeCheck, span: Span, next: Box<FrameContinuation> },
+    CodecSchemaInput { op: RuntimeOp, format: LoweredValue, check: LoweredTypeCheck, span: Span, next: Box<FrameContinuation> },
     Require {
         check: LoweredTypeCheck,
         span: Span,
@@ -2536,7 +2539,7 @@ impl FrameContinuation {
             | C::CheckedValue { next, .. }
             | C::StreamContract { next, .. }
             | C::SchemeCallable { next, .. }
-            | C::Require { next, .. }
+            | C::CodecSchemaFormat { next, .. } | C::CodecSchemaInput { next, .. } | C::Require { next, .. }
             | C::MethodReceiver { next, .. }
             | C::FmtValue { next, .. }
             | C::ResultFallback { next, .. }
@@ -2663,7 +2666,7 @@ fn with_initializer_handler(
             | FrameContinuation::DynamicCallee { next, .. }
             | FrameContinuation::DynamicArguments { next, .. }
             | FrameContinuation::Try { next, .. }
-            | FrameContinuation::Require { next, .. }
+            | FrameContinuation::CodecSchemaFormat { next, .. } | FrameContinuation::CodecSchemaInput { next, .. } | FrameContinuation::Require { next, .. }
             | FrameContinuation::CheckedValue { next, .. }
             | FrameContinuation::StreamContract { next, .. }
             | FrameContinuation::SchemeCallable { next, .. }
@@ -7288,6 +7291,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
+            ExprViewKind::CodecSchema => {
+                let super::ExprView::CodecSchema { op, format, input, check, span } = super::ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))? else { unreachable!() };
+                let check = super::indexed_type_check(check, span)?;
+                self.push_expr(index, format.raw(), span, FrameContinuation::CodecSchemaFormat { op, input: input.raw(), check, span, next: Box::new(next) });
+            }
             ExprViewKind::Require => {
                 let super::ExprView::Require {
                     value,
@@ -9743,6 +9751,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         super::CheckedValueOutcome::Value(value) => self.push_value(index, FrameValue::Value(value), *next),
                         super::CheckedValueOutcome::Propagate(value) => self.push_value(index, FrameValue::Value(value), FrameContinuation::Try { span, next }),
                     }
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::CodecSchemaFormat { op, input, check, span, next } => match value {
+                FrameValue::Value(format) => self.push_expr(index, input, span, FrameContinuation::CodecSchemaInput { op, format, check, span, next }),
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::CodecSchemaInput { op, format, check, span, next } => match value {
+                FrameValue::Value(input) => {
+                    let value = self.evaluator.eval_lowered_codec_schema(op, format, input, &check, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },

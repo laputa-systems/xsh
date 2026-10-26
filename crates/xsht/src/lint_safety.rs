@@ -78,7 +78,7 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }
@@ -259,7 +259,7 @@ pub(super) fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }
@@ -555,7 +555,7 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
@@ -648,7 +648,7 @@ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
@@ -831,7 +831,7 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }
@@ -899,7 +899,7 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }

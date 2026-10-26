@@ -2991,6 +2991,15 @@ fn verify_body_expression(
                 SchemeType::Ground(expected)
             }
         }
+        schema::ExprView::CodecSchema { op, format, input, check, .. } => {
+            let signature = FullDecoder::codec_schema_signature(op)?;
+            for (value, parameter) in [(format, &signature.params[0]), (input, &signature.params[1])] {
+                if !body_type_matches_ground(&child(value, budget)?, &parameter.ty) { return Err(IrVerifyError::new("typed codec operand has an incompatible contract")); }
+            }
+            let expected = check.ty.materialize()?;
+            ensure_closed_type(&expected)?;
+            SchemeType::Result(Box::new(SchemeType::Ground(expected)), Box::new(SchemeType::Ground(Type::Error)))
+        }
         schema::ExprView::Require { value, check, .. } => {
             let actual = child(value, budget)?;
             let expected = store.semantic.to_type_with_budget(check.ty.id, &mut budget.semantic_types)?;

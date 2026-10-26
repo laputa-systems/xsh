@@ -1028,6 +1028,9 @@ impl CanonicalWriter<'_> {
                 self.put("capture;");
                 self.block(*block);
             }
+            ArenaExprKind::CodecSchema { kind, format, input, schema } => {
+                self.put(kind.name()); self.put(";"); self.expr(*format); self.expr(*input); self.ty(*schema);
+            }
             ArenaExprKind::Require { value, schema, unknown_fields } => {
                 self.put(unknown_fields.method());
                 self.put(";");

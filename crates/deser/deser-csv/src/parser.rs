@@ -333,6 +333,7 @@ pub(crate) struct Options {
     /// accepted.
     pub(crate) lenient_quotes: bool,
     pub(crate) max_record_len: usize,
+    pub(crate) max_fields: Option<usize>,
 }
 
 /// The special characters of 64 bytes of the input, see `next_special`.
@@ -458,13 +459,13 @@ impl Scanner {
                     return Ok(Scan::Skip { consumed });
                 }
                 // a record with one empty field
-                self.fields.push(Field {
+                self.push_field(Field {
                     span_start: 0,
                     span_end: 0,
                     start: 0,
                     end: 0,
                     flags: 0,
-                });
+                }, options)?;
                 return Ok(self.end_record(dialect, input, 0, eof));
             } else {
                 self.start_field(0);
@@ -509,13 +510,13 @@ impl Scanner {
                         }
                         DELIMITER => {
                             self.start = pos;
-                            self.push_unquoted(input, pos, options);
+                            self.push_unquoted(input, pos, options)?;
                             pos += 1;
                             self.start_field(pos);
                         }
                         _ => {
                             self.start = pos;
-                            self.push_unquoted(input, pos, options);
+                            self.push_unquoted(input, pos, options)?;
                             return Ok(self.end_record(dialect, input, pos, eof));
                         }
                     }
@@ -529,7 +530,7 @@ impl Scanner {
                     };
                     match dialect.class(byte) {
                         DELIMITER => {
-                            self.push_unquoted(input, pos, options);
+                            self.push_unquoted(input, pos, options)?;
                             pos += 1;
                             if !options.trim
                                 && let Some(&next) = input.get(pos)
@@ -557,7 +558,7 @@ impl Scanner {
                             break;
                         }
                         _ => {
-                            self.push_unquoted(input, pos, options);
+                            self.push_unquoted(input, pos, options)?;
                             return Ok(self.end_record(dialect, input, pos, eof));
                         }
                     }
@@ -599,12 +600,12 @@ impl Scanner {
                     let byte = input[pos];
                     match dialect.class(byte) {
                         DELIMITER => {
-                            self.push_quoted(pos);
+                            self.push_quoted(pos, options)?;
                             pos += 1;
                             self.start_field(pos);
                         }
                         TERMINATOR | CR => {
-                            self.push_quoted(pos);
+                            self.push_quoted(pos, options)?;
                             return Ok(self.end_record(dialect, input, pos, eof));
                         }
                         OTHER if options.trim && is_space(byte) => pos += 1,
@@ -646,23 +647,23 @@ impl Scanner {
             }
             Mode::FieldStart => {
                 self.start = len;
-                self.push_unquoted(input, len, options);
+                self.push_unquoted(input, len, options)?;
             }
-            Mode::Unquoted => self.push_unquoted(input, len, options),
+            Mode::Unquoted => self.push_unquoted(input, len, options)?,
             Mode::UnquotedEscape => {
                 self.set_error(len - 1, "escape character at the end of the input");
-                self.push_unquoted(input, len, options);
+                self.push_unquoted(input, len, options)?;
             }
             Mode::Quoted | Mode::QuotedEscape => {
                 self.set_error(self.start - 1, "unterminated quoted field");
                 self.end = len;
-                self.push_quoted(len);
+                self.push_quoted(len, options)?;
             }
             Mode::QuotedQuote => {
                 self.end = len - 1;
-                self.push_quoted(len);
+                self.push_quoted(len, options)?;
             }
-            Mode::AfterQuoted => self.push_quoted(len),
+            Mode::AfterQuoted => self.push_quoted(len, options)?,
             Mode::RecordStart => unreachable!("records are started above"),
         }
         self.mode = Mode::RecordStart;
@@ -685,7 +686,7 @@ impl Scanner {
     }
 
     /// Adds an unquoted field that ends at `pos`.
-    fn push_unquoted(&mut self, input: &[u8], pos: usize, options: Options) {
+    fn push_unquoted(&mut self, input: &[u8], pos: usize, options: Options) -> Result<(), Error> {
         let mut end = pos;
         if options.trim && self.flags & UNESCAPE == 0 {
             while end > self.start && is_space(input[end - 1]) {
@@ -694,24 +695,38 @@ impl Scanner {
         }
         // for the rest of a field after the closing quote (with lenient
         // quotes) the start is after the opening quote
-        self.fields.push(Field {
+        self.push_field(Field {
             span_start: self.span_start,
             span_end: pos,
             start: self.start,
             end,
             flags: self.flags,
-        });
+        }, options)
     }
 
     /// Adds a quoted field whose closing quote is at `self.end`.
-    fn push_quoted(&mut self, pos: usize) {
-        self.fields.push(Field {
+    fn push_quoted(&mut self, pos: usize, options: Options) -> Result<(), Error> {
+        self.push_field(Field {
             span_start: self.span_start,
             span_end: pos,
             start: self.start,
             end: self.end,
             flags: self.flags,
-        });
+        }, options)
+    }
+
+    fn push_field(&mut self, field: Field, options: Options) -> Result<(), Error> {
+        if let Some(limit) = options.max_fields
+            && self.fields.len() >= limit
+        {
+            return Err(Error::with_offset(
+                ErrorKind::LimitExceeded,
+                format!("record has more than {limit} fields"),
+                field.span_start,
+            ));
+        }
+        self.fields.push(field);
+        Ok(())
     }
 
     /// Ends the record at the terminator at `pos` (or the end of the input).
@@ -820,7 +835,30 @@ mod tests {
         skip_blank_lines: true,
         lenient_quotes: false,
         max_record_len: usize::MAX,
+        max_fields: None,
     };
+
+    #[test]
+    fn scan_enforces_configured_field_limit_before_growing_fields() {
+        let options = Options {
+            max_fields: Some(2),
+            ..OPTIONS
+        };
+        let dialect = dialect();
+        let mut scanner = Scanner::default();
+        assert!(matches!(scanner.scan(&dialect, b"a,b", true, options), Ok(Scan::Record { .. })));
+        assert_eq!(scanner.fields.len(), 2);
+
+        let mut scanner = Scanner::default();
+        let error = scanner.scan(&dialect, b"a,b,c", true, options).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+        assert_eq!(scanner.fields.len(), 2);
+
+        let mut scanner = Scanner::default();
+        let error = scanner.scan(&dialect, b"\"\",\"\",\"\"", true, options).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+        assert_eq!(scanner.fields.len(), 2);
+    }
 
     /// Scans all records of an input given in chunks of `size` bytes.
     fn scan_all(input: &[u8], size: usize) -> Vec<Vec<String>> {

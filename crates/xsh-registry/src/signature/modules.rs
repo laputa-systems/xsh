@@ -5,7 +5,7 @@ use crate::records::linux_system_v_semaphore_element_type;
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
 use super::{
-    ApiArgCheck, ApiDocs, ApiSpec, BTreeMap, ModuleEntry, ModuleSig, RuntimeOp, Type,
+    ApiArgCheck, ApiDocs, ApiSpec, CodecSchemaIntrinsic, ImplBinding, ParamSig, LabelRule, BTreeMap, ModuleEntry, ModuleSig, RuntimeOp, Type,
     archive_entry_type, btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type,
     elf_info_type, env_entry_type, env_path_entry_type, env_raw_entry_type, fs_copy_tree_result_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
@@ -46,6 +46,7 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: cli_module(),
             },
             ModuleEntry { name: "codec", sig: codec_module() },
+            ModuleEntry { name: "csv", sig: csv_module() },
             ModuleEntry {
                 name: "compression",
                 sig: compression_module(),
@@ -5241,7 +5242,7 @@ fn codec_module() -> ModuleSig {
         ("binary", Type::Bool), ("single", Type::Bool),
         ("sequence", Type::Bool), ("lexical_typing", Type::Bool),
     ]));
-    module_sig(vec![
+    let mut entries = vec![
         ("decode", sig(vec![param("format", Type::Str), param("text", Type::Str)], codec_result(Type::Any), true, RuntimeOp::CodecDecode)),
         ("decode_bytes", sig(vec![param("format", Type::Str), param("bytes", Type::Bytes)], codec_result(Type::Any), true, RuntimeOp::CodecDecodeBytes)),
         ("encode", sig(vec![param("format", Type::Str), param("value", Type::Any)], codec_result(Type::Str), true, RuntimeOp::CodecEncode)),
@@ -5249,5 +5250,23 @@ fn codec_module() -> ModuleSig {
         ("read", sig(vec![param("format", Type::Str), param("path", Type::Path)], result(Type::Any), false, RuntimeOp::CodecRead)),
         ("write", sig(vec![param("format", Type::Str), param("path", Type::Path), param("value", Type::Any), codec_option("overwrite")], result(Type::Unit), false, RuntimeOp::CodecWrite)),
         ("formats", sig(vec![], Type::List(Box::new(capability)), true, RuntimeOp::CodecFormats)),
+    ];
+    for kind in [CodecSchemaIntrinsic::Decode, CodecSchemaIntrinsic::Read] {
+        let mut signature = sig(vec![param("format", Type::Str), param(kind.input_name(), kind.input_type())], result(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Element)), kind.pure(), kind.op());
+        signature.binding = ImplBinding::Schema(kind);
+        entries.push((kind.name(), signature));
+    }
+    module_sig(entries)
+}
+
+fn csv_module() -> ModuleSig {
+    let headers = || ParamSig { name: "headers", ty: Type::Bool, defaulted: true, label: LabelRule::Required };
+    let delimiter = || ParamSig { name: "delimiter", ty: Type::Str, defaulted: true, label: LabelRule::Required };
+    let columns = || ParamSig { name: "columns", ty: Type::Optional(Box::new(Type::List(Box::new(Type::Str)))), defaulted: true, label: LabelRule::Required };
+    module_sig(vec![
+        ("decode", sig(vec![param("text", Type::Str), headers(), delimiter()], codec_result(Type::Any), true, RuntimeOp::CsvDecode)),
+        ("encode", sig(vec![param("value", Type::Any), headers(), delimiter(), columns(), codec_option("escape_formulas")], codec_result(Type::Str), true, RuntimeOp::CsvEncode)),
+        ("read", sig(vec![param("path", Type::Path), headers(), delimiter()], result(Type::Any), false, RuntimeOp::CsvRead)),
+        ("write", sig(vec![param("path", Type::Path), param("value", Type::Any), headers(), delimiter(), columns(), codec_option("escape_formulas"), codec_option("overwrite")], result(Type::Unit), false, RuntimeOp::CsvWrite)),
     ])
 }

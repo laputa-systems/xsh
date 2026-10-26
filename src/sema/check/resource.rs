@@ -357,7 +357,7 @@ impl Analyzer<'_> {
                     | ArenaExprKind::ValuePipelineCall { .. }
                     | ArenaExprKind::Pipeline { .. }
                     | ArenaExprKind::StructuredPipeline { .. }
-                    | ArenaExprKind::Require { .. }
+                    | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                     | ArenaExprKind::Convert { .. }
             ) {
                 return None;
@@ -746,7 +746,7 @@ impl Analyzer<'_> {
                 | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Try(_)
                 | ArenaExprKind::Capture(_)
-                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                 | ArenaExprKind::Convert { .. }
                 | ArenaExprKind::Collect { .. }
                 | ArenaExprKind::Retry { .. }

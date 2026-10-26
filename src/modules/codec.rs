@@ -1,8 +1,9 @@
 pub(crate) mod config;
+pub(crate) mod table;
 use crate::runtime::value::{FloatValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use deser::{Atom, Deserialize, Error, ErrorKind, State};
-use deser::de::{Sink, SinkHandle};
+use deser::de::{DeserializeDriver, Sink, SinkHandle};
 use std::sync::Arc;
 use crate::map_key::MapKey;
 use std::collections::BTreeMap;
@@ -111,6 +112,44 @@ pub(crate) fn decode_json_bytes(bytes: &[u8], span: Span) -> Result<Value, Runti
     decode_json(text, span)
 }
 
+pub(crate) fn drive_text<'de>(
+    format: Format,
+    text: &'de str,
+    driver: &mut DeserializeDriver<'_, 'de>,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    match format {
+        Format::Ini => config::drive(format, text, driver, span),
+        Format::Csv | Format::Tsv => {
+            table::drive(format, text, table::DecodeOptions::defaults(format), driver, span)
+        }
+        _ => Err(failure(
+            "UnsupportedFormat",
+            format.identifier(),
+            "typed lexical decoding is not supported for this format",
+            span,
+        )),
+    }
+}
+
+pub(crate) fn decode_table(format: Format, text: &str, span: Span) -> Result<Value, RuntimeError> {
+    let mut output = None;
+    let mut driver = DeserializeDriver::from_fn(|state| Decoded::deserialize_into(&mut output, state));
+    drive_text(format, text, &mut driver, span)?;
+    drop(driver);
+    output
+        .map(|decoded: Decoded| decoded.0)
+        .ok_or_else(|| failure("Syntax", format.identifier(), "table input produced no value", span))
+}
+
+pub(crate) fn encode_table<T: deser::Serialize + ?Sized>(
+    format: Format,
+    value: &T,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    table::encode(format, value, table::EncodeOptions::defaults(format), span)
+}
+
 pub(crate) struct Decoded(pub(crate) Value);
 struct DecodeSink<'a> {
     out: &'a mut Option<Decoded>,
@@ -124,6 +163,19 @@ fn decoded_float(value: f64, format: Format) -> Result<Value, Error> {
     if format == Format::Json && value.fract() == 0.0 && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&value) && (value as i64) as f64 == value {
         Ok(Value::Int(value as i64))
     } else { Ok(Value::Float(FloatValue::new(value))) }
+}
+
+pub(crate) fn charge_scalar_bytes(total: &mut usize, event: &deser::Event<'_>) -> Result<(), Error> {
+    let bytes = match event {
+        deser::Event::Atom(Atom::Str(value) | Atom::Lexical(value)) => value.len(),
+        deser::Event::Atom(Atom::Bytes(value)) => value.len(),
+        _ => 0,
+    };
+    *total = total
+        .checked_add(bytes)
+        .filter(|total| *total <= OUTPUT_LIMIT)
+        .ok_or_else(|| Error::new(ErrorKind::LimitExceeded, "codec scalar payload exceeds 128 MiB"))?;
+    Ok(())
 }
 
 impl DecodeSink<'_> {
@@ -357,6 +409,7 @@ pub(crate) fn decode_text(format: Format, text: &str, span: Span) -> Result<Valu
     match format {
         Format::Json => decode_json(text, span),
         Format::Yaml | Format::Toml | Format::Ini => config::decode(format, text, span),
+        Format::Csv | Format::Tsv => decode_table(format, text, span),
         _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support text decoding", span)),
     }
 }
@@ -378,6 +431,7 @@ pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &
             output.finish(result).map_err(|error| runtime_error(error, "json", span))
         }
         Format::Yaml | Format::Toml | Format::Ini => config::encode(format, value, span),
+        Format::Csv | Format::Tsv => encode_table(format, value, span),
         _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support text encoding", span)),
     }
 }
@@ -388,7 +442,7 @@ pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: 
     else { encode_text(format, value, span).map(String::into_bytes) }
 }
 
-pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn read_input(path: &std::path::Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     use std::io::Read;
     let host_error = |error: std::io::Error| {
         let mut failure = RuntimeError::host("fs-read", &error).with_span(span);
@@ -397,8 +451,12 @@ pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::r
     };
     let file = std::fs::File::open(path).map_err(host_error)?;
     let mut bytes = Vec::new();
-    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes)
-        .map_err(host_error)?;
+    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes).map_err(host_error)?;
+    Ok(bytes)
+}
+
+pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<Value, RuntimeError> {
+    let bytes = read_input(path, span)?;
     decode_bytes(format, &bytes, span).map_err(|mut error| {
         error.payload.insert("input_path".into(), Value::Path(input_path.clone()));
         error

@@ -201,6 +201,11 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
             }
         }
         match tag {
+            FullTag::ExprCodecSchema => {
+                let schema::ExprView::CodecSchema { op, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let signature = FullDecoder::codec_schema_signature(op)?;
+                require(instruction, Some(signature.effects), signature.pure, &mut captured)?;
+            }
             FullTag::ExprModuleCall => {
                 let schema::ExprView::ModuleCall { op, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                 if let Some(bridge) = crate::stdlib::bridge_contract(op) {

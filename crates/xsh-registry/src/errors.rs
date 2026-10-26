@@ -434,6 +434,7 @@ pub fn codec_error_family() -> ErrorFamily {
 pub const CODEC_ERROR_VARIANTS: &[ErrorVariant] = &[
     ErrorVariant { name: "Syntax", facets: &[ErrorFacet::InvalidData] },
     ErrorVariant { name: "Encoding", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Schema", facets: &[ErrorFacet::InvalidData] },
     ErrorVariant { name: "UnsupportedFormat", facets: &[] },
     ErrorVariant { name: "UnsupportedValue", facets: &[] },
     ErrorVariant { name: "Overflow", facets: &[ErrorFacet::InvalidData] },

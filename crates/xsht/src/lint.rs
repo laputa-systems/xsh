@@ -3772,7 +3772,7 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }
@@ -4671,7 +4671,7 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }

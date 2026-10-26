@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use deser::adapters::Separated;
+use deser::de::{DuplicateKeys, Limits};
 use deser::{Context, Deserialize, ErrorKind, TrackLocations};
 use deser_csv::{
     Deserializer, DeserializerConfig, Escape, Headers, Nulls, Terminator, Trim, from_slice,
@@ -235,6 +236,46 @@ fn test_duplicate_names() {
     let err = from_str::<Vec<BTreeMap<String, u32>>>("a,a\n1,2\n").unwrap_err();
     assert_eq!(err.message(), "duplicate key in map");
     assert_eq!((err.line(), err.column()), (Some(2), Some(4)));
+}
+
+#[test]
+fn test_unique_headers_are_checked_during_header_initialization() {
+    let config = DeserializerConfig::builder()
+        .context(Context::with(DuplicateKeys::Error))
+        .build();
+    for input in ["a,a\n", "a,a\n1,2\n"] {
+        let err = config
+            .from_str::<Vec<BTreeMap<String, String>>>(input)
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DuplicateKey, "{input}");
+        assert_eq!((err.line(), err.column()), (Some(1), Some(3)), "{input}");
+    }
+    assert!(from_str::<Vec<BTreeMap<String, String>>>("a,a\n").is_ok());
+}
+
+#[test]
+fn test_context_item_limit_bounds_csv_header_fields() {
+    let config = DeserializerConfig::builder()
+        .context(Context::with(Limits::builder().max_items(2).build()))
+        .build();
+    let err = config
+        .from_str::<Vec<BTreeMap<String, String>>>("a,b,c\n")
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+}
+
+#[test]
+fn test_completed_records_obey_maximum_record_length() {
+    let config = DeserializerConfig::builder()
+        .headers(Headers::None)
+        .max_record_len(3)
+        .build();
+    assert_eq!(config.from_str::<Rows>("a,b").unwrap(), [row(&["a", "b"])]);
+    assert_eq!(config.from_str::<Rows>("a,b\n").unwrap(), [row(&["a", "b"])]);
+    for input in ["a,bc", "a,bc\n"] {
+        let err = config.from_str::<Rows>(input).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::LimitExceeded, "{input:?}");
+    }
 }
 
 #[test]

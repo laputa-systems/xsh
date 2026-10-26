@@ -707,7 +707,7 @@ impl ScopeChecker<'_> {
             | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_) | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_) | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. } | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. } | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. }
             | ArenaExprKind::Retry { .. } | ArenaExprKind::ValueBlock(_)
             | ArenaExprKind::ErrorContext { .. } | ArenaExprKind::ContextScope { .. }

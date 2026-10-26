@@ -376,7 +376,7 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::Index { .. }
         | ArenaExprKind::Slice { .. }
         | ArenaExprKind::Try(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::BuilderCall { .. } => POSTFIX,
     }
 }
@@ -520,7 +520,7 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
             | ArenaExprKind::BuilderCall { .. }
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::Collect { .. }
@@ -767,7 +767,7 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
                     kind,
                     ArenaExprKind::Try(_)
                         | ArenaExprKind::NullSafeField { .. }
-                        | ArenaExprKind::Require { .. }
+                        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                         | ArenaExprKind::BuilderCall { .. }
                         | ArenaExprKind::Index { guarded: true, .. }
                         | ArenaExprKind::Slice { guarded: true, .. }
@@ -997,7 +997,7 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Retry { .. }
@@ -1090,6 +1090,7 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
                 ..left(slot, Follow::adjacent(FollowToken::Dot))
             }
         }
+        ArenaExprKind::CodecSchema { .. } => Context::open(Follow::CLOSE),
         ArenaExprKind::Require { .. } => left(
             Slot::Postfix { dotted: false },
             Follow::adjacent(FollowToken::Require),
@@ -1275,6 +1276,7 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
             visit(right);
         }
         ArenaExprKind::ComparisonChain(pairs) => arena.expr_ids(pairs).for_each(visit),
+        ArenaExprKind::CodecSchema { format, input, .. } => { visit(format); visit(input); }
         ArenaExprKind::PatternTest { value, .. }
         | ArenaExprKind::Require { value, .. }
         | ArenaExprKind::Convert { value, .. } => visit(value),
@@ -1399,7 +1401,7 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }

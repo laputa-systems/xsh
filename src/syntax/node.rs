@@ -89,11 +89,11 @@ impl Effect {
                 _ => &[Self::Process],
             },
             "json" => match function {
-                "read" | "write" => &[Self::Fs],
+                "read" | "read_as" | "write" => &[Self::Fs],
                 _ => &[],
             },
-            "codec" | "yaml" | "toml" | "ini" => match function {
-                "read" | "write" => &[Self::Fs],
+            "codec" | "yaml" | "toml" | "ini" | "csv" => match function {
+                "read" | "read_as" | "write" => &[Self::Fs],
                 _ => &[],
             },
             "mime" => match function {

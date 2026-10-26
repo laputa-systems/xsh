@@ -4462,6 +4462,10 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::Try(value), span)
     }
 
+    pub fn push_codec_schema_expr(&mut self, kind: xsh_registry::signature::CodecSchemaIntrinsic, format: ExprId, input: ExprId, schema: TypeExprId, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::CodecSchema { kind, format, input, schema }, span)
+    }
+
     pub fn push_require_expr(
         &mut self,
         value: ExprId,
@@ -5095,6 +5099,9 @@ impl AstArena {
             ArenaExprKind::BuilderCall { call, block } => {
                 visit(Child::Expr(call));
                 visit(Child::BuilderBlock(block));
+            }
+            ArenaExprKind::CodecSchema { format, input, schema, .. } => {
+                visit(Child::Expr(format)); visit(Child::Expr(input)); visit(Child::TypeExpr(schema));
             }
             ArenaExprKind::Require { value, schema, .. } => {
                 visit(Child::Expr(value));
@@ -6134,6 +6141,13 @@ impl AstArena {
                 block: BuilderBlockId::new(data.rhs as usize),
             },
             ArenaExprTag::Try => ArenaExprKind::Try(ExprId::new(data.lhs as usize)),
+            ArenaExprTag::CodecSchema => {
+                let raw = range_slice(&self.extra, range_from_data(data));
+                ArenaExprKind::CodecSchema {
+                    kind: match raw[0] { 0 => xsh_registry::signature::CodecSchemaIntrinsic::Decode, 1 => xsh_registry::signature::CodecSchemaIntrinsic::Read, _ => unreachable!("codec intrinsic kind") },
+                    format: ExprId::new(raw[1] as usize), input: ExprId::new(raw[2] as usize), schema: TypeExprId::new(raw[3] as usize),
+                }
+            }
             ArenaExprTag::Require | ArenaExprTag::RequireExact | ArenaExprTag::RequireStripped => ArenaExprKind::Require {
                 value: ExprId::new(data.lhs as usize),
                 schema: optional_type_expr_id(data.rhs),
@@ -7901,6 +7915,7 @@ pub enum ArenaExprTag {
     BuilderCall,
     Try,
     Capture,
+    CodecSchema,
     Require,
     RequireExact,
     RequireStripped,
@@ -8133,6 +8148,12 @@ pub enum ArenaExprKind {
     },
     Try(ExprId),
     Capture(BlockId),
+    CodecSchema {
+        kind: xsh_registry::signature::CodecSchemaIntrinsic,
+        format: ExprId,
+        input: ExprId,
+        schema: TypeExprId,
+    },
     Require {
         value: ExprId,
         schema: Option<TypeExprId>,
@@ -9446,6 +9467,10 @@ impl ArenaLowerer<'_> {
                 ArenaExprData::new(raw_expr_id(call), raw_builder_block_id(block)),
             ),
             ArenaExprKind::Try(id) => (ArenaExprTag::Try, ArenaExprData::new(raw_expr_id(id), 0)),
+            ArenaExprKind::CodecSchema { kind, format, input, schema } => {
+                let data = self.push_expr_extra(&[match kind { xsh_registry::signature::CodecSchemaIntrinsic::Decode => 0, xsh_registry::signature::CodecSchemaIntrinsic::Read => 1 }, raw_expr_id(format), raw_expr_id(input), raw_type_expr_id(schema)]);
+                (ArenaExprTag::CodecSchema, data)
+            }
             ArenaExprKind::Require { value, schema, unknown_fields } => (
                 match unknown_fields {
                     UnknownFields::Preserve => ArenaExprTag::Require,

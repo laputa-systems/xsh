@@ -6141,6 +6141,7 @@ impl Evaluator {
                 lowered_result_ok(LoweredValue::Path(path))
             }
             callable; RuntimeOp::EnvPathEntries if values.len() == 1 => return self.eval_lowered_env_path_entries_values(values, span),
+            callable; RuntimeOp::CsvDecode | RuntimeOp::CsvEncode | RuntimeOp::CsvRead | RuntimeOp::CsvWrite => return self.eval_lowered_csv_values(op, values, span),
             callable; RuntimeOp::IniDecode | RuntimeOp::IniEncode | RuntimeOp::IniRead | RuntimeOp::IniWrite | RuntimeOp::CodecDecode | RuntimeOp::CodecDecodeBytes | RuntimeOp::CodecEncode | RuntimeOp::CodecEncodeBytes | RuntimeOp::CodecRead | RuntimeOp::CodecWrite | RuntimeOp::CodecFormats | RuntimeOp::YamlDecode | RuntimeOp::YamlEncode | RuntimeOp::YamlRead | RuntimeOp::YamlWrite | RuntimeOp::TomlDecode | RuntimeOp::TomlEncode | RuntimeOp::TomlRead | RuntimeOp::TomlWrite => return self.eval_lowered_codec_values(op, values, span),
             callable; RuntimeOp::JsonDecode if values.len() == 1 => {
                 let Some(text) = lowered_str_value(&values[0]) else {

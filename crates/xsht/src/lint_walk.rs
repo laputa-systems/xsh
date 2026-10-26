@@ -173,7 +173,7 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Slice { .. }
             | ArenaExprKind::Wait(_)
             | ArenaExprKind::BuilderCall { .. }
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::ErrorContext { .. }
             | ArenaExprKind::ContextScope { .. }

@@ -7,7 +7,91 @@ use codec::Format;
 #[derive(Clone, Copy)]
 enum Operation { Decode, DecodeBytes, Encode, EncodeBytes, Read, Write }
 
+fn csv_columns(value: &LoweredValue, span: Span) -> Result<Vec<String>, RuntimeError> {
+    let values = match value { LoweredValue::List(values) => values.as_slice(), LoweredValue::SharedList(values) => values.as_slice(), _ => return Err(RuntimeError::new("type-error", "csv columns expected List[Str]").with_span(span)) };
+    let limit = || codec::failure("Limit", "csv", "CSV columns exceed codec container or scalar limits", span);
+    if values.len() > 1_000_000 { return Err(limit()); }
+    let mut bytes = 0usize;
+    for value in values {
+        let text = lowered_str_value(value).ok_or_else(|| RuntimeError::new("type-error", "csv column expected Str").with_span(span))?;
+        if text.len() > 16 * 1024 * 1024 { return Err(limit()); }
+        bytes = bytes.checked_add(text.len()).filter(|bytes| *bytes <= codec::OUTPUT_LIMIT).ok_or_else(limit)?;
+    }
+    Ok(values.iter().map(|value| lowered_str_value(value).expect("checked CSV column").to_owned()).collect())
+}
+
 impl Evaluator {
+    pub(super) fn eval_lowered_codec_schema(&mut self, op: RuntimeOp, format: LoweredValue, input: LoweredValue, check: &super::super::LoweredTypeCheck, span: Span) -> Result<LoweredValue, RuntimeError> {
+        let identifier = lowered_str_value(&format).ok_or_else(|| RuntimeError::new("type-error", "typed codec format expected Str").with_span(span))?;
+        let context_path = if op == RuntimeOp::CodecReadAs { Some(lowered_path_arg(input.clone(), "codec.read_as", span)?) } else { None };
+        let contextualize = |mut error: RuntimeError| { if error.family == "CodecError" && let Some(path) = &context_path { error.payload.insert("input_path".into(), crate::runtime::value::Value::Path(path.clone())); } error };
+        let format = match Format::parse(identifier, span) { Ok(format) => format, Err(error) => return Ok(lowered_result_err_value(contextualize(error))) };
+        if !format.supports_lexical() { return Ok(lowered_result_err_value(contextualize(codec::failure("UnsupportedFormat", identifier, "typed lexical decoding requires CSV, TSV, or INI", span)))); }
+        let result = if op == RuntimeOp::CodecDecodeAs {
+            let text = lowered_str_value(&input).ok_or_else(|| RuntimeError::new("type-error", "typed codec input expected Str").with_span(span))?;
+            super::super::require::decode_lexical(self, format, text, check, span)
+        } else {
+            let path = lowered_path_arg(input, "codec.read_as", span)?;
+            let result = (|| {
+                let bytes = codec::read_input(&self.host_path(&path), span)?;
+                if bytes.len() > codec::INPUT_LIMIT { return Err(codec::failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+                let text = std::str::from_utf8(&bytes).map_err(|error| {
+                    let mut failure = codec::failure("Encoding", format.identifier(), "invalid UTF-8", span);
+                    failure.payload.insert("offset".into(), crate::runtime::value::Value::Int(error.valid_up_to() as i64));
+                    failure
+                })?;
+                super::super::require::decode_lexical(self, format, text, check, span)
+            })();
+            result.map_err(|mut error: RuntimeError| { if error.family == "CodecError" { error.payload.insert("input_path".into(), crate::runtime::value::Value::Path(path)); } error })
+        };
+        Ok(match result { Ok(value) => lowered_result_ok(value), Err(error) => lowered_result_err_value(error) })
+    }
+
+    pub(super) fn eval_lowered_csv_values(&mut self, op: RuntimeOp, mut values: NativeArgumentValues, span: Span) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        use codec::table;
+        let write = op == RuntimeOp::CsvWrite;
+        let encode = write || op == RuntimeOp::CsvEncode;
+        let option = if write { 2 } else { 1 };
+        let headers = lowered_bool_arg_or(values.get(option).cloned(), true, "csv", span)?;
+        let delimiter = values.get(option + 1).and_then(lowered_str_value).unwrap_or(",");
+        let delimiter = match table::parse_delimiter(delimiter, span) { Ok(delimiter) => delimiter, Err(error) => return Ok(ControlFlow::Continue(lowered_result_err_value(error))) };
+        let text = if encode {
+            let columns = match values.get(option + 2) {
+                None | Some(LoweredValue::Null) => None,
+                Some(value) => match csv_columns(value, span) { Ok(columns) => Some(columns), Err(error) => return Ok(ControlFlow::Continue(lowered_result_err_value(error))) },
+            };
+            let escape_formulas = lowered_bool_arg_or(values.get(option + 3).cloned(), false, "csv", span)?;
+            let value = super::super::json::borrowed_lowered(Format::Csv, &values[usize::from(write)], span);
+            table::encode(Format::Csv, &value, table::EncodeOptions { headers, delimiter, columns, escape_formulas }, span)
+        } else {
+            let input_path = if op == RuntimeOp::CsvRead { Some(lowered_path_arg(values.remove(0), "csv.read", span)?) } else { None };
+            let bytes = match &input_path { Some(path) => Some(codec::read_input(&self.host_path(path), span)), None => None };
+            let result = (|| {
+                let owned;
+                let text = match bytes { Some(bytes) => {
+                    owned = bytes?;
+                    if owned.len() > codec::INPUT_LIMIT { return Err(codec::failure("Limit", "csv", "codec input exceeds 64 MiB", span)); }
+                    std::str::from_utf8(&owned).map_err(|error| {
+                        let mut failure = codec::failure("Encoding", "csv", "invalid UTF-8", span);
+                        failure.payload.insert("offset".into(), crate::runtime::value::Value::Int(error.valid_up_to() as i64)); failure
+                    })?
+                }, None => lowered_str_value(&values[0]).ok_or_else(|| RuntimeError::new("type-error", "csv.decode expected Str").with_span(span))? };
+                let mut out = None::<codec::Decoded>;
+                { let mut driver = deser::de::DeserializeDriver::new(&mut out);
+                    table::drive(Format::Csv, text, table::DecodeOptions { headers, delimiter }, &mut driver, span)?;
+                }
+                Ok(out.expect("CSV document sink").0)
+            })().map_err(|mut error: RuntimeError| { if error.family == "CodecError" && let Some(path) = input_path { error.payload.insert("input_path".into(), crate::runtime::value::Value::Path(path)); } error });
+            return Ok(ControlFlow::Continue(lowered_runtime_result(result, span)?));
+        };
+        let result = if write {
+            let overwrite = lowered_bool_arg_or(values.get(option + 4).cloned(), false, "csv.write", span)?;
+            let path = lowered_path_arg(values.remove(0), "csv.write", span)?;
+            match text { Ok(text) => lowered_unit_result(if overwrite { fs::write_path(self.host_path(&path), text.as_bytes(), span) } else { fs::create_path(self.host_path(&path), text.as_bytes(), span) }), Err(error) => lowered_result_err_value(error) }
+        } else { match text { Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())), Err(error) => lowered_result_err_value(error) } };
+        Ok(ControlFlow::Continue(result))
+    }
+
     pub(super) fn eval_lowered_codec_values(&mut self, op: RuntimeOp, mut values: NativeArgumentValues, span: Span) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         if op == RuntimeOp::CodecFormats {
             return Ok(ControlFlow::Continue(lowered_runtime_value(codec::formats(), span)?));

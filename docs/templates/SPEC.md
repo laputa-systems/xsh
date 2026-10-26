@@ -5106,6 +5106,38 @@ whitespace-delimited inline comments and continuations use Deser's common
 dialect. Repeated sections merge only when keys are disjoint. Untyped fields
 remain strings. Nested sections and non-string output fields fail.
 
+`codec.decode_as(format, text, T)` and `codec.read_as(format, path, T)` return
+`Result[T]`. The mandatory third operand uses schema type syntax; it is not a
+runtime value and is never inferred from an assignment or adjacent require.
+The two value operands retain declared order and evaluate left to right.
+Matching labels in that order are allowed; reordered, duplicate or spread
+arguments and runtime third operands fail checking.
+Only CSV, TSV and INI support this lexical boundary. Other formats and unknown identifiers fail with
+`CodecError.UnsupportedFormat`.
+Plain decoding and ordinary `.require(T)` remain strict.
+
+Typed lexical Str, Any and extra fields retain exact text. Int accepts signed
+decimal within i64; UInt also requires a nonnegative value. Bool accepts exactly
+`true` or `false`. Float accepts finite decimal/exponent text with f64 rounding.
+There is no whitespace trimming, radix, underscore, truthiness or date inference
+at this boundary. Empty fields become null only for optional targets. A union
+that admits Str preserves its string; otherwise exactly one distinct primitive
+interpretation must satisfy admission. Ambiguity and schema failures return
+`CodecError.Schema` with value_path. Existing schema admission owns missing
+fields, refinements, wire enums and nested shapes, preserves extra fields, and
+runs after the direct lexical sink. File codec failures also retain input_path.
+CSV cell strings are not parsed as nested container encodings.
+
+`csv.decode(text, headers: true, delimiter: ",")` returns row records; setting
+headers false returns row lists. Headers are unique and row widths equal.
+`csv.encode(value, headers: true, delimiter: ",", columns: null,
+escape_formulas: false)` accepts explicit column order for record rows.
+Headerless output omits the header while retaining that order. Decode rejects
+columns. Delimiters are one ASCII byte excluding NUL, newline and quote.
+`csv.read` and `csv.write` expose the same options at the filesystem boundary;
+write defaults overwrite to false and encodes before touching its destination.
+Generic CSV/TSV operations use fixed presets without an options bag.
+
 CBOR and MessagePack preserve Bytes, signed i64 integers, finite floats, lists
 and maps. Map keys may be Str, Bool, Int or Bytes; other key types fail without
 stringification. Empty binary maps become Map; nonempty all-string maps become

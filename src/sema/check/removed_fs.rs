@@ -91,7 +91,7 @@ pub fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Op
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Capture(_)
-        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Loop { .. }

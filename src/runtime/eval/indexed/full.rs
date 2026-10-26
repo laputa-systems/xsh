@@ -2283,6 +2283,10 @@ impl FullProgram {
                     };
                     Some(Record { site: Site::ValueBoundary(span), contract })
                 }
+                FullTag::ExprCodecSchema => {
+                    let schema::ExprView::CodecSchema { check, span, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                    Some(Record { site: Site::Expression(span), contract: Contract::Require(Self::owned_validation(check)?) })
+                }
                 FullTag::ExprRequire => {
                     let schema::ExprView::Require { check, span, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                     Some(Record { site: Site::Expression(span), contract: Contract::Require(Self::owned_validation(check)?) })
@@ -7250,7 +7254,27 @@ impl<'a> FullDecoder<'a> {
                 return Err(IrVerifyError::new("require schema does not match its unknown-field policy"));
             }
         }
+        if !self.verified && let schema::ExprView::CodecSchema { op, check, .. } = &view {
+            Self::codec_schema_signature(*op)?;
+            let prepared = check.schema.ok_or_else(|| IrVerifyError::new("typed codec has no prepared schema"))?;
+            if !prepared.preserves_fields() || !prepared.matches_type(&check.ty.materialize()?) {
+                return Err(IrVerifyError::new("typed codec schema has an incompatible admission policy or target"));
+            }
+            verify_schemes::ensure_closed_type(&check.ty.materialize()?)?;
+            if check.ty.materialize()?.contains_typed_callable() { return Err(IrVerifyError::new("typed codec cannot establish callable signatures")); }
+        }
         Ok(view)
+    }
+
+    fn codec_schema_signature(op: RuntimeOp) -> Result<&'static crate::modules::signature::ModuleFnSig, IrVerifyError> {
+        use crate::modules::signature::{CodecSchemaIntrinsic, ImplBinding};
+        let kind = [CodecSchemaIntrinsic::Decode, CodecSchemaIntrinsic::Read].into_iter().find(|kind| kind.op() == op).ok_or_else(|| IrVerifyError::new("typed codec has no schema intrinsic"))?;
+        let [signature] = crate::modules::api_spec().module_overloads("codec", kind.name()).ok_or_else(|| IrVerifyError::new("typed codec registry entry is missing"))? else { return Err(IrVerifyError::new("typed codec registry entry is ambiguous")); };
+        let expected = Type::Result(Box::new(Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Element)), Box::new(Type::Error));
+        if signature.binding != ImplBinding::Schema(kind) || signature.op != op || signature.return_ty != expected || signature.params.len() != 2 || signature.params[0].ty != Type::Str || signature.params[1].ty != crate::modules::signature::convert_type(&kind.input_type()) || signature.params.iter().any(|parameter| parameter.defaulted) || signature.pure != kind.pure() {
+            return Err(IrVerifyError::new("typed codec registry contract is incompatible"));
+        }
+        Ok(signature)
     }
 
     fn statement_view<'e>(
@@ -7481,7 +7505,7 @@ impl<'a> FullDecoder<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
-        if tag == FullTag::ExprRequire { self.expression_view(index)?; }
+        if matches!(tag, FullTag::ExprRequire | FullTag::ExprCodecSchema) { self.expression_view(index)?; }
         if let Some(proof) = &self.instruction_proof {
             let binding_dependent_value = if tag == FullTag::ExprCheckedValue {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(index)? else { unreachable!() };
@@ -10292,7 +10316,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
@@ -10742,7 +10766,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
@@ -11647,7 +11671,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
@@ -11866,7 +11890,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 Ok(Some(Type::Record(fields)))
             }
-            schema::ExprView::Require { check, .. } => Ok(Some(Type::Result(
+            schema::ExprView::CodecSchema { check, .. } | schema::ExprView::Require { check, .. } => Ok(Some(Type::Result(
                 Box::new(check.ty.materialize()?),
                 Box::new(Type::Error),
             ))),
@@ -13248,7 +13272,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
             | schema::ExprView::SpawnCommand { .. }
@@ -13569,7 +13593,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
@@ -15430,7 +15454,7 @@ impl<'a> FullDecoder<'a> {
                 for arg in args { if let Some(value) = arg? { operand!(value); } }
             }
             schema::ExprView::Field { .. } | schema::ExprView::IndexFromEnd { .. }
-            | schema::ExprView::Require { .. } | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. } | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::SpawnCommand { .. } | schema::ExprView::Wait { .. }
             | schema::ExprView::Try { .. } | schema::ExprView::Ok(_)
             | schema::ExprView::ProcCallResult(_) | schema::ExprView::ValueBlock { .. }
@@ -16249,7 +16273,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
@@ -16755,7 +16779,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::Require { .. }
+            | schema::ExprView::CodecSchema { .. } | schema::ExprView::Require { .. }
             | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
@@ -37175,6 +37199,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprStrByteLen
             ExprStrByteAt
             ExprStrPredicate
+            ExprCodecSchema
             ExprRequire
             ExprCheckedValue
             ExprRunCapture
@@ -54490,6 +54515,73 @@ pure outer() -> Int { by_scale() + by_measure() }
                 "{}",
                 error.message
             );
+        });
+    }
+
+    #[test]
+    fn typed_codec_values_run_on_both_verified_runtime_routes() {
+        run_with_large_stack(|| {
+            let program = fixture("typed-codec-routes.xsh", "type Entry = {port: Int}\npure checked(text: Str) -> Result[Entry] { codec.decode_as(\"ini\", text, Entry) }\n");
+            let _symbols = program.symbol_owner().enter();
+            FullVerifier::verify(&program).unwrap();
+            let expected = Value::ok(Value::Record(BTreeMap::from([(Arc::from("port"), Value::Int(7))]).into()));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::new(program.clone()));
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "checked")), CallableKind::Pure, &[Value::Str("port=7".into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert_eq!(value, expected);
+            }
+        });
+    }
+
+    #[test]
+    fn typed_codec_intrinsics_reject_cold_schema_operands_operations_and_effects() {
+        use super::super::super::require::PreparedSchema;
+        use crate::syntax::arena::UnknownFields;
+        run_with_large_stack(|| {
+            let program = fixture("typed-codec-authority.xsh", "type Entry = {port: Int}\npure checked(format: Str, text: Str, wrong: Bool, config_path: Path) -> Result[Entry] { let _ = wrong; let _ = config_path; codec.decode_as(format, text, Entry) }\n");
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "checked");
+            let instruction = function_instruction_indices(&program, "checked", FullTag::ExprCodecSchema)[0];
+            let words = payload_start(&program, instruction);
+            let schema::ExprView::CodecSchema { check, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+            let root = program.store.prepared_schemas.iter().position(|schema| schema.matches_type(&check.ty.materialize().unwrap())).unwrap();
+            let reads = function_instruction_indices(&program, "checked", FullTag::ExprParam);
+            let wrong = reads.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let path = reads.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(3)))).unwrap();
+            let cold = || { let mut copy = program.clone(); copy.store.in_place.take(); copy };
+            let mut incompatible = cold();
+            incompatible.store.prepared_schemas[root] = Arc::new(PreparedSchema::Validate(Type::Str));
+            assert!(FullVerifier::verify(&incompatible).is_err());
+            let mut policy = cold();
+            policy.store.prepared_schemas[root] = Arc::new(PreparedSchema::UnknownFields(UnknownFields::Strip, program.store.prepared_schemas[root].clone()));
+            assert!(FullVerifier::verify(&policy).is_err());
+            let mut operand = cold();
+            operand.store.extra[words + 2] = wrong as u32;
+            assert!(FullVerifier::verify(&operand).is_err());
+            let operation_index = program.store.extra[words] as usize;
+            let mut operation = cold();
+            operation.store.runtime_ops[operation_index] = RuntimeOp::CodecDecode;
+            assert!(FullVerifier::verify(&operation).is_err());
+            let mut effect = cold();
+            effect.store.runtime_ops[operation_index] = RuntimeOp::CodecReadAs;
+            effect.store.extra[words + 2] = path as u32;
+            assert!(FullVerifier::verify(&effect).is_err());
+            let mut missing = cold();
+            let mut payload = missing.store.payload(missing.store.data[instruction].range()).unwrap().to_vec();
+            assert_eq!(payload[5], 1);
+            payload[5] = 0; payload.remove(6);
+            let start = missing.store.extra.len() as u32;
+            missing.store.extra.extend_from_slice(&payload);
+            missing.store.data[instruction] = IrData::new(start, payload.len() as u32);
+            assert!(FullVerifier::verify(&missing).is_err());
+            let ordinary = fixture("typed-codec-forged-native-call.xsh", "pure decoded(format: Str, text: Str) -> Result[Any] { codec.decode(format, text) }\n");
+            FullVerifier::verify(&ordinary).unwrap();
+            let mut forged_native = ordinary.clone(); forged_native.store.in_place.take();
+            let operation = forged_native.store.runtime_ops.iter_mut().find(|operation| **operation == RuntimeOp::CodecDecode).unwrap();
+            *operation = RuntimeOp::CodecDecodeAs;
+            assert!(FullVerifier::verify(&forged_native).is_err());
         });
     }
 

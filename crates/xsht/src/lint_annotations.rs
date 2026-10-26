@@ -734,6 +734,7 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::ContextScope { .. }
             | ArenaExprKind::TempDirScope { .. }
             | ArenaExprKind::ResourceScope { .. } => true,
+            ArenaExprKind::CodecSchema { .. } => self.any_expr_child(expr, |child| self.expression_depends_on_expected_type(child, removing_annotation)),
             ArenaExprKind::Require { schema, .. } => {
                 schema.is_none()
                     || (removing_annotation

@@ -3124,6 +3124,12 @@ impl<'a> Writer<'a> {
                 output.push_str(" as ");
                 self.write_type(*target, output);
             }
+            ArenaExprKind::CodecSchema { kind, format, input, schema } => {
+                output.push_str("codec."); output.push_str(kind.name()); output.push('(');
+                self.write_expr(*format, child(*format), output); output.push_str(", ");
+                self.write_expr(*input, child(*input), output); output.push_str(", ");
+                self.write_type(*schema, output); output.push(')');
+            }
             ArenaExprKind::Require { value, schema, unknown_fields } => {
                 let start = output.len();
                 self.write_expr(*value, child(*value), output);
@@ -5134,7 +5140,7 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }
@@ -5197,7 +5203,7 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::Loop { .. }

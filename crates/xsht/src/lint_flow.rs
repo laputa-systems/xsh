@@ -570,6 +570,7 @@ fn expr_flow(arena: &AstArena, facts: &FlowFacts, expr: ExprId) -> FlowSummary {
         ArenaExprKind::BuilderCall { call, block } => {
             facts.expression(call).then(facts.builder_block(block))
         }
+        ArenaExprKind::CodecSchema { format, input, .. } => facts.expression(format).then(facts.expression(input)),
         ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
             facts.expression(value)
         }

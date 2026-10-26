@@ -761,7 +761,7 @@ fn method_effects(overloads: &[xsh::api::MethodSig]) -> Vec<String> {
 fn module_signature(module: &str, function: &str, signature: &ModuleFnSig) -> String {
     format!(
         "{module}.{function}({}) -> {}",
-        render_params(&signature.params),
+        match signature.binding { xsh::api::ImplBinding::Schema(_) => format!("{}, T", render_params(&signature.params)), _ => render_params(&signature.params) },
         render_type(&signature.return_ty)
     )
 }

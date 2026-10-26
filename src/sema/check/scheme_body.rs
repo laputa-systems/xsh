@@ -514,6 +514,10 @@ pub(super) fn is_body_expression(
                 }
             }
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
+            ArenaExprKind::CodecSchema { format, input, .. } => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(format); pending.push(input);
+            }
             ArenaExprKind::Convert { value, .. } | ArenaExprKind::Require { value, .. } => {
                 if !checked_operations.contains(&program.arena.expr(expression).span) || !types.contains_key(&expression) { return false; }
                 pending.push(value);

@@ -1815,6 +1815,7 @@ compact_expr_kind_catalog! {
     ArenaExprKind::Wait(_) => (33, "wait");
     ArenaExprKind::BuilderCall { .. } => (34, "builder_call");
     ArenaExprKind::Try(_) => (35, "try");
+    ArenaExprKind::CodecSchema { .. } => (52, "codec-schema");
     ArenaExprKind::Require { .. } => (36, "require");
     ArenaExprKind::Loop { .. } => (37, "loop");
     ArenaExprKind::Retry { .. } => (38, "retry");
@@ -4926,6 +4927,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let conversion = *self.bodies.conversions.get(&expression)?;
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 self.lower_conversion_value(conversion, value, target, span, |value, ty| { lowered_types.insert(value, SchemeType::Ground(ty)); })?
+            }
+            ArenaExprKind::CodecSchema { kind, format, input, schema } => {
+                let check = self.lower_requirement_check(expression, Some(schema), crate::syntax::arena::UnknownFields::Preserve)?;
+                let format = self.lower_scheme_expression(format, slots, current_function, facts, visited, lowered_types, body)?;
+                let input = self.lower_scheme_expression(input, slots, current_function, facts, visited, lowered_types, body)?;
+                push_build_row!(self, expr, BuildExprRow::CodecSchema { op: kind.op(), format, input, check, span })
             }
             ArenaExprKind::Require { value, schema, unknown_fields } => {
                 let check = self.lower_requirement_check(expression, schema, unknown_fields)?;
@@ -8717,6 +8724,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 self.lower_conversion_value(conversion, value, target, span, |_, _| {})
             }
+            ArenaExprKind::CodecSchema { kind, format, input, schema } => {
+                let check = self.lower_requirement_check(id, Some(schema), crate::syntax::arena::UnknownFields::Preserve)?;
+                let format = self.lower_expr(format, slots, current_function, item_slot)?;
+                let input = self.lower_expr(input, slots, current_function, item_slot)?;
+                Some(push_build_row!(self, expr, BuildExprRow::CodecSchema { op: kind.op(), format, input, check, span }))
+            }
             ArenaExprKind::Require { value, schema, unknown_fields } => {
                 let check = self.lower_requirement_check(id, schema, unknown_fields)?;
                 Some(push_build_row!(self, expr, BuildExprRow::Require {
@@ -10028,9 +10041,10 @@ mod compact_expr_kind_tests {
             (49, "set_comp"),
             (50, "collect"),
             (51, "resource_scope"),
+            (52, "codec-schema"),
         ];
 
-        assert_eq!(COMPACT_EXPR_KIND_COUNT, 52);
+        assert_eq!(COMPACT_EXPR_KIND_COUNT, 53);
         assert_eq!(COMPACT_EXPR_KIND_CATALOG, EXPECTED);
     }
 }

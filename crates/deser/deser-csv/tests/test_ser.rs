@@ -91,6 +91,31 @@ fn test_columns() {
 }
 
 #[test]
+fn test_document_with_explicit_columns() {
+    let rows = vec![
+        BTreeMap::from([("a", 1), ("b", 2)]),
+        BTreeMap::from([("a", 3), ("b", 4)]),
+    ];
+    let mut serializer = Serializer::document_with_headers(
+        SerializerConfig::new(),
+        ["b", "a"],
+    );
+    serializer.serialize(&rows).unwrap();
+    assert_eq!(serializer.finish(), "b,a\n2,1\n4,3\n");
+
+    let config = SerializerConfig::builder().headers(false).build();
+    let mut serializer = Serializer::document_with_headers(config, ["b", "a"]);
+    serializer.serialize(&rows).unwrap();
+    assert_eq!(serializer.finish(), "2,1\n4,3\n");
+
+    let mut serializer = Serializer::document_with_headers(SerializerConfig::new(), ["b", "a"]);
+    serializer
+        .serialize(&Vec::<BTreeMap<&str, i32>>::new())
+        .unwrap();
+    assert_eq!(serializer.finish(), "b,a\n");
+}
+
+#[test]
 fn test_sequences() {
     let rows = vec![vec![1, 2], vec![3, 4]];
     assert_eq!(to_string(&rows).unwrap(), "1,2\n3,4\n");
