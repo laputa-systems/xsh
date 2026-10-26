@@ -60,7 +60,7 @@ test test_codec_file_sequences_preserve_non_utf8_paths { |ctx|
     return
   }
   let root = test.temp_dir(ctx, name: "codec-byte-path")?
-  let input = (root.bytes() + b"/input\xff.jsonl") as Path
+  let input = bytes.concat([root.bytes(), b"/input\xff.jsonl"]) as Path
   input.write("bad\n2\n")
   let values = codec.read_all("json", input)? |> collect()
   assert values.len() == 2
@@ -73,14 +73,12 @@ test test_codec_file_sequences_preserve_non_utf8_paths { |ctx|
   assert values[1]? == 2
 }
 
-proc consume_file_sequence(config_path: Path) [fs, error] -> Result[Unit] {
-  for item in codec.read_all("json", config_path)? { let _ = item? }
-  Ok()
-}
-
 test test_codec_file_sequence_host_read_failure_names_the_path { |ctx|
   let directory = test.temp_dir(ctx, name: "codec-directory-read")?
-  match consume_file_sequence(directory) {
+  let consumed: Result[Unit] = try {
+    for item in codec.read_all("json", directory)? { let _ = item? }
+  }
+  match consumed {
     Err(error) => assert directory.display() in error.message
     else => return test.fail("expected a host read failure from the directory")
   }

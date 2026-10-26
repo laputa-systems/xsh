@@ -9,8 +9,8 @@ make one hard cutover and delete the replaced implementations.
 
 Current checkpoint: implementation through S5 is integrated. CSV/TSV and
 explicit typed lexical decoding have focused native and cold proof. Sequences
-have focused Rust and upstream proof; native sequence qualification, final
-production cost acceptance, generated documentation and Full/Linux
+have focused Rust, upstream and native proof; final production cost acceptance,
+generated documentation and Full/Linux
 qualification remain. Native macOS qualification is externally blocked by the
 unavailable host. No campaign completion or S2/S3 global acceptance is claimed.
 The owner separately authorized integrating the optional-module-call compiler
@@ -27,8 +27,20 @@ limits and cumulative YAML alias replay. YAML passes 12 unit, 81 integration,
 Binary scalar guards retain CBOR 8 unit/105 integration and MessagePack 6 unit/
 86 integration passes. Negative controls reproduce the former semantic scalar,
 discarded block-break, alias-reset, frame-context and buffer-growth defects.
-Independent final source review finds no remaining issue. Added native file
-tests still require execution; no native S5 or global acceptance is claimed.
+Independent final source review finds no remaining issue. Pinned native tests
+run as UID 1000 pass sequence 4, file boundaries 9, binary 6, generic codec 3,
+configuration 6 and API 67, with no skips. These retain the existing byte concat,
+invariant List[Any] and explicit try contracts. The API inventory adds exactly
+five codec functions, with no unrelated delta. No global acceptance is claimed.
+
+The matched production builds use the pinned container/nightly, static musl,
+x86-64-v3, fat LTO and the distribution feature set. Baseline sizes are xsh
+26,184,512, xsht 37,574,016 and xshi 44,232 bytes. Initial S5 sizes are xsh
+27,511,744, xsht 39,158,144 and xshi 44,232 bytes. Xsh exceeds its 5% allowance by
+18,007 bytes; one bounded reader-monomorphization investigation is open. Both
+distribution commands compile successfully but their existing xshi --help smoke
+fails because that Linux feature set intentionally builds the disabled shell
+stub. Do not claim distribution smoke or any timing acceptance from these runs.
 
 Acceleration checkpoint: the complete lint-invariance partition passes all 11
 selected tests. The bounded corpus check passes with package optimization level

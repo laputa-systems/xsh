@@ -27,7 +27,8 @@ test test_codec_sequences_stop_yaml_binary_and_header_failures {
   test.error_kind(headers[0], "CodecError.DuplicateKey")
   for format in ["cbor", "msgpack"] {
     let prefix = codec.encode_all_bytes(format, [1, 2])?
-    let items = codec.decode_all_bytes(format, prefix + (if format == "cbor" { b"\xff" } else { b"\xc1" }))? |> collect()
+    let suffix = if format == "cbor" { b"\xff" } else { b"\xc1" }
+    let items = codec.decode_all_bytes(format, bytes.concat([prefix, suffix]))? |> collect()
     assert items.len() == 3
     assert items[0]? == 1
     assert items[1]? == 2
@@ -36,15 +37,16 @@ test test_codec_sequences_stop_yaml_binary_and_header_failures {
 }
 
 test test_codec_sequences_encode_one_table_header_and_preserve_keysets {
-  let rows = [{a: "1", b: "2"}, {a: "3", b: "4"}]
+  let rows: List[Any] = [{a: "1", b: "2"}, {a: "3", b: "4"}]
   assert codec.encode_all("csv", rows)? == "a,b\n1,2\n3,4\n"
   assert codec.encode_all("tsv", rows)? == "a\tb\n1\t2\n3\t4\n"
   test.error_kind(codec.encode_all("csv", [{a: 1, b: 2}, {a: 3}]), "CodecError.UnsupportedValue")
   assert codec.encode_all("json", [1, true, null])? == "1\ntrue\nnull\n"
   for format in ["json", "yaml", "cbor", "msgpack"] {
-    let encoded = codec.encode_all_bytes(format, [1, 2, 3])?
+    let expected: List[Any] = [1, 2, 3]
+    let encoded = codec.encode_all_bytes(format, expected)?
     let decoded = codec.decode_all_bytes(format, encoded)? |> map { |item| item? } |> collect()
-    assert decoded == [1, 2, 3]
+    assert decoded == expected
   }
 }
 
