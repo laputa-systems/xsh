@@ -44,12 +44,26 @@ public dispatch in a third isolated worktree. Master implementation is frozen
 until a coherent integration wave. No S2/S3 phase pass is claimed.
 The owner pulled additional TODO documentation while the implementation was
 isolated; the master rebase changed commit identifiers but no implementation.
-Shared S3 work is committed through `69f9cff00`, still provisional. The shared
-sink initialization regression was reproduced by JSON/config/binary checks and
-fixed at `388b7d4ce`; JSON sink 3/3, borrowed encoder 5/5 and binary backend
-5/5 now pass focused checks. Configuration has one final depth-control rerun.
-Next substantive milestone: integrate and verify configuration and binary codecs
-through the shared public boundary; retain the broader verifier blocker.
+S3 is integrated on master through `7adcfcf32`. The pinned Linux native gate
+passes all 19 tests: generic codec/file dispatch 3, configuration 6, binary 4,
+INI 6. Combined Rust checks pass codec adapters 13, borrowed encoders 5,
+no-clobber/symlink boundary 1, registry 18 and signature adapter 5. Retained
+upstream checks pass YAML 77, TOML 59, INI 25 and CBOR 8. Initial native fixture
+errors (module shadowing and an incorrect Path helper name) were corrected;
+no codec behavior was weakened. Master differs from the qualified S3 tree only
+by owner TODO/campaign documentation and the separately checked verifier repair.
+
+The parked verifier prerequisite was resolved by source tracing: runtime-complete
+storage validation skips the initializer Expression obligation, despite preserving
+its annotation. `2c39f0d56` now seeds only the exact authenticated driver
+initializer's method context, preserving general runtime-validation elision.
+Seven focused Rust checks pass, including warm/cold driver cases, forged target,
+annotation/validation/initializer/owner/factory/arguments and checked dynamic
+admission. Independent source review found no authority gap. This is a new
+causal correction after the named retry condition changed, not a repeated
+unchanged attempt. Pinned native/broad qualification remains pending.
+Next substantive milestone: run the combined S2/S3 Change gate on the integrated
+source before accepting the phase boundary and opening S4 implementation.
 
 ## Charter
 
@@ -721,7 +735,8 @@ probe failures remain separate baseline debt and are not expanded into a sweep.
 `f42b527ea` retains a nested pretty-output golden. Compact and pretty output for
 18 documents matches the runnable reference byte for byte, including numeric
 boundaries, exponent/negative-zero normalization, controls and Unicode.
-Retry the same combined Change scope before opening S3 writers.
+That retry remained red; the later acceleration ruling above allowed isolated
+S3 delivery while retaining this acceptance failure.
 
 2026-10-25: owner overrides the draft's all-17/published-crate/compatibility
 requirements with a pruned source vendor and hard cutover. Preflight selects
