@@ -2061,6 +2061,20 @@ mod tests {
     }
 
     #[test]
+    fn driver_empty_map_method_retains_declared_receiver_domain() {
+        for source in [
+            r#"var table: Map[List[Int]] = map.empty().set("entry", [1])"#,
+            r#"let table: Map[List[Int]] = map.empty().set("entry", [1])"#,
+            r#"var table: Map[List[Int]] = map.empty().set("entry", [1]); let values = table.get("entry")?; print values[0]"#,
+            r#"var table: Map[List[Int]] = map.empty().set("entry", [1]); table["entry"] += [2]; let values = table.get("entry")?; print values[0]"#,
+        ] {
+            let mut program = prepare(source);
+            program.store.in_place.take();
+            FullVerifier::verify(&program).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
+        }
+    }
+
+    #[test]
     fn fresh_empty_map_methods_authenticate_constructor_and_arguments_when_cold() {
         let mut program = prepare(r#"
 pure make() -> Map[List[Int]] {
