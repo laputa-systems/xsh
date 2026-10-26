@@ -1807,3 +1807,49 @@ describe()
   )?
   assert output.stdout == "cache cache-exact cache-loaded cache\ncache-proc\n", output.stdout
 }
+
+test test_optional_module_calls_propagate_result_conditions { |ctx|
+  let root = test.temp_dir(ctx, name: "optional-module-conditions")?
+  for {name, body} in [
+    {name: "yes", body: "Ok(true)"},
+    {name: "no", body: "Ok(false)"},
+    {name: "failed", body: "Err(ReadyError.Failed(\"not ready\"))"},
+  ] {
+    fp"{root}/{name}.xsh".write(f"""##! Optional readiness fixture.
+error ReadyError {{ Failed }}
+## Reports the fixture readiness.
+export proc ready() [env, error] -> Result[Bool, Error] {{
+  let _ = e"PATH"
+  {body}
+}}
+""")
+  }
+  fp"{root}/absent.xsh".write("##! Module without readiness.\n## Identifies the fixture.\nexport let name: Str = \"absent\"\n")
+  for propagation in ["", "?"] {
+    let source = f"""type ReadyService = module {{
+  export optional proc ready() [env, error] -> Result[Bool, Error]
+}}
+proc wait_ready(service_path: Path) -> Result[Bool] {{
+  let loaded = module.load(service_path)?.require(ReadyService)?
+  return true when "ready" not in loaded.keys()
+  return true when loaded.ready(){propagation}
+  false
+}}
+assert wait_ready(p"{root}/yes.xsh")? == true
+assert wait_ready(p"{root}/no.xsh")? == false
+assert wait_ready(p"{root}/absent.xsh")? == true
+match wait_ready(p"{root}/failed.xsh") {{
+  Err(error) => assert error.message == "not ready"
+  Ok(_) => assert false, "module error did not propagate"
+}}
+print "checked"
+"""
+    test.expect(ctx, source, status: 0, stdout: ["checked"])?
+    test.expect(ctx, f"""type ReadyService = module {{
+  export optional proc ready() [env, error] -> Result[Bool, Error]
+}}
+let loaded = module.load(p"{root}/absent.xsh")?.require(ReadyService)?
+if loaded.ready(){propagation} {{ print "unexpected" }}
+""", status: 3, stderr: ["missing-field", "ready"])?
+  }
+}

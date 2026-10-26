@@ -4253,3 +4253,47 @@ match result {
         assert_eq!(error.message, rejection);
     }
 }
+
+#[test]
+fn optional_module_conditions_authenticate_call_contracts() {
+    on_large_stack(|| {
+        for propagation in ["", "?"] {
+            let mut program = fixture(&format!(r#"
+type Service = module {{
+  export optional proc ready(value: Int) [env, error] -> Result[Bool, Error]
+  export optional proc wrong(value: Int) [env, error] -> Result[Str, Error]
+}}
+proc wait_ready(plugin: Service, value: Int, plain: Str) [env, error] -> Result[Bool] {{
+  let _ = plain
+  let _ = "wrong"
+  return true when plugin.ready(value){propagation}
+  false
+}}
+"#));
+            program.store.in_place.take();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            let owner = function(&program, "wait_ready");
+            let decoder = function_view_decoder(&program.store, owner);
+            let (callee, argument) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+                let schema::ExprView::DynamicCall { callee, mut args, .. } = decoder.expression_view(instruction).ok()? else { return None };
+                let super::super::decode::CallArgView::Single(value) = args.next().unwrap().unwrap() else { panic!("single argument") };
+                Some((callee.raw() as usize, value.raw() as usize))
+            }).unwrap();
+            let mut wrong_argument = program.clone();
+            wrong_argument.store.extra[program.store.data[argument].range().start as usize] = 2;
+            assert!(FullVerifier::verify(&wrong_argument).is_err());
+            let schema::ExprView::Field { base, .. } = decoder.expression_view(callee).unwrap() else { panic!("module field") };
+            let mut wrong_receiver = program.clone();
+            wrong_receiver.store.extra[program.store.data[base.raw() as usize].range().start as usize] = 2;
+            assert!(FullVerifier::verify(&wrong_receiver).is_err());
+            let wrong_name = program.store.strings.iter().position(|range| program.store.string_bytes[range.bounds(program.store.string_bytes.len()).unwrap()] == *b"wrong").unwrap();
+            let mut wrong_target = program.clone();
+            wrong_target.store.extra[program.store.data[callee].range().start as usize + 1] = IrStringId::new(wrong_name).unwrap().raw();
+            assert!(FullVerifier::verify(&wrong_target).is_err());
+            let error = FullVerifier::verify(&without_effect(&program, owner, Effect::Env)).unwrap_err();
+            assert!(error.message.contains("requires effect env"), "{error:?}");
+        }
+    });
+}

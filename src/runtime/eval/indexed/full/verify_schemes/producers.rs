@@ -2949,7 +2949,7 @@ impl<'a> ProducerProof<'a> {
         let base = base.raw() as usize;
         let Some(receiver) = self.need_context(decoder, base)? else { return Ok(None) };
         let Type::Module(module) = receiver.unvalidated() else { return Ok(None) };
-        let Some(ModuleExportType::Callable { kind, sig: signature, optional: false }) = module.exports.get(&Name::intern(name)) else { return Ok(None) };
+        let Some(ModuleExportType::Callable { kind, sig: signature, .. }) = module.exports.get(&Name::intern(name)) else { return Ok(None) };
         let kind = *kind;
         ensure_closed_type(&receiver)?;
         let effects = signature.effects.concrete()
