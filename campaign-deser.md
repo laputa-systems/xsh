@@ -23,12 +23,33 @@ Deliverables:
 
 Launch baseline: `9d893e0075d284db4b158eef419654677e8b1288` on master.
 S0 focused baseline passes: JSON module 18/18 and the selected INI file case 1/1.
-S1/S2 adapter, vendor and host migrations are provisional in one foundation lane.
-No Deser implementation is accepted yet. The performance/deployment
+S1/S2 adapter, vendor and host migrations are committed at `6a4bdfd56` with
+focused proof. `aaeaf17f3` also migrates formal-bridge and statistics JSON
+transport. The combined Change gate exposes an existing empty-map receiver proof
+failure after 913 native stdlib passes and 34 skips. `efb63cab0` (formerly `ac91aa5b0`) safely authenticates
+a fresh empty-map receiver when its domain is known, but the combined retry on
+`f42b527ea` (same implementation as current `f286c59e4`) still fails: 914 pass, 2 fail, 34 skip. Driver proof has lost the
+receiver domain (`Any`); the second causal repair did not restore it. The item
+is parked after two repairs, with a compiler-only failing regression on branch
+`campaign/deser-proof` at `e1974166409cfc22bfec25c1ef165c6598c8259d`.
+Retry requires evidence about driver initializer obligations, payload annotations
+and writer mapping; repeating the optimized gate is not useful.
+The S1/S2 phase exit is not accepted yet. The performance/deployment
 campaign is paused; its outstanding acceptance does not disappear here.
 Current ruling: feature completeness and behavior first, final optimization last.
-Next substantive milestone: the direct adapter plus a real JSON
-cutover, with focused native and host-consumer proof.
+Acceleration ruling: the explained verifier debt blocks acceptance, not isolated
+implementation. Two provisional S3 lanes implement configuration and binary
+backends, while the coordinator owns their shared sink, borrowed emitters and
+public dispatch in a third isolated worktree. Master implementation is frozen
+until a coherent integration wave. No S2/S3 phase pass is claimed.
+The owner pulled additional TODO documentation while the implementation was
+isolated; the master rebase changed commit identifiers but no implementation.
+Shared S3 work is committed through `69f9cff00`, still provisional. The shared
+sink initialization regression was reproduced by JSON/config/binary checks and
+fixed at `388b7d4ce`; JSON sink 3/3, borrowed encoder 5/5 and binary backend
+5/5 now pass focused checks. Configuration has one final depth-control rerun.
+Next substantive milestone: integrate and verify configuration and binary codecs
+through the shared public boundary; retain the broader verifier blocker.
 
 ## Charter
 
@@ -90,6 +111,13 @@ for final verification. No background retry or watcher survives a pause.
   requirement to preserve obsolete implementation quirks.
 - Continue on master. Feature completeness takes priority over waiting on perf.
   Busy timing can defer final acceptance; it cannot stop independent delivery.
+
+### Owner-decided, 2026-10-26 launch
+
+- Local implementation commits and final manual verification are authorized.
+- Laputa verification is not required for this campaign. Keep codec, XSH tool
+  and Linux acceptance in scope. Do not run external Laputa qualification.
+- No macOS host is available. Keep native macOS qualification explicitly open.
 
 ### Prescribed
 
@@ -633,6 +661,9 @@ The inherited 230-pass/two-failure integration attempt remains unqualified.
 One foundation lane owns the adapter and vendoring; the coordinator migrates
 disjoint host consumers. The next acceptance wave is the combined S1/S2 tree.
 No additional codec writers start before that wave passes.
+The owner confirms no macOS test host is available. Native macOS verification
+remains an external final-qualification blocker. Implementation and Linux
+verification continue.
 The native corpus rejects four scratch mutations: a changed JSON value, missing
 child output, a wrong error category and a wrong lowered-record projection.
 Reference executables are retained under `.work/tmp/deser/reference` until parity
@@ -645,6 +676,52 @@ copy under `third_party/rustybench`, migrating only JSON report derives/renderin
 to Deser. Omit the standalone CLI and its fixtures. This necessary host-consumer
 migration adds no production dependency or benchmark framework. The external
 benchmark driver and its repository remain unchanged.
+
+S1/S2 focused checkpoint `6a4bdfd56`: upstream core 403/403 and JSON 39/39;
+direct decoder 3/3 and borrowed runtime/lowered encoder 5/5; native JSON 21/21,
+wire enums 11/11, locale 4/4 and three focused consumers. Host facade, locale,
+route witness, formal bridge, runtime statistics and benchmark-report checks
+pass. XSHT trace 8/8 and coverage 5/5 pass. Actual verification binaries pass
+highlight reconstruction, trace events, native-event reconciliation and
+coverage-output checks. No miniserde package remains in Cargo.lock.
+Shared `cargo check` and the interactive benchmark consumer check pass.
+The first verification build's 4,273,080 KiB peak RSS is resource-admission
+evidence only. It is not a production memory result or timing comparison.
+Compilation limits the loop. Freeze behavior changes before optimized builds
+and batch acceptance. The next phase remains blocked on its Change gate and
+the last two custom host JSON transports, not on more implementation lanes.
+The first pinned Linux Change attempt stops before tests because Cargo denies
+vendored manifest warnings. `a0264db5b` removes redundant readme metadata,
+declares upstream lint ownership and keeps the YAML pilot test-only until S3.
+`CARGO_BUILD_WARNINGS=deny cargo check --locked -p xsh -p xsht -p xshi` then
+passes. Retry the same selected scope after integrating the host transport repair.
+An external pull also adds the documentation-only `757722845` to master during
+execution. Its updated design guidance is read and retained. It changes no
+baseline implementation or frozen cost source.
+`aaeaf17f3` removes formal transport JSON tokenization/punctuation and statistics
+JSON formatting. Formal transport checks pass 7/7, including duplicate/schema
+mutations and existing byte/depth limits. Statistics checks pass 6/6, including
+the unchanged exact allocation-report golden, newline and full-u128 timing
+values. Public signatures and wire schemas remain unchanged in this repair.
+The same 18-case pinned Linux Change gate now runs on the combined source.
+Its native stdlib case reports 913 passes, one failure and 34 skips. The failed
+compound-assignment test reduces to `map.empty().set("entry", [1])`: cold
+verification cannot derive the empty receiver's key/value contract. The retained
+pre-cutover executable reproduces the identical failure without any JSON call.
+An explicitly typed intermediate empty map and a literal-map control pass.
+Treat this as exposed baseline verifier debt blocking the selected gate. Repair
+only this producer-proof gap, preserve cold authority and retain a minimal native
+regression. Other gate cases remain unrun; no S1/S2 phase exit is claimed.
+`ac91aa5b0` authenticates the physical zero-argument MapEmpty constructor against
+its closed method domain, then preserves the existing receiver/argument/effect/
+result checks. The minimal native reproducer fails before repair. New cold
+factory/key/member mutations and the existing cold-collection controls pass.
+An independent focused source review finds no authority bypass. Alias/named-call
+probe failures remain separate baseline debt and are not expanded into a sweep.
+`f42b527ea` retains a nested pretty-output golden. Compact and pretty output for
+18 documents matches the runnable reference byte for byte, including numeric
+boundaries, exponent/negative-zero normalization, controls and Unicode.
+Retry the same combined Change scope before opening S3 writers.
 
 2026-10-25: owner overrides the draft's all-17/published-crate/compatibility
 requirements with a pruned source vendor and hard cutover. Preflight selects
