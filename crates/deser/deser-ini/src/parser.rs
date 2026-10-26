@@ -2,6 +2,14 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
+/// The structured reason for a syntax failure, without changing its kind or display.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyntaxDetail {
+    DuplicateKey,
+}
+
+impl deser_core::ErrorAttachment for SyntaxDetail {}
+
 use deser_core::{Error, ErrorKind};
 
 use crate::de::DeserializerConfig;
@@ -66,11 +74,13 @@ impl<'a> Document<'a> {
         let id = (parent, name);
         if let Some(&node) = self.lookup.get(&id) {
             if self.nodes[node].kind != kind {
-                return Err(Error::with_offset(
+                let mut error = Error::with_offset(
                     ErrorKind::Syntax,
                     format!("`{}` is a key and a section", id.1),
                     range.0,
-                ));
+                );
+                error.set_attachment(SyntaxDetail::DuplicateKey);
+                return Err(error);
             }
             return Ok(node);
         }

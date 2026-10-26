@@ -31,6 +31,15 @@
 //!   be added to them afterwards.
 use std::borrow::Cow;
 
+/// The structured reason for a syntax failure, without changing its kind or display.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyntaxDetail {
+    DuplicateKey,
+    NumberOverflow,
+}
+
+impl deser_core::ErrorAttachment for SyntaxDetail {}
+
 use deser_core::{Error, ErrorKind};
 
 use crate::datetime::{is_datetime_start, parse_datetime};
@@ -155,6 +164,13 @@ impl<'a> Parser<'a> {
     #[cold]
     fn error(&self, pos: usize, msg: &str) -> Error {
         error_at(self.input, pos, ErrorKind::Syntax, msg)
+    }
+
+    #[cold]
+    fn duplicate(&self, pos: usize, msg: &str) -> Error {
+        let mut error = self.error(pos, msg);
+        error.set_attachment(SyntaxDetail::DuplicateKey);
+        error
     }
 
     /// Creates an error for the byte at the current position.
@@ -343,7 +359,7 @@ impl<'a> Parser<'a> {
                     last.span.start,
                     &format!("table `{}` is not an array of tables", last.name),
                 )),
-                Some(Found::Other) => Err(self.error(
+                Some(Found::Other) => Err(self.duplicate(
                     last.span.start,
                     &format!("key `{}` is already defined", last.name),
                 )),
@@ -357,15 +373,15 @@ impl<'a> Parser<'a> {
                     table.span = span;
                     Ok(id)
                 }
-                Some(Found::Table(_)) => Err(self.error(
+                Some(Found::Table(_)) => Err(self.duplicate(
                     last.span.start,
                     &format!("table `{}` is already defined", last.name),
                 )),
-                Some(Found::Array(id)) if self.doc.arrays[id].of_tables => Err(self.error(
+                Some(Found::Array(id)) if self.doc.arrays[id].of_tables => Err(self.duplicate(
                     last.span.start,
                     &format!("`{}` is already defined as array of tables", last.name),
                 )),
-                Some(_) => Err(self.error(
+                Some(_) => Err(self.duplicate(
                     last.span.start,
                     &format!("key `{}` is already defined", last.name),
                 )),
@@ -466,7 +482,7 @@ impl<'a> Parser<'a> {
                     }
                 },
                 Some(_) => {
-                    return Err(self.error(
+                    return Err(self.duplicate(
                         key.span.start,
                         &format!("key `{}` is already defined", key.name),
                     ));
@@ -635,7 +651,7 @@ impl<'a> Parser<'a> {
                     item: Item { value, span },
                 };
                 if let Err(entry) = self.doc.insert_new(table, entry) {
-                    return Err(self.error(
+                    return Err(self.duplicate(
                         entry.key_span.start,
                         &format!("key `{}` is already defined", entry.key),
                     ));
@@ -691,7 +707,13 @@ impl<'a> Parser<'a> {
         if let Some(value) = parse_simple_number(token) {
             return Ok(value);
         }
-        parse_number(token).map_err(|(kind, msg)| error_at(self.input, start, kind, msg))
+        parse_number(token).map_err(|(kind, msg)| {
+            if kind == ErrorKind::OutOfRange {
+                let mut error = error_at(self.input, start, ErrorKind::Syntax, msg);
+                error.set_attachment(SyntaxDetail::NumberOverflow);
+                error
+            } else { error_at(self.input, start, kind, msg) }
+        })
     }
 
     /// Parses a basic string (the current byte is `"`).
@@ -1048,7 +1070,7 @@ fn parse_number(token: &str) -> Result<Value<'static>, NumberError> {
         }
         return match u64::from_str_radix(&strip_underscores(digits), radix) {
             Ok(value) => Ok(int_value(false, value)),
-            Err(_) => Err((ErrorKind::Syntax, "integer out of range")),
+            Err(_) => Err((ErrorKind::OutOfRange, "integer out of range")),
         };
     }
 
@@ -1070,10 +1092,10 @@ fn parse_number(token: &str) -> Result<Value<'static>, NumberError> {
                 } else if value <= i64::MIN.unsigned_abs() {
                     Ok(int_value(true, value))
                 } else {
-                    Err((ErrorKind::Syntax, "integer out of range"))
+                    Err((ErrorKind::OutOfRange, "integer out of range"))
                 }
             }
-            Err(_) => Err((ErrorKind::Syntax, "integer out of range")),
+            Err(_) => Err((ErrorKind::OutOfRange, "integer out of range")),
         };
     }
 
@@ -1100,7 +1122,7 @@ fn parse_number(token: &str) -> Result<Value<'static>, NumberError> {
     // the exponent for the float parser.
     let value: f64 = strip_underscores(token).parse().map_err(|_| INVALID)?;
     if value.is_infinite() {
-        return Err((ErrorKind::Syntax, "float out of range"));
+        return Err((ErrorKind::OutOfRange, "float out of range"));
     }
     Ok(Value::Float(value))
 }

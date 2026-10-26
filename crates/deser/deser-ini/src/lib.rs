@@ -169,6 +169,7 @@
 
 mod de;
 mod parser;
+pub use self::parser::SyntaxDetail;
 mod ser;
 mod stream;
 

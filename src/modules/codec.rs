@@ -1,3 +1,4 @@
+pub(crate) mod config;
 use crate::runtime::value::{FloatValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use deser::{Atom, Deserialize, Error, ErrorKind, State};

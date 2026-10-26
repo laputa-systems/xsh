@@ -1,271 +1,101 @@
 test test_ini_decode_encode_and_files { |ctx|
-  let config = ini.decode("""global: root
+  let config = ini.decode("""Global: root
 [server]
 Host = example.test
 message = hello
   world
 """)?
-
-  assert config.global == "root"
-  assert json.get(config, ["server", "host"])? == "example.test"
-
-  assert json.get(config, ["server", "message"])? == """hello
-world"""
-
-  let encoded = ini.encode({server: {message: json.get(config, ["server", "message"])?, host: json.get(config, ["server", "host"])?}, global: config.global})?
-  assert "global = root" in encoded
-  assert "[server]" in encoded
-  assert "host = example.test" in encoded
-  let config_path = test.temp_path(ctx, name: "app.ini")
-  ini.write(config_path, {global: "root", server: {host: "example.test"}})
-  let read_back = ini.read(config_path)?
-  assert json.get(read_back, ["server", "host"])? == "example.test"
-  test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")
-
-  # Encoding fails before overwrite policy examines the existing destination.
-  test.error_kind(ini.write(config_path, {global: 1}, overwrite: false), "ini-encode")
-  assert ini.read(config_path)?.global == "root"
+  assert config.Global == "root"
+  assert json.get(config, ["server", "Host"])? == "example.test"
+  assert json.get(config, ["server", "message"])? == "hello\nworld"
+  let encoded = ini.encode({Global: config.Global, server: {Host: json.get(config, ["server", "Host"])?, message: json.get(config, ["server", "message"])?}})?
+  assert "Global = root" in encoded
+  assert "Host = example.test" in encoded
+  assert json.encode(ini.decode(encoded)?)? == json.encode(config)?
+  let path = test.temp_path(ctx, name: "app.ini")
+  ini.write(path, {Global: "root", server: {Host: "example.test"}})
+  assert json.get(ini.read(path)?, ["server", "Host"])? == "example.test"
+  test.error_kind(ini.write(path, {Global: "again"}, overwrite: false), "ini-write")
+  test.error_kind(ini.write(path, {Global: 1}, overwrite: false), "CodecError.UnsupportedValue")
+  assert ini.read(path)?.Global == "root"
+  ini.write(path, {Global: "replaced"})
+  assert ini.read(path)?.Global == "replaced"
 }
 
-# The message of a rejected encode, or the empty string when the record encoded.
-# `test.error_kind` compares kinds only, so message parity is asserted through
-# this.
-pure encode_message(result: Result[Str]) -> Str {
-  match result {
-    Ok(_) => ""
-    Err(error) => error.message
-  }
+test test_ini_common_dialect_preserves_case_quotes_comments_and_strings {
+  let config = ini.decode("""Host = first
+host = second
+port = 8080
+truth = true
+quoted = "  value ; # quoted  "
+inline = plain ; comment
+hash = plain # comment
+semicolon = one;two
+color = #ff0000
+[Section]
+Name = 'worker'
+[Section]
+Jobs = 2
+""")?
+  assert config.Host == "first"
+  assert config.host == "second"
+  assert config.port.require(Str)? == "8080"
+  assert config.truth.require(Str)? == "true"
+  test.error_kind(config.port.require(Int), "schema")
+  assert config.quoted == "  value ; # quoted  "
+  assert config.inline == "plain"
+  assert config.hash == "plain"
+  assert config.semicolon == "one;two"
+  assert config.color == "#ff0000"
+  assert json.get(config, ["Section", "Name"])? == "worker"
+  assert json.get(config, ["Section", "Jobs"])? == "2"
+  assert json.get(config, ["section"], null) == null
 }
 
-test test_ini_encode_orders_globals_then_sections {
-  # An empty record emits no lines at all, so there is no final newline either.
+test test_ini_duplicate_and_conflicting_names_fail {
+  test.error_kind(ini.decode("a = first\na = second\n"), "CodecError.DuplicateKey")
+  test.error_kind(ini.decode("[s]\na = first\na = second\n"), "CodecError.DuplicateKey")
+  test.error_kind(ini.decode("[s]\na = first\n[s]\na = second\n"), "CodecError.DuplicateKey")
+  test.error_kind(ini.decode("server = global\n[server]\nhost = worker\n"), "CodecError.DuplicateKey")
+  test.error_kind(ini.decode("[broken"), "CodecError.Syntax")
+  test.error_kind(ini.decode("bare-key\n"), "CodecError.Syntax")
+}
+
+test test_ini_encode_orders_globals_then_sections_and_preserves_names {
   assert ini.encode({})? == ""
-
-  # Only global keys: one `key = value` line each, in key order.
-  assert ini.encode({b: "2", a: "1"})? == """a = 1
-b = 2
-"""
-
-  # Only one section: its header, then its keys in key order. An empty section
-  # is its header alone.
-  assert ini.encode({server: {host: "example.test"}})? == """[server]
-host = example.test
-"""
-  assert ini.encode({s: {}})? == """[s]
-"""
-
-  # Mixed: one blank line separates the global block from the first section.
-  assert ini.encode({global: "root", server: {host: "example.test"}})? == """global = root
-
-[server]
-host = example.test
-"""
-
-  # Multiple sections: one blank line between consecutive sections, including
-  # when a section is empty, and one final newline terminating the last line.
-  assert ini.encode({s2: {b: "2"}, s1: {a: "1"}})? == """[s1]
-a = 1
-
-[s2]
-b = 2
-"""
-  assert ini.encode({g: "1", s1: {}, s2: {}})? == """g = 1
-
-[s1]
-
-[s2]
-"""
-  assert ini.encode({a: "1", b: {c: "2"}, d: "3", e: {f: "4"}})? == """a = 1
-d = 3
-
-[b]
-c = 2
-
-[e]
-f = 4
-"""
+  assert ini.encode({b: "2", a: "1"})? == "a = 1\nb = 2\n"
+  assert ini.encode({Global: "root", server: {Host: "worker"}})? == "Global = root\n\n[server]\nHost = worker\n"
+  assert ini.encode({s: {Host: "1", host: "2"}})? == "[s]\nHost = 1\nhost = 2\n"
+  assert ini.encode({s: {host: "2", Host: "1"}})? == "[s]\nHost = 1\nhost = 2\n"
+  assert ini.encode({s2: {b: "2"}, s1: {a: "1"}})? == "[s1]\na = 1\n\n[s2]\nb = 2\n"
+  assert ini.encode({s: {}})? == "[s]\n"
 }
 
-test test_ini_encode_normalizes_section_keys {
-  # Global keys keep their spelling; section keys are lowercased. The two
-  # normalizations are independent, so a global key is never lowercased.
-  assert ini.encode({Host: "1"})? == """Host = 1
-"""
-  assert ini.encode({s: {Host: "1"}})? == """[s]
-host = 1
-"""
-
-  # A field replaces an earlier field with the same normalized key, and the
-  # survivor is emitted once. Fields are visited in key order, not source
-  # order, so the field whose spelling sorts last wins: among case variants
-  # that is always the lowercase spelling, because uppercase letters sort
-  # before lowercase ones.
-  assert ini.encode({s: {Host: "1", host: "2"}})? == """[s]
-host = 2
-"""
-  assert ini.encode({s: {host: "2", Host: "1"}})? == """[s]
-host = 2
-"""
-  assert ini.encode({s: {Host: "1", host: "2", HOST: "3"}})? == """[s]
-host = 2
-"""
-  assert ini.encode({s: {_A: "1", _a: "2"}})? == """[s]
-_a = 2
-"""
-
-  # Output order is the normalized key order, which is not always the order of
-  # the spellings that produced it: `A` and `a` collide even though `B` sorts
-  # between them, and `Z` lowercases past `_a`.
-  assert ini.encode({s: {A: "1", B: "2", a: "3"}})? == """[s]
-a = 3
-b = 2
-"""
-  assert ini.encode({s: {Z: "1", _a: "2"}})? == """[s]
-_a = 2
-z = 1
-"""
-
-  # Keys outside the ASCII letter range are part of the key, not separators.
-  assert ini.encode({s: {"a b": "1", "k=v": "2"}})? == """[s]
-a b = 1
-k=v = 2
-"""
+test test_ini_encode_quotes_and_continuations_roundtrip {
+  let config = {Empty: "", leading: " space", comment: "x ; y", quote: "\"quoted\"", path: "back\\slash", section: {message: "hello\nworld", blanks: "x\n\ny"}}
+  let encoded = ini.encode(config)?
+  assert json.encode(ini.decode(encoded)?)? == json.encode(config)?
+  assert "leading = \" space\"" in encoded
+  assert "comment = \"x ; y\"" in encoded
+  assert json.get(ini.decode("[s]\nmessage = hello\n    world\n")?, ["s", "message"])? == "hello\nworld"
+  test.error_kind(ini.encode({trailing: "x\n"}), "CodecError.UnsupportedValue")
 }
 
-test test_ini_encode_rejects_invalid_names {
-  # A global key is validated exactly as written; an empty key and a key
-  # holding NUL, newline, `[`, or `]` are rejected.
-  test.error_kind(ini.encode({"a[b": "1"}), "ini-key")
-  assert encode_message(ini.encode({"a[b": "1"})) == "invalid INI key"
-  test.error_kind(ini.encode({"": "1"}), "ini-key")
-  assert encode_message(ini.encode({"": "1"})) == "invalid INI key"
-  test.error_kind(ini.encode({"a]b": "1"}), "ini-key")
-  test.error_kind(
-    ini.encode({
-      "a\nb": "1",
-    }),
-    "ini-key",
-  )
-
-  # A section key is validated after normalization, so a rejected key reports
-  # the lowercase spelling under the `ini-key` kind.
-  test.error_kind(ini.encode({s: {"a[b": "1"}}), "ini-key")
-  assert encode_message(ini.encode({s: {"a[b": "1"}})) == "invalid INI key"
-  test.error_kind(ini.encode({s: {"": "1"}}), "ini-key")
-  test.error_kind(ini.encode({s: {"a]b": "1"}}), "ini-key")
-  test.error_kind(
-    ini.encode({
-      s: {
-        "a\nb": "1",
-      },
-    }),
-    "ini-key",
-  )
-
-  # Section names keep their spelling and carry their own kind.
-  test.error_kind(ini.encode({"a[b": {h: "1"}}), "ini-section")
-  assert encode_message(ini.encode({"a[b": {h: "1"}})) == "invalid INI section"
-  test.error_kind(ini.encode({"": {h: "1"}}), "ini-section")
-  test.error_kind(ini.encode({"a]b": {h: "1"}}), "ini-section")
-  test.error_kind(
-    ini.encode({
-      "a\nb": {
-        h: "1",
-      },
-    }),
-    "ini-section",
-  )
-
-  # The whole record is collected before any global key is validated, so a
-  # section-field rejection outranks a global-key rejection even when the
-  # offending global key sorts first.
-  test.error_kind(ini.encode({"a[b": "1", s: {c: 2}}), "ini-encode")
-  assert encode_message(ini.encode({"a[b": "1", s: {c: 2}})) == "INI section values must be strings"
-}
-
-test test_ini_encode_rejects_non_string_values {
-  # A top-level field must be a global string or a section record.
-  test.error_kind(ini.encode({a: 1}), "ini-encode")
-  assert encode_message(ini.encode({a: 1})) == "INI records may contain only global string keys or section records"
-  test.error_kind(ini.encode({a: true}), "ini-encode")
-  test.error_kind(ini.encode({a: null}), "ini-encode")
-  test.error_kind(ini.encode({a: [1, 2]}), "ini-encode")
-
-  # A map is not a section record.
-  let empty_map: Map[Str] = {}
-  test.error_kind(ini.encode({s: empty_map}), "ini-encode")
-  assert encode_message(ini.encode({s: empty_map})) == "INI records may contain only global string keys or section records"
-
-  # A section field must be a string.
-  test.error_kind(ini.encode({s: {a: 1}}), "ini-encode")
-  assert encode_message(ini.encode({s: {a: 1}})) == "INI section values must be strings"
-  test.error_kind(ini.encode({s: {a: true}}), "ini-encode")
-  test.error_kind(ini.encode({s: {a: null}}), "ini-encode")
-  test.error_kind(ini.encode({s: {a: [1]}}), "ini-encode")
-
-  # The check runs in the section's key order, so `a` is judged before `c`:
-  # the rejected value is reported, and the invalid key beside it is not
-  # reached. The key is a string field because `c]d` is not an identifier —
-  # which is exactly why the encoder has to validate it.
-  test.error_kind(ini.encode({s: {"c]d": "2", a: 1}}), "ini-encode")
-  assert encode_message(ini.encode({s: {"c]d": "2", a: 1}})) == "INI section values must be strings"
-}
-
-test test_ini_encode_writes_multiline_values {
-  # Embedded newlines become two-space continuation lines, so the value reads
-  # back as the same string.
-  assert ini.encode({
-    a: """hello
-world""",
-  })? == """a = hello
-  world
-"""
-  assert ini.encode({
-    s: {
-      message: """hello
-world""",
-    },
-  })? == """[s]
-message = hello
-  world
-"""
-  assert ini.encode({
-    a: """x
-
-y""",
-  })? == """a = x
-  
-  y
-"""
-
-  # A value that ends in a newline emits a continuation line holding only the
-  # indent, and an empty value keeps the key line with an empty right side.
-  assert ini.encode({
-    a: """x
-""",
-  })? == """a = x
-  
-"""
-  assert ini.encode({a: ""})? == """a = 
-"""
-
-  # The last line ends with exactly one newline, and the result re-decodes to
-  # the value it was built from.
-  assert ini.encode({a: "1"})? == """a = 1
-"""
-  assert ini.encode({a: "1"})?.ends_with("""
-
-""") == false
-  let round_trip = ini.decode(
-    ini.encode({
-  global: "root",
-  server: {
-    message: """hello
-world""",
-  },
-})?,
-  )?
-  assert round_trip.global == "root"
-  assert json.get(round_trip, ["server", "message"])? == """hello
-world"""
+test test_ini_encode_rejects_unrepresentable_names_and_values {
+  test.error_kind(ini.encode({"": "x"}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({"a=b": "x"}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({"a:b": "x"}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({"[name": "x"}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({"a\nb": "x"}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({a: 1}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({a: true}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({a: null}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({a: [1]}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({s: {a: 1}}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({s: {a: true}}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({s: {a: null}}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({s: {a: b"bytes"}}), "CodecError.UnsupportedValue")
+  test.error_kind(ini.encode({s: {nested: {a: "value"}}}), "CodecError.UnsupportedValue")
+  let accepted = {s: {"a[b": "1"}, "a]b": {name: "worker"}}
+  assert json.encode(ini.decode(ini.encode(accepted)?)?)? == json.encode(accepted)?
 }

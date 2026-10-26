@@ -10,3 +10,4 @@ mod test_io;
 mod test_locations;
 mod test_ser;
 mod test_well_known;
+mod test_syntax_details;

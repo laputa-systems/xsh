@@ -40,6 +40,8 @@ const DEFAULT_ALIAS_LIMIT: usize = 1_000_000;
 pub struct DeserializerConfig {
     version: Version,
     alias_limit: usize,
+    required_version: Option<Version>,
+    reject_merge_conflicts: bool,
     merge_keys: bool,
 
     context: deser_core::Context,
@@ -57,6 +59,8 @@ impl DeserializerConfig {
         DeserializerConfig {
             version: Version::V1_2,
             alias_limit: DEFAULT_ALIAS_LIMIT,
+            required_version: None,
+            reject_merge_conflicts: false,
             merge_keys: true,
 
             context: deser_core::Context::new(),
@@ -104,6 +108,18 @@ impl DeserializerConfig {
     /// default is [`Version::V1_2`].
     pub const fn set_version(&mut self, version: Version) {
         self.version = version;
+    }
+
+    /// Requires documents to use the selected version, including explicit directives.
+    /// The default `None` permits a document to select its version.
+    pub const fn set_required_version(&mut self, version: Option<Version>) {
+        self.required_version = version;
+    }
+
+    /// Rejects a merged key that an explicit entry or earlier merge already supplied.
+    /// The default `false` retains YAML merge precedence.
+    pub const fn set_reject_merge_conflicts(&mut self, reject: bool) {
+        self.reject_merge_conflicts = reject;
     }
 
     /// Limits the number of events that aliases can expand to per document.
@@ -213,6 +229,18 @@ impl DeserializerConfigBuilder {
     /// See [`DeserializerConfig::set_version`].
     pub const fn version(mut self, version: Version) -> DeserializerConfigBuilder {
         self.value.set_version(version);
+        self
+    }
+
+    /// Requires documents to use the selected version, including explicit directives.
+    pub const fn required_version(mut self, version: Option<Version>) -> DeserializerConfigBuilder {
+        self.value.set_required_version(version);
+        self
+    }
+
+    /// Rejects keys supplied by both explicit entries and merge sources.
+    pub const fn reject_merge_conflicts(mut self, reject: bool) -> DeserializerConfigBuilder {
+        self.value.set_reject_merge_conflicts(reject);
         self
     }
 
@@ -739,10 +767,19 @@ impl<'a> Deserializer<'a> {
 
         let event = self.next_event()?;
         let version = match event.kind {
-            EventKind::DocumentStart { version, .. } => match version {
-                Some((1, minor)) if minor < 2 => Version::V1_1,
-                Some(_) => Version::V1_2,
-                None => self.config.version,
+            EventKind::DocumentStart { version, .. } => {
+                let resolved = match version {
+                    Some((1, minor)) if minor < 2 => Version::V1_1,
+                    Some(_) => Version::V1_2,
+                    None => self.config.version,
+                };
+                if let Some(required) = self.config.required_version
+                    && (resolved != required || version.is_some_and(|declared| !matches!((required, declared),
+                        (Version::V1_1, (1, 1)) | (Version::V1_2, (1, 2)))))
+                {
+                    return Err(error_at(event.start, "document declares a prohibited YAML version"));
+                }
+                resolved
             },
             EventKind::StreamEnd => {
                 // stay at the end of the stream
@@ -851,6 +888,9 @@ impl<'a> Deserializer<'a> {
                     } = node
                 {
                     if is_merge_key(tag, style, value) {
+                        if self.config.reject_merge_conflicts && !frame.sources.is_empty() {
+                            return Err(Error::new(ErrorKind::DuplicateKey, "YAML map repeats its merge key"));
+                        }
                         frame.expect_key = false;
                         merge_value_follows = true;
                         continue;
@@ -1070,7 +1110,9 @@ impl<'a> Deserializer<'a> {
                     if let Some(id) = KeyId::of_scalar(key_tag, style, key_value, version)
                         && !keys.insert(id)
                     {
-                        // the map (or an earlier source) has the key
+                        if self.config.reject_merge_conflicts {
+                            return Err(Error::new(ErrorKind::DuplicateKey, "YAML merge repeats a mapping key"));
+                        }
                         continue;
                     }
                 }

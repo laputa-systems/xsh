@@ -110,6 +110,7 @@ mod datetime;
 mod de;
 mod document;
 mod parser;
+pub use self::parser::SyntaxDetail;
 mod scan;
 mod ser;
 mod stream;

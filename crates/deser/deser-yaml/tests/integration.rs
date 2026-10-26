@@ -10,3 +10,4 @@ mod test_locations;
 mod test_parser;
 mod test_schema;
 mod test_ser;
+mod test_strict;
