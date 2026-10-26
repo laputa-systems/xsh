@@ -1241,24 +1241,27 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
 
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
     const MAX_COMPACT_RECORD_FIELDS: usize = 16;
-    if value.len() > MAX_COMPACT_RECORD_FIELDS {
-        let mut record = BTreeMap::new();
+    if value.len() <= MAX_COMPACT_RECORD_FIELDS
+        && value.owned_key_iter().all(|(key, _)| Name::lookup_owned(key.as_str()).is_some())
+    {
+        let mut record = Vec::with_capacity(value.len());
         for (key, value) in value.owned_key_iter() {
-            record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
+            let name = Name::lookup_owned(key.as_str()).expect("record key belongs to the active owner");
+            record.push((name, lowered_value_from_runtime_any(value)?));
         }
-        return Some(LoweredValue::Record(Arc::new(record)));
+        record.sort_by_key(|(key, _)| *key);
+        record.dedup_by(|later, retained| {
+            if later.0 != retained.0 { return false; }
+            std::mem::swap(&mut later.1, &mut retained.1);
+            true
+        });
+        return Some(LoweredValue::RecordVec(Arc::new(record)));
     }
-    let mut record = Vec::with_capacity(value.len());
+    let mut record = BTreeMap::new();
     for (key, value) in value.owned_key_iter() {
-        record.push((Name::intern(key.as_str()), lowered_value_from_runtime_any(value)?));
+        record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
     }
-    record.sort_by_key(|(key, _)| *key);
-    record.dedup_by(|later, retained| {
-        if later.0 != retained.0 { return false; }
-        std::mem::swap(&mut later.1, &mut retained.1);
-        true
-    });
-    Some(LoweredValue::RecordVec(Arc::new(record)))
+    Some(LoweredValue::Record(Arc::new(record)))
 }
 
 pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
@@ -3177,7 +3180,7 @@ mod record_update_tests {
     }
 
     #[test]
-    fn runtime_record_projection_preserves_compact_fields_and_value_semantics() {
+    fn runtime_record_projection_keeps_foreign_keys_string_owned() {
         let source_symbols = crate::symbol::SymbolOwner::new();
         let record = source_symbols.with_current(|| {
             let shape = RecordShape::new(vec![Arc::from("zeta"), Arc::from("alpha λ")]);
@@ -3187,18 +3190,38 @@ mod record_update_tests {
         let symbols = crate::symbol::SymbolOwner::new();
         let _symbols = symbols.enter();
         let span = Span::new(SourceId::new(0), 0, 1);
+        let before = symbols.dynamic_stats();
         let lowered = lowered_record_from_runtime(&record).unwrap();
+        assert_eq!(symbols.dynamic_stats(), before);
         assert_eq!(lowered.clone().into_value(), Value::Record(record.clone()));
-        let LoweredValue::RecordVec(fields) = &lowered else {
-            panic!("runtime records must retain compact field storage");
+        let LoweredValue::Record(fields) = &lowered else {
+            panic!("foreign data keys must retain string ownership");
         };
-        assert_eq!(fields.iter().map(|(name, _)| name.as_str().to_string()).collect::<Vec<_>>(), ["alpha λ", "zeta"]);
+        assert_eq!(fields.keys().map(|name| name.as_ref()).collect::<Vec<_>>(), ["alpha λ", "zeta"]);
         let original = lowered.clone();
         let updated = lowered_record_update_batch(lowered, vec![(vec![Name::intern("alpha λ")], LoweredValue::Str(Arc::from("changed")), span)], span).unwrap();
         assert_eq!(original.into_value(), Value::Record(record));
         let Value::Record(updated) = updated.into_value() else { panic!("updated record"); };
         assert_eq!(updated.get("alpha λ"), Some(&Value::Str(Arc::from("changed"))));
         assert_eq!(updated.get("zeta"), Some(&Value::Int(7)));
+    }
+
+    #[test]
+    fn runtime_record_projection_compacts_program_owned_keys() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        Name::intern("program_projection_zeta");
+        Name::intern("program_projection_alpha λ");
+        let record = RecordMap::from([
+            (Arc::from("program_projection_zeta"), Value::Int(7)),
+            (Arc::from("program_projection_alpha λ"), Value::Int(9)),
+        ]);
+        let before = symbols.dynamic_stats();
+        let lowered = lowered_record_from_runtime(&record).unwrap();
+        assert_eq!(symbols.dynamic_stats(), before);
+        let LoweredValue::RecordVec(fields) = &lowered else { panic!("program-owned compact record"); };
+        assert_eq!(fields.iter().map(|(name, _)| name.as_str().to_string()).collect::<Vec<_>>(), ["program_projection_alpha λ", "program_projection_zeta"]);
+        assert_eq!(lowered.into_value(), Value::Record(record));
     }
 
     #[test]

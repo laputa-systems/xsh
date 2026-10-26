@@ -39,6 +39,31 @@ mod tests {
     }
 
     #[test]
+    fn sequence_frames_keep_data_names_out_of_the_program_owner_after_recovery() {
+        let program = crate::symbol::SymbolOwner::new();
+        let _scope = program.enter();
+        let before = program.dynamic_stats();
+        let stream = decode_text(Format::Json, concat!(
+            "{\"codec_frame_owned_key_first_z94\":1}\n",
+            "{\"codec_frame_discarded_parent_z94\":{\"codec_frame_discarded_child_z94\":1},\"broken\":}\n",
+            "{\"codec_frame_owned_key_last_z94\":2}\n",
+        ).into(), span()).unwrap();
+        for (key, expected) in [("codec_frame_owned_key_first_z94", 1), ("codec_frame_owned_key_last_z94", 2)] {
+            if expected == 2 {
+                assert!(matches!(stream.next_live(span()).unwrap(), Some(Value::Result(ResultValue::Err(_)))));
+                assert_eq!(program.dynamic_stats(), before);
+            }
+            let Some(Value::Result(ResultValue::Ok(value))) = stream.next_live(span()).unwrap() else { panic!("decoded frame"); };
+            let Value::Record(fields) = value.as_ref() else { panic!("decoded record"); };
+            assert_eq!(fields.get(key), Some(&Value::Int(expected)));
+            assert_eq!(program.dynamic_stats(), before);
+            drop(value);
+            assert_eq!(program.dynamic_stats(), before);
+        }
+        assert_eq!(stream.next_live(span()).unwrap(), None);
+    }
+
+    #[test]
     fn sequence_json_lines_recovers_and_keeps_stream_locations() {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();

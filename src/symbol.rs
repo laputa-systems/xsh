@@ -305,6 +305,19 @@ impl Name {
     pub const REL_PATH: Self = Self(Symbol::from_raw(28));
     pub const RESULT: Self = Self(Symbol::from_raw(29));
 
+    pub(crate) fn lookup_owned(text: &str) -> Option<Self> {
+        if let Some(symbol) = preloaded_symbol(text) {
+            return Some(Self(symbol));
+        }
+        with_current_symbol_owner(|owner| {
+            let owner = owner?;
+            let symbols = owner.0.symbols.read().expect("symbol owner poisoned");
+            let interner = interner().read().expect("symbol interner poisoned");
+            let symbol = interner.get(text)?;
+            symbols.contains_key(&symbol).then_some(Self(symbol))
+        })
+    }
+
     pub fn intern(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();
         if let Some(symbol) = preloaded_symbol(text) {
@@ -873,6 +886,26 @@ mod tests {
             assert_eq!(first.as_str(), "demo_dynamic_name");
             assert!(!first.is_preloaded());
         });
+    }
+
+    #[test]
+    fn owned_lookup_never_enrolls_foreign_or_missing_names() {
+        let program = SymbolOwner::new();
+        let foreign = SymbolOwner::new();
+        let owned = program.intern("lookup_owned_program_field");
+        foreign.intern("lookup_owned_foreign_field");
+        program.with_current(|| {
+            let before = program.dynamic_stats();
+            assert_eq!(Name::lookup_owned("Int"), Some(Name::INT));
+            assert_eq!(Name::lookup_owned("lookup_owned_program_field"), Some(owned));
+            assert_eq!(Name::lookup_owned("lookup_owned_foreign_field"), None);
+            assert_eq!(Name::lookup_owned("lookup_owned_missing_field"), None);
+            assert_eq!(program.dynamic_stats(), before);
+        });
+        drop(foreign);
+        assert!(interner().read().unwrap().get("lookup_owned_foreign_field").is_none());
+        assert_eq!(Name::lookup_owned("lookup_owned_program_field"), None);
+        assert_eq!(Name::lookup_owned("Int"), Some(Name::INT));
     }
 
     // A thread keeps copies of the spellings it resolved; a slot that a later

@@ -250,18 +250,22 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
         self.flush()?;
         Ok(Decoded::deserialize_into(&mut self.slot, state))
     }
-    fn finish(&mut self, _: &mut State) -> Result<(), Error> {
+    fn finish(&mut self, state: &mut State) -> Result<(), Error> {
         self.flush()?;
         let value = match self.value.take().expect("decoded value") {
-            Value::Record(RecordMap::Dynamic(fields)) => Value::Record(RecordMap::from_name_values(
-                fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
-            )),
+            Value::Record(RecordMap::Dynamic(fields)) => state.get_mut::<crate::symbol::SymbolOwner>().with_current(|| {
+                Value::Record(RecordMap::from_name_values(
+                    fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
+                ))
+            }),
             Value::Map(fields) if !fields.is_empty() && fields.keys().all(|key| key.as_str().is_some()) => {
-                let values = fields.into_iter().map(|(key, value)| {
-                    let MapKey::Str(key) = key else { unreachable!("string-keyed binary map") };
-                    (Name::intern(&key), value)
-                }).collect();
-                Value::Record(RecordMap::from_name_values(values))
+                state.get_mut::<crate::symbol::SymbolOwner>().with_current(|| {
+                    let values = fields.into_iter().map(|(key, value)| {
+                        let MapKey::Str(key) = key else { unreachable!("string-keyed binary map") };
+                        (Name::intern(&key), value)
+                    }).collect();
+                    Value::Record(RecordMap::from_name_values(values))
+                })
             }
             value => value,
         };
@@ -365,6 +369,46 @@ mod tests {
     use crate::source::SourceId;
 
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
+
+    #[test]
+    fn decoded_records_own_data_names_without_enrolling_the_calling_program() {
+        let program = crate::symbol::SymbolOwner::new();
+        let key = format!("codec_data_owner_unique_field_z94_{}", std::process::id());
+        let key = key.as_str();
+        let values = program.with_current(|| {
+            let before = program.dynamic_stats();
+            let mut values = Vec::new();
+            for (format, text, expected) in [
+                (Format::Json, format!("{{\"{key}\":7}}"), Value::Int(7)),
+                (Format::Yaml, format!("{key}: 7\n"), Value::Int(7)),
+                (Format::Toml, format!("{key} = 7\n"), Value::Int(7)),
+                (Format::Ini, format!("{key}=7\n"), Value::Str("7".into())),
+                (Format::Csv, format!("{key}\n7\n"), Value::Str("7".into())),
+                (Format::Tsv, format!("{key}\n7\n"), Value::Str("7".into())),
+            ] {
+                values.push((decode_text(format, &text, span()).unwrap(), expected));
+                assert_eq!(program.dynamic_stats(), before, "{format:?}");
+                assert_eq!(crate::symbol::SymbolOwner::current().expect("decode restores the calling owner").dynamic_stats(), program.dynamic_stats());
+            }
+            for format in [Format::Cbor, Format::Msgpack] {
+                let encoded = encode_bytes(format, &BTreeMap::from([(key, 7i64)]), false, span()).unwrap();
+                values.push((decode_bytes(format, &encoded, span()).unwrap(), Value::Int(7)));
+                assert_eq!(program.dynamic_stats(), before, "{format:?}");
+                assert_eq!(crate::symbol::SymbolOwner::current().expect("decode restores the calling owner").dynamic_stats(), program.dynamic_stats());
+            }
+            values
+        });
+        drop(program);
+        for (value, expected) in values {
+            let row = match &value {
+                Value::List(rows) => &rows[0],
+                value => value,
+            };
+            let Value::Record(fields) = row else { panic!("decoded record"); };
+            assert_eq!(fields.get(key), Some(&expected));
+            assert_eq!(fields.keys().collect::<Vec<_>>(), vec![key]);
+        }
+    }
 
     #[test]
     fn malformed_text_objects_do_not_intern_unfinished_record_keys() {
