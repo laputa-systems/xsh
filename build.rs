@@ -20,7 +20,7 @@ fn main() {
 
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set"));
     write_symbols(&preloaded_symbol_names(), &root);
-    build_long_double(&root);
+    build_native_boundaries(&root);
 }
 
 fn write_symbols(symbols: &[String], root: &Path) {
@@ -75,8 +75,7 @@ fn write_symbols(symbols: &[String], root: &Path) {
     let _ = root;
 }
 
-// Match the C compiler and target flags selected by the repository build driver.
-fn build_long_double(root: &Path) {
+fn build_native_boundaries(root: &Path) {
     use std::process::Command;
     let target = env::var("TARGET").expect("TARGET set");
     let normalized = target.replace('-', "_");
@@ -106,8 +105,19 @@ fn build_long_double(root: &Path) {
     let mut startup_flags = c_build_words(&setting("CFLAGS").unwrap_or_default());
     startup_flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-c".into(),
         root.join("src/startup_stdio.c").display().to_string(), "-o".into(), out.join("startup_stdio.o").display().to_string()]);
-    run(compiler, startup_flags);
+    run(compiler.clone(), startup_flags);
     println!("cargo:rerun-if-changed=src/startup_stdio.c");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        let include = env::var_os("DEP_MIMALLOC_INCLUDE_DIR").expect("mimalloc header directory set");
+        let mut allocator_flags = c_build_words(&setting("CFLAGS").unwrap_or_default());
+        allocator_flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-I".into(),
+            PathBuf::from(include).display().to_string(), "-c".into(),
+            root.join("src/entrypoints/allocator_purge.c").display().to_string(), "-o".into(), out.join("allocator_purge.o").display().to_string()]);
+        run(compiler, allocator_flags);
+        run(archiver.clone(), vec!["crs".into(), out.join("libxsh_allocator.a").display().to_string(), out.join("allocator_purge.o").display().to_string()]);
+        println!("cargo:rerun-if-changed=src/entrypoints/allocator_purge.c");
+        println!("cargo:rustc-link-lib=static=xsh_allocator");
+    }
     run(archiver, vec!["crs".into(), out.join("libxsh_numeric.a").display().to_string(), out.join("long_double.o").display().to_string(), out.join("startup_stdio.o").display().to_string()]);
     println!("cargo:rerun-if-changed=src/modules/numeric/long_double.c");
     println!("cargo:rustc-link-search=native={}", out.display());
