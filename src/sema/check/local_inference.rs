@@ -268,6 +268,7 @@ impl Checker {
             }
         }
         self.resolve_pending_call_instantiations();
+        self.validate_unresolved_host_receivers();
     }
 
     pub(super) fn record_inert_local_discard(
@@ -1255,6 +1256,28 @@ mod tests {
         let view = session.view_for_root(arena.statements, source_id);
         let output = session.check_view(&view, super::super::CheckOptions::default());
         check(&output);
+    }
+
+    #[test]
+    fn unresolved_propagated_method_receivers_report_before_publication() {
+        for source in [
+            r#"pure fail() -> Result[Unit] { Err(error.failure("failed"))?.context("stage") }"#,
+            r#"pure fail() -> Result[Unit] { let original: Result[Unit] = Err(error.failure("failed"))?.context("stage"); original }"#,
+            r#"pure fail() -> Result[Unit] { let receiver = Err(error.failure("failed"))?; receiver.context("stage") }"#,
+        ] {
+            with_checked_local_source(source, |checked| {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.message == "method `context` receiver needs an annotation"), "{source}\n{:?}", checked.diagnostics);
+            });
+        }
+    }
+
+    #[test]
+    fn unresolved_method_receiver_publication_preserves_existing_errors() {
+        with_checked_local_source(r#"pure fail() -> Result[Unit] { missing.context("stage") }"#, |checked| {
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedName)), "{:?}", checked.diagnostics);
+            assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
+        });
     }
 
     #[test]

@@ -2601,6 +2601,44 @@ driver()?
     }
 
     #[test]
+    fn resolved_result_context_receivers_preserve_inference_and_cold_contracts() {
+        let mut program = prepare(r#"
+pure relay(value, stage) -> Result[Unit] { value.context(stage) }
+pure inferred() -> Result[Unit] { relay(Err(error.failure("failed")), "stage") }
+pure dynamic(value: Any) -> Result[Unit] { value.require(Result[Unit])?.context("stage") }
+pure closure(values: List[Result[Unit]]) { values |> map { |value| value.context("stage") } }
+pure nested(wrong: Unit) -> Result[Unit] {
+    let _ = wrong
+    let spare = "trim"
+    let original: Result[Result[Unit]] = Err(error.failure("failed"))
+    original?.context("stage")
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "nested").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let method = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "context", .. }))).unwrap();
+        let spelling = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("trim")))).unwrap();
+        let mut wrong_method = program.clone();
+        let method_payload = program.store.data[method].range().start as usize;
+        wrong_method.store.extra[method_payload + 1] = program.store.extra[program.store.data[spelling].range().start as usize];
+        let error = FullVerifier::verify(&wrong_method).unwrap_err();
+        assert!(error.message.contains("contract"), "{error:?}");
+        let schema::ExprView::Method { receiver, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let schema::ExprView::Try { value, .. } = decoder.expression_view(receiver.raw() as usize).unwrap() else { unreachable!() };
+        let mut wrong_receiver = program.clone();
+        let schema::ExprView::Param(slot) = decoder.expression_view(value.raw() as usize).unwrap() else { unreachable!() };
+        assert_ne!(slot, 0);
+        let operand_payload = program.store.data[value.raw() as usize].range().start as usize;
+        wrong_receiver.store.extra[operand_payload] = 0;
+        let error = FullVerifier::verify(&wrong_receiver).unwrap_err();
+        assert!(error.message.contains("contract") || error.message.contains("propagation"), "{error:?}");
+    }
+
+    #[test]
     fn fresh_result_context_accepts_written_return_consumers() {
         prepare("error Failure = Rejected(message: Str)\npure expected_failure() -> Result[Int, Error] { Err(Failure.Rejected(message: \"closed callback failed\"), cause: error.failure(\"closed cause\")).context(\"closed-observer\", \"closed callback\") }\n");
     }

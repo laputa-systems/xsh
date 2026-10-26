@@ -30,7 +30,14 @@ fn method_candidates(name: &str) -> Vec<HostMethod> {
 #[derive(Clone, Default)]
 pub(in super::super) struct HostObligations {
     entries: Vec<HostObligation>,
+    unresolved_receivers: Vec<UnresolvedHostReceiver>,
     next_position: usize,
+}
+
+#[derive(Clone)]
+struct UnresolvedHostReceiver {
+    call: Span,
+    name: String,
 }
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -289,6 +296,24 @@ impl HostMethodCandidates {
 }
 
 impl Checker {
+    pub(in super::super) fn record_unresolved_host_receiver(&mut self, call: Span, name: &str) {
+        self.local_inference.host_obligations.unresolved_receivers.push(UnresolvedHostReceiver { call, name: name.to_owned() });
+    }
+
+    pub(in super::super) fn validate_unresolved_host_receivers(&mut self) {
+        let pending = std::mem::take(&mut self.local_inference.host_obligations.unresolved_receivers);
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { return; }
+        for receiver in pending {
+            if self.expr_types.get(&receiver.call) != Some(&Type::Unknown)
+                || self.api_calls.contains_key(&receiver.call)
+                || self.typed_callable_calls.contains_key(&receiver.call)
+                || self.selected_function_calls.contains_key(&receiver.call)
+            { continue; }
+            self.error(receiver.call, &format!("method `{}` receiver needs an annotation", receiver.name), DiagnosticCode::CheckLocalInference);
+            self.expr_types.insert(receiver.call, Type::Invalid);
+        }
+    }
+
     fn reserve_host_call_phase(&mut self) -> HostCallPhase {
         HostCallPhase {
             position: self.local_inference.host_obligations.reserve_position(),

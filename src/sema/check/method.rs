@@ -508,9 +508,9 @@ impl Checker {
         if base_ty == Type::Function(crate::sema::types::CallableKind::Pure) {
             return self.check_pure_call_method_arena(arena, source, name, args, span);
         }
-        // Every other concrete receiver has no methods. Accepting the call as
-        // Unknown let it through to preparation (an internal encode error) or
-        // to a runtime type error on a null Optional.
+        if base_ty == Type::Unknown {
+            self.record_unresolved_host_receiver(span, name);
+        }
         if matches!(
             base_ty,
             Type::Unknown | Type::Invalid | Type::Inference(_) | Type::BuiltinParameter(_)
