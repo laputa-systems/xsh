@@ -27,7 +27,7 @@ use super::{
 use super::{test_call_type, test_context_type, test_script_output_type};
 
 pub(in crate::signature) fn build_api_spec() -> ApiSpec {
-    ApiSpec::new(
+    ApiSpec::from_signatures(
         vec![
             ModuleEntry {
                 name: "applet",

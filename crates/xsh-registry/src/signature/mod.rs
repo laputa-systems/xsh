@@ -39,14 +39,39 @@ pub(in crate::signature) use methods::value_methods;
 pub(in crate::signature) use modules::build_api_spec;
 pub use modules::record_docs;
 
-#[derive(Clone, Debug)]
 pub struct ApiSpec {
     pub modules: Vec<ModuleEntry>,
     pub methods: Vec<MethodReceiverSig>,
-    docs: BTreeMap<String, ApiDocs>,
+    docs: OnceLock<BTreeMap<String, ApiDocs>>,
     registered_methods: Vec<RegisteredMethodLocation>,
     registered_method_ids: Vec<BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
     method_family_members: [Vec<RegisteredMethodId>; 5],
+}
+
+impl Clone for ApiSpec {
+    fn clone(&self) -> Self {
+        Self {
+            modules: self.modules.clone(),
+            methods: self.methods.clone(),
+            docs: OnceLock::from(self.documentation().clone()),
+            registered_methods: self.registered_methods.clone(),
+            registered_method_ids: self.registered_method_ids.clone(),
+            method_family_members: self.method_family_members.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ApiSpec {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("ApiSpec")
+            .field("modules", &self.modules)
+            .field("methods", &self.methods)
+            .field("docs", self.documentation())
+            .field("registered_methods", &self.registered_methods)
+            .field("registered_method_ids", &self.registered_method_ids)
+            .field("method_family_members", &self.method_family_members)
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -146,7 +171,12 @@ impl RegisteredMethodId {
 
 impl ApiSpec {
     pub fn new(modules: Vec<ModuleEntry>, methods: Vec<MethodReceiverSig>) -> Self {
-        let docs = docs::build_api_docs(&modules, &methods);
+        let spec = Self::from_signatures(modules, methods);
+        spec.documentation();
+        spec
+    }
+
+    fn from_signatures(modules: Vec<ModuleEntry>, methods: Vec<MethodReceiverSig>) -> Self {
         let mut registered_methods = Vec::new();
         let mut registered_method_ids = Vec::<BTreeMap<_, Vec<_>>>::new();
         let mut method_family_members = std::array::from_fn(|_| Vec::new());
@@ -164,21 +194,27 @@ impl ApiSpec {
                 }
             }
         }
-        let spec = Self {
+        Self {
             modules,
             methods,
-            docs,
+            docs: OnceLock::new(),
             registered_methods,
             registered_method_ids,
             method_family_members,
-        };
-        spec.validate_docs()
-            .expect("standard API registry must have complete documentation");
-        spec
+        }
+    }
+
+    fn documentation(&self) -> &BTreeMap<String, ApiDocs> {
+        self.docs.get_or_init(|| {
+            let docs = docs::build_api_docs(&self.modules, &self.methods);
+            self.validate_docs_map(&docs)
+                .expect("standard API registry must have complete documentation");
+            docs
+        })
     }
 
     pub fn docs(&self, id: &str) -> Option<&ApiDocs> {
-        self.docs.get(id)
+        self.documentation().get(id)
     }
 
     pub fn method_family_id(
@@ -245,10 +281,14 @@ impl ApiSpec {
     }
 
     pub fn docs_entries(&self) -> impl Iterator<Item = (&str, &ApiDocs)> {
-        self.docs.iter().map(|(id, docs)| (id.as_str(), docs))
+        self.documentation().iter().map(|(id, docs)| (id.as_str(), docs))
     }
 
     pub fn validate_docs(&self) -> Result<(), String> {
+        self.validate_docs_map(self.documentation())
+    }
+
+    fn validate_docs_map(&self, docs: &BTreeMap<String, ApiDocs>) -> Result<(), String> {
         let mut expected = BTreeMap::<String, ()>::new();
         for module in &self.modules {
             expected.insert(format!("module.{}", module.name), ());
@@ -263,7 +303,7 @@ impl ApiSpec {
         }
 
         for id in expected.keys() {
-            let Some(docs) = self.docs(id) else {
+            let Some(docs) = docs.get(id) else {
                 return Err(format!("missing API docs for '{id}'"));
             };
             if docs.summary.trim().is_empty() {
@@ -281,7 +321,7 @@ impl ApiSpec {
             }
         }
 
-        for id in self.docs.keys() {
+        for id in docs.keys() {
             if !expected.contains_key(id) {
                 return Err(format!("API docs contain unknown item '{id}'"));
             }
@@ -797,6 +837,32 @@ mod tests {
                 .iter()
                 .all(|sig| sig.sig.semantic_rule == SemanticRule::Standard)
         );
+    }
+
+    #[test]
+    fn public_api_construction_rejects_missing_or_duplicate_docs_eagerly() {
+        let mut undocumented = api_spec().modules[0].clone();
+        undocumented.name = "undocumented-public-module";
+        assert!(std::panic::catch_unwind(|| super::ApiSpec::new(vec![undocumented], vec![])).is_err());
+        let documented = api_spec().modules[0].clone();
+        assert!(std::panic::catch_unwind(|| super::ApiSpec::new(vec![documented.clone(), documented], vec![])).is_err());
+    }
+
+    #[test]
+    fn cloned_api_docs_keep_the_original_catalog_after_signature_mutation() {
+        let original = super::build_api_spec();
+        let mut cloned = original.clone();
+        cloned.modules.clear();
+        cloned.methods.clear();
+        let expected: Vec<_> = original.docs_entries().map(|(id, docs)| (id.to_owned(), docs.clone())).collect();
+        drop(original);
+        let actual: Vec<_> = cloned.docs_entries().map(|(id, docs)| (id.to_owned(), docs.clone())).collect();
+        assert_eq!(actual, expected);
+        assert!(actual.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        for (id, docs) in cloned.docs_entries() {
+            assert!(std::ptr::eq(docs, cloned.docs(id).unwrap()));
+        }
+        assert!(cloned.validate_docs().unwrap_err().starts_with("API docs contain unknown item"));
     }
 
     #[test]
