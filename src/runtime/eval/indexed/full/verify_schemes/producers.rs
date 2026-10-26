@@ -6086,6 +6086,7 @@ impl<'a> ProducerProof<'a> {
                         if fresh_set || empty_collection || matches!((self.store.tags[input], checked.as_ref()),
                             (FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprListComp, Type::List(_))
                             | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprMapComp, Type::Map(_, _))
+                            | (FullTag::ExprRecord, Type::ErasedRecord)
                             | (FullTag::ExprCapture, Type::Result(_, _)))
                         {
                             self.expression(owner, input, Arc::clone(&checked), false);

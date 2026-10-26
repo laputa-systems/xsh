@@ -6068,6 +6068,38 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn required_any_result_preserves_explicit_list_annotation_when_cold() {
+        let mut program = prepare(r#"
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+    let _ = true
+    let stored: Record = {deps: []}
+    let deps: List[Str] = stored.get("deps")?.require(List[Str])?
+    print "deps" deps.len() deps.join(" ")
+    return Ok()
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "main").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let record = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRecord).unwrap();
+        let boolean = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let gate = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { value, .. }) if value.raw() as usize == record)).unwrap();
+        let discard = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::LetRecord { source, target: super::super::super::decode::CompTargetView::Discard, .. }) if source.raw() as usize == boolean)).unwrap();
+        let gate_input = program.store.data[gate].range().start as usize;
+        let discarded = program.store.data[discard].range().start as usize;
+        assert_eq!(program.store.extra[gate_input], record as u32);
+        assert_eq!(program.store.extra[discarded], boolean as u32);
+        let mut forged = program.clone();
+        forged.store.extra.swap(gate_input, discarded);
+        assert!(matches!(decoder_for_function(&forged.store, owner).unwrap().expression_view(gate).unwrap(), schema::ExprView::CheckedValue { value, .. } if value.raw() as usize == boolean));
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("contract"), "{error:?}");
+    }
+
+    #[test]
     fn generic_fsroot_calls_authenticate_native_target_receiver_effects_and_owner() {
         use crate::modules::RuntimeOp;
         let mut program = prepare("proc listed(marker, root: FsRoot, wrong: Str) [fs, error] { let _ = marker; let _ = wrong; root.children(p\".\")? }\npure foreign(value: Str) -> Str { value }\n");
