@@ -212,6 +212,7 @@ fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, ta
                 // the generated forms.
                 let start = match target {
                     "collect_expression"
+                    | "codec_schema_call"
                     | "builder_call"
                     | "builder_block"
                     | "builder_compound_entry"
@@ -398,7 +399,6 @@ fn grammar_rejects_sources_the_parser_rejects() {
         "on TERM { }\n",
         "enum Empty { }\n",
         "f (x\n",
-        "guard x is E.V {} else { }\n",
         "exit when ready\n",
         "fail unless ready\n",
         "exit ?\n",
@@ -428,6 +428,62 @@ fn assert_parser_and_grammar_agree(source: &str, accepted: bool) {
     let tokens = lex_grammar_tokens(source).expect("regression source lexes");
     let recognized = Recognizer::new(grammar()).recognize(&tokens);
     assert_eq!(recognized.is_ok(), accepted, "{source:?}: {recognized:?}");
+}
+
+#[test]
+fn typed_codec_calls_require_ordered_values_and_a_trailing_type() {
+    for source in [
+        "let value = codec.decode_as(\"ini\", \"value=1\", ValueField[Union[Int, Float]])\n",
+        "let value = codec.read_as(format: \"ini\", path: p\"data.ini\", Map[Str, Union[Int, Float]])?\n",
+        "let value = codec . decode_as (\nformat: \"ini\",\ntext: \"value=1\",\nValueField[Union[Int, Float]]\n)\n",
+        "print codec.decode_as(\"ini\", \"value=1\", ValueField[Union[Int, Float]])\n",
+        "let value = codec.decode_as(format: .format, text: .text, Int)\n",
+        "run --timeout=codec.decode_as(\"ini\", \"value=1\", Union[Int, Float]) true\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in [
+        "let value = codec.decode_as(\"ini\", \"value=1\")\n",
+        "let value = codec.decode_as(text: \"value=1\", format: \"ini\", Int)\n",
+        "let value = codec.read_as(format: \"ini\", text: \"value=1\", Int)\n",
+        "let value = codec.decode_as(\"ini\", \"value=1\", 1)\n",
+        "let value = codec.decode_as(.format, \"value=1\", Int)\n",
+        "let value = codec.decode_as(\"ini\", .text, Int)\n",
+        "let value = codec.decode_as(@[\"ini\"], \"value=1\", Int)\n",
+        "let value = codec.decode_as(\"ini\", \"value=1\", Int,)\n",
+        "let value = codec.decode_as(\"ini\", \"value=1\", Int, Str)\n",
+        "print codec. decode_as(\"ini\", \"value=1\", Union[Int, Float])\n",
+        "cd codec. read_as($?, $?, Thing) {}\n",
+        "run --timeout=codec.decode_as(\"ini\", \"value=1\") true\n",
+    ] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
+fn spawned_run_dispatch_does_not_capture_a_run_value_pipeline() {
+    assert_parser_and_grammar_agree("let job = spawn run true ?\n", true);
+    assert_parser_and_grammar_agree("1 + spawn run true ? |> unique-by() {}\n", false);
+}
+
+#[test]
+fn boolean_guards_keep_terminal_builder_blocks_in_the_condition() {
+    for source in [
+        "guard process.command {} else fail 1\n",
+        "guard process.command {} else {}\n",
+        "guard x is E.V {} else { }\n",
+        "guard plan |> . == process.command { run true } else fail 1\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in [
+        "guard process.command {} {}\n",
+        "guard [ -f file ] else {}\n",
+        "if process.command {} else fail 1\n",
+        "while process.command {} else {}\n",
+    ] {
+        assert_parser_and_grammar_agree(source, false);
+    }
 }
 
 #[test]

@@ -221,7 +221,7 @@ impl Parser<'_> {
         keyword: Span,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
-        let condition = self.parse_condition_arena_only(arena)?.id;
+        let condition = self.parse_guard_condition_arena_only(arena)?.id;
         self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
         // After `else` only a block or `fail` can follow, so the word needs
         // no space after it to be the statement.

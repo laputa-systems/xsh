@@ -574,8 +574,23 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
+        self.parse_condition_with_body_boundary_arena_only(arena, true)
+    }
+
+    pub(super) fn parse_guard_condition_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        self.parse_condition_with_body_boundary_arena_only(arena, false)
+    }
+
+    fn parse_condition_with_body_boundary_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        followed_by_body: bool,
+    ) -> Option<ArenaOnlyExpr> {
         let previous = self.condition_expr;
-        self.condition_expr = true;
+        self.condition_expr = followed_by_body;
         let condition = (|| {
             let start = self.current_start();
             if self.skip_shell_test() {

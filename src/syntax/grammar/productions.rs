@@ -735,6 +735,22 @@ pub(super) fn rules() -> Vec<super::Rule> {
     let returns = || seq([t(T::Arrow), r("type_expr")]);
     let signature = || seq([t(T::LParen), r("parameters"), t(T::RParen)]);
     let block = || r("block");
+    let codec_intrinsics = [xsh_registry::signature::CodecSchemaIntrinsic::Decode, xsh_registry::signature::CodecSchemaIntrinsic::Read];
+    let codec_schema_leads = |glued| codec_intrinsics.map(|kind| vec![
+        word_term("codec", false), term(Class::Tag(T::Dot), glued), word_term(kind.name(), glued), term(Class::Tag(T::LParen), glued),
+    ]);
+    let codec_schema_value = |label| seq([
+        nl(), not([T::At, T::Dot].map(|tag| vec![tag_term(tag)])),
+        opt(seq([w(label), t(T::Colon), nl()])), r("expression_item"), t(T::Comma),
+    ]);
+    let codec_schema_call = |glued| alt(codec_intrinsics.map(|kind| seq([
+        w("codec"), Item::Term(term(Class::Tag(T::Dot), glued)), Item::Term(word_term(kind.name(), glued)), Item::Term(term(Class::Tag(T::LParen), glued)),
+        Item::Group(Box::new(seq([
+            codec_schema_value("format"), codec_schema_value(kind.input_name()),
+            nl(), r("type_expr"), nl(),
+        ]))),
+        t(T::RParen),
+    ])));
     // A `{` that opens a record whose first field is written out, possibly
     // on the next line: in a `match` statement arm any other `{` opens the
     // arm's block.
@@ -1588,7 +1604,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "guard_condition",
-            seq([not(shell_test_leads()), r("condition_expression")]),
+            seq([not(shell_test_leads()), r("expression")]),
         ),
         rule(
             Statements,
@@ -1752,9 +1768,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 // `collect {` always begins a collect expression.
                 seq([
                     not([vec![word_term("collect", false), tag_term(T::LBrace)]]),
+                    not(codec_schema_leads(false)),
                     Item::NotContextScope,
                     ident(),
                 ]),
+                r("codec_schema_call"),
                 r("collect_expression"),
                 r("list_literal"),
                 r("record_literal"),
@@ -1793,7 +1811,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                             r("run_form"),
                             r("run_end"),
                         ]),
-                        r("operand"),
+                        seq([not([vec![keyword_term(Keyword::Run)]]), r("operand")]),
                     ]),
                 ]),
                 seq([
@@ -1811,6 +1829,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("bare_path"),
             ]),
         ),
+        rule(Expressions, "codec_schema_call", codec_schema_call(false)),
         rule(
             Expressions,
             "literal",
@@ -2584,7 +2603,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Commands,
             "call_argument_chain",
-            seq([
+            alt([r("codec_schema_argument"), seq([
+                not(codec_schema_leads(true)),
                 alt([t(T::Ident), t(T::String)]),
                 star(seq([opt(g(T::Question)), g(T::Dot), gclass(Class::Label)])),
                 alt([
@@ -2598,8 +2618,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
                 star(r("glued_postfix")),
                 not(postfix_starts()),
-            ]),
+            ])]),
         ),
+        rule(Commands, "codec_schema_argument", seq([
+            codec_schema_call(true), star(r("glued_postfix")), not(postfix_starts()),
+        ])),
         rule(
             Commands,
             "glued_postfix",
@@ -2757,6 +2780,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Commands,
             "run_option_value",
             alt([
+                r("codec_schema_argument"),
                 t(T::Int),
                 t(T::Duration),
                 seq([
@@ -2768,6 +2792,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     ]),
                 ]),
                 seq([
+                    not(codec_schema_leads(true)),
                     ident(),
                     Item::Peek(vec![
                         vec![glued_tag_term(T::Dot)],
