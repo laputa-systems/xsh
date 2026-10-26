@@ -13,7 +13,6 @@ const SOURCE_SCHEMA: &str = "xsh-source-v1";
 const RAW_IR_SCHEMA: &str = "xsh-raw-ir-v1";
 const RAW_IR_SCOPE: &str = "scalar-literal-boundary-fixture-v1";
 const SERIALIZATION_ONLY_NAN: u64 = 0x7ff8_0000_0000_0042;
-// Keep this private fixture transport bounded without exposing parser tuning as a runtime option.
 const MAX_TRANSPORT_DOCUMENT_BYTES: usize = 64 * 1024;
 const MAX_JSON_CONTAINER_DEPTH: usize = 64;
 
@@ -176,145 +175,71 @@ struct RawIrDocument {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Json {
+enum WireValue {
     String(String),
-    Array(Vec<Json>),
-    Object(Vec<(String, Json)>),
+    Array(Vec<WireValue>),
+    Object(Vec<(String, WireValue)>),
 }
 
-struct JsonParser<'a> {
-    input: &'a str,
-    bytes: &'a [u8],
-    index: usize,
-}
-
-impl<'a> JsonParser<'a> {
-    fn parse(input: &'a str) -> Result<Json, String> {
-        if input.len() > MAX_TRANSPORT_DOCUMENT_BYTES {
-            return Err("wire document exceeds the private transport byte limit".to_string());
-        }
-        let mut parser = Self {
-            input,
-            bytes: input.as_bytes(),
-            index: 0,
-        };
-        let value = parser.value(0)?;
-        parser.whitespace();
-        if parser.index != parser.bytes.len() {
-            return Err("trailing data after JSON document".to_string());
-        }
-        Ok(value)
+fn parse_wire_document(input: &str) -> Result<WireValue, String> {
+    if input.len() > MAX_TRANSPORT_DOCUMENT_BYTES {
+        return Err("wire document exceeds the private transport byte limit".to_string());
     }
+    let mut context = deser::Context::with(deser::de::Limits::builder()
+        .max_depth(MAX_JSON_CONTAINER_DEPTH).build());
+    context.set(deser::de::DuplicateKeys::Error);
+    let value = deser_json::DeserializerConfig::builder().context(context).build()
+        .from_str::<deser_value::Value>(input).map_err(|error| error.to_string())?;
+    WireValue::from_host(value)
+}
 
-    fn value(&mut self, parent_depth: usize) -> Result<Json, String> {
-        self.whitespace();
-        match self.bytes.get(self.index).copied() {
-            Some(b'"') => self.string().map(Json::String),
-            Some(b'[') => self.array(self.next_container_depth(parent_depth)?),
-            Some(b'{') => self.object(self.next_container_depth(parent_depth)?),
+impl WireValue {
+    fn from_host(value: deser_value::Value) -> Result<Self, String> {
+        use deser_value::Kind;
+        match value.into_kind() {
+            Kind::Str(text) | Kind::Lexical(text) => Ok(Self::String(text)),
+            Kind::Seq(values) => values.into_iter().map(Self::from_host)
+                .collect::<Result<Vec<_>, _>>().map(Self::Array),
+            Kind::Map(fields) => fields.into_iter().map(|(key, value)| {
+                let key = match key.into_kind() {
+                    Kind::Str(text) | Kind::Lexical(text) => text,
+                    _ => return Err("wire object key is not a string".to_string()),
+                };
+                Ok((key, Self::from_host(value)?))
+            }).collect::<Result<Vec<_>, _>>().map(Self::Object),
             _ => Err("wire documents contain only strings, arrays, and objects".to_string()),
         }
     }
+}
 
-    fn next_container_depth(&self, parent_depth: usize) -> Result<usize, String> {
-        parent_depth
-            .checked_add(1)
-            .filter(|depth| *depth <= MAX_JSON_CONTAINER_DEPTH)
-            .ok_or_else(|| "wire document exceeds the private JSON nesting limit".to_string())
-    }
-
-    fn string(&mut self) -> Result<String, String> {
-        let start = self.index;
-        self.index += 1;
-        while let Some(byte) = self.bytes.get(self.index).copied() {
-            match byte {
-                b'"' => {
-                    self.index += 1;
-                    return deser_json::from_str(&self.input[start..self.index])
-                        .map_err(|_| "invalid JSON string".to_string());
-                }
-                b'\\' => {
-                    self.index = self
-                        .index
-                        .checked_add(2)
-                        .ok_or_else(|| "JSON string offset overflow".to_string())?;
-                }
-                0..=0x1f => return Err("unescaped control byte in JSON string".to_string()),
-                _ => self.index += 1,
-            }
-        }
-        Err("unterminated JSON string".to_string())
-    }
-
-    fn array(&mut self, depth: usize) -> Result<Json, String> {
-        self.index += 1;
-        self.whitespace();
-        let mut values = Vec::new();
-        if self.consume(b']') {
-            return Ok(Json::Array(values));
-        }
-        loop {
-            values.push(self.value(depth)?);
-            self.whitespace();
-            if self.consume(b']') {
-                return Ok(Json::Array(values));
-            }
-            if !self.consume(b',') {
-                return Err("expected comma or closing bracket in JSON array".to_string());
-            }
-        }
-    }
-
-    fn object(&mut self, depth: usize) -> Result<Json, String> {
-        self.index += 1;
-        self.whitespace();
-        let mut fields = Vec::new();
-        if self.consume(b'}') {
-            return Ok(Json::Object(fields));
-        }
-        loop {
-            self.whitespace();
-            if self.bytes.get(self.index) != Some(&b'"') {
-                return Err("JSON object key is not a string".to_string());
-            }
-            let key = self.string()?;
-            self.whitespace();
-            if !self.consume(b':') {
-                return Err("expected colon after JSON object key".to_string());
-            }
-            let value = self.value(depth)?;
-            fields.push((key, value));
-            self.whitespace();
-            if self.consume(b'}') {
-                return Ok(Json::Object(fields));
-            }
-            if !self.consume(b',') {
-                return Err("expected comma or closing brace in JSON object".to_string());
-            }
-        }
-    }
-
-    fn whitespace(&mut self) {
-        while matches!(
-            self.bytes.get(self.index),
-            Some(b' ' | b'\t' | b'\r' | b'\n')
-        ) {
-            self.index += 1;
-        }
-    }
-
-    fn consume(&mut self, byte: u8) -> bool {
-        if self.bytes.get(self.index) == Some(&byte) {
-            self.index += 1;
-            true
-        } else {
-            false
+impl deser::Serialize for WireValue {
+    fn serialize<'a>(value: &'a Self, state: &mut deser::State) -> Result<deser::ser::Emit<'a>, deser::Error> {
+        match value {
+            Self::String(text) => <String as deser::Serialize>::serialize(text, state),
+            Self::Array(values) => <Vec<WireValue> as deser::Serialize>::serialize(values, state),
+            Self::Object(fields) => Ok(deser::ser::Emit::structure(WireFields(fields.iter()), state)),
         }
     }
 }
 
-fn parse_object_fields(value: Json, allowed: &[&str]) -> Result<BTreeMap<String, Json>, String> {
-    let Json::Object(fields) = value else {
+struct WireFields<'a>(std::slice::Iter<'a, (String, WireValue)>);
+
+impl deser::ser::StructEmitter for WireFields<'_> {
+    fn next(&mut self, _: &mut deser::State) -> Result<Option<(std::borrow::Cow<'_, str>, deser::ser::SerializeHandle<'_>)>, deser::Error> {
+        Ok(self.0.next().map(|(key, value)| (std::borrow::Cow::Borrowed(key.as_str()), deser::ser::SerializeHandle::to(value))))
+    }
+}
+
+fn wire_object<const N: usize>(fields: [(&str, WireValue); N]) -> WireValue {
+    WireValue::Object(fields.into_iter().map(|(key, value)| (key.to_string(), value)).collect())
+}
+
+fn wire_string(text: impl Into<String>) -> WireValue {
+    WireValue::String(text.into())
+}
+
+fn parse_object_fields(value: WireValue, allowed: &[&str]) -> Result<BTreeMap<String, WireValue>, String> {
+    let WireValue::Object(fields) = value else {
         return Err("wire record is not a JSON object".to_string());
     };
     let mut result = BTreeMap::new();
@@ -334,17 +259,17 @@ fn parse_object_fields(value: Json, allowed: &[&str]) -> Result<BTreeMap<String,
     Ok(result)
 }
 
-fn take_string(fields: &mut BTreeMap<String, Json>, name: &str) -> Result<String, String> {
+fn take_string(fields: &mut BTreeMap<String, WireValue>, name: &str) -> Result<String, String> {
     match fields.remove(name) {
-        Some(Json::String(value)) => Ok(value),
+        Some(WireValue::String(value)) => Ok(value),
         Some(_) => Err(format!("wire field {name:?} is not a string")),
         None => Err(format!("missing required wire field {name:?}")),
     }
 }
 
-fn take_array(fields: &mut BTreeMap<String, Json>, name: &str) -> Result<Vec<Json>, String> {
+fn take_array(fields: &mut BTreeMap<String, WireValue>, name: &str) -> Result<Vec<WireValue>, String> {
     match fields.remove(name) {
-        Some(Json::Array(value)) => Ok(value),
+        Some(WireValue::Array(value)) => Ok(value),
         Some(_) => Err(format!("wire field {name:?} is not an array")),
         None => Err(format!("missing required wire field {name:?}")),
     }
@@ -399,24 +324,17 @@ fn parse_hex_bytes(text: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn json_string(text: &str, output: &mut String) {
-    output.push_str(&deser_json::to_string(text).expect("host JSON scalar must be encodable"));
-}
-
 fn encode_source_document(document: &SourceDocument) -> String {
-    let mut output = String::from("{\"schema\":");
-    json_string(SOURCE_SCHEMA, &mut output);
-    output.push_str(",\"id\":");
-    json_string(&hex_u32(document.id.raw()), &mut output);
-    output.push_str(",\"text\":");
-    json_string(&document.text, &mut output);
-    output.push('}');
-    output
+    json_text(&wire_object([
+        ("schema", wire_string(SOURCE_SCHEMA)),
+        ("id", wire_string(hex_u32(document.id.raw()))),
+        ("text", wire_string(&document.text)),
+    ]))
 }
 
 fn decode_source_document(input: &str) -> Result<SourceDocument, String> {
     let mut fields = parse_object_fields(
-        JsonParser::parse(input)?,
+        parse_wire_document(input)?,
         &["schema", "id", "text"],
     )?;
     if take_string(&mut fields, "schema")? != SOURCE_SCHEMA {
@@ -484,82 +402,32 @@ fn validate_raw_document(document: &RawIrDocument) -> Result<(), String> {
 
 fn encode_raw_ir_document(document: &RawIrDocument) -> Result<String, String> {
     validate_raw_document(document)?;
-    let mut output = String::from("{\"schema\":");
-    json_string(RAW_IR_SCHEMA, &mut output);
-    output.push_str(",\"sourceId\":");
-    json_string(&hex_u32(document.source_id.raw()), &mut output);
-    output.push_str(",\"instructionCount\":");
-    json_string(&hex_u32(document.instruction_count), &mut output);
-    output.push_str(",\"driverProgramCount\":");
-    json_string(&hex_u32(document.driver_program_count), &mut output);
-    output.push_str(",\"scope\":");
-    json_string(RAW_IR_SCOPE, &mut output);
-    output.push_str(",\"driverRoot\":");
-    json_string(&hex_u32(document.driver_root.raw()), &mut output);
-    output.push_str(",\"binderProjection\":[");
-    for (index, binder) in document.binders.iter().enumerate() {
-        if index != 0 {
-            output.push(',');
-        }
-        output.push_str("{\"id\":");
-        json_string(&hex_u32(binder.id.raw()), &mut output);
-        output.push_str(",\"owner\":");
-        json_string(&hex_u32(binder.owner.raw()), &mut output);
-        output.push_str(",\"role\":");
-        json_string(binder.role.name(), &mut output);
-        output.push_str(",\"text\":");
-        json_string(&binder.text, &mut output);
-        output.push('}');
-    }
-    output.push_str("],\"instructions\":[");
-    for (index, instruction) in document.instructions.iter().enumerate() {
-        if index != 0 {
-            output.push(',');
-        }
-        output.push_str("{\"id\":");
-        json_string(&hex_u32(instruction.id.raw()), &mut output);
-        output.push_str(",\"tag\":");
-        json_string(instruction.tag.name(), &mut output);
-        output.push_str(",\"ordinal\":");
-        json_string(&hex_u32(instruction.tag.ordinal()), &mut output);
-        output.push_str(",\"words\":[");
-        json_string(&hex_u32(instruction.words[0]), &mut output);
-        output.push(',');
-        json_string(&hex_u32(instruction.words[1]), &mut output);
-        output.push_str("],\"value\":");
-        json_string(&hex_u64(instruction.value_bits), &mut output);
-        output.push('}');
-    }
-    output.push_str("],\"nativePathInputs\":[");
-    for (index, path) in document.native_path_inputs.iter().enumerate() {
-        if index != 0 {
-            output.push(',');
-        }
-        json_string(&hex_bytes(path), &mut output);
-    }
-    output.push_str("],\"integerOutputBits\":[");
-    for (index, bits) in document.integer_output_bits.iter().enumerate() {
-        if index != 0 {
-            output.push(',');
-        }
-        json_string(&hex_u64(*bits), &mut output);
-    }
-    output.push_str("],\"floatOutputBits\":[");
-    for (index, bits) in document.float_output_bits.iter().enumerate() {
-        if index != 0 {
-            output.push(',');
-        }
-        json_string(&hex_u64(*bits), &mut output);
-    }
-    output.push_str("],\"serializationOnlyFloatBits\":[");
-    for (index, bits) in document.serialization_only_float_bits.iter().enumerate() {
-        if index != 0 {
-            output.push(',');
-        }
-        json_string(&hex_u64(*bits), &mut output);
-    }
-    output.push_str("]}");
-    Ok(output)
+    let value = wire_object([
+        ("schema", wire_string(RAW_IR_SCHEMA)),
+        ("sourceId", wire_string(hex_u32(document.source_id.raw()))),
+        ("instructionCount", wire_string(hex_u32(document.instruction_count))),
+        ("driverProgramCount", wire_string(hex_u32(document.driver_program_count))),
+        ("scope", wire_string(RAW_IR_SCOPE)),
+        ("driverRoot", wire_string(hex_u32(document.driver_root.raw()))),
+        ("binderProjection", WireValue::Array(document.binders.iter().map(|binder| wire_object([
+            ("id", wire_string(hex_u32(binder.id.raw()))),
+            ("owner", wire_string(hex_u32(binder.owner.raw()))),
+            ("role", wire_string(binder.role.name())),
+            ("text", wire_string(&binder.text)),
+        ])).collect())),
+        ("instructions", WireValue::Array(document.instructions.iter().map(|instruction| wire_object([
+            ("id", wire_string(hex_u32(instruction.id.raw()))),
+            ("tag", wire_string(instruction.tag.name())),
+            ("ordinal", wire_string(hex_u32(instruction.tag.ordinal()))),
+            ("words", WireValue::Array(instruction.words.iter().map(|word| wire_string(hex_u32(*word))).collect())),
+            ("value", wire_string(hex_u64(instruction.value_bits))),
+        ])).collect())),
+        ("nativePathInputs", WireValue::Array(document.native_path_inputs.iter().map(|path| wire_string(hex_bytes(path))).collect())),
+        ("integerOutputBits", WireValue::Array(document.integer_output_bits.iter().map(|bits| wire_string(hex_u64(*bits))).collect())),
+        ("floatOutputBits", WireValue::Array(document.float_output_bits.iter().map(|bits| wire_string(hex_u64(*bits))).collect())),
+        ("serializationOnlyFloatBits", WireValue::Array(document.serialization_only_float_bits.iter().map(|bits| wire_string(hex_u64(*bits))).collect())),
+    ]);
+    deser_json::to_string(&value).map_err(|error| error.to_string())
 }
 
 fn decode_optional_ir_id(text: &str) -> Result<OptionalIrId, String> {
@@ -568,7 +436,7 @@ fn decode_optional_ir_id(text: &str) -> Result<OptionalIrId, String> {
 
 fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
     let mut fields = parse_object_fields(
-        JsonParser::parse(input)?,
+        parse_wire_document(input)?,
         &[
             "schema",
             "sourceId",
@@ -606,7 +474,7 @@ fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
     let native_path_inputs = take_array(&mut fields, "nativePathInputs")?
         .into_iter()
         .map(|value| {
-            let Json::String(text) = value else {
+            let WireValue::String(text) = value else {
                 return Err("native path entry is not a hex string".to_string());
             };
             let bytes = parse_hex_bytes(&text)?;
@@ -618,21 +486,21 @@ fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
     let integer_output_bits = take_array(&mut fields, "integerOutputBits")?
         .into_iter()
         .map(|value| match value {
-            Json::String(text) => parse_hex_u64(&text),
+            WireValue::String(text) => parse_hex_u64(&text),
             _ => Err("integer output bit pattern is not a hex string".to_string()),
         })
         .collect::<Result<Vec<_>, _>>()?;
     let float_output_bits = take_array(&mut fields, "floatOutputBits")?
         .into_iter()
         .map(|value| match value {
-            Json::String(text) => parse_hex_u64(&text),
+            WireValue::String(text) => parse_hex_u64(&text),
             _ => Err("Float output bit pattern is not a hex string".to_string()),
         })
         .collect::<Result<Vec<_>, _>>()?;
     let serialization_only_float_bits = take_array(&mut fields, "serializationOnlyFloatBits")?
         .into_iter()
         .map(|value| match value {
-            Json::String(text) => parse_hex_u64(&text),
+            WireValue::String(text) => parse_hex_u64(&text),
             _ => Err("serialized Float bit sample is not a hex string".to_string()),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -665,7 +533,7 @@ fn decode_source_raw_pair(
     Ok((source, raw))
 }
 
-fn decode_binder(value: Json) -> Result<BinderProjection, String> {
+fn decode_binder(value: WireValue) -> Result<BinderProjection, String> {
     let mut fields = parse_object_fields(value, &["id", "owner", "role", "text"])?;
     let id = IrId::from_raw(parse_hex_u32(&take_string(&mut fields, "id")?)?)?;
     let owner = decode_optional_ir_id(&take_string(&mut fields, "owner")?)?;
@@ -679,7 +547,7 @@ fn decode_binder(value: Json) -> Result<BinderProjection, String> {
     })
 }
 
-fn decode_instruction(value: Json) -> Result<ScalarInstruction, String> {
+fn decode_instruction(value: WireValue) -> Result<ScalarInstruction, String> {
     let mut fields = parse_object_fields(value, &["id", "tag", "ordinal", "words", "value"])?;
     let id = IrId::from_raw(parse_hex_u32(&take_string(&mut fields, "id")?)?)?;
     let tag = LiteralTag::from_name(&take_string(&mut fields, "tag")?)?;
@@ -697,7 +565,7 @@ fn decode_instruction(value: Json) -> Result<ScalarInstruction, String> {
     }
     let mut words = words.into_iter();
     let parse_word = |value| match value {
-        Json::String(text) => parse_hex_u32(&text),
+        WireValue::String(text) => parse_hex_u32(&text),
         _ => Err("raw-IR payload word is not a hex string".to_string()),
     };
     let words = [
@@ -900,49 +768,19 @@ fn source_document_id(source_id: SourceId) -> Result<IrId, String> {
     IrId::from_index(source_id.raw())
 }
 
-fn write_json(value: &Json, output: &mut String) {
-    match value {
-        Json::String(text) => json_string(text, output),
-        Json::Array(values) => {
-            output.push('[');
-            for (index, value) in values.iter().enumerate() {
-                if index != 0 {
-                    output.push(',');
-                }
-                write_json(value, output);
-            }
-            output.push(']');
-        }
-        Json::Object(fields) => {
-            output.push('{');
-            for (index, (key, value)) in fields.iter().enumerate() {
-                if index != 0 {
-                    output.push(',');
-                }
-                json_string(key, output);
-                output.push(':');
-                write_json(value, output);
-            }
-            output.push('}');
-        }
-    }
+fn json_text(value: &WireValue) -> String {
+    deser_json::to_string(value).expect("wire values contain only strings, arrays, and objects")
 }
 
-fn json_text(value: &Json) -> String {
-    let mut output = String::new();
-    write_json(value, &mut output);
-    output
-}
-
-fn insert_field(value: &mut Json, name: &str, item: Json) {
-    let Json::Object(fields) = value else {
+fn insert_field(value: &mut WireValue, name: &str, item: WireValue) {
+    let WireValue::Object(fields) = value else {
         panic!("test mutation requires an object");
     };
     fields.push((name.to_string(), item));
 }
 
-fn set_field(value: &mut Json, name: &str, item: Json) {
-    let Json::Object(fields) = value else {
+fn set_field(value: &mut WireValue, name: &str, item: WireValue) {
+    let WireValue::Object(fields) = value else {
         panic!("test mutation requires an object");
     };
     let field = fields
@@ -952,8 +790,8 @@ fn set_field(value: &mut Json, name: &str, item: Json) {
     field.1 = item;
 }
 
-fn object_field<'a>(value: &'a mut Json, name: &str) -> &'a mut Json {
-    let Json::Object(fields) = value else {
+fn object_field<'a>(value: &'a mut WireValue, name: &str) -> &'a mut WireValue {
+    let WireValue::Object(fields) = value else {
         panic!("test mutation requires an object");
     };
     &mut fields
@@ -965,9 +803,9 @@ fn object_field<'a>(value: &'a mut Json, name: &str) -> &'a mut Json {
 
 fn parsed_raw_mutation(
     encoded: &str,
-    mutate: impl FnOnce(&mut Json),
+    mutate: impl FnOnce(&mut WireValue),
 ) -> String {
-    let mut value = JsonParser::parse(encoded).expect("the encoder emits valid JSON");
+    let mut value = parse_wire_document(encoded).expect("the encoder emits valid JSON");
     mutate(&mut value);
     json_text(&value)
 }
@@ -988,14 +826,14 @@ mod tests {
     ));
 
     fn set_nested_field(
-        value: &mut Json,
+        value: &mut WireValue,
         list_name: &str,
         row_index: usize,
         field: &str,
-        item: Json,
+        item: WireValue,
     ) {
         let rows = object_field(value, list_name);
-        let Json::Array(rows) = rows else {
+        let WireValue::Array(rows) = rows else {
             panic!("test mutation field is an array");
         };
         set_field(&mut rows[row_index], field, item);
@@ -1190,17 +1028,17 @@ mod tests {
         }
 
         let unknown_version = parsed_raw_mutation(&raw_encoded, |value| {
-            set_field(value, "schema", Json::String("xsh-raw-ir-v2".to_string()));
+            set_field(value, "schema", WireValue::String("xsh-raw-ir-v2".to_string()));
         });
         assert!(decode_raw_ir_document(&unknown_version).is_err());
 
         let unknown_field = parsed_raw_mutation(&raw_encoded, |value| {
-            insert_field(value, "unrecognized", Json::String("rejected".to_string()));
+            insert_field(value, "unrecognized", WireValue::String("rejected".to_string()));
         });
         assert!(decode_raw_ir_document(&unknown_field).is_err());
 
         let duplicate_field = parsed_raw_mutation(&raw_encoded, |value| {
-            insert_field(value, "schema", Json::String(RAW_IR_SCHEMA.to_string()));
+            insert_field(value, "schema", WireValue::String(RAW_IR_SCHEMA.to_string()));
         });
         assert!(decode_raw_ir_document(&duplicate_field).is_err());
 
@@ -1210,7 +1048,7 @@ mod tests {
                 "instructions",
                 0,
                 "tag",
-                Json::String("ExprUnknown".to_string()),
+                WireValue::String("ExprUnknown".to_string()),
             );
         });
         assert!(decode_raw_ir_document(&unknown_tag).is_err());
@@ -1221,34 +1059,34 @@ mod tests {
                 "instructions",
                 0,
                 "ordinal",
-                Json::String("000000ff".to_string()),
+                WireValue::String("000000ff".to_string()),
             );
         });
         assert!(decode_raw_ir_document(&bad_ordinal).is_err());
 
         let short_payload = parsed_raw_mutation(&raw_encoded, |value| {
             let words = object_field(value, "instructions");
-            let Json::Array(rows) = words else {
+            let WireValue::Array(rows) = words else {
                 panic!("test mutation field is an array");
             };
             set_field(
                 &mut rows[0],
                 "words",
-                Json::Array(vec![Json::String("00000000".to_string())]),
+                WireValue::Array(vec![WireValue::String("00000000".to_string())]),
             );
         });
         assert!(decode_raw_ir_document(&short_payload).is_err());
 
         let duplicate_id = parsed_raw_mutation(&raw_encoded, |value| {
             let instructions = object_field(value, "instructions");
-            let Json::Array(rows) = instructions else {
+            let WireValue::Array(rows) = instructions else {
                 panic!("test mutation field is an array");
             };
             let first = match object_field(&mut rows[0], "id") {
-                Json::String(id) => id.clone(),
+                WireValue::String(id) => id.clone(),
                 _ => panic!("encoded ID is a string"),
             };
-            set_field(&mut rows[1], "id", Json::String(first));
+            set_field(&mut rows[1], "id", WireValue::String(first));
         });
         assert!(decode_raw_ir_document(&duplicate_id).is_err());
 
@@ -1258,7 +1096,7 @@ mod tests {
                 "instructions",
                 0,
                 "id",
-                Json::String(hex_u32(raw.instruction_count + 1)),
+                WireValue::String(hex_u32(raw.instruction_count + 1)),
             );
         });
         assert!(decode_raw_ir_document(&ghost_instruction).is_err());
@@ -1267,7 +1105,7 @@ mod tests {
             set_field(
                 value,
                 "driverRoot",
-                Json::String(hex_u32(raw.driver_program_count + 1)),
+                WireValue::String(hex_u32(raw.driver_program_count + 1)),
             );
         });
         assert!(decode_raw_ir_document(&dangling_driver).is_err());
@@ -1284,13 +1122,13 @@ mod tests {
                 "binderProjection",
                 parameter_index,
                 "owner",
-                Json::String(hex_u32(dangling_owner_id.raw())),
+                WireValue::String(hex_u32(dangling_owner_id.raw())),
             );
         });
         assert!(decode_raw_ir_document(&dangling_owner).is_err());
 
         let wrong_word_width = parsed_raw_mutation(&raw_encoded, |value| {
-            set_nested_field(value, "instructions", 0, "value", Json::String("1".to_string()));
+            set_nested_field(value, "instructions", 0, "value", WireValue::String("1".to_string()));
         });
         assert!(decode_raw_ir_document(&wrong_word_width).is_err());
 
@@ -1314,20 +1152,20 @@ mod tests {
         let encoded = encode_source_document(&source);
         assert_eq!(decode_source_document(&encoded).unwrap(), source);
         let duplicate = parsed_raw_mutation(&encoded, |value| {
-            insert_field(value, "schema", Json::String(SOURCE_SCHEMA.to_string()));
+            insert_field(value, "schema", WireValue::String(SOURCE_SCHEMA.to_string()));
         });
         assert!(decode_source_document(&duplicate).is_err());
         let unknown = parsed_raw_mutation(&encoded, |value| {
-            insert_field(value, "extra", Json::String("rejected".to_string()));
+            insert_field(value, "extra", WireValue::String("rejected".to_string()));
         });
         assert!(decode_source_document(&unknown).is_err());
         let unknown_version = parsed_raw_mutation(&encoded, |value| {
-            set_field(value, "schema", Json::String("xsh-source-v2".to_string()));
+            set_field(value, "schema", WireValue::String("xsh-source-v2".to_string()));
         });
         assert!(decode_source_document(&unknown_version).is_err());
         for reserved_id in [0, IR_NONE] {
             let invalid_id = parsed_raw_mutation(&encoded, |value| {
-                set_field(value, "id", Json::String(hex_u32(reserved_id)));
+                set_field(value, "id", WireValue::String(hex_u32(reserved_id)));
             });
             assert!(decode_source_document(&invalid_id).is_err());
         }
@@ -1348,7 +1186,7 @@ mod tests {
 
         for reserved_id in [0, IR_NONE] {
             let invalid_source_id = parsed_raw_mutation(&encoded, |value| {
-                set_field(value, "sourceId", Json::String(hex_u32(reserved_id)));
+                set_field(value, "sourceId", WireValue::String(hex_u32(reserved_id)));
             });
             assert!(decode_raw_ir_document(&invalid_source_id).is_err());
 
@@ -1358,20 +1196,20 @@ mod tests {
                     "instructions",
                     0,
                     "id",
-                    Json::String(hex_u32(reserved_id)),
+                    WireValue::String(hex_u32(reserved_id)),
                 );
             });
             assert!(decode_raw_ir_document(&invalid_instruction_id).is_err());
         }
 
         let zero_driver_root = parsed_raw_mutation(&encoded, |value| {
-            set_field(value, "driverRoot", Json::String(hex_u32(0)));
+            set_field(value, "driverRoot", WireValue::String(hex_u32(0)));
         });
         assert!(decode_raw_ir_document(&zero_driver_root).is_err());
 
         let missing_driver_root = parsed_raw_mutation(&encoded, |value| {
-            set_field(value, "driverProgramCount", Json::String(hex_u32(1)));
-            set_field(value, "driverRoot", Json::String(hex_u32(IR_NONE)));
+            set_field(value, "driverProgramCount", WireValue::String(hex_u32(1)));
+            set_field(value, "driverRoot", WireValue::String(hex_u32(IR_NONE)));
         });
         assert!(decode_raw_ir_document(&missing_driver_root).is_err());
 
@@ -1381,7 +1219,7 @@ mod tests {
             set_field(
                 value,
                 "sourceId",
-                Json::String(hex_u32(other_source_id.raw())),
+                WireValue::String(hex_u32(other_source_id.raw())),
             );
         });
         assert!(
@@ -1406,7 +1244,7 @@ mod tests {
 
         let reordered_instructions = parsed_raw_mutation(&encoded, |value| {
             let instructions = object_field(value, "instructions");
-            let Json::Array(rows) = instructions else {
+            let WireValue::Array(rows) = instructions else {
                 panic!("test mutation field is an array");
             };
             rows.swap(0, 1);
@@ -1420,9 +1258,9 @@ mod tests {
                 "instructions",
                 0,
                 "words",
-                Json::Array(vec![
-                    Json::String(hex_u32(replacement)),
-                    Json::String(hex_u32(raw.instructions[0].words[1])),
+                WireValue::Array(vec![
+                    WireValue::String(hex_u32(replacement)),
+                    WireValue::String(hex_u32(raw.instructions[0].words[1])),
                 ]),
             );
         });
@@ -1434,7 +1272,7 @@ mod tests {
                 "instructions",
                 0,
                 "value",
-                Json::String(hex_u64(raw.instructions[0].value_bits ^ 1)),
+                WireValue::String(hex_u64(raw.instructions[0].value_bits ^ 1)),
             );
         });
         assert!(decode_raw_ir_document(&inconsistent_value).is_err());
@@ -1445,14 +1283,14 @@ mod tests {
                 "binderProjection",
                 0,
                 "text",
-                Json::String(String::new()),
+                WireValue::String(String::new()),
             );
         });
         assert!(decode_raw_ir_document(&empty_function_name).is_err());
 
         let reordered_binders = parsed_raw_mutation(&encoded, |value| {
             let binders = object_field(value, "binderProjection");
-            let Json::Array(rows) = binders else {
+            let WireValue::Array(rows) = binders else {
                 panic!("test mutation field is an array");
             };
             rows.swap(0, 1);
@@ -1476,7 +1314,7 @@ mod tests {
                 "binderProjection",
                 parameter_index,
                 "owner",
-                Json::String(hex_u32(later_function.id.raw())),
+                WireValue::String(hex_u32(later_function.id.raw())),
             );
         });
         assert!(decode_raw_ir_document(&later_owner).is_err());
@@ -1502,7 +1340,7 @@ mod tests {
                 "binderProjection",
                 later_parameter_index,
                 "owner",
-                Json::String(hex_u32(earlier_function.id.raw())),
+                WireValue::String(hex_u32(earlier_function.id.raw())),
             );
         });
         assert!(decode_raw_ir_document(&earlier_owner).is_err());
@@ -1511,30 +1349,40 @@ mod tests {
             set_field(
                 value,
                 "nativePathInputs",
-                Json::Array(vec![Json::String("00".to_string())]),
+                WireValue::Array(vec![WireValue::String("00".to_string())]),
             );
         });
         assert!(decode_raw_ir_document(&nul_path).is_err());
     }
 
     #[test]
+    fn json_transport_preserves_escaped_strings_and_rejects_non_protocol_atoms() {
+        let input = r#"{"text":"quote: \" snow: \u2603 music: \uD834\uDD1E"}"#;
+        let value = parse_wire_document(input).expect("protocol JSON");
+        assert_eq!(parse_wire_document(&json_text(&value)).unwrap(), value);
+        for input in ["null", "true", "42", "1.5", "[null]", r#"{"a":"one","a":"two"}"#, r#"{"a":{"x":"one","x":"two"}}"#] {
+            assert!(parse_wire_document(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
     fn json_transport_rejects_non_json_whitespace_and_bounds_input() {
         for whitespace in ['\u{000b}', '\u{000c}'] {
             let invalid = format!("[{whitespace}\"value\"]");
-            assert!(JsonParser::parse(&invalid).is_err());
+            assert!(parse_wire_document(&invalid).is_err());
         }
 
         let valid_whitespace = " [ \t\r\n\"value\" \t\r\n ] ";
-        assert!(JsonParser::parse(valid_whitespace).is_ok());
+        assert!(parse_wire_document(valid_whitespace).is_ok());
 
         let at_byte_limit = format!(
             "\"{}\"",
             "x".repeat(MAX_TRANSPORT_DOCUMENT_BYTES - 2)
         );
         assert_eq!(at_byte_limit.len(), MAX_TRANSPORT_DOCUMENT_BYTES);
-        assert!(JsonParser::parse(&at_byte_limit).is_ok());
+        assert!(parse_wire_document(&at_byte_limit).is_ok());
         let over_byte_limit = format!("\"{}\"", "x".repeat(MAX_TRANSPORT_DOCUMENT_BYTES - 1));
-        assert!(JsonParser::parse(&over_byte_limit).is_err());
+        assert!(parse_wire_document(&over_byte_limit).is_err());
     }
 
     #[test]
@@ -1554,9 +1402,9 @@ mod tests {
             )
         };
 
-        assert!(JsonParser::parse(&nested_arrays(MAX_JSON_CONTAINER_DEPTH)).is_ok());
-        assert!(JsonParser::parse(&nested_arrays(MAX_JSON_CONTAINER_DEPTH + 1)).is_err());
-        assert!(JsonParser::parse(&nested_objects(MAX_JSON_CONTAINER_DEPTH)).is_ok());
-        assert!(JsonParser::parse(&nested_objects(MAX_JSON_CONTAINER_DEPTH + 1)).is_err());
+        assert!(parse_wire_document(&nested_arrays(MAX_JSON_CONTAINER_DEPTH)).is_ok());
+        assert!(parse_wire_document(&nested_arrays(MAX_JSON_CONTAINER_DEPTH + 1)).is_err());
+        assert!(parse_wire_document(&nested_objects(MAX_JSON_CONTAINER_DEPTH)).is_ok());
+        assert!(parse_wire_document(&nested_objects(MAX_JSON_CONTAINER_DEPTH + 1)).is_err());
     }
 }

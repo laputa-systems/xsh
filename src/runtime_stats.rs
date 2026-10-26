@@ -123,30 +123,95 @@ impl RuntimePhaseDurations {
             .expect("exclusive preparation phases must fit inside preparation")
     }
 
-    fn to_json(&self, clock: &str) -> String {
-        format!(
-            concat!(
-                "{{\"clock\":\"{}\",\"preparation_inclusive\":{},",
-                "\"project_parse_load_exclusive\":{},\"check_solve_fact_build_exclusive\":{},",
-                "\"declaration_publication_exclusive\":{},\"lower_verify_install_exclusive\":{},",
-                "\"preparation_other_exclusive\":{},\"execution_finish_exclusive\":{},",
-                "\"diagnostic_finish_exclusive\":{}}}"
-            ),
+    fn report<'a>(&self, clock: &'a str) -> PhaseReport<'a> {
+        PhaseReport {
             clock,
-            self.preparation_inclusive,
-            optional_ns(self.project_parse_load_exclusive),
-            optional_ns(self.check_solve_fact_build_exclusive),
-            optional_ns(self.declaration_publication_exclusive),
-            optional_ns(self.lower_verify_install_exclusive),
-            self.preparation_other_exclusive(),
-            optional_ns(self.execution_finish_exclusive),
-            optional_ns(self.diagnostic_finish_exclusive),
-        )
+            preparation_inclusive: self.preparation_inclusive,
+            project_parse_load_exclusive: self.project_parse_load_exclusive,
+            check_solve_fact_build_exclusive: self.check_solve_fact_build_exclusive,
+            declaration_publication_exclusive: self.declaration_publication_exclusive,
+            lower_verify_install_exclusive: self.lower_verify_install_exclusive,
+            preparation_other_exclusive: self.preparation_other_exclusive(),
+            execution_finish_exclusive: self.execution_finish_exclusive,
+            diagnostic_finish_exclusive: self.diagnostic_finish_exclusive,
+        }
     }
 }
 
-fn optional_ns(duration: Option<u128>) -> String {
-    duration.map_or_else(|| "null".to_string(), |duration| duration.to_string())
+#[derive(deser::Serialize)]
+struct PhaseReport<'a> {
+    clock: &'a str,
+    preparation_inclusive: u128,
+    project_parse_load_exclusive: Option<u128>,
+    check_solve_fact_build_exclusive: Option<u128>,
+    declaration_publication_exclusive: Option<u128>,
+    lower_verify_install_exclusive: Option<u128>,
+    preparation_other_exclusive: u128,
+    execution_finish_exclusive: Option<u128>,
+    diagnostic_finish_exclusive: Option<u128>,
+}
+
+#[derive(deser::Serialize)]
+struct TrafficReport {
+    live_bytes: usize,
+    peak_bytes: usize,
+    alloc_count: usize,
+    alloc_bytes: usize,
+}
+
+impl From<&AllocTraffic> for TrafficReport {
+    fn from(traffic: &AllocTraffic) -> Self {
+        Self { live_bytes: traffic.live_bytes, peak_bytes: traffic.peak_bytes,
+            alloc_count: traffic.alloc_count, alloc_bytes: traffic.alloc_bytes }
+    }
+}
+
+#[derive(deser::Serialize)]
+struct AttributionReport<'a> {
+    scope: &'a str,
+    alloc_count: usize,
+    alloc_bytes: usize,
+}
+
+#[derive(deser::Serialize)]
+struct WorkerReport<'a> {
+    stage_count: usize,
+    alloc_count: usize,
+    alloc_bytes: usize,
+    peak_thread_bytes: usize,
+    attributions: Vec<AttributionReport<'a>>,
+}
+
+impl<'a> From<&'a WorkerAllocationStats> for WorkerReport<'a> {
+    fn from(workers: &'a WorkerAllocationStats) -> Self {
+        Self {
+            stage_count: workers.stage_count,
+            alloc_count: workers.alloc_count,
+            alloc_bytes: workers.alloc_bytes,
+            peak_thread_bytes: workers.peak_thread_bytes,
+            attributions: workers.attributions.iter().map(|attribution| AttributionReport {
+                scope: attribution.scope,
+                alloc_count: attribution.alloc_count,
+                alloc_bytes: attribution.alloc_bytes,
+            }).collect(),
+        }
+    }
+}
+
+#[derive(deser::Serialize)]
+struct MeasurementReport<'a> {
+    tracking_active: bool,
+    status: u8,
+    stdout_bytes: usize,
+    stderr_bytes: usize,
+    construction: TrafficReport,
+    controller: TrafficReport,
+    execution: TrafficReport,
+    workers: WorkerReport<'a>,
+    #[deser(skip_serializing_if = Option::is_none)]
+    wall_time_ns: Option<PhaseReport<'a>>,
+    #[deser(skip_serializing_if = Option::is_none)]
+    cpu_time_ns: Option<PhaseReport<'a>>,
 }
 
 /// The script result plus allocation evidence collected around it.
@@ -199,55 +264,23 @@ impl MeasuredScriptRun {
     }
 
     fn json_report(&self, phase_times: Option<&RuntimePhaseTimes>) -> String {
-        let phases = phase_times.map_or_else(String::new, |times| {
-            format!(",\"wall_time_ns\":{},\"cpu_time_ns\":{}",
-                times.wall_time_ns.to_json("monotonic_wall"),
-                times.cpu_time_ns.to_json("process_cpu"))
-        });
-        format!(
-            "{{\"tracking_active\":{},\"status\":{},\"stdout_bytes\":{},\"stderr_bytes\":{},\"construction\":{},\"controller\":{},\"execution\":{},\"workers\":{}{}}}\n",
-            self.allocation.tracking_active,
-            self.output.status,
-            self.output.stdout.len(),
-            self.output.stderr.len(),
-            traffic_json(&self.allocation.construction),
-            traffic_json(&self.allocation.controller),
-            traffic_json(&self.allocation.execution),
-            worker_json(&self.allocation.workers),
-            phases,
-        )
+        let report = MeasurementReport {
+            tracking_active: self.allocation.tracking_active,
+            status: self.output.status,
+            stdout_bytes: self.output.stdout.len(),
+            stderr_bytes: self.output.stderr.len(),
+            construction: TrafficReport::from(&self.allocation.construction),
+            controller: TrafficReport::from(&self.allocation.controller),
+            execution: TrafficReport::from(&self.allocation.execution),
+            workers: WorkerReport::from(&self.allocation.workers),
+            wall_time_ns: phase_times.map(|times| times.wall_time_ns.report("monotonic_wall")),
+            cpu_time_ns: phase_times.map(|times| times.cpu_time_ns.report("process_cpu")),
+        };
+        let mut output = deser_json::to_string(&report)
+            .expect("allocation reports contain only strings, integers, and booleans");
+        output.push('\n');
+        output
     }
-}
-
-fn traffic_json(traffic: &AllocTraffic) -> String {
-    format!(
-        "{{\"live_bytes\":{},\"peak_bytes\":{},\"alloc_count\":{},\"alloc_bytes\":{}}}",
-        traffic.live_bytes, traffic.peak_bytes, traffic.alloc_count, traffic.alloc_bytes,
-    )
-}
-
-fn worker_json(workers: &WorkerAllocationStats) -> String {
-    format!(
-        "{{\"stage_count\":{},\"alloc_count\":{},\"alloc_bytes\":{},\"peak_thread_bytes\":{},\"attributions\":{}}}",
-        workers.stage_count,
-        workers.alloc_count,
-        workers.alloc_bytes,
-        workers.peak_thread_bytes,
-        worker_attributions_json(&workers.attributions),
-    )
-}
-
-fn worker_attributions_json(attributions: &[WorkerAllocationAttribution]) -> String {
-    let entries = attributions
-        .iter()
-        .map(|attribution| {
-            format!(
-                "{{\"scope\":\"{}\",\"alloc_count\":{},\"alloc_bytes\":{}}}",
-                attribution.scope, attribution.alloc_count, attribution.alloc_bytes,
-            )
-        })
-        .collect::<Vec<_>>();
-    format!("[{}]", entries.join(","))
 }
 
 #[cfg(test)]
@@ -270,7 +303,7 @@ mod tests {
             diagnostic_finish_exclusive: None,
         };
         assert_eq!(times.preparation_other_exclusive(), 15);
-        let json = times.to_json("monotonic_wall");
+        let json = deser_json::to_string(&times.report("monotonic_wall")).expect("phase JSON");
         assert!(json.contains("\"execution_finish_exclusive\":500"));
         assert!(json.contains("\"diagnostic_finish_exclusive\":null"));
         let interrupted = super::RuntimePhaseDurations {
@@ -281,7 +314,7 @@ mod tests {
             ..super::RuntimePhaseDurations::default()
         };
         assert_eq!(interrupted.preparation_other_exclusive(), 15);
-        assert!(interrupted.to_json("monotonic_wall").contains("\"declaration_publication_exclusive\":null"));
+        assert!(deser_json::to_string(&interrupted.report("monotonic_wall")).expect("phase JSON").contains("\"declaration_publication_exclusive\":null"));
     }
 
     #[test]
@@ -384,6 +417,21 @@ print "once"
             assert!((&cpu).get(key).and_then(|value| value.as_u64()).is_some(), "{key}");
         }
         assert!(cpu.get("diagnostic_finish_exclusive").is_some_and(|value| value.is_null()));
+    }
+
+    #[test]
+    fn phase_json_preserves_the_full_nanosecond_domain() {
+        let times = super::RuntimePhaseDurations {
+            preparation_inclusive: u128::MAX,
+            execution_finish_exclusive: Some(u128::MAX),
+            ..super::RuntimePhaseDurations::default()
+        };
+        let json = deser_json::to_string(&times.report("process_cpu")).expect("phase JSON");
+        let value = crate::host::json::parse(&json).expect("phase document");
+        for name in ["preparation_inclusive", "preparation_other_exclusive", "execution_finish_exclusive"] {
+            assert_eq!(value.get(name).and_then(|value| value.as_u128()), Some(u128::MAX));
+        }
+        assert!(value.get("diagnostic_finish_exclusive").is_some_and(|value| value.is_null()));
     }
 
     #[test]
