@@ -13,6 +13,17 @@ have focused Rust, upstream and native proof; final production cost acceptance,
 generated documentation and Full/Linux
 qualification remain. Native macOS qualification is externally blocked by the
 unavailable host. No campaign completion or S2/S3 global acceptance is claimed.
+Current cost blocker: the warmed 2,048-row JSON workload exceeds the RSS budget
+despite lower tracked live allocation. Final-write profiling attributes the gap
+to two extra 2 MiB transparent huge pages on this host. The raw-field decoder
+builder trial made that result worse and is reverted by `795e7b81f`; its
+malformed-key ownership safety test remains. The stable implementation keeps
+compact shared records, one sequence reader type and canonical documentation
+storage. Its production sizes pass: xsh 27,461,440, xsht 39,099,520 and xshi
+44,232 bytes. The bounded bulk JSON Lines helper passes its five-pair CPU gate:
+465.142 ms median versus baseline 446.588 ms, a 4.15% increase. Other final
+runtime, retained-memory and build-CPU acceptance remains open. Full manual
+integration will run with this memory failure recorded, never treated as a pass.
 The owner separately authorized integrating the optional-module-call compiler
 repair; `cadc4468b` preserves checked result/effect contracts and its focused
 cold-authority and native regressions pass. The unchanged Laputa xinit help
