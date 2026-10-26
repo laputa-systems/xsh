@@ -26,7 +26,7 @@ use crate::syntax::node::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::RefCell;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -1405,7 +1405,7 @@ pub(super) fn compact_function_selection(
             .chain(super::ProducerDemand::body_producer_operations(program, declarations))
             .chain(super::ProducerDemand::environment_path_operations(program, declarations))
             .chain(super::ProducerDemand::process_operations(program, declarations))
-            .collect::<bbtree::unsync::BBTreeSet<_>>();
+            .collect::<std::collections::BTreeSet<_>>();
         let contains_proof_operation = |statement| {
             let span = program.arena.stmt(statement).span;
             proof_operations.range(Span::at(span.source_id, span.start())..Span::at(span.source_id, span.end()))
@@ -2442,7 +2442,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         script_arguments_type(self.program, &self.scope, self.declarations)
     }
 
-    fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&bbtree::unsync::BBTreeSet<BindingId>>) -> LoweredTopLevelSlots {
+    fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&std::collections::BTreeSet<BindingId>>) -> LoweredTopLevelSlots {
         let mut bindings = self.bodies.resolved_bindings.declarations.iter()
             .filter(|(id, declaration)| {
                 reads.is_none_or(|reads| reads.contains(id)) && (**id == BindingId::args() || (declaration.global && declaration.namespace == self.current_namespace))
@@ -9563,7 +9563,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     contains(self.program.arena.expr(expression).span).then_some(binding)))
                 .chain(bindings.tails.iter().filter_map(|(&statement, &binding)|
                     contains(self.program.arena.stmt(statement).span).then_some(binding)))
-                .collect::<bbtree::unsync::BBTreeSet<_>>())
+                .collect::<std::collections::BTreeSet<_>>())
         };
         let mut names = known.iter().filter_map(|(&name, binding)| {
             (binding.slot && (binding.mutable || reads.as_ref().is_none_or(|reads|
@@ -10421,7 +10421,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
         let (&owner, facts) = checked.declarations.scheme_bodies.iter().find(|(_, facts)| facts.constructor_instances().contains_key(&constructor)).unwrap();
         let other_definition = checked.declarations.scheme_bodies.values().find_map(|facts| facts.constructor_instances().get(&other)).unwrap().instance.definition;
         let mut missing = checked.declarations.clone();
-        missing.scheme_bodies.insert(owner, facts.clone().with_constructor_instances(bbtree::unsync::BBTreeMap::new()).unwrap());
+        missing.scheme_bodies.insert(owner, facts.clone().with_constructor_instances(std::collections::BTreeMap::new()).unwrap());
         assert!(checked.build(&missing).is_err());
         let mut instances = facts.constructor_instances().clone();
         instances.get_mut(&constructor).unwrap().instance.definition = other_definition;
@@ -10981,7 +10981,7 @@ mod checked_control_flow_fact_tests {
     use crate::sema::check::{CheckedControlFlowFacts, CompactDeclOutput};
     use crate::source::{SourceId, SourceMap, Span};
     use crate::syntax::parser::ArenaParseOutput;
-    use bbtree::unsync::BBTreeSet as BTreeSet;
+    use std::collections::BTreeSet;
 
     #[derive(Clone, Copy, Debug)]
     enum FactCategory {

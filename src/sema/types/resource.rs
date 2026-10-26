@@ -69,7 +69,7 @@ impl Type {
 mod tests {
     use super::*;
     use crate::symbol::SymbolOwner;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn may_hold_resource_walks_nested_shapes_without_a_depth_limit() {

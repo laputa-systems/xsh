@@ -21,7 +21,7 @@ use rustc_hash::FxHashMap;
 #[cfg(test)]
 use std::cell::Cell;
 use std::cell::RefCell;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(super) use super::proof::{ConditionNarrowings, Narrowing};
@@ -2438,7 +2438,7 @@ pub(super) struct ExhaustivenessFacts<'a> {
     pub(super) tag_variants: &'a FxHashMap<Name, TagVariantInfo>,
     pub(super) pattern_types: &'a FxHashMap<crate::syntax::arena::PatternId, Type>,
     pub(super) inferred_variant_patterns:
-        &'a bbtree::unsync::BBTreeMap<Span, super::InferredVariantPattern>,
+        &'a std::collections::BTreeMap<Span, super::InferredVariantPattern>,
     pub(super) error_families: &'a FxHashMap<Name, super::ErrorFamilyInfo>,
 }
 
@@ -4532,7 +4532,7 @@ impl Checker {
             })
             .map(|schema| crate::sema::constants::SchemaExpectation {
                 instances: Vec::new(),
-                children: std::sync::Arc::new(bbtree::unsync::BBTreeMap::from([(
+                children: std::sync::Arc::new(std::collections::BTreeMap::from([(
                     crate::sema::constants::SchemaComponent::Success,
                     schema,
                 )])),

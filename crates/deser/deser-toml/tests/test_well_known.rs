@@ -1,4 +1,4 @@
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 
 use deser::ext::{Decimal, Timestamp, Uuid};
@@ -105,7 +105,7 @@ stamp = "+010000-01-01T00:00:00Z"
 #[test]
 fn test_numbers() {
     use deser::ext::Number;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     // numbers from JSON keep their text in TOML
     let value: BTreeMap<String, Number> =

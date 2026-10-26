@@ -1,4 +1,4 @@
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::source::SourceId;
 use crate::symbol::Name;

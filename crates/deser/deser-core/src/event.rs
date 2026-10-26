@@ -983,7 +983,7 @@ impl ContainerShape {
     /// costs nothing otherwise.  Serializers ignore it.
     ///
     /// ```
-    /// use bbtree::unsync::BBTreeMap as BTreeMap;
+    /// use std::collections::BTreeMap;
     /// use deser::de::DeserializeDriver;
     /// use deser::{ContainerShape, Event};
     ///

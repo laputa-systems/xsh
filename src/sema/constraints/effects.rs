@@ -1,8 +1,7 @@
 use super::{ConstraintChange, ConstraintResolutionError, TypeConstraints, MAX_TYPE_DEPTH};
 use crate::sema::effects::EffectContract;
 use crate::source::Span;
-use std::collections::{VecDeque};
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_EFFECT_VARIABLE: AtomicU64 = AtomicU64::new(1);

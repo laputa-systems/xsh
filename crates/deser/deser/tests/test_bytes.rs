@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 use deser::adapters::{As, Borrowed};
 use deser::adapters::{Base64Url, BytesEncoding, BytesFallback, IntSeq};

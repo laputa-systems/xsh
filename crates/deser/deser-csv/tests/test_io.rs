@@ -229,7 +229,7 @@ fn test_roundtrip_stream() {
 
 #[test]
 fn test_to_writer_streams_records() {
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     /// Counts the writes.
     struct Pieces(Vec<u8>, usize);

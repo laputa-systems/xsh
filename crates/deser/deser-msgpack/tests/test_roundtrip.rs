@@ -1,8 +1,7 @@
 //! Round-trip and wire-format tests.
 use crate::common;
 
-use std::collections::{HashMap};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 
 use common::{Value, de, hex, ser};

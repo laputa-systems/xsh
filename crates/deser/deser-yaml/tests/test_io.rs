@@ -122,7 +122,7 @@ fn test_errors_only_discard_their_document() {
         let mut reader = DeserializerConfig::new().reader(Chunked { input, size });
         let mut results = Vec::new();
         while let Some(result) = reader
-            .read::<bbtree::unsync::BBTreeMap<String, u32>>()
+            .read::<std::collections::BTreeMap<String, u32>>()
             .transpose()
         {
             results.push(
@@ -176,7 +176,7 @@ fn test_writer() {
 
 #[test]
 fn test_partial_writer() {
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     use deser_yaml::{FlowPolicy, Indent};
 

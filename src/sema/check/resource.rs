@@ -31,7 +31,7 @@ pub(super) struct ResourceCheck {
 
 #[cfg(test)]
 thread_local! {
-    pub(super) static W9_RESOURCE_VISITS: std::cell::RefCell<(usize, bbtree::unsync::BBTreeMap<crate::source::SourceId, usize>)> = const { std::cell::RefCell::new((0, bbtree::unsync::BBTreeMap::new())) };
+    pub(super) static W9_RESOURCE_VISITS: std::cell::RefCell<(usize, std::collections::BTreeMap<crate::source::SourceId, usize>)> = const { std::cell::RefCell::new((0, std::collections::BTreeMap::new())) };
 }
 
 pub(super) fn check(checker: &Checker, view: &CheckBundleView<'_>) -> ResourceCheck {

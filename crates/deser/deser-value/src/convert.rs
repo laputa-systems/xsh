@@ -15,7 +15,7 @@ use crate::value::{Kind, Value};
 /// for instance to add layers:
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_path::{Path, PathLayer};
 /// use deser_value::{value, Deserializer};
 ///
@@ -289,7 +289,7 @@ pub fn from_value<'de, T: Deserialize<'de>>(value: &'de Value) -> Result<T, Erro
 /// values.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser::Order;
 /// use deser_value::{to_value, value};
 ///

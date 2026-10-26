@@ -2,7 +2,7 @@
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Runtime key domains preserve scalar identity. UInt shares the existing Int

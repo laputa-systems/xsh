@@ -2351,7 +2351,7 @@ driver()?
         let exports = program.store.scheme_guards[guards.start].effects.unwrap();
         let mut omitted_environment = program.clone();
         assert!(omitted_environment.store.in_place.get().is_none());
-        let mut terms = bbtree::unsync::BBTreeSet::new();
+        let mut terms = std::collections::BTreeSet::new();
         for contract in [exports.local, exports.outward, root.effects] {
             let range = contract.terms.bounds(program.store.scheme_effect_terms.len()).unwrap();
             assert_eq!(range.len(), 1);
@@ -7678,7 +7678,7 @@ observe()?
         }).unwrap();
         let (carriers, _, _) = guarded_record_carriers(&program, owner, base);
         let leaves = carriers.map(|fact| record_field_type(&program.store, program.store.scheme_body_facts[fact].ty().unwrap(), "opaque"));
-        assert_eq!(leaves.into_iter().collect::<bbtree::unsync::BBTreeSet<_>>().len(), 3);
+        assert_eq!(leaves.into_iter().collect::<std::collections::BTreeSet<_>>().len(), 3);
         for leaf in leaves {
             let node = program.store.scheme_types[leaf.index()];
             assert_eq!(node.tag, FullSchemeTypeTag::Ground);

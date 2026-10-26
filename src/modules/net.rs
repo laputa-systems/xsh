@@ -337,7 +337,7 @@ pub(crate) fn response_value(response: xsh_net::NetResponse) -> Value {
             ]))
         })
         .collect();
-    let mut fields = bbtree::unsync::BBTreeMap::from([
+    let mut fields = std::collections::BTreeMap::from([
         (Arc::from("status"), Value::Int(response.status)),
         (Arc::from("reason"), Value::Str(response.reason.into())),
         (Arc::from("bytes"), Value::Int(response.bytes)),

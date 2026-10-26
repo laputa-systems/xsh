@@ -16,7 +16,7 @@
 //! `yaml_test_suite_known_failures.txt`.  The run fails if any other test
 //! fails or if a listed test passes.  Set `DESER_YAML_BLESS=1` to rewrite
 //! the list from the results.
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::panic;
 use std::path::Path;

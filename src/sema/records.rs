@@ -1,6 +1,6 @@
 use crate::modules::signature::convert_type;
 use crate::sema::types::Type;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 pub fn record_schemas() -> BTreeMap<&'static str, Type> {

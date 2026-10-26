@@ -18,7 +18,7 @@
 //! rewrite the list from the results.  Arguments that are not flags filter
 //! the cases by name, then the details of known failures are shown as
 //! well.
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::panic;
 use std::path::Path;

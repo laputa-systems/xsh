@@ -5,7 +5,7 @@ use super::table::{
 };
 use xsh::host::json::Value as JsonValue;
 use rustc_hash::FxHashMap;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use xsh::frontend::source::{SourceMap, Span};
 
@@ -158,7 +158,7 @@ impl SyscallSummary {
     /// non-zero `start_time_us` and only considers trace events that have both
     /// `start_time_us` and `duration_us` fields.
     pub fn attribute_operations(&mut self, records: &[SyscallTraceRecord], trace_jsonl: &str) {
-        use bbtree::unsync::BBTreeMap as Map;
+        use std::collections::BTreeMap as Map;
 
         // Parse trace events from JSONL; skip malformed lines silently.
         struct OpWindow {
@@ -968,7 +968,7 @@ impl CoverageTraceRenderer {
                 ("kind".to_string(), JsonValue::from("source.file")),
                 ("file".to_string(), JsonValue::from(file.name())),
                 ("line_count".to_string(), JsonValue::from(file.line_count())),
-            ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+            ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
             output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
             output.push('\n');
         }
@@ -986,7 +986,7 @@ impl CoverageTraceRenderer {
             if let Some(span) = event.definition_span {
                 append_coverage_span(&mut fields, "definition_span", span, sources);
             }
-            let value = (fields).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+            let value = (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
             output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
             output.push('\n');
         }
@@ -1014,7 +1014,7 @@ fn append_coverage_span(
             ("end_line".to_string(), JsonValue::from(end.line)),
             ("start_offset".to_string(), JsonValue::from(span.start())),
             ("end_offset".to_string(), JsonValue::from(span.end())),
-        ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
+        ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
     ));
 }
 
@@ -1773,7 +1773,7 @@ fn trace_event_json_value(data: TraceEventJson) -> JsonValue {
             "payload".to_string(),
             trace_payload_json_value(data.payload),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_span_json_value(data: TraceSpanJson) -> JsonValue {
@@ -1791,7 +1791,7 @@ fn trace_span_json_value(data: TraceSpanJson) -> JsonValue {
         ),
         ("end_line".to_string(), JsonValue::from(data.end_line)),
         ("end_column".to_string(), JsonValue::from(data.end_column)),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
@@ -2166,14 +2166,14 @@ fn typed_payload_json_value(ty: &'static str, fields: Vec<(String, JsonValue)>) 
     let mut entries = Vec::with_capacity(fields.len() + 1);
     entries.push(("type".to_string(), JsonValue::from(ty)));
     entries.extend(fields);
-    (entries).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    (entries).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_arg_json_value(data: TraceArgJson) -> JsonValue {
     ([
         ("hex".to_string(), JsonValue::from(data.hex)),
         ("display".to_string(), JsonValue::from(data.display)),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_args_json_value(args: Vec<TraceArgJson>) -> JsonValue {
@@ -2185,7 +2185,7 @@ fn trace_env_json_value(env: Vec<TraceEnvJson>) -> JsonValue {
         ([
             ("name".to_string(), trace_arg_json_value(item.name)),
             ("value".to_string(), trace_arg_json_value(item.value)),
-        ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+        ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
     })).into_iter().collect::<JsonValue>()
 }
 
@@ -2194,7 +2194,7 @@ fn trace_status_json_value(data: TraceStatusJson) -> JsonValue {
         ("success".to_string(), JsonValue::from(data.success)),
         ("kind".to_string(), JsonValue::from(data.kind)),
         ("code".to_string(), option_i32_json_value(data.code)),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_error_json_value(data: TraceErrorJson) -> JsonValue {
@@ -2212,7 +2212,7 @@ fn trace_error_json_value(data: TraceErrorJson) -> JsonValue {
             JsonValue::from(data.causes_truncated),
         ));
     }
-    (fields).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_error_span_json(span: Option<Span>, sources: &SourceMap) -> Option<TraceSpanJson> {
@@ -2257,7 +2257,7 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
                             trace_error_span_json(context.span, sources).map(trace_span_json_value),
                         ),
                     ),
-                ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
             })).into_iter().collect::<JsonValue>(),
         ),
         (
@@ -2270,7 +2270,7 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
                     .map(trace_status_json_value),
             ),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_summary_json_value(data: TraceSummaryJson) -> JsonValue {
@@ -2293,7 +2293,7 @@ fn trace_summary_json_value(data: TraceSummaryJson) -> JsonValue {
             "hot_commands".to_string(),
             (data.hot_commands.into_iter().map(summary_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn summary_row_json_value(data: SummaryRowJson) -> JsonValue {
@@ -2312,7 +2312,7 @@ fn summary_row_json_value(data: SummaryRowJson) -> JsonValue {
             "slowest_span".to_string(),
             option_json_value(data.slowest_span.map(trace_span_json_value)),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_summary_json_value(data: SyscallSummaryJson) -> JsonValue {
@@ -2360,7 +2360,7 @@ fn syscall_summary_json_value(data: SyscallSummaryJson) -> JsonValue {
                     .map(syscall_operation_summary_json_value)).into_iter().collect::<JsonValue>(),
         ));
     }
-    (fields).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_operation_summary_json_value(data: SyscallOperationSummaryJson) -> JsonValue {
@@ -2376,7 +2376,7 @@ fn syscall_operation_summary_json_value(data: SyscallOperationSummaryJson) -> Js
             "syscalls".to_string(),
             (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_summary_row_json_value(data: SyscallSummaryRowJson) -> JsonValue {
@@ -2389,7 +2389,7 @@ fn syscall_summary_row_json_value(data: SyscallSummaryRowJson) -> JsonValue {
             "usecs_per_call".to_string(),
             JsonValue::from(data.usecs_per_call),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_program_summary_json_value(data: SyscallProgramSummaryJson) -> JsonValue {
@@ -2400,7 +2400,7 @@ fn syscall_program_summary_json_value(data: SyscallProgramSummaryJson) -> JsonVa
             "syscalls".to_string(),
             (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_process_summary_json_value(data: SyscallProcessSummaryJson) -> JsonValue {
@@ -2412,14 +2412,14 @@ fn syscall_process_summary_json_value(data: SyscallProcessSummaryJson) -> JsonVa
             "syscalls".to_string(),
             (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_count_row_json_value(data: SyscallCountRowJson) -> JsonValue {
     ([
         ("syscall".to_string(), JsonValue::from(data.syscall)),
         ("calls".to_string(), JsonValue::from(data.calls)),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn option_json_value(value: Option<JsonValue>) -> JsonValue {

@@ -20,7 +20,7 @@ use crate::syntax::arena::ArenaTableStats;
 use crate::syntax::cst::SyntaxTree;
 use crate::syntax::lexer::Lexer;
 use rustc_hash::FxHashSet;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::mem::size_of;
@@ -1821,7 +1821,7 @@ mod tests {
     use crate::sema::types::Type;
     use crate::source::{SourceId, Span};
     use crate::syntax::arena::StmtId;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
     use std::mem::size_of;
 
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
@@ -1875,7 +1875,7 @@ mod tests {
             assert_eq!(standalone - shared, table, "the actual shared pool allocation belongs to the aggregate once");
             let relationship = checked.expr_types.values().find_map(|ty| if let Type::SchemeCallable(id) = ty { Some(*id) } else { None }).unwrap();
             let canonical = checked.scheme_callables.get(relationship).unwrap().canonical().scheme();
-            let counted = bbtree::unsync::BBTreeSet::from([std::sync::Arc::as_ptr(canonical) as usize]);
+            let counted = std::collections::BTreeSet::from([std::sync::Arc::as_ptr(canonical) as usize]);
             let with_existing_contract = checked.scheme_callables.retained_bytes(&mut Default::default(), &counted);
             assert_eq!(table - with_existing_contract, canonical.retained_bytes(), "an already counted canonical allocation is excluded exactly once");
             (table, with_existing_contract)
@@ -1960,7 +1960,7 @@ mod tests {
                 name
             })
             .collect::<Vec<_>>();
-        let fields = field_names.iter().copied().collect::<bbtree::unsync::BBTreeSet<_>>();
+        let fields = field_names.iter().copied().collect::<std::collections::BTreeSet<_>>();
         let expected = [
             "fresh_variables",
             "generated_constraints",
@@ -1990,7 +1990,7 @@ mod tests {
             "evidence_nodes",
         ]
         .into_iter()
-        .collect::<bbtree::unsync::BBTreeSet<_>>();
+        .collect::<std::collections::BTreeSet<_>>();
 
         assert_eq!(field_names.len(), 26);
         assert_eq!(fields.len(), 26);

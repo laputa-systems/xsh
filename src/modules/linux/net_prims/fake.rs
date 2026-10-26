@@ -44,7 +44,7 @@ use crate::runtime::value::{RuntimeError, Value};
 use xsh::host::json::Value as JsonValue;
 use rustix::fs::{MemfdFlags, memfd_create};
 use rustix::fd::IntoRawFd;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::Mutex;

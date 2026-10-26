@@ -13,7 +13,7 @@
 //! trait object and the variant).
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use alloc::collections::BTreeMap;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;

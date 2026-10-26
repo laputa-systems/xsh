@@ -1,5 +1,5 @@
 use crate::types::Type;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 fn record(fields: impl IntoIterator<Item = (&'static str, Type)>) -> Type {
     Type::Record(fields.into_iter().map(|(name, ty)| (name.to_string(), ty)).collect())

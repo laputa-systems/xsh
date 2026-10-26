@@ -181,7 +181,7 @@ impl Default for SerializerConfigBuilder {
 /// A TOML document holds a single value, writing a second one fails.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_toml::Serializer;
 ///
 /// let mut serializer = Serializer::new();
@@ -318,7 +318,7 @@ impl SerializerConfig {
 /// of a table come before its subtables.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let mut out = Vec::new();
 /// deser_toml::to_writer(&mut out, &BTreeMap::from([("a", 1)])).unwrap();
@@ -338,7 +338,7 @@ pub fn to_writer<W: std::io::Write, T: Serialize + ?Sized>(
 /// information.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let mut value = BTreeMap::new();
 /// value.insert("name", vec!["a", "b"]);

@@ -9,7 +9,7 @@ use crate::xsht::cli::{
 use crate::xsht::config::config_for_file;
 use crate::xsht::format::Formatter;
 use std::cmp::Reverse;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;

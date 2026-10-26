@@ -5,7 +5,7 @@ use crate::syntax::node::Effect;
 use crate::sema::effects::{EffectContract, EffectSet};
 use crate::sema::schemes::SchemeEffectParameterId;
 use super::verify_schemes::{ScopedEffectProof, VerifiedSchemeScopes};
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 struct OwnerEffects {
     kind: CallableKind,
@@ -104,7 +104,7 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
         let slots = decoder.store.driver_steps[step].slots.bounds(decoder.store.driver_slots.len()).ok_or_else(invalid)?;
         if decoder.store.driver_slots[slots].iter().any(|slot| slot.slot as usize == closing_slot && slot.binding_identity != super::IR_NONE) { return Err(IrVerifyError::new("managed release closing slot aliases external storage")); }
     }
-    let mut locals = bbtree::unsync::BBTreeSet::from([closing_slot]);
+    let mut locals = std::collections::BTreeSet::from([closing_slot]);
     let resource_count = (body.len() - 3) / 2;
     let mut releases = Vec::with_capacity(resource_count);
     let release_call = |instruction: usize| -> Result<(_, usize), IrVerifyError> {
@@ -147,7 +147,7 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
 }
 
 pub(super) fn verify_defer_purposes(decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {
-    let mut managed_scopes = bbtree::unsync::BBTreeSet::new();
+    let mut managed_scopes = std::collections::BTreeSet::new();
     let mut closing_writers = BTreeMap::<usize, Vec<usize>>::new();
     for instruction in decoder.instruction_range.clone() {
         if decoder.store.tags[instruction] != FullTag::StmtDefer { continue; }
@@ -179,8 +179,8 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
             .ok_or_else(|| IrVerifyError::new("pure callable capture range is invalid"))?;
         decoder.store.captures[captures].iter().filter_map(|capture|
             (capture.slot_and_flags & (1 << 31) != 0).then_some((capture.slot_and_flags & !(1 << 31)) as usize))
-            .collect::<bbtree::unsync::BBTreeSet<_>>()
-    } else { bbtree::unsync::BBTreeSet::new() };
+            .collect::<std::collections::BTreeSet<_>>()
+    } else { std::collections::BTreeSet::new() };
     let mut captured = BTreeMap::new();
     let proof = ScopedEffectProof::new(decoder.store, scopes);
     let budget = std::cell::RefCell::new(super::verify_schemes::SchemeInstantiationBudget::new(decoder.store));

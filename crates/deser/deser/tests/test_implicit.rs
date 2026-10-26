@@ -1,4 +1,4 @@
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 use deser::de::{DeserializeDriver, DeserializeOwned, Recording};
 use deser::{Atom, Deserialize, Error, ErrorKind, Event, Implicit, ImplicitValue};

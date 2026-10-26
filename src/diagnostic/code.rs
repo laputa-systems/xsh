@@ -678,7 +678,7 @@ diagnostic_codes! {
 #[cfg(test)]
 mod tests {
     use super::{DiagnosticCode, DiagnosticFamily};
-    use bbtree::unsync::BBTreeSet as BTreeSet;
+    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
     const FAMILY_PREFIXES: &[DiagnosticFamily] = &[

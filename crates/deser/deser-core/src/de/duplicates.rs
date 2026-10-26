@@ -17,7 +17,7 @@ use alloc::string::String;
 /// context overrides.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser::de::DuplicateKeys;
 /// use deser::Context;
 ///

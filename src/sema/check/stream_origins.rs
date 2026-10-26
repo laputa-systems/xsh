@@ -1,5 +1,5 @@
 use super::{EffectDeclarationId, Name, Type};
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(super) enum StreamProjection {
@@ -744,7 +744,7 @@ impl Checker {
         let mut cache = self.stream_argument_binding_cache.borrow_mut();
         cache
             .retain(|_, (bindings, _)| std::sync::Arc::ptr_eq(bindings, &resolved_bindings));
-        if let bbtree::unsync::bbtree_map::Entry::Vacant(entry) = cache.entry(source.body.source_id) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(source.body.source_id) {
             let mut bindings = BTreeMap::new();
             for expression in arena.arena.source_rows().expr_ids(source.body.source_id) {
                 match &arena.arena.expr(expression).kind {
@@ -1290,7 +1290,7 @@ fn type_may_carry_stream_origin(ty: &Type) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{StreamOrigins, StreamProjection};
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn resolved_origin_domains_preserve_resource_dependencies_and_resolution_errors() {
@@ -1591,7 +1591,7 @@ mod tests {
                     parameter,
                     projection: super::ProjectionPath(vec![StreamProjection::Field(field)]),
                 },
-            )].into_iter().collect::<bbtree::unsync::BBTreeSet<_>>();
+            )].into_iter().collect::<std::collections::BTreeSet<_>>();
             assert_eq!(summary.returned.0, expected, "{relay} selects only Pair.{field}");
         }
 
@@ -1607,7 +1607,7 @@ mod tests {
                 parameter: 0,
                 projection: super::ProjectionPath(vec![StreamProjection::Field(crate::symbol::Name::intern(field))]),
             },
-        )).collect::<bbtree::unsync::BBTreeSet<_>>();
+        )).collect::<std::collections::BTreeSet<_>>();
         assert_eq!(summary.returned.0, expected, "a finite callback union keeps both exact projections");
 
         drop(_symbols);
@@ -1704,7 +1704,7 @@ mod tests {
                 parameter: 0,
                 projection: super::ProjectionPath(vec![StreamProjection::Field(crate::symbol::Name::intern("right"))]),
             },
-        )].into_iter().collect::<bbtree::unsync::BBTreeSet<_>>();
+        )].into_iter().collect::<std::collections::BTreeSet<_>>();
         assert_eq!(checked.stream_origin_summaries.declarations[&owner].returned.0, expected);
     }
 
@@ -1762,7 +1762,7 @@ pure relay_splice_right(head: Pair, rows: List[Pair]) -> Stream[Int] {
                     parameter,
                     projection: super::ProjectionPath(projection.clone()),
                 },
-            )).collect::<bbtree::unsync::BBTreeSet<_>>();
+            )).collect::<std::collections::BTreeSet<_>>();
             let summary = &checked.stream_origin_summaries.declarations[&owner];
             assert_eq!(summary.returned.0, expected, "{relay} preserves only its selected rest-item origins");
         }
@@ -1819,7 +1819,7 @@ pure relay_splice_right(head: Pair, rows: List[Pair]) -> Stream[Int] {
                 parameter: 0,
                 projection: super::ProjectionPath(vec![StreamProjection::Field(crate::symbol::Name::intern("right"))]),
             },
-        )].into_iter().collect::<bbtree::unsync::BBTreeSet<_>>();
+        )].into_iter().collect::<std::collections::BTreeSet<_>>();
         assert_eq!(checked.stream_origin_summaries.declarations[&owner].returned.0, expected);
     }
 

@@ -8,7 +8,7 @@ use crate::modules::compression::{
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{LiveStream, PathValue, RuntimeError, StreamValue, Value};
 use crate::source::Span;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Cursor, Read, Write};
 use std::os::unix::ffi::OsStrExt;

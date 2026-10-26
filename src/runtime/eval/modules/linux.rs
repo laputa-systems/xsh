@@ -3,7 +3,7 @@ use super::Evaluator;
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
 #[cfg(feature = "native-tests")]
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 /// The native-test double for the `linux` module. While installed, every
 /// `linux.*` entry returns fixed values instead of touching the host and
@@ -211,7 +211,7 @@ pub(super) fn append_fake_log_with_bytes(
         ));
     }
     let line =
-        xsh::host::json::encode(&(json_fields).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()).expect("host JSON document must be encodable");
+        xsh::host::json::encode(&(json_fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()).expect("host JSON document must be encodable");
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)

@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use bbtree::unsync::BBTreeSet as BTreeSet;
+use std::collections::BTreeSet;
 use std::sync::atomic::{self, AtomicUsize};
 
 use deser::de::{DeserializeDriver, DeserializeOwned, Sink, SinkHandle, Slot, default_atom};

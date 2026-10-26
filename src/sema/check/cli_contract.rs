@@ -4,7 +4,7 @@ use crate::source::{SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::arena::ArenaProgram;
 use crate::syntax::node::Effect;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// An immutable checked CLI parsing contract and declared effect bound,

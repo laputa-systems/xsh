@@ -1,8 +1,7 @@
 //! Serialization tests including the deterministic encoding.
 use crate::common;
 
-use std::collections::{HashMap};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 
 use common::{Value, hex, ser, to_hex};
 use deser::Serialize;

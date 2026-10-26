@@ -10,7 +10,7 @@ use crate::source::Span;
 use crate::symbol::{Name, NameText, QualifiedName, SymbolOwner};
 use rustc_hash::FxHashMap;
 use std::any::Any;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -657,7 +657,7 @@ impl<'a> IntoIterator for &'a RecordMap {
 }
 
 pub enum RecordIter<'a> {
-    Dynamic(bbtree::unsync::bbtree_map::Iter<'a, Arc<str>, Value>),
+    Dynamic(std::collections::btree_map::Iter<'a, Arc<str>, Value>),
     Shaped {
         keys: std::slice::Iter<'a, NameText>,
         values: std::slice::Iter<'a, Value>,
@@ -671,7 +671,7 @@ pub enum RecordIter<'a> {
 }
 
 pub(crate) enum RecordOwnedKeyIter<'a> {
-    Dynamic(bbtree::unsync::bbtree_map::Iter<'a, Arc<str>, Value>),
+    Dynamic(std::collections::btree_map::Iter<'a, Arc<str>, Value>),
     Shaped {
         keys: std::slice::Iter<'a, NameText>,
         values: std::slice::Iter<'a, Value>,
@@ -734,7 +734,7 @@ impl<'a> Iterator for RecordIter<'a> {
 }
 
 pub enum RecordKeys<'a> {
-    Dynamic(bbtree::unsync::bbtree_map::Keys<'a, Arc<str>, Value>),
+    Dynamic(std::collections::btree_map::Keys<'a, Arc<str>, Value>),
     Shaped(std::slice::Iter<'a, NameText>),
 }
 
@@ -750,7 +750,7 @@ impl<'a> Iterator for RecordKeys<'a> {
 }
 
 pub enum RecordValues<'a> {
-    Dynamic(bbtree::unsync::bbtree_map::Values<'a, Arc<str>, Value>),
+    Dynamic(std::collections::btree_map::Values<'a, Arc<str>, Value>),
     Shaped(std::slice::Iter<'a, Value>),
     SparseShaped {
         len: usize,
@@ -2142,7 +2142,7 @@ pub(crate) fn run_error_segment_summary(
 mod tests {
     use super::{RecordMap, RecordShape, RuntimeError, Value};
     use crate::symbol::{Name, SymbolOwner};
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
     use std::mem::size_of;
     use std::sync::Arc;
 

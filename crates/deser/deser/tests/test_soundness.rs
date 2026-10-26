@@ -1,8 +1,7 @@
 //! Tests that exercise the unsafe code paths in deser.  These are primarily
 //! useful when run under miri.
 use std::borrow::Cow;
-use std::collections::{HashMap};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use deser::State;

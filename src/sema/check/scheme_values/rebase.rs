@@ -113,7 +113,7 @@ pub(in crate::sema::check) fn output(output: &mut CheckOutput, rebaser: &mut Sch
     for projection in output.projections.values_mut() {
         map.ty(&mut projection.value_type)?;
         if let Some(export) = projection.callable.take() {
-            let mut module = bbtree::unsync::BBTreeMap::new();
+            let mut module = std::collections::BTreeMap::new();
             module.insert(projection.field, export);
             let mut ty = Type::Module(Arc::new(crate::sema::types::ModuleType::exact(module)));
             map.ty(&mut ty)?;

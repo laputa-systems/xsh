@@ -916,7 +916,7 @@ mod tests {
             );
             let (first_facts, first_assignment_facts) =
                 ResolvedBindings::collect_bundle_with_assignment_facts(&first_view);
-            let first_names = bbtree::unsync::BBTreeSet::from([Name::intern("first")]);
+            let first_names = std::collections::BTreeSet::from([Name::intern("first")]);
             assert_eq!(first_assignment_facts.names(SourceId::new(3), first), Some(&first_names));
             assert_eq!(first_assignment_facts.names(SourceId::new(4), first), None);
             assert_eq!(first_assignment_facts.names(SourceId::new(3), second), None);
@@ -933,9 +933,9 @@ mod tests {
             let source_text_source_id = program
                 .source_text_source_id()
                 .expect("program source-text owner");
-            let no_names = bbtree::unsync::BBTreeSet::new();
+            let no_names = std::collections::BTreeSet::new();
             assert_eq!(empty_assignment_facts.names(source_text_source_id, empty), Some(&no_names));
-            let internal_names = bbtree::unsync::BBTreeSet::from([Name::intern("built_in")]);
+            let internal_names = std::collections::BTreeSet::from([Name::intern("built_in")]);
             assert_eq!(
                 empty_assignment_facts.names(SourceId::new(4), internal_source.statements),
                 Some(&internal_names),
@@ -958,7 +958,7 @@ mod tests {
             );
             let (second_facts, second_assignment_facts) =
                 ResolvedBindings::collect_bundle_with_assignment_facts(&second_view);
-            let second_names = bbtree::unsync::BBTreeSet::from([Name::intern("second")]);
+            let second_names = std::collections::BTreeSet::from([Name::intern("second")]);
             assert_eq!(second_assignment_facts.names(SourceId::new(3), second), Some(&second_names));
 
             let _ = first_facts.merge_visible(&second_facts);
@@ -1000,7 +1000,7 @@ mod tests {
             let view = CheckBundleView::whole_program(&parsed.arena);
             let (_, assignment_facts) = ResolvedBindings::collect_bundle_with_assignment_facts(&view);
             let names = assignment_facts.names(SourceId::new(0), parsed.arena.statements).unwrap();
-            let expected = bbtree::unsync::BBTreeSet::from([
+            let expected = std::collections::BTreeSet::from([
                 Name::intern("root"),
                 Name::intern("items"),
                 Name::intern("atomic_written"),
@@ -1035,8 +1035,8 @@ mod tests {
 
         program.symbol_owner().with_current(|| {
             let output = Checker::check_arena(&program, root_source);
-            let module_names = bbtree::unsync::BBTreeSet::from([Name::intern("missing")]);
-            let root_names = bbtree::unsync::BBTreeSet::new();
+            let module_names = std::collections::BTreeSet::from([Name::intern("missing")]);
+            let root_names = std::collections::BTreeSet::new();
             assert!(output.diagnostics.iter().any(|diagnostic| {
                 diagnostic.severity == crate::diagnostic::Severity::Error
             }));
@@ -1075,7 +1075,7 @@ mod tests {
         program.symbol_owner().with_current(|| {
             let view = CheckBundleView::for_root(&program, root.statements, None, Some(root_id));
             let (_, assignment_facts) = ResolvedBindings::collect_bundle_with_assignment_facts(&view);
-            let root_names = bbtree::unsync::BBTreeSet::from([Name::intern("root")]);
+            let root_names = std::collections::BTreeSet::from([Name::intern("root")]);
             assert_eq!(assignment_facts.names(root_id, root.statements), Some(&root_names));
             assert_eq!(assignment_facts.names(empty_module_id, empty_module.statements), None);
             assert_eq!(assignment_facts.names(root_id, empty_module.statements), None);
@@ -1089,7 +1089,7 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
             let output = Checker::check_arena(&parsed.arena, source);
-            let expected = bbtree::unsync::BBTreeSet::from([Name::intern("missing")]);
+            let expected = std::collections::BTreeSet::from([Name::intern("missing")]);
 
             assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error));
             assert_eq!(

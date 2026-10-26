@@ -187,7 +187,7 @@ use deser_core::de::Deserialize;
 /// The syntax of the files.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_ini::{DeserializerConfig, Syntax};
 ///
 /// type Config = BTreeMap<String, BTreeMap<String, String>>;
@@ -224,7 +224,7 @@ pub enum Syntax {
 /// Lines that start with `;` or `#` (after whitespace) are always comments.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_ini::{DeserializerConfig, InlineComments};
 ///
 /// let input = "a = 1;2 ; one\nb = x #y\nc = #fff";
@@ -261,7 +261,7 @@ pub enum InlineComments {
 /// How values continue on the next lines.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_ini::{Continuation, DeserializerConfig};
 ///
 /// let config = DeserializerConfig::new();
@@ -298,7 +298,7 @@ pub enum Continuation {
 /// How quoted values are read.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_ini::{DeserializerConfig, Quotes};
 ///
 /// let input = "a = \" x ; y \" ; comment\nb = \"say \\\"hi\\\"\"\nc = \"a\" \"b\"";
@@ -330,7 +330,7 @@ pub enum Quotes {
 /// documentation](crate) for how INI files map onto deser.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let value: BTreeMap<String, BTreeMap<String, u32>> =
 ///     deser_ini::from_str("[a]\nb = 1\nc = 2").unwrap();
@@ -345,7 +345,7 @@ pub fn from_str<'de, T: Deserialize<'de>>(s: &'de str) -> Result<T, Error> {
 /// The input has to be UTF-8, a byte order mark is skipped.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let value: BTreeMap<String, String> =
 ///     deser_ini::from_slice(b"\xef\xbb\xbfa = \xc3\xa4").unwrap();

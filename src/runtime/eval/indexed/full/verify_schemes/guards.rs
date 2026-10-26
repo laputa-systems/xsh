@@ -1,7 +1,7 @@
 use super::{IrVerifyError, SchemeScope};
 use super::super::{guard_schemes::FullGuardScope, IrRange, IR_NONE};
 use crate::sema::guarded_requirements::GuardScopeId;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 

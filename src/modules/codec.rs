@@ -8,7 +8,7 @@ use deser::{Atom, Deserialize, Error, ErrorKind, State};
 use deser::de::{DeserializeDriver, Sink, SinkHandle};
 use std::sync::Arc;
 use crate::map_key::MapKey;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 pub(crate) mod binary;
 

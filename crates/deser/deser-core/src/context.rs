@@ -24,7 +24,7 @@ type Entry = (TypeKey, Arc<dyn DebugAny>);
 /// ```
 /// use deser::de::DuplicateKeys;
 /// use deser::Context;
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let context = Context::with(DuplicateKeys::Last);
 ///
@@ -44,7 +44,7 @@ type Entry = (TypeKey, Arc<dyn DebugAny>);
 /// ```
 /// use deser::de::{Deserializer, DuplicateKeys, Limits};
 /// use deser::Context;
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let config = deser_json::DeserializerConfig::builder()
 ///     .context(Context::with(DuplicateKeys::Last))

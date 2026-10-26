@@ -10,7 +10,7 @@ mod platform {
     use crate::xsht::trace::{SyscallSummary, SyscallSummaryRenderer, SyscallTraceRecord};
     use rustix::io::Errno;
     use rustix::process::{Pid, WaitOptions, WaitStatus, waitpid};
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
     use std::ffi::OsStr;
     use std::fs;
     use std::io::{self, Read};

@@ -1,7 +1,7 @@
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustc_hash::FxHashMap;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -273,7 +273,7 @@ fn wait_ready(
 mod tests {
     use super::*;
     use crate::source::SourceId;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
     use std::process::Command;
 
     fn invocation(source: &str) -> ProcessInvocation {

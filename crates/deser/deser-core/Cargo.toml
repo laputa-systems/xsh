@@ -33,7 +33,6 @@ io = ["std"]
 open-enums = ["derive"]
 
 [dependencies]
-bbtree = "0.1.5"
 # types of these crates serialize as well-known extension types
 jiff = { version = "0.2.14", optional = true, default-features = false, features = ["alloc"] }
 # collections and byte buffers of these crates serialize like the standard

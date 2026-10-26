@@ -6,7 +6,7 @@ use crate::source::Span;
 use crate::symbol::Name;
 use crate::sema::validated::Validation;
 use crate::syntax::arena::{ExprId, StmtId};
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1379,7 +1379,6 @@ impl SchemeBodyFacts {
             used_types.extend(usage.types);
             used_rows.extend(usage.rows);
         }
-        drop(ownership);
         Self {
             scheme,
             expression_types,
@@ -2097,7 +2096,7 @@ mod tests {
     use crate::sema::types::{ModuleExportType, ModuleType, Type};
     use crate::symbol::Name;
     use crate::syntax::arena::TypeDefId;
-    use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
     #[test]
@@ -2538,11 +2537,11 @@ mod tests {
         ).unwrap());
         let expression = crate::syntax::arena::ExprId::from_index(3);
         let facts = super::SchemeBodyFacts::new(Arc::clone(&scheme), BTreeMap::new(), BTreeMap::new()).unwrap()
-            .with_noncompleting_expressions(bbtree::unsync::BBTreeSet::from([expression])).unwrap();
-        assert_eq!(facts.noncompleting_expressions(), &bbtree::unsync::BBTreeSet::from([expression]));
+            .with_noncompleting_expressions(std::collections::BTreeSet::from([expression])).unwrap();
+        assert_eq!(facts.noncompleting_expressions(), &std::collections::BTreeSet::from([expression]));
         assert_eq!(facts.expression_types().get(&expression), None);
         let conflicting = super::SchemeBodyFacts::new(scheme, BTreeMap::from([(expression, SchemeType::Ground(Type::Int))]), BTreeMap::new()).unwrap()
-            .with_noncompleting_expressions(bbtree::unsync::BBTreeSet::from([expression]));
+            .with_noncompleting_expressions(std::collections::BTreeSet::from([expression]));
         assert_eq!(conflicting.unwrap_err(), SchemeBuildError::ConflictingBodyFact);
         for completion_first in [false, true] {
             let scheme = Arc::new(TypeScheme::new(
@@ -2550,7 +2549,7 @@ mod tests {
                 SchemeType::Ground(Type::Int), None, true, Some(Vec::new()), false,
             ).unwrap());
             let facts = super::SchemeBodyFacts::new(scheme, BTreeMap::new(), BTreeMap::new()).unwrap();
-            let completions = bbtree::unsync::BBTreeSet::from([expression]);
+            let completions = std::collections::BTreeSet::from([expression]);
             let constructors = BTreeMap::from([(expression, super::NonmaterialConstructor::EmptyList)]);
             let conflicting = if completion_first {
                 facts.with_noncompleting_expressions(completions).unwrap().with_constructor_producers(constructors)

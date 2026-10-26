@@ -18,7 +18,7 @@ use crate::de::{Deserializer, DeserializerConfig};
 ///
 /// ```
 /// # #[cfg(feature = "io")] {
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser_ini::DeserializerConfig;
 ///
 /// let mut reader =
@@ -111,7 +111,7 @@ impl DeserializerConfig {
 /// The reader is read to the end, it does not need to be buffered.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let value: BTreeMap<String, u32> =
 ///     deser_ini::from_reader(&b"a = 1"[..]).unwrap();

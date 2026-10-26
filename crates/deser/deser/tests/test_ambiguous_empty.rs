@@ -1,7 +1,6 @@
 //! Empty containers that can be the other kind of container (see
 //! `ContainerShape::set_ambiguous_empty`).
-use std::collections::{HashMap};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 
 use deser::de::{DeserializeDriver, DeserializeOwned, Recording};
 use deser::{ContainerShape, Deserialize, Error, ErrorKind, Event};

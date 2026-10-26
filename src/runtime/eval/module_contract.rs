@@ -7,7 +7,7 @@
 
 use super::{Evaluator, LoweredValue, ModuleExportSignature, Name, RuntimeError, Span, ValueView};
 use crate::sema::types::{CallableType, ModuleExportType, ModuleType};
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
 use xsh_registry::errors::ErrorFacet;

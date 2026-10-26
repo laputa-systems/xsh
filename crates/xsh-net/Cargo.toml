@@ -8,7 +8,6 @@ publish = false
 workspace = true
 
 [dependencies]
-bbtree = "0.1.5"
 async-executor = "1"
 async-io = "2"
 async-net = "2"

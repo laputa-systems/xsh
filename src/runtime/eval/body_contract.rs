@@ -1,7 +1,7 @@
 use super::{Diagnostic, DiagnosticCode, Evaluator, LoweredParamKind, LoweredReturnKind, LoweredType, LoweredTypeCheck, Severity, SourceId, SourceMap, Span, Type};
 use crate::sema::check::{BodyContractError, BodyContractOwner, BodyContractSite, CanonicalBodyContractSite, CheckOutput, CheckedCallableContract, Checker, FunctionEffectFact, PendingBodyContracts, SemanticBodyContract};
 use crate::syntax::arena::ArenaProgram;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum PreparedValidationContract {

@@ -2,7 +2,7 @@ use crate::sema::types::{ModuleExportType, Type};
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 

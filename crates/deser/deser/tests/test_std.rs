@@ -245,9 +245,9 @@ fn test_non_zero() {
     );
 
     // usable as map keys
-    let mut map = bbtree::unsync::BBTreeMap::new();
+    let mut map = std::collections::BTreeMap::new();
     map.insert(NonZero::new(1u16).unwrap(), true);
-    let rv: bbtree::unsync::BBTreeMap<NonZero<u16>, bool> = deserialize(vec![
+    let rv: std::collections::BTreeMap<NonZero<u16>, bool> = deserialize(vec![
         Event::map_start(),
         Atom::Lexical("1".into()).into(),
         true.into(),

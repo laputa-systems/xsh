@@ -1,5 +1,5 @@
 //! Raw MessagePack values.
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 use crate::common::{hex, to_hex};
 use deser::adapters::Borrowed;

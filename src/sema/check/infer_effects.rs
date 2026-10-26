@@ -1,6 +1,6 @@
 use super::{BTreeMap, CheckBundleView, Effect, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
-use bbtree::unsync::BBTreeSet as BTreeSet;
+use std::collections::BTreeSet;
 use crate::sema::effects::{CheckedEffectScope, CheckedEffects, EffectContract, EffectExpr, EffectSet};
 use crate::sema::schemes::{CallInstantiation, SchemeEffectParameterId};
 use crate::sema::constraints::{EffectVariableId, SchemeOperationError};

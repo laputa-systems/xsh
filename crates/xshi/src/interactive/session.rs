@@ -5,7 +5,7 @@ use super::denv::DenvState;
 use super::history::History;
 use super::prompt::Prompt;
 use super::shell::Chain;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};

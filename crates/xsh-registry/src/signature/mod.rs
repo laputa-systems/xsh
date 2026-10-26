@@ -21,7 +21,7 @@ use crate::records::{
 use crate::records::{test_call_type, test_context_type, test_script_output_type};
 pub use crate::runtime_op::RuntimeOp;
 pub(in crate::signature) use crate::types::Type;
-pub(in crate::signature) use bbtree::unsync::BBTreeMap as BTreeMap;
+pub(in crate::signature) use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 mod builders;

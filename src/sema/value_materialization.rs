@@ -1,6 +1,6 @@
 use super::types::SchemeCallableId;
 use crate::symbol::Name;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ValueMaterialization<T, I> {

@@ -564,7 +564,7 @@ fn is_spellable_name(text: &str) -> bool {
 /// A legal name for the hidden local `hidden` that `taken` does not hold,
 /// recorded in `taken`. It keeps the identifier characters of the hidden
 /// name so a reader can tell which form bound it.
-fn fresh_name(hidden: &str, taken: &mut bbtree::unsync::BBTreeSet<String>) -> String {
+fn fresh_name(hidden: &str, taken: &mut std::collections::BTreeSet<String>) -> String {
     let stem = hidden
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
@@ -610,7 +610,7 @@ fn hidden_names(arena: &AstArena, source: &str) -> Vec<(Name, String)> {
         .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
         .filter(|word| !word.is_empty())
         .map(str::to_string)
-        .collect::<bbtree::unsync::BBTreeSet<_>>();
+        .collect::<std::collections::BTreeSet<_>>();
     hidden
         .into_iter()
         .map(|name| {

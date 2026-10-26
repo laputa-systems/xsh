@@ -8,7 +8,7 @@
 //! binding's annotation, the parameter's type and every caller, or a
 //! `.require(NonEmpty[T])?` whose failure the author has to place.
 
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;

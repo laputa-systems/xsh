@@ -1,8 +1,7 @@
 //! Adapters that accept or write values in another form: [`OneOrMany`],
 //! [`PickFirst`], [`MapAsPairs`] and [`PairsAsMap`].
 use alloc::borrow::Cow;
-use alloc::collections::{VecDeque};
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::string::String;
 use alloc::vec::Vec;
 #[cfg(feature = "std")]
@@ -635,7 +634,7 @@ pick_first_impls! {
 /// Supported are `BTreeMap<K, V>` and `HashMap<K, V>`.
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 /// use deser::adapters::MapAsPairs;
 /// use deser::{Deserialize, Serialize};
 ///

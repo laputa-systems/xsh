@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::{CheckBundleView, LiteralConstant, RecordConstructors, Type};
 use xsh::frontend::syntax::arena::{

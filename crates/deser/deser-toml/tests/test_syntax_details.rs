@@ -1,4 +1,4 @@
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use deser::ErrorKind;
 use deser_toml::{SyntaxDetail, from_str};
 

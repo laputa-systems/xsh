@@ -39,7 +39,7 @@ impl Checker {
                                 self.parameter_types.insert(span, ty.clone());
                                 probe.parameter_types.insert(span, ty);
                             } else if let Some(default) = param.default
-                                && let bbtree::unsync::bbtree_map::Entry::Vacant(entry) =
+                                && let std::collections::btree_map::Entry::Vacant(entry) =
                                     self.parameter_types.entry(span)
                             {
                                 let actual = probe.check_expr_arena(program, source, default, None);

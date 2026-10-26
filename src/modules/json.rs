@@ -1,7 +1,7 @@
 use crate::map_key::MapKeyRef;
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn btree_map<K: Ord, V>(entries: impl IntoIterator<Item = (K, V)>) -> BTreeMap<K, V> {
@@ -32,7 +32,7 @@ pub(crate) fn encode_json(value: &Value, pretty: bool, span: Span) -> Result<Str
 }
 
 fn require_json_object_keys(
-    fields: &bbtree::unsync::BBTreeMap<crate::map_key::MapKey, Value>,
+    fields: &std::collections::BTreeMap<crate::map_key::MapKey, Value>,
     span: Span,
 ) -> Result<(), RuntimeError> {
     if fields.keys().any(|key| key.as_str().is_none()) {

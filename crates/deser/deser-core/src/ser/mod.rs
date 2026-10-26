@@ -363,7 +363,7 @@ pub trait Serialize<T: ?Sized = Self>: Sync {
 #[test]
 fn test_serialize() {
     let mut v = Vec::new();
-    let mut m = bbtree::unsync::BBTreeMap::new();
+    let mut m = alloc::collections::BTreeMap::new();
     m.insert(true, vec![vec![&b"x"[..], b"yyy"], vec![b"zzzz"]]);
     m.insert(false, vec![]);
 

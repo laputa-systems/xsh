@@ -5064,7 +5064,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         if previous != count { return Err(RuntimeError::new("indexed-ir", "application argument values are unowned").with_span(span)); }
-        let omitted = layout.omitted_slots.iter().copied().collect::<bbtree::unsync::BBTreeSet<_>>();
+        let omitted = layout.omitted_slots.iter().copied().collect::<std::collections::BTreeSet<_>>();
         let mut ordered = Vec::with_capacity(fixed + tail.len());
         for (slot, value) in slots.into_iter().enumerate() {
             ordered.push(match value {

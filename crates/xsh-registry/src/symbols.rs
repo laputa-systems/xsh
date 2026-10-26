@@ -3,7 +3,7 @@ use crate::records::record_schemas;
 use crate::signature::api_spec;
 use crate::types::Type;
 use crate::{CORE_BUILTIN_SYMBOLS, FIXED_SEMANTIC_SYMBOLS};
-use bbtree::unsync::BBTreeSet as BTreeSet;
+use std::collections::BTreeSet;
 
 pub fn preloaded_symbol_names() -> Vec<String> {
     let mut symbols = Vec::new();
@@ -159,7 +159,7 @@ mod tests {
     use crate::signature::api_spec;
     use crate::types::{BUILTIN_TYPE_NAMES, Type};
     use crate::{CORE_BUILTIN_SYMBOLS, FIXED_SEMANTIC_SYMBOLS};
-    use bbtree::unsync::BBTreeSet as BTreeSet;
+    use std::collections::BTreeSet;
 
     #[test]
     fn preloaded_symbols_are_unique_nonempty_ascii() {

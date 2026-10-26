@@ -4,7 +4,7 @@ use crate::syntax::arena::UnknownFields;
 use deser::{Atom, Error, ErrorKind, State};
 use deser::de::{DeserializeDriver, Sink, SinkHandle};
 use std::sync::Arc;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 fn decimal(text: &str, floating: bool) -> bool {
     let bytes = text.as_bytes();

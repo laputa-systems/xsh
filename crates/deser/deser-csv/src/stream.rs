@@ -171,7 +171,7 @@ impl DeserializerConfig {
 /// [`DeserializerConfig::reader`].
 ///
 /// ```
-/// use bbtree::unsync::BBTreeMap as BTreeMap;
+/// use std::collections::BTreeMap;
 ///
 /// let rows: Vec<BTreeMap<String, u32>> =
 ///     deser_csv::from_reader(&b"a,b\n1,2\n"[..]).unwrap();

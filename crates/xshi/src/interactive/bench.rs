@@ -6,7 +6,7 @@ use super::render::{self, HistoryPagerCache, RenderOpts, RenderedRegion};
 use super::repl;
 use super::session::Session;
 use super::term::TermWriter;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 

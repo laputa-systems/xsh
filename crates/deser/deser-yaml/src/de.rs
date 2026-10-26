@@ -157,7 +157,7 @@ impl DeserializerConfig {
     /// versions of YAML, which is why they are enabled by default:
     ///
     /// ```
-    /// use bbtree::unsync::BBTreeMap as BTreeMap;
+    /// use std::collections::BTreeMap;
     /// use deser::Deserialize;
     ///
     /// #[derive(Deserialize)]

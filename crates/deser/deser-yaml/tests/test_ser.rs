@@ -1,4 +1,4 @@
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 use deser::adapters::{BytesFallback, IntSeq};
 use deser::ext::Datetime;

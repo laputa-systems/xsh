@@ -208,7 +208,7 @@ fn native_event_number(value: &xsh::host::json::Value) -> u64 {
     value.as_u64().expect("event field is not an unsigned integer")
 }
 
-fn reconciled_native_events(path: &Path, status: u64) -> (bbtree::unsync::BBTreeMap<String, String>, xsh::host::json::Value) {
+fn reconciled_native_events(path: &Path, status: u64) -> (std::collections::BTreeMap<String, String>, xsh::host::json::Value) {
     let text = fs::read_to_string(path).unwrap();
     assert!(text.ends_with('\n'), "the event stream must end at a complete record");
     let events = text.lines().map(|line| deser_json::from_str::<xsh::host::json::Value>(line).unwrap()).collect::<Vec<_>>();
@@ -216,9 +216,9 @@ fn reconciled_native_events(path: &Path, status: u64) -> (bbtree::unsync::BBTree
     assert_eq!(native_event_text(native_event_field(first, "event")), "run_started");
     let run_id = native_event_text(native_event_field(first, "run_id"));
     let Some(selected) = (native_event_field(first, "selected")).as_seq() else { panic!("run selection is not frozen") };
-    let selected = selected.iter().map(|id| native_event_text(id).to_owned()).collect::<bbtree::unsync::BBTreeSet<_>>();
-    let mut active = bbtree::unsync::BBTreeSet::new();
-    let mut outcomes = bbtree::unsync::BBTreeMap::new();
+    let selected = selected.iter().map(|id| native_event_text(id).to_owned()).collect::<std::collections::BTreeSet<_>>();
+    let mut active = std::collections::BTreeSet::new();
+    let mut outcomes = std::collections::BTreeMap::new();
     let mut final_event = None;
     for (index, event) in events.iter().enumerate() {
         assert_eq!(native_event_number(native_event_field(event, "schema")), 1);

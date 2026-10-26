@@ -98,7 +98,7 @@ fn streamed<T: deser::Serialize + ?Sized>(
 
 #[test]
 fn test_partial_same_output() {
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     use deser_json::{Indent, InlinePolicy};
 

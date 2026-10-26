@@ -1,4 +1,4 @@
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 use deser::State;
 use deser::de::{Deserialize, DeserializeDriver, Sink, SinkHandle, Slot, default_atom};

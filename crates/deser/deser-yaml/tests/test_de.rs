@@ -1,5 +1,4 @@
-use std::collections::{HashMap};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 
 use deser::{Deserialize, ErrorKind};
 use deser_yaml::{Deserializer, DeserializerConfig, Tagged, Version, from_slice, from_str};

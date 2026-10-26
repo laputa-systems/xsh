@@ -14,7 +14,7 @@ use super::{
 };
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 

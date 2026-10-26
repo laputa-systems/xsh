@@ -323,13 +323,13 @@ impl Checker {
         args_domain: ArgsDomain,
     ) -> (
         FxHashMap<String, UserModuleSig>,
-        bbtree::unsync::BBTreeMap<EffectDeclarationId, EffectSummary>,
+        std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         Vec<CheckOutput>,
         ResourceTransferFacts,
         super::stream_origins::StreamOriginSummaries,
     ) {
         let mut signatures = FxHashMap::default();
-        let mut summaries = bbtree::unsync::BBTreeMap::new();
+        let mut summaries = std::collections::BTreeMap::new();
         let mut origin_summaries = super::stream_origins::StreamOriginSummaries::new();
         let mut outputs = FxHashMap::default();
         // Suppressed embedded outputs still need the transfer-site facts used by lowering.
@@ -403,7 +403,7 @@ impl Checker {
         sources: Option<&SourceMap>,
         entry_source: &str,
         dependencies: &FxHashMap<String, UserModuleSig>,
-        dependency_summaries: &bbtree::unsync::BBTreeMap<EffectDeclarationId, EffectSummary>,
+        dependency_summaries: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         dependency_origins: &super::stream_origins::StreamOriginSummaries,
     ) -> CheckedModuleFacts {
         let program = view.program;
@@ -541,7 +541,7 @@ impl Checker {
         byte_script_arguments: bool,
         modules: &FxHashMap<String, UserModuleSig>,
         effect_graph: EffectGraph,
-        effect_summaries: bbtree::unsync::BBTreeMap<EffectDeclarationId, EffectSummary>,
+        effect_summaries: std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         collecting_effects: bool,
     ) -> Self {
         let mut checker = Self::new(options);
@@ -561,13 +561,13 @@ impl Checker {
 
     fn solve_file_effect_probes<T>(
         mut probe: impl FnMut(
-            bbtree::unsync::BBTreeMap<EffectDeclarationId, EffectSummary>,
+            std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
             super::stream_origins::StreamOriginSummaries,
         ) -> (Self, T),
-        external: &bbtree::unsync::BBTreeMap<EffectDeclarationId, EffectSummary>,
+        external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         external_origins: &super::stream_origins::StreamOriginSummaries,
     ) -> Result<(Self, T), FileInferenceFailure> {
-        let mut provisional = bbtree::unsync::BBTreeMap::new();
+        let mut provisional = std::collections::BTreeMap::new();
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
             let (mut checker, output) = probe(provisional.clone(), provisional_origins.clone());
@@ -667,8 +667,8 @@ impl Checker {
     }
 
     fn extend_effect_summaries(
-        summaries: &mut bbtree::unsync::BBTreeMap<EffectDeclarationId, EffectSummary>,
-        facts: &bbtree::unsync::BBTreeMap<EffectDeclarationId, FunctionEffectFact>,
+        summaries: &mut std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+        facts: &std::collections::BTreeMap<EffectDeclarationId, FunctionEffectFact>,
     ) {
         summaries.extend(facts.iter().map(|(&id, fact)| {
             (
@@ -2919,7 +2919,7 @@ mod tests {
             let session = CheckSession::new(program, Arc::new(sources));
             for options in [CheckOptions::default(), CheckOptions::for_execution(), CheckOptions::for_check_cli()] {
                 let output = session.check(parsed.statements, source_id, options);
-                let actual = output.diagnostics.iter().filter_map(|diagnostic| diagnostic.code.map(|code| code.name())).collect::<bbtree::unsync::BBTreeSet<_>>();
+                let actual = output.diagnostics.iter().filter_map(|diagnostic| diagnostic.code.map(|code| code.name())).collect::<std::collections::BTreeSet<_>>();
                 assert_eq!(actual, expected.iter().map(|code| code.name()).collect(), "{source}: {:?}", output.diagnostics);
             }
         }

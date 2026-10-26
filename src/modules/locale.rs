@@ -1,8 +1,7 @@
 #[cfg(not(target_env = "musl"))]
 use std::ffi::{CStr, CString};
 #[cfg(any(target_env = "musl", test))]
-use std::{sync::OnceLock};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::{collections::BTreeMap, sync::OnceLock};
 
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;

@@ -5,7 +5,7 @@ use crate::sema::types::ModuleExportType;
 use crate::source::Span;
 use crate::sema::validated::{Validation, is_rel_path};
 use crate::symbol::Name;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Type checks borrow stored children and expose computed fields without
 /// materializing a record, cloning a value, or pulling a stream.

@@ -11,11 +11,6 @@ calendar/decimal adapters are removed, except jiff for retained TOML conformance
 tests; it is not enabled in production. Other codecs, bridges,
 benchmarks and repository automation are excluded. Apache-2.0 applies.
 
-Ordered collection adapters use the vendored `bbtree::unsync::BBTreeMap` and
-`BBTreeSet` in place of the standard-library collections. Reapply this local
-integration change when updating Deser. The bbtree source and license live in
-`third_party/bbtree` at the repository root.
-
 To update, review a selected upstream revision, replace these packages and their
 fixtures, retain the explicit workspace package metadata, and rerun the adapter,
 host consumer and upstream conformance tests plus campaign cost gates. Local

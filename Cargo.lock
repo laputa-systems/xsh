@@ -103,13 +103,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "bbtree"
-version = "0.1.5"
-dependencies = [
- "vstd",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,12 +225,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
-name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -346,7 +333,6 @@ dependencies = [
 name = "deser"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-derive",
@@ -357,7 +343,6 @@ dependencies = [
 name = "deser-cbor"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-encoding",
@@ -369,7 +354,6 @@ dependencies = [
 name = "deser-core"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-json",
  "jiff",
@@ -379,7 +363,6 @@ dependencies = [
 name = "deser-csv"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-json",
@@ -414,7 +397,6 @@ dependencies = [
 name = "deser-ini"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-json",
@@ -427,7 +409,6 @@ dependencies = [
 name = "deser-json"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "itoa",
@@ -448,7 +429,6 @@ dependencies = [
 name = "deser-msgpack"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-encoding",
@@ -460,7 +440,6 @@ dependencies = [
 name = "deser-path"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-json",
@@ -470,7 +449,6 @@ dependencies = [
 name = "deser-toml"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-encoding",
@@ -486,7 +464,6 @@ dependencies = [
 name = "deser-value"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-cbor",
  "deser-core",
@@ -502,7 +479,6 @@ dependencies = [
 name = "deser-yaml"
 version = "0.10.1"
 dependencies = [
- "bbtree",
  "deser",
  "deser-core",
  "deser-encoding",
@@ -1722,17 +1698,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "synstructure"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
-]
-
-[[package]]
 name = "syscalls"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1816,71 +1781,6 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "verus_builtin"
-version = "0.0.0-2026-08-30-0159"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "300d269a2e06dbe54cb53084464065912ad7accbb52ae8d6c8aa7a6c521974c5"
-
-[[package]]
-name = "verus_builtin_macros"
-version = "0.0.0-2026-08-30-0159"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc040bfded82e79a708c1819c52b386ee23c0c823239334f39ced152bbdf3624"
-dependencies = [
- "convert_case",
- "proc-macro2",
- "quote",
- "syn 2.0.118",
- "synstructure",
- "verus_prettyplease",
- "verus_syn",
-]
-
-[[package]]
-name = "verus_prettyplease"
-version = "0.0.0-2026-08-09-0044"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51fc115de5fb3806bc362060bb683024660ed2bc13c1183d1f01d464e4537139"
-dependencies = [
- "proc-macro2",
- "verus_syn",
-]
-
-[[package]]
-name = "verus_state_machines_macros"
-version = "0.0.0-2026-08-02-0125"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93f77ff8d121edb1bf2651335769a80a2f611da8573c3b498434a66b3162805f"
-dependencies = [
- "indexmap",
- "proc-macro2",
- "quote",
- "verus_syn",
-]
-
-[[package]]
-name = "verus_syn"
-version = "0.0.0-2026-08-02-0125"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f17237ea6d267e457d53ce36f55b315fc9edd26eb88c765dd95e035c0b415869"
-dependencies = [
- "proc-macro2",
- "quote",
- "unicode-ident",
-]
-
-[[package]]
-name = "vstd"
-version = "0.0.0-2026-08-30-0159"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7169790c92857fa9441c8ba7e0c469f4fc62104caf1dfc632c318577a1a08d7a"
-dependencies = [
- "verus_builtin",
- "verus_builtin_macros",
- "verus_state_machines_macros",
-]
 
 [[package]]
 name = "vt100"
@@ -2194,7 +2094,6 @@ name = "xsh"
 version = "0.0.1"
 dependencies = [
  "async-io",
- "bbtree",
  "blake3",
  "bstr",
  "bytes",
@@ -2253,7 +2152,6 @@ dependencies = [
 name = "xsh-fuzz"
 version = "0.0.1"
 dependencies = [
- "bbtree",
  "libc",
  "rustc-hash",
  "rustix",
@@ -2270,7 +2168,6 @@ dependencies = [
  "async-executor",
  "async-io",
  "async-net",
- "bbtree",
  "crossbeam-channel",
  "futures-lite",
  "graviola",
@@ -2291,9 +2188,6 @@ dependencies = [
 [[package]]
 name = "xsh-registry"
 version = "0.0.1"
-dependencies = [
- "bbtree",
-]
 
 [[package]]
 name = "xsh-root"
@@ -2306,7 +2200,6 @@ dependencies = [
 name = "xshi"
 version = "0.0.1"
 dependencies = [
- "bbtree",
  "libc",
  "mimalloc",
  "rustc-hash",
@@ -2321,7 +2214,6 @@ dependencies = [
 name = "xsht"
 version = "0.0.1"
 dependencies = [
- "bbtree",
  "crossbeam-channel",
  "deser",
  "deser-json",

@@ -4,7 +4,7 @@
 
 use super::super::Formatter;
 use super::expanded_walk;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaSugarOperand, BlockId,

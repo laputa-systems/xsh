@@ -39,7 +39,6 @@ deser-core = { version = "0.10.1", path = "../deser-core", default-features = fa
 deser-derive = { version = "0.10.1", path = "../deser-derive", optional = true }
 
 [dev-dependencies]
-bbtree = "0.1.5"
 deser = { path = ".", features = ["derive"] }
 jiff = { version = "0.2.14", default-features = false, features = ["std"] }
 

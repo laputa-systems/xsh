@@ -73,7 +73,7 @@ impl DeserializerConfig {
     /// use deser::Context;
     /// use deser::de::DuplicateKeys;
     /// use deser_json::DeserializerConfig;
-    /// use bbtree::unsync::BBTreeMap as BTreeMap;
+    /// use std::collections::BTreeMap;
     ///
     /// let config = DeserializerConfig::builder()
     ///     .context(Context::with(DuplicateKeys::Last))

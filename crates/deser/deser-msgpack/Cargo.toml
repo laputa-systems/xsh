@@ -26,7 +26,6 @@ deser-core = { version = "0.10.1", path = "../deser-core", default-features = fa
 simdutf8 = { version = "0.1.5", optional = true, default-features = false }
 
 [dev-dependencies]
-bbtree = "0.1.5"
 deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
 deser-encoding = { path = "../deser-encoding" }
 deser-json = { path = "../deser-json" }

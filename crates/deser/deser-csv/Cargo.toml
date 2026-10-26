@@ -24,7 +24,6 @@ io = ["std", "deser-core/io"]
 speedups = []
 
 [dependencies]
-bbtree = "0.1.5"
 deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
 itoa = "1.0.18"
 zmij = "1.0.23"

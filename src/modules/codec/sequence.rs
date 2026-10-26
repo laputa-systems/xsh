@@ -141,9 +141,9 @@ mod tests {
     fn sequence_csv_encoder_retains_one_header_and_exact_row_keysets() {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();
-        let rows = [bbtree::unsync::BBTreeMap::from([("a", "1"), ("b", "2")]), bbtree::unsync::BBTreeMap::from([("a", "3"), ("b", "4")])];
+        let rows = [std::collections::BTreeMap::from([("a", "1"), ("b", "2")]), std::collections::BTreeMap::from([("a", "3"), ("b", "4")])];
         assert_eq!(encode_all(Format::Csv, rows, span()).unwrap(), b"a,b\n1,2\n3,4\n");
-        let wrong = [bbtree::unsync::BBTreeMap::from([("a", 1), ("b", 2)]), bbtree::unsync::BBTreeMap::from([("a", 3)])];
+        let wrong = [std::collections::BTreeMap::from([("a", 1), ("b", 2)]), std::collections::BTreeMap::from([("a", 3)])];
         assert_eq!(encode_all(Format::Csv, wrong, span()).unwrap_err().variant, "UnsupportedValue");
     }
 

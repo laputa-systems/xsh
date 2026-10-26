@@ -39,7 +39,7 @@ fn sandbox_preserves_explicit_llvm_profile_destination_only() {
     if std::env::var_os(WORKER).is_some() {
         let destination = std::env::var("LLVM_PROFILE_FILE").expect("profile destination");
         let directory = Path::new(&destination).parent().expect("profile parent");
-        let before: bbtree::unsync::BBTreeSet<_> = std::fs::read_dir(directory)
+        let before: std::collections::BTreeSet<_> = std::fs::read_dir(directory)
             .expect("read profile directory")
             .map(|entry| entry.expect("profile entry").path())
             .collect();

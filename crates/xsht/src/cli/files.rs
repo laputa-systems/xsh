@@ -484,7 +484,7 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> Result<LintConfi
     let mut remaining = lint
         .iter()
         .map(|(key, value)| (key.to_string(), value.clone()))
-        .collect::<bbtree::unsync::BBTreeMap<_, _>>();
+        .collect::<std::collections::BTreeMap<_, _>>();
     let config = LintConfig {
         prefer_inferred_pure_returns: take_ini_string(
             &mut remaining,
@@ -604,7 +604,7 @@ fn ini_string<'a>(fields: &'a xsh::execution::value::RecordMap, key: &str) -> Op
 }
 
 fn take_ini_string(
-    fields: &mut bbtree::unsync::BBTreeMap<String, xsh::execution::value::Value>,
+    fields: &mut std::collections::BTreeMap<String, xsh::execution::value::Value>,
     key: &str,
 ) -> Option<String> {
     let xsh::execution::value::Value::Str(value) = fields.remove(key)? else {
@@ -614,7 +614,7 @@ fn take_ini_string(
 }
 
 fn take_ini_string_list(
-    fields: &mut bbtree::unsync::BBTreeMap<String, xsh::execution::value::Value>,
+    fields: &mut std::collections::BTreeMap<String, xsh::execution::value::Value>,
     key: &str,
 ) -> Option<Vec<String>> {
     let value = take_ini_string(fields, key)?;

@@ -1,5 +1,5 @@
 use xsh::host::json::Value as JsonValue;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use xsh::api::{MethodReceiver, api_spec};
@@ -185,7 +185,7 @@ impl CoverageCollector {
                         "observed_files".to_string(),
                         JsonValue::from(self.observed_source_files.len()),
                     ),
-                ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ),
         ];
         if self.include_api {
@@ -206,7 +206,7 @@ impl CoverageCollector {
                 ),
             ]);
         }
-        let value = (fields).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+        let value = (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
         let text = xsh::host::json::encode_pretty(&value).expect("host JSON document must be encodable");
         if let Some(parent) = Path::new(path).parent()
             && !parent.as_os_str().is_empty()
@@ -462,9 +462,9 @@ impl CoverageCollector {
         (self.api_hits.iter().map(|(api_id, hits)| {
             (
                 api_id.clone(),
-                ([("tests".to_string(), JsonValue::from(hits.tests))]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
+                ([("tests".to_string(), JsonValue::from(hits.tests))]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             )
-        })).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+        })).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
     }
 
     fn api_totals_json(&self) -> Vec<JsonValue> {
@@ -475,7 +475,7 @@ impl CoverageCollector {
                     ("group".to_string(), JsonValue::from(group)),
                     ("covered".to_string(), JsonValue::from(covered)),
                     ("total".to_string(), JsonValue::from(total)),
-                ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
             })
             .collect()
     }
@@ -533,7 +533,7 @@ impl CoverageCollector {
                         ("api_id".to_string(), JsonValue::from(api_id)),
                         ("tests".to_string(), JsonValue::from(hits.tests)),
                         ("total".to_string(), JsonValue::from(total)),
-                    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+                    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
                 })
             })
             .collect()
@@ -556,7 +556,7 @@ fn source_file_json(file: SourceFileCoverage) -> JsonValue {
             "covered_procs".to_string(),
             JsonValue::from(file.covered_procs),
         ),
-    ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn absolute_path(path: &Path) -> PathBuf {

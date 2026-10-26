@@ -5,8 +5,7 @@ use crate::sema::wrapper_operation::{map_wrapper_groups, WrapperBinding, Wrapper
 #[cfg(test)]
 use crate::sema::wrapper_operation::WrapperErrorContribution;
 use crate::source::Span;
-use std::collections::{VecDeque};
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 

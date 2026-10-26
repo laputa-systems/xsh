@@ -75,7 +75,7 @@ pub(crate) fn validate_cli_entry(
                 .flat_map(|module| program.module_statements(module)),
         )
         .map(|id| program.arena.stmt(id).span.source_id)
-        .collect::<bbtree::unsync::BBTreeSet<_>>();
+        .collect::<std::collections::BTreeSet<_>>();
     let mut diagnostics = Vec::new();
     let mut entries = Vec::<CliEntryPlan>::new();
     // Nested `cli main` is a parse error (`parse.cli-entry-scope`), and the
@@ -108,7 +108,7 @@ pub(crate) fn validate_cli_entry(
             error(statement.span, "this subcommand path is already declared; subcommand words must be unique after snake_case maps to kebab-case");
         }
         let (metadata, parameter_metadata) = match function.cli_metadata {
-            None => (CliEntryMetadata::default(), bbtree::unsync::BBTreeMap::new()),
+            None => (CliEntryMetadata::default(), std::collections::BTreeMap::new()),
             Some(expression) => match default_value(expression).as_ref().map(read_metadata) {
                 Some(Ok(value)) => value,
                 Some(Err(message)) => {
@@ -148,7 +148,7 @@ pub(crate) fn validate_cli_entry(
             );
         }
         let mut parameters = Vec::new();
-        let mut names = bbtree::unsync::BBTreeSet::new();
+        let mut names = std::collections::BTreeSet::new();
         let mut default_seen = false;
         let parameter_count = program.arena.params(function.params).len();
         for (index, parameter) in program.arena.params(function.params).iter().enumerate() {
@@ -318,10 +318,10 @@ fn inferred_parser_type(ty: &Type) -> Option<String> {
     }
 }
 
-fn read_metadata(value: &LiteralConstant) -> Result<(CliEntryMetadata, bbtree::unsync::BBTreeMap<Name, CliParameterMetadata>), String> {
+fn read_metadata(value: &LiteralConstant) -> Result<(CliEntryMetadata, std::collections::BTreeMap<Name, CliParameterMetadata>), String> {
     let LiteralConstant::Record(fields) = value else { return Err("CLI metadata must be a literal record".into()); };
     let mut metadata = CliEntryMetadata::default();
-    let mut parameters = bbtree::unsync::BBTreeMap::new();
+    let mut parameters = std::collections::BTreeMap::new();
     for (name, value) in fields.iter() {
         match name.as_str().as_str() {
             "name" | "help" => {

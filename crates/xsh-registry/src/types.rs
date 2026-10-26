@@ -1,4 +1,4 @@
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 macro_rules! builtin_type_names {
     ($(($variant:ident, $text:literal)),+ $(,)?) => {

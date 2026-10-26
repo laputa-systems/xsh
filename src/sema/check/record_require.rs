@@ -6,7 +6,7 @@ use crate::syntax::arena::{
     ArenaTypeExprTag, ExprId,
 };
 use crate::syntax::grouping;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 
 /// The checker's decision that a removed `record.require(value, {...})` call
 /// validates exactly what the named schema `schema` validates, so

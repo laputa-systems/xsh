@@ -20,7 +20,7 @@ use crate::sema::records::standard_record_type;
 #[cfg(feature = "native-tests")]
 use crate::sema::types::Type;
 use crate::source::Span;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 pub(in crate::runtime::eval) mod auth;

@@ -61,7 +61,7 @@
 //! borrowed from the input:
 //!
 //! ```rust
-//! use bbtree::unsync::BBTreeMap as BTreeMap;
+//! use std::collections::BTreeMap;
 //! use deser::adapters::Borrowed;
 //! use deser_json::RawJson;
 //!
@@ -161,7 +161,7 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "io")] {
-//! use bbtree::unsync::BBTreeMap as BTreeMap;
+//! use std::collections::BTreeMap;
 //! use deser_json::{DeserializerConfig, SerializerConfig, Trailing};
 //!
 //! const READ_LINES: DeserializerConfig =

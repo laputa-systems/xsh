@@ -105,7 +105,7 @@ impl PreparedSchema {
                     && mapping
                         .variants
                         .values()
-                        .collect::<bbtree::unsync::BBTreeSet<_>>()
+                        .collect::<std::collections::BTreeSet<_>>()
                         .len()
                         == mapping.variants.len()
             }
@@ -401,7 +401,7 @@ impl PreparedSchema {
                         )));
                     }
                 };
-                let mut elements = bbtree::unsync::BBTreeSet::new();
+                let mut elements = std::collections::BTreeSet::new();
                 for (index, item) in items.iter().enumerate() {
                     let element = super::lowered_ops::lowered_map_key_ref(item, span)
                         .ok()
@@ -455,7 +455,7 @@ impl PreparedSchema {
                         )));
                     }
                 };
-                let mut converted = bbtree::unsync::BBTreeMap::new();
+                let mut converted = std::collections::BTreeMap::new();
                 for (key, item) in items {
                     let item_path = match &key {
                         crate::map_key::MapKey::Str(text) => format!("{path}[{text:?}]"),
@@ -531,7 +531,7 @@ pub(super) fn require_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn record_policies_cover_specialized_stats_representations() {

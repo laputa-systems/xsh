@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{StatementPosition, Type};
 use xsh::frontend::source::Span;

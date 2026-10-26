@@ -19,12 +19,6 @@ spans, values, diagnostics, or evaluator state. `xsh-net` is the example: its
 adapter converts XSH records to Rust requests and turns results back into XSH
 data.
 
-Ordered maps and sets use the vendored `bbtree::unsync` collections, including
-the Rust types exposed by the registry, host adapters and compiler tooling.
-Local `BTreeMap` and `BTreeSet` imports name these bbtree types. Deser's ordered
-collection adapters serialize and deserialize the same types. Keys retain their
-sorted order. Borrowed validation maps are dropped before moving their owners.
-
 ## The `libxsh` facade
 
 `src/lib.rs` defines the public library surface. `tests/libxsh_api.rs` protects

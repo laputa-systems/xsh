@@ -1,7 +1,7 @@
 use super::schemes::{CallInstantiation, CallableRequirements, SchemeBuildError, SchemeEffectParameterId, SchemeRowParameter, SchemeRowParameterId, SchemeType, SchemeTypeParameterId};
 use super::types::Type;
 use crate::symbol::Name;
-use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct GuardScopeId(u32);

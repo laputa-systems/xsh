@@ -1,6 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap};
-use bbtree::unsync::{BBTreeMap as BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 
 use deser::de::DuplicateKeys;
@@ -283,7 +282,7 @@ fn test_order() {
     assert_eq!(value.as_map().unwrap().order(), Order::Sorted);
     let value = to_value(&HashMap::from([(1, "a")])).unwrap();
     assert_eq!(value.as_map().unwrap().order(), Order::Arbitrary);
-    let value = to_value(&bbtree::unsync::BBTreeSet::from([1, 2])).unwrap();
+    let value = to_value(&std::collections::BTreeSet::from([1, 2])).unwrap();
     assert_eq!(value.as_seq().unwrap().order(), Order::Sorted);
     let value = to_value(&vec![1, 2]).unwrap();
     assert_eq!(value.as_seq().unwrap().order(), Order::Natural);

@@ -1,7 +1,7 @@
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{ArenaTypeExprTag, AstArena, TypeExprId};
 use crate::syntax::node::Effect;
-use bbtree::unsync::BBTreeMap as BTreeMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 use xsh_registry::types::BuiltinTypeName;
@@ -1943,7 +1943,7 @@ mod tests {
     use super::{CallableEffects, CallableKind, CallableParamType, CallableType, ModuleExportType, Type};
     use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn readonly_argv_compatibility_preserves_container_invariance() {

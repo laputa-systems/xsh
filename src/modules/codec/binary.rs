@@ -142,7 +142,7 @@ mod tests {
     use crate::runtime::eval::borrowed_codec_value;
     use crate::runtime::value::FloatValue;
     use crate::source::SourceId;
-    use bbtree::unsync::BBTreeMap as BTreeMap;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     fn span() -> Span {
