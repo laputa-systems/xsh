@@ -152,7 +152,7 @@ fn assert_documented(id: &str, docs: &xsh_registry::api_docs::ApiDocs) {
 
 #[test]
 fn typed_codec_api_renders_schema_operands_separately_from_values() {
-    let output = xsht(&["api", "codec.decode_as", "codec.read_as"]);
+    let output = xsht(&["api", "api:codec.decode_as", "api:codec.read_as"]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("codec.decode_as(format: Str, text: Str, T) -> Result[T, Error]"), "{text}");
