@@ -509,7 +509,7 @@ impl Checker {
             return self.check_pure_call_method_arena(arena, source, name, args, span);
         }
         if base_ty == Type::Unknown {
-            self.record_unresolved_host_receiver(span, name);
+            self.record_unresolved_error_result_receiver(arena, &call_source, base, span, name);
         }
         if matches!(
             base_ty,

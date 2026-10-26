@@ -30,12 +30,12 @@ fn method_candidates(name: &str) -> Vec<HostMethod> {
 #[derive(Clone, Default)]
 pub(in super::super) struct HostObligations {
     entries: Vec<HostObligation>,
-    unresolved_receivers: Vec<UnresolvedHostReceiver>,
+    unresolved_error_result_receivers: Vec<UnresolvedErrorResultReceiver>,
     next_position: usize,
 }
 
 #[derive(Clone)]
-struct UnresolvedHostReceiver {
+struct UnresolvedErrorResultReceiver {
     call: Span,
     name: String,
 }
@@ -296,12 +296,34 @@ impl HostMethodCandidates {
 }
 
 impl Checker {
-    pub(in super::super) fn record_unresolved_host_receiver(&mut self, call: Span, name: &str) {
-        self.local_inference.host_obligations.unresolved_receivers.push(UnresolvedHostReceiver { call, name: name.to_owned() });
+    pub(in super::super) fn record_unresolved_error_result_receiver(&mut self, arena: &ArenaProgram, source: &HostCallSource, receiver: crate::syntax::arena::ExprId, call: Span, name: &str) {
+        let immutable_source = |mut expression| {
+            for _ in 0..arena.arena.expr_tags.len() {
+                let Some(source) = self.resolved_bindings.immutable_value_source(arena, expression) else { break; };
+                expression = source;
+            }
+            expression
+        };
+        let guarded = match source {
+            HostCallSource::Expression(expression) => match arena.arena.expr(*expression).kind {
+                crate::syntax::arena::ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } if base == receiver),
+                _ => false,
+            },
+            HostCallSource::Callback { .. } => false,
+        };
+        let operand = if guarded { receiver } else {
+            let crate::syntax::arena::ArenaExprKind::Try(operand) = arena.arena.expr(immutable_source(receiver)).kind else { return; };
+            operand
+        };
+        let producer = arena.arena.expr(immutable_source(operand));
+        if !matches!(producer.kind, crate::syntax::arena::ArenaExprKind::Call { .. })
+            || self.result_constructors.get(&producer.span) != Some(&super::super::CheckedResultConstructor::Err)
+        { return; }
+        self.local_inference.host_obligations.unresolved_error_result_receivers.push(UnresolvedErrorResultReceiver { call, name: name.to_owned() });
     }
 
-    pub(in super::super) fn validate_unresolved_host_receivers(&mut self) {
-        let pending = std::mem::take(&mut self.local_inference.host_obligations.unresolved_receivers);
+    pub(in super::super) fn validate_unresolved_error_result_receivers(&mut self) {
+        let pending = std::mem::take(&mut self.local_inference.host_obligations.unresolved_error_result_receivers);
         if self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { return; }
         for receiver in pending {
             if self.expr_types.get(&receiver.call) != Some(&Type::Unknown)

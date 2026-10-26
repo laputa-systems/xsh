@@ -268,7 +268,7 @@ impl Checker {
             }
         }
         self.resolve_pending_call_instantiations();
-        self.validate_unresolved_host_receivers();
+        self.validate_unresolved_error_result_receivers();
     }
 
     pub(super) fn record_inert_local_discard(
@@ -1264,6 +1264,7 @@ mod tests {
             r#"pure fail() -> Result[Unit] { Err(error.failure("failed"))?.context("stage") }"#,
             r#"pure fail() -> Result[Unit] { let original: Result[Unit] = Err(error.failure("failed"))?.context("stage"); original }"#,
             r#"pure fail() -> Result[Unit] { let receiver = Err(error.failure("failed"))?; receiver.context("stage") }"#,
+            r#"pure fail() -> Result[Unit] { let original = Err(error.failure("failed")); original?.context("stage") }"#,
         ] {
             with_checked_local_source(source, |checked| {
                 assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)

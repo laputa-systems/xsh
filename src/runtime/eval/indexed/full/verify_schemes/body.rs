@@ -2601,12 +2601,41 @@ driver()?
     }
 
     #[test]
+    fn conditional_line_receivers_preserve_cold_iteration_contracts() {
+        let mut program = prepare(r#"
+pure lengths(text: Str) -> Int {
+    let lines = if text == "" { [] } else { text.lines() }
+    var total = 0
+    for line in lines { total += line.byte_len() }
+    total
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let program = Arc::new(program);
+        let key = program.symbol_owner().with_current(|| crate::runtime::eval::LoweredFunctionKey::Name(Name::intern("lengths")));
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (input, expected) in [("", 0), ("a\nbc", 3)] {
+                let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::CallableKind::Pure, &[crate::runtime::value::Value::Str(Arc::from(input))], crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, crate::runtime::value::Value::Int(expected), "frames={force_frames}");
+            }
+        }
+    }
+
+    #[test]
     fn resolved_result_context_receivers_preserve_inference_and_cold_contracts() {
         let mut program = prepare(r#"
 pure relay(value, stage) -> Result[Unit] { value.context(stage) }
 pure inferred() -> Result[Unit] { relay(Err(error.failure("failed")), "stage") }
 pure dynamic(value: Any) -> Result[Unit] { value.require(Result[Unit])?.context("stage") }
 pure closure(values: List[Result[Unit]]) { values |> map { |value| value.context("stage") } }
+pure mixed(text: Str) -> Result[Int] {
+    let value: Result[Str] = if text == "" { Err(error.failure("empty")) } else { Ok(text) }
+    value?.byte_len()
+}
 pure nested(wrong: Unit) -> Result[Unit] {
     let _ = wrong
     let spare = "trim"
