@@ -716,12 +716,14 @@ test test_gnu_cp_sparse_2_log { |ctx|
 # origin: gnu cp/sparse-extents-2.log
 test test_gnu_cp_sparse_extents_2_log { |ctx|
   let s = uu.scene(ctx)?
+  let counts = [1, 2, 31, 100]
+  let blocks = [bytes.from_ints([index for _ in range(0, 1024)])? for index in range(1, counts[counts.len() - 1] + 1)]
   for width in [2 * n + 1 for n in range(0, 11)] {
-    for count in [1, 2, 31, 100] {
+    for count in counts {
       uu.touch(s, "j1")
       let chunk = width * 1024
       for index in range(1, count + 1) {
-        let data = bytes.from_ints([index for _ in range(0, chunk)])?
+        let data = bytes.concat([blocks[index - 1] for _ in range(0, width)])
         let _ = bytes.write_at(uu.at(s, "j1"), (2 * index - 1) * chunk, data)?
       }
       copied(s, ["--reflink=never", "--sparse=always", "j1", "j2"])
