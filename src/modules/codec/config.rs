@@ -24,34 +24,57 @@ impl deser::de::Layer for DecodeGuard {
     }
 }
 
+const YAML_ALIAS_LIMIT: usize = 10_000;
+
+pub(super) fn yaml_config() -> deser_yaml::DeserializerConfig {
+    deser_yaml::DeserializerConfig::builder()
+        .version(deser_yaml::Version::V1_2)
+        .required_version(Some(deser_yaml::Version::V1_2))
+        .reject_merge_conflicts(true)
+        .alias_limit(YAML_ALIAS_LIMIT)
+        .context(decode_context(Format::Yaml)).build()
+}
+
+pub(super) fn yaml_sequence_config() -> deser_yaml::DeserializerConfig {
+    let mut config = yaml_config();
+    let mut context = config.context().clone();
+    context.set(deser_yaml::AliasBudget::new(YAML_ALIAS_LIMIT));
+    config.set_context(context);
+    config
+}
+
+pub(super) fn setup_decode(format: Format, driver: &mut DeserializeDriver<'_, '_>) {
+    driver.push_layer(DecodeGuard { format, scalar_bytes: 0 });
+}
+
+pub(super) fn setup_encode(format: Format, driver: &mut deser::ser::SerializeDriver<'_>) {
+    driver.push_layer(EncodeLimits::default());
+    driver.push_layer(EncodeGuard { format });
+}
+
 pub(crate) fn decode(format: Format, text: &str, span: Span) -> Result<Value, RuntimeError> {
     if text.len() > super::INPUT_LIMIT {
         return Err(runtime_error(Error::new(ErrorKind::LimitExceeded, "codec input exceeds 64 MiB"), format.identifier(), span));
     }
     let result = match format {
         Format::Yaml => {
-            let config = deser_yaml::DeserializerConfig::builder()
-                .version(deser_yaml::Version::V1_2)
-                .required_version(Some(deser_yaml::Version::V1_2))
-                .reject_merge_conflicts(true)
-                .alias_limit(10_000)
-                .context(decode_context(format)).build();
+            let config = yaml_config();
             let mut parser = deser_yaml::Deserializer::from_str_with_config(text, config);
             if parser.is_end() { return Ok(Value::Null); }
-            parser.deserialize_with::<Decoded, _>(|driver| driver.push_layer(DecodeGuard { format, scalar_bytes: 0 }))
+            parser.deserialize_with::<Decoded, _>(|driver| setup_decode(format, driver))
                 .and_then(|value| parser.end().map(|()| value))
         }
         Format::Toml => {
             let config = deser_toml::DeserializerConfig::builder().context(decode_context(format)).build();
             deser_toml::Deserializer::from_str_with_config(text, config)
-                .deserialize_with::<Decoded, _>(|driver| driver.push_layer(DecodeGuard { format, scalar_bytes: 0 }))
+                .deserialize_with::<Decoded, _>(|driver| setup_decode(format, driver))
         }
         Format::Ini => {
             let config = deser_ini::DeserializerConfig::builder()
                 .allow_no_value(false).lowercase_names(false)
                 .context(decode_context(format)).build();
             deser_ini::Deserializer::from_str_with_config(text, config)
-                .deserialize_with::<Decoded, _>(|driver| driver.push_layer(DecodeGuard { format, scalar_bytes: 0 }))
+                .deserialize_with::<Decoded, _>(|driver| setup_decode(format, driver))
         }
         _ => unreachable!("configuration dispatch requires a configuration format"),
     };
@@ -80,7 +103,7 @@ pub(crate) fn drive<'de>(
         .lowercase_names(false)
         .context(decode_context(format))
         .build();
-    driver.push_layer(DecodeGuard { format, scalar_bytes: 0 });
+    setup_decode(format, driver);
     deser_ini::Deserializer::from_str_with_config(text, config)
         .drive(driver)
         .map_err(|error| decode_error(error, format, span))
@@ -145,8 +168,7 @@ impl deser::ser::Layer for EncodeGuard {
 pub(crate) fn encode<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<String, RuntimeError> {
     let mut output = Output::new();
     let setup = |driver: &mut deser::ser::SerializeDriver<'_>| {
-        driver.push_layer(EncodeLimits::default());
-        driver.push_layer(EncodeGuard { format });
+        setup_encode(format, driver);
     };
     let result = match format {
         Format::Yaml => deser_yaml::SerializerConfig::new().writer(&mut output).write_with(value, setup),

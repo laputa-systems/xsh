@@ -129,6 +129,8 @@ enum FlowKind {
 }
 
 pub(crate) struct Scanner<'a> {
+    limits: deser_core::de::Limits,
+    representation_limit: usize,
     input: &'a str,
     mark: Mark,
     tokens: VecDeque<Token<'a>>,
@@ -242,6 +244,8 @@ fn is_tag_char(c: Option<char>) -> bool {
 impl<'a> Scanner<'a> {
     pub(crate) fn new(input: &'a str) -> Scanner<'a> {
         Scanner {
+            limits: deser_core::de::Limits::default(),
+            representation_limit: input.len().saturating_add(1),
             input,
             mark: Mark::default(),
             tokens: VecDeque::new(),
@@ -260,6 +264,42 @@ impl<'a> Scanner<'a> {
             line_indent: 0,
             ws_has_tab: false,
         }
+    }
+
+    pub(crate) fn set_limits(&mut self, limits: deser_core::de::Limits) { self.limits = limits; }
+
+    fn check_representation_len(&self, length: usize) -> Result<(), Error> {
+        if length > self.representation_limit {
+            Err(Error::with_offset(deser_core::ErrorKind::LimitExceeded, "YAML representation exceeds input bound", self.mark.offset))
+        } else { Ok(()) }
+    }
+
+    fn reserve_representation(&self, output: &mut String, additional: usize) -> Result<(), Error> {
+        let required = output.len().saturating_add(additional);
+        self.check_representation_len(required)?;
+        if output.capacity() < required {
+            let capacity = required.max(output.capacity().saturating_mul(2)).min(self.representation_limit);
+            output.reserve_exact(capacity - output.len());
+        }
+        Ok(())
+    }
+
+    fn push_breaks(&self, output: &mut String, count: usize) -> Result<(), Error> {
+        self.reserve_representation(output, count)?;
+        output.extend(std::iter::repeat_n('\n', count));
+        Ok(())
+    }
+
+    fn push_char(&self, output: &mut String, value: char) -> Result<(), Error> {
+        self.reserve_representation(output, value.len_utf8())?;
+        output.push(value);
+        Ok(())
+    }
+
+    fn push_str(&self, output: &mut String, value: &str) -> Result<(), Error> {
+        self.reserve_representation(output, value.len())?;
+        output.push_str(value);
+        Ok(())
     }
 
     // -- reading ----------------------------------------------------------
@@ -324,17 +364,12 @@ impl<'a> Scanner<'a> {
 
     /// Advances over a character and pushes it to the string.
     #[inline]
-    fn read(&mut self, s: &mut String) {
+    fn read(&mut self, s: &mut String) -> Result<(), Error> {
         if let Some(c) = self.peek() {
-            s.push(c);
+            self.push_char(s, c)?;
             self.skip();
         }
-    }
-
-    /// Advances over a line break and pushes a normalized `\n`.
-    fn read_break(&mut self, s: &mut String) {
-        self.skip_break();
-        s.push('\n');
+        Ok(())
     }
 
     fn is_document_indicator(&self) -> bool {
@@ -586,9 +621,12 @@ impl<'a> Scanner<'a> {
         token_number: Option<usize>,
         kind: TokenKind<'a>,
         mark: Mark,
-    ) {
+    ) -> Result<(), Error> {
         if self.flow_level() > 0 || self.indent >= column {
-            return;
+            return Ok(());
+        }
+        if self.limits.max_depth().is_some_and(|limit| self.indents.len() >= limit) {
+            return Err(Error::with_offset(deser_core::ErrorKind::LimitExceeded, "recursion limit exceeded", self.mark.offset));
         }
         self.indents.push(self.indent);
         self.indent = column;
@@ -601,6 +639,7 @@ impl<'a> Scanner<'a> {
             Some(number) => self.tokens.insert(number - self.tokens_parsed, token),
             None => self.tokens.push_back(token),
         }
+        Ok(())
     }
 
     /// Closes all block collections that are indented more than the column.
@@ -670,6 +709,9 @@ impl<'a> Scanner<'a> {
 
     fn fetch_flow_collection_start(&mut self, kind: TokenKind<'a>) -> Result<(), Error> {
         self.save_simple_key()?;
+        if self.limits.max_depth().is_some_and(|limit| self.flows.len() >= limit) {
+            return Err(Error::with_offset(deser_core::ErrorKind::LimitExceeded, "recursion limit exceeded", self.mark.offset));
+        }
         self.flows.push(if kind == TokenKind::FlowSequenceStart {
             FlowKind::Sequence
         } else {
@@ -741,7 +783,7 @@ impl<'a> Scanner<'a> {
             None,
             TokenKind::BlockSequenceStart,
             self.mark,
-        );
+        )?;
         self.remove_simple_key()?;
         self.simple_key_allowed = true;
         let start = self.mark;
@@ -761,7 +803,7 @@ impl<'a> Scanner<'a> {
                 None,
                 TokenKind::BlockMappingStart,
                 self.mark,
-            );
+            )?;
         }
         self.remove_simple_key()?;
         self.simple_key_allowed = self.flow_level() == 0;
@@ -789,7 +831,7 @@ impl<'a> Scanner<'a> {
                 Some(key.token_number),
                 TokenKind::BlockMappingStart,
                 key.mark,
-            );
+            )?;
             self.simple_keys.last_mut().unwrap().possible = false;
             self.simple_key_allowed = false;
         } else {
@@ -803,7 +845,7 @@ impl<'a> Scanner<'a> {
                     None,
                     TokenKind::BlockMappingStart,
                     self.mark,
-                );
+                )?;
             }
             self.simple_key_allowed = self.flow_level() == 0;
         }
@@ -998,14 +1040,14 @@ impl<'a> Scanner<'a> {
         let mut rv = String::new();
         let mut decoded = false;
         if first == Some('!') {
-            self.read(&mut rv);
+            self.read(&mut rv)?;
         }
         while is_uri_char(self.peek()) {
             if self.peek() == Some('%') {
                 decoded = true;
                 self.scan_uri_escape(&mut rv)?;
             } else {
-                self.read(&mut rv);
+                self.read(&mut rv)?;
             }
         }
         Ok(if decoded {
@@ -1023,6 +1065,7 @@ impl<'a> Scanner<'a> {
                 Ok(byte) if hex.len() == 2 => byte,
                 _ => return self.error("invalid URI escape"),
             };
+            self.check_representation_len(bytes.len().saturating_add(1))?;
             bytes.push(byte);
             for _ in 0..3 {
                 self.skip();
@@ -1030,7 +1073,7 @@ impl<'a> Scanner<'a> {
         }
         match String::from_utf8(bytes) {
             Ok(s) => {
-                out.push_str(&s);
+                self.push_str(out, &s)?;
                 Ok(())
             }
             Err(_) => self.error("invalid UTF-8 in URI escape"),
@@ -1047,7 +1090,7 @@ impl<'a> Scanner<'a> {
                 if self.peek() == Some('%') {
                     self.scan_uri_escape(&mut suffix)?;
                 } else {
-                    self.read(&mut suffix);
+                    self.read(&mut suffix)?;
                 }
             }
             if self.peek() != Some('>') || suffix.is_empty() {
@@ -1066,7 +1109,7 @@ impl<'a> Scanner<'a> {
                 decoded = true;
                 self.scan_uri_escape(&mut suffix)?;
             } else {
-                self.read(&mut suffix);
+                self.read(&mut suffix)?;
             }
         }
         if suffix.is_empty() && handle != "!" {
@@ -1115,8 +1158,8 @@ impl<'a> Scanner<'a> {
         };
 
         let mut string = String::new();
-        let mut leading_break = String::new();
-        let mut trailing_breaks = String::new();
+        let mut leading_break = 0usize;
+        let mut trailing_breaks = 0usize;
 
         if is_break(self.peek()) {
             self.skip_break();
@@ -1131,7 +1174,8 @@ impl<'a> Scanner<'a> {
                 }
                 if is_break(self.peek()) {
                     max_leading = max_leading.max(self.mark.column);
-                    self.read_break(&mut trailing_breaks);
+                    self.skip_break();
+                    trailing_breaks += 1;
                     continue;
                 }
                 break;
@@ -1143,7 +1187,7 @@ impl<'a> Scanner<'a> {
                 // like the reference parser, treat a final line that is
                 // not terminated by a line break as if it was.
                 if !self.line_has_content && self.mark.column > 0 {
-                    trailing_breaks.push('\n');
+                    trailing_breaks += 1;
                 }
             }
             if indent < min_indent {
@@ -1167,36 +1211,37 @@ impl<'a> Scanner<'a> {
         let mut leading_blank = false;
         while self.mark.column == indent && self.peek().is_some() && !self.is_document_indicator() {
             let trailing_blank = is_blank(self.peek());
-            if folded && leading_break == "\n" && !leading_blank && !trailing_blank {
-                if trailing_breaks.is_empty() {
-                    string.push(' ');
+            if folded && leading_break == 1 && !leading_blank && !trailing_blank {
+                if trailing_breaks == 0 {
+                    self.push_char(&mut string, ' ')?;
                 }
-                leading_break.clear();
+                leading_break = 0;
             } else {
-                string.push_str(&leading_break);
-                leading_break.clear();
+                self.push_breaks(&mut string, leading_break)?;
+                leading_break = 0;
             }
-            string.push_str(&trailing_breaks);
-            trailing_breaks.clear();
+            self.push_breaks(&mut string, trailing_breaks)?;
+            trailing_breaks = 0;
             leading_blank = is_blank(self.peek());
 
             while !is_break(self.peek()) && self.peek().is_some() {
-                self.read(&mut string);
+                self.read(&mut string)?;
             }
             if self.peek().is_none() {
                 // an unterminated final line counts as terminated
-                leading_break.push('\n');
+                leading_break += 1;
                 break;
             }
-            self.read_break(&mut leading_break);
+            self.skip_break();
+            leading_break += 1;
             self.scan_block_scalar_breaks(indent, &mut trailing_breaks)?;
         }
 
         if chomping != -1 {
-            string.push_str(&leading_break);
+            self.push_breaks(&mut string, leading_break)?;
         }
         if chomping == 1 {
-            string.push_str(&trailing_breaks);
+            self.push_breaks(&mut string, trailing_breaks)?;
         }
 
         Ok(Token {
@@ -1217,7 +1262,7 @@ impl<'a> Scanner<'a> {
     fn scan_block_scalar_breaks(
         &mut self,
         indent: usize,
-        breaks: &mut String,
+        breaks: &mut usize,
     ) -> Result<(), Error> {
         loop {
             while self.mark.column < indent && self.peek() == Some(' ') {
@@ -1239,7 +1284,8 @@ impl<'a> Scanner<'a> {
             if !is_break(self.peek()) {
                 return Ok(());
             }
-            self.read_break(breaks);
+            self.skip_break();
+            *breaks += 1;
         }
     }
 
@@ -1272,10 +1318,12 @@ impl<'a> Scanner<'a> {
         // no line breaks.  Afterwards it's copied into `owned`.
         let mut owned: Option<String> = None;
         let input = self.input;
-        let to_owned = |owned: &mut Option<String>, end: usize| {
-            owned
-                .take()
-                .unwrap_or_else(|| input[content_start..end].to_string())
+        let representation_limit = self.representation_limit;
+        let to_owned = |owned: &mut Option<String>, end: usize| -> Result<String, Error> {
+            if owned.is_none() && end - content_start > representation_limit {
+                return Err(Error::with_offset(deser_core::ErrorKind::LimitExceeded, "YAML representation exceeds input bound", content_start));
+            }
+            Ok(owned.take().unwrap_or_else(|| input[content_start..end].to_string()))
         };
 
         loop {
@@ -1292,8 +1340,8 @@ impl<'a> Scanner<'a> {
                 let run_start = self.mark.offset;
                 let (run_end, run_columns) = self.quoted_scalar_run(single);
                 if run_end != run_start {
-                    if let Some(ref mut string) = owned {
-                        string.push_str(&self.input[run_start..run_end]);
+                    if let Some(mut string) = owned.as_mut() {
+                        self.push_str(&mut string, &self.input[run_start..run_end])?;
                     }
                     // the run has no blanks or breaks, see `skip`
                     self.mark.offset = run_end;
@@ -1303,21 +1351,21 @@ impl<'a> Scanner<'a> {
                 }
                 match self.peek() {
                     Some('\'') if single && self.peek_at(1) == Some('\'') => {
-                        let mut string = to_owned(&mut owned, self.mark.offset);
-                        string.push('\'');
+                        let mut string = to_owned(&mut owned, self.mark.offset)?;
+                        self.push_char(&mut string, '\'')?;
                         owned = Some(string);
                         self.skip();
                         self.skip();
                     }
                     Some('\\') if !single && is_break(self.peek_at(1)) => {
-                        owned = Some(to_owned(&mut owned, self.mark.offset));
+                        owned = Some(to_owned(&mut owned, self.mark.offset)?);
                         self.skip();
                         self.skip_break();
                         leading_blanks = true;
                         break;
                     }
                     Some('\\') if !single => {
-                        let mut string = to_owned(&mut owned, self.mark.offset);
+                        let mut string = to_owned(&mut owned, self.mark.offset)?;
                         self.scan_escape(&mut string)?;
                         owned = Some(string);
                     }
@@ -1342,7 +1390,7 @@ impl<'a> Scanner<'a> {
                     self.skip();
                 } else {
                     // blanks before the break are not part of the value
-                    owned = Some(to_owned(&mut owned, blanks_start));
+                    owned = Some(to_owned(&mut owned, blanks_start)?);
                     self.skip_break();
                     if leading_blanks {
                         trailing_breaks += 1;
@@ -1362,15 +1410,15 @@ impl<'a> Scanner<'a> {
                     return self.error("invalid indentation of quoted scalar continuation");
                 }
                 // a line break makes the value owned
-                let string = owned.as_mut().unwrap();
+                let mut string = owned.as_mut().unwrap();
                 if leading_break && trailing_breaks == 0 {
-                    string.push(' ');
+                    self.push_char(&mut string, ' ')?;
                 } else {
-                    string.extend(std::iter::repeat_n('\n', trailing_breaks));
+                    self.push_breaks(&mut string, trailing_breaks)?;
                 }
-            } else if let Some(ref mut string) = owned {
+            } else if let Some(mut string) = owned.as_mut() {
                 // blanks on the same line are copied as is
-                string.push_str(&self.input[blanks_start..self.mark.offset]);
+                self.push_str(&mut string, &self.input[blanks_start..self.mark.offset])?;
             }
         }
 
@@ -1403,71 +1451,71 @@ impl<'a> Scanner<'a> {
         self.skip();
         let len = match c {
             '0' => {
-                out.push('\0');
+                self.push_char(out, '\0')?;
                 0
             }
             'a' => {
-                out.push('\x07');
+                self.push_char(out, '\x07')?;
                 0
             }
             'b' => {
-                out.push('\x08');
+                self.push_char(out, '\x08')?;
                 0
             }
             't' | '\t' => {
-                out.push('\t');
+                self.push_char(out, '\t')?;
                 0
             }
             'n' => {
-                out.push('\n');
+                self.push_char(out, '\n')?;
                 0
             }
             'v' => {
-                out.push('\x0b');
+                self.push_char(out, '\x0b')?;
                 0
             }
             'f' => {
-                out.push('\x0c');
+                self.push_char(out, '\x0c')?;
                 0
             }
             'r' => {
-                out.push('\r');
+                self.push_char(out, '\r')?;
                 0
             }
             'e' => {
-                out.push('\x1b');
+                self.push_char(out, '\x1b')?;
                 0
             }
             ' ' => {
-                out.push(' ');
+                self.push_char(out, ' ')?;
                 0
             }
             '"' => {
-                out.push('"');
+                self.push_char(out, '"')?;
                 0
             }
             '/' => {
-                out.push('/');
+                self.push_char(out, '/')?;
                 0
             }
             '\\' => {
-                out.push('\\');
+                self.push_char(out, '\\')?;
                 0
             }
             'N' => {
-                out.push('\u{85}');
+                self.push_char(out, '\u{85}')?;
                 0
             }
             '_' => {
-                out.push('\u{a0}');
+                self.push_char(out, '\u{a0}')?;
                 0
             }
             'L' => {
-                out.push('\u{2028}');
+                self.push_char(out, '\u{2028}')?;
                 0
             }
             'P' => {
-                out.push('\u{2029}');
+                self.push_char(out, '\u{2029}')?;
                 0
             }
             'x' => 2,
@@ -1482,7 +1530,7 @@ impl<'a> Scanner<'a> {
                 _ => return Err(syntax_error(escape_mark, "invalid escape sequence")),
             };
             match char::from_u32(code) {
-                Some(c) => out.push(c),
+                Some(c) => self.push_char(out, c)?,
                 None => return Err(syntax_error(escape_mark, "invalid unicode escape")),
             }
             for _ in 0..len {
@@ -1547,20 +1595,21 @@ impl<'a> Scanner<'a> {
                 // joining the whitespace before the run.  On the same line
                 // it's copied as is (the input already contains it).
                 if leading_blanks {
-                    let string = folded
+                    self.check_representation_len(end.offset - start.offset)?;
+                    let mut string = folded
                         .get_or_insert_with(|| self.input[start.offset..end.offset].to_string());
                     if trailing_breaks == 0 {
-                        string.push(' ');
+                        self.push_char(&mut string, ' ')?;
                     } else {
-                        string.extend(std::iter::repeat_n('\n', trailing_breaks));
+                        self.push_breaks(&mut string, trailing_breaks)?;
                     }
                     trailing_breaks = 0;
                     leading_blanks = false;
-                } else if let Some(ref mut string) = folded {
-                    string.push_str(&self.input[end.offset..run_start.offset]);
+                } else if let Some(mut string) = folded.as_mut() {
+                    self.push_str(&mut string, &self.input[end.offset..run_start.offset])?;
                 }
-                if let Some(ref mut string) = folded {
-                    string.push_str(&self.input[run_start.offset..run_end]);
+                if let Some(mut string) = folded.as_mut() {
+                    self.push_str(&mut string, &self.input[run_start.offset..run_end])?;
                 }
                 // the run has no blanks or breaks, see `skip`
                 self.mark.offset = run_end;

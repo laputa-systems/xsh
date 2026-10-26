@@ -241,3 +241,49 @@ fn test_partial_writer() {
         }
     }
 }
+
+#[test]
+fn test_alias_budget_counts_replay_across_documents_without_charging_ordinary_events() {
+    let source = b"--- [0, 0, 0, 0, 0]\n--- [&a 1, *a]\n--- [&a 2, *a]\n--- [&a 3, *a]\n";
+    let config = deser_yaml::DeserializerConfig::builder().alias_limit(2).build();
+    let mut defaults = config.reader(&source[..]);
+    for _ in 0..4 { assert!(defaults.read::<Vec<u32>>().unwrap().is_some()); }
+    assert_eq!(defaults.read::<Vec<u32>>().unwrap(), None);
+    let mut context = deser::Context::new();
+    context.set(deser_yaml::AliasBudget::new(2));
+    let config = config.into_builder().context(context).build();
+    let mut bounded = config.reader(&source[..]);
+    for _ in 0..3 { assert!(bounded.read::<Vec<u32>>().unwrap().is_some()); }
+    assert_eq!(bounded.read::<Vec<u32>>().unwrap_err().kind(), deser::ErrorKind::LimitExceeded);
+}
+
+#[test]
+fn test_frame_parser_uses_effective_driver_limits_before_materialization() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    struct Events(Arc<AtomicUsize>);
+    impl deser::de::Layer for Events {
+        fn event<'de>(&mut self, event: deser::de::LayerEvent<'_, 'de>, next: &mut deser::de::Next<'_, 'de>) -> Result<(), deser::Error> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            next.emit(event)
+        }
+    }
+    for limits in [
+        deser::de::Limits::builder().max_items(2).build(),
+        deser::de::Limits::builder().max_events(2).build(),
+    ] {
+        let events = Arc::new(AtomicUsize::new(0));
+        let config = deser_yaml::DeserializerConfig::builder().context(deser::Context::with(limits)).build();
+        let mut reader = config.reader(&b"<<: [&a {x: 1}, &b {y: 2}, &c {z: 3}]\n"[..]);
+        let error = reader.read_with::<deser::de::Recording, _>(|driver| driver.push_layer(Events(events.clone()))).unwrap_err();
+        assert_eq!(error.kind(), deser::ErrorKind::LimitExceeded);
+        assert_eq!(events.load(Ordering::Relaxed), 1);
+    }
+    let events = Arc::new(AtomicUsize::new(0));
+    let config = deser_yaml::DeserializerConfig::builder().context(deser::Context::with(
+        deser::de::Limits::builder().max_len(4).build()
+    )).build();
+    let mut reader = config.reader(&b"!!binary AQIDBAU=\n"[..]);
+    let error = reader.read_with::<deser::de::Recording, _>(|driver| driver.push_layer(Events(events.clone()))).unwrap_err();
+    assert_eq!(error.kind(), deser::ErrorKind::LimitExceeded);
+    assert_eq!(events.load(Ordering::Relaxed), 0);
+}

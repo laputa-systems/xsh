@@ -48,11 +48,12 @@ enum Scan {
     Incomplete,
     /// The item is not well-formed at the given offset.
     Malformed(usize),
+    LimitExceeded(usize),
 }
 
 impl StreamState {
     /// Scans the item from the current position.
-    fn scan(&mut self, input: &[u8]) -> Scan {
+    fn scan(&mut self, input: &[u8], max_len: Option<usize>) -> Scan {
         loop {
             let head_start = self.pos;
             let (head, len) = match decode_head(&input[head_start..]) {
@@ -63,6 +64,9 @@ impl StreamState {
             let mut pos = head_start + len;
             let items = match head {
                 Head::Str(len) | Head::Bin(len) | Head::Ext(_, len) => {
+                    if max_len.is_some_and(|max_len| len as usize > max_len) {
+                        return Scan::LimitExceeded(head_start);
+                    }
                     match pos.checked_add(len as usize) {
                         Some(end) if end <= input.len() => pos = end,
                         _ => return Scan::Incomplete,
@@ -211,6 +215,11 @@ impl de::StreamDeserializer for StreamDeserializer {
     }
 
     fn frame(&mut self, input: &[u8], eof: bool) -> Result<Frame, Error> {
+        let max_len = self
+            .config
+            .context()
+            .get::<deser_core::de::Limits>()
+            .and_then(|limits| limits.max_len());
         let state = &mut self.state;
         if state.failed {
             return Err(Error::new(
@@ -221,7 +230,7 @@ impl de::StreamDeserializer for StreamDeserializer {
         if input.is_empty() && eof {
             return Ok(Frame::End);
         }
-        let end = match state.scan(input) {
+        let end = match state.scan(input, max_len) {
             Scan::Complete(end) => end,
             Scan::Incomplete if !eof => return Ok(Frame::Incomplete { consumed: 0 }),
             // the parser reports the error
@@ -229,6 +238,14 @@ impl de::StreamDeserializer for StreamDeserializer {
             Scan::Malformed(offset) => {
                 state.failed = true;
                 offset + 1
+            }
+            Scan::LimitExceeded(offset) => {
+                state.failed = true;
+                return Err(Error::with_offset(
+                    ErrorKind::LimitExceeded,
+                    "string or bytes too long",
+                    offset,
+                ));
             }
         };
         state.pos = 0;

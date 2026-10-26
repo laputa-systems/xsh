@@ -60,6 +60,26 @@ pub(crate) fn parse_delimiter(value: &str, span: Span) -> Result<u8, RuntimeErro
     }
 }
 
+pub(super) fn decode_config(format: Format, options: DecodeOptions) -> deser_csv::DeserializerConfig {
+    let mut config = match format {
+        Format::Csv => deser_csv::DeserializerConfig::new(),
+        Format::Tsv => deser_csv::DeserializerConfig::tsv(),
+        _ => unreachable!("table format"),
+    };
+    config.set_delimiter(options.delimiter);
+    config.set_headers(if options.headers {
+        deser_csv::Headers::First
+    } else {
+        deser_csv::Headers::None
+    });
+    config.set_context(decode_context(format));
+    config
+}
+
+pub(super) fn setup_decode(driver: &mut DeserializeDriver<'_, '_>) {
+    driver.push_layer(DecodeGuard { scalar_bytes: 0 });
+}
+
 pub(crate) fn drive<'de>(
     format: Format,
     text: &'de str,
@@ -74,19 +94,8 @@ pub(crate) fn drive<'de>(
         return Err(runtime_error(Error::new(ErrorKind::LimitExceeded, "codec input exceeds 64 MiB"), format.identifier(), span));
     }
     validate_delimiter(format, options.delimiter, span)?;
-    let mut config = match format {
-        Format::Csv => deser_csv::DeserializerConfig::new(),
-        Format::Tsv => deser_csv::DeserializerConfig::tsv(),
-        _ => unreachable!("table format"),
-    };
-    config.set_delimiter(options.delimiter);
-    config.set_headers(if options.headers {
-        deser_csv::Headers::First
-    } else {
-        deser_csv::Headers::None
-    });
-    config.set_context(decode_context(format));
-    driver.push_layer(DecodeGuard { scalar_bytes: 0 });
+    let config = decode_config(format, options);
+    setup_decode(driver);
     let mut parser = deser_csv::Deserializer::from_str_with_config(text, config);
     parser
         .drive(driver)
@@ -262,6 +271,40 @@ impl EncodeLayer for EncodeGuard {
         self.event(&event, next.state().depth(), next.state().is_map_key())?;
         next.emit(event)
     }
+}
+
+struct RowGuard(std::sync::Arc<std::sync::Mutex<EncodeGuard>>);
+
+impl EncodeLayer for RowGuard {
+    fn event(&mut self, event: Event<'_>, next: &mut deser::ser::Next<'_>) -> Result<(), Error> {
+        self.0.lock().expect("CSV row guard owner").event(&event, next.state().depth() + 1, next.state().is_map_key())?;
+        next.emit(event)
+    }
+}
+
+pub(super) fn encode_all<I, T>(format: Format, values: I, span: Span) -> Result<Vec<u8>, RuntimeError>
+where I: IntoIterator<Item = T>, T: Serialize {
+    let config = match format {
+        Format::Csv => deser_csv::SerializerConfig::new(),
+        Format::Tsv => deser_csv::SerializerConfig::tsv(),
+        _ => unreachable!("table format"),
+    };
+    let mut guard = EncodeGuard::new(None, false);
+    guard.root_seen = true;
+    let guard = std::sync::Arc::new(std::sync::Mutex::new(guard));
+    let mut output = Output::new();
+    let result = (|| {
+        let mut writer = deser::io::Writer::new(&mut output, deser_csv::Serializer::with_config(config));
+        for (index, value) in values.into_iter().enumerate() {
+            if index >= 1_000_000 { return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 records")); }
+            writer.write_with(&value, |driver| {
+                driver.push_layer(EncodeLimits::default());
+                driver.push_layer(RowGuard(guard.clone()));
+            })?;
+        }
+        Ok(())
+    })();
+    output.finish_bytes(result).map_err(|error| table_error(error, format, span))
 }
 
 fn column_indices(columns: &[String], format: Format, span: Span) -> Result<HashMap<String, usize>, RuntimeError> {

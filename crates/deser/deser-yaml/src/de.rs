@@ -18,6 +18,26 @@ use crate::tag::NodeTag;
 /// The default for [`DeserializerConfig::set_alias_limit`].
 const DEFAULT_ALIAS_LIMIT: usize = 1_000_000;
 
+/// A shared Context budget for events replayed by aliases and merge keys across documents.
+#[derive(Clone, Debug)]
+pub struct AliasBudget {
+    limit: usize,
+    used: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl AliasBudget {
+    /// Creates one replay allowance; clones share consumption and ordinary events cost nothing.
+    pub fn new(limit: usize) -> Self {
+        Self { limit, used: Arc::new(std::sync::atomic::AtomicUsize::new(0)) }
+    }
+
+    fn charge(&self, count: usize) -> Result<(), Error> {
+        self.used.try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed,
+            |used| used.checked_add(count).filter(|used| *used <= self.limit))
+            .map(|_| ()).map_err(|_| Error::new(ErrorKind::LimitExceeded, "cumulative alias replay limit exceeded"))
+    }
+}
+
 /// Configures how YAML is deserialized.
 ///
 /// The configuration is independent of the input so it can be created once
@@ -325,6 +345,7 @@ pub struct Deserializer<'a> {
     /// The input as source for location tracking, shared by all documents.
     source: Option<Arc<str>>,
     doc: Document<'a>,
+    alias_budget: Option<AliasBudget>,
 }
 
 /// A node event as it is recorded for anchors.
@@ -379,6 +400,8 @@ struct Document<'a> {
     captured: Option<(usize, usize)>,
     /// The depth of the collections from the parser (without aliases).
     depth: usize,
+    limits: deser_core::de::Limits,
+    events: usize,
 }
 
 /// A collection that is being recorded.
@@ -400,6 +423,7 @@ impl<'a> Document<'a> {
         self.open.clear();
         self.captured = None;
         self.depth = 0;
+        self.events = 0;
     }
 
     /// Turns a parser event into a node and records anchors.
@@ -407,6 +431,15 @@ impl<'a> Document<'a> {
     /// If `capture` is set, a collection is recorded even without anchor
     /// and its range is stored in `captured` once it ends.
     fn record(&mut self, event: YamlEvent<'a>, capture: bool) -> Result<Node<'a>, Error> {
+        self.events += 1;
+        if self.limits.max_events().is_some_and(|limit| self.events > limit) {
+            return Err(Error::with_offset(ErrorKind::LimitExceeded, "YAML node event limit exceeded", event.start.offset));
+        }
+        if matches!(event.kind, EventKind::SequenceStart { .. } | EventKind::MappingStart { .. })
+            && self.limits.max_depth().is_some_and(|limit| self.depth >= limit)
+        {
+            return Err(Error::with_offset(ErrorKind::LimitExceeded, "recursion limit exceeded", event.start.offset));
+        }
         let start = event.start;
         let end = event.end.offset;
         let is_map = matches!(event.kind, EventKind::MappingStart { .. });
@@ -475,6 +508,11 @@ impl<'a> Document<'a> {
             _ => unreachable!("unexpected event in document"),
         };
 
+        if anchor.as_ref().is_some_and(|name| !self.anchors.contains_key(name))
+            && self.limits.max_items().is_some_and(|limit| self.anchors.len() >= limit)
+        {
+            return Err(Error::with_offset(ErrorKind::LimitExceeded, "YAML anchor limit exceeded", start.offset));
+        }
         let is_start = matches!(node, Node::Start { .. });
         if anchor.is_some() || (capture && is_start) || !self.open.is_empty() {
             let index = self.nodes.len();
@@ -562,13 +600,14 @@ impl<'a> KeyId<'a> {
         style: ScalarStyle,
         value: &Cow<'a, str>,
         version: Version,
+        max_len: Option<usize>,
     ) -> Option<KeyId<'a>> {
         let atom = match tag {
             None if style == ScalarStyle::Plain => resolve_plain(value.clone(), version),
             None => return Some(KeyId::Str(value.clone())),
             Some(tag) => match classify_tag(tag) {
                 ScalarTag::Str => return Some(KeyId::Str(value.clone())),
-                ScalarTag::Standard(name) => resolve_standard(name, value.clone(), version).ok()?,
+                ScalarTag::Standard(name) => resolve_standard(name, value.clone(), version, max_len).ok()?,
                 ScalarTag::Custom => return Some(KeyId::Tagged(tag.clone(), value.clone())),
             },
         };
@@ -627,9 +666,12 @@ impl<'a> Deserializer<'a> {
     /// Creates a new deserializer for a string with the given configuration.
     pub fn from_str_with_config(input: &'a str, config: DeserializerConfig) -> Deserializer<'a> {
         let track_merges = config.merge_keys && input.contains("<<");
+        let limits = config.context.get::<deser_core::de::Limits>().copied().unwrap_or_default();
+        let mut parser = Parser::new(input);
+        parser.set_limits(limits);
         Deserializer {
             input,
-            parser: Parser::new(input),
+            parser,
             peeked: None,
             started: false,
             pending_error: None,
@@ -637,7 +679,8 @@ impl<'a> Deserializer<'a> {
             config,
             track_merges,
             source: None,
-            doc: Document::default(),
+            doc: Document { limits, ..Document::default() },
+            alias_budget: None,
         }
     }
 
@@ -752,9 +795,7 @@ impl<'a> Deserializer<'a> {
     /// the context of the driver has take precedence, see
     /// [`DeserializeDriver::set_default_context`]).
     pub fn drive(&mut self, driver: &mut DeserializeDriver<'_, 'a>) -> Result<(), Error> {
-        if !self.config.context.is_empty() {
-            driver.set_default_context(self.config.context.clone());
-        }
+        self.apply_driver_context(driver);
         if let Some(err) = self.pending_error.take() {
             return Err(err);
         }
@@ -809,6 +850,16 @@ impl<'a> Deserializer<'a> {
         rv
     }
 
+    fn apply_driver_context(&mut self, driver: &mut DeserializeDriver<'_, 'a>) {
+        if !self.config.context.is_empty() {
+            driver.set_default_context(self.config.context.clone());
+        }
+        let limits = driver.state().get::<de::Limits>().copied().unwrap_or_default();
+        self.parser.set_limits(limits);
+        self.doc.limits = limits;
+        self.alias_budget = driver.state().get::<AliasBudget>().cloned();
+    }
+
     fn ensure_started(&mut self) -> Result<(), Error> {
         if !self.started {
             self.started = true;
@@ -819,8 +870,10 @@ impl<'a> Deserializer<'a> {
     }
 
     fn parser_event(&mut self) -> Result<YamlEvent<'a>, Error> {
-        self.parser.next_event().inspect_err(|_| {
+        self.parser.next_event().map_err(|mut error| {
             self.failed = true;
+            error.resolve_position(self.input.as_bytes());
+            error
         })
     }
 
@@ -895,7 +948,7 @@ impl<'a> Deserializer<'a> {
                         merge_value_follows = true;
                         continue;
                     }
-                    if let Some(id) = KeyId::of_scalar(tag, style, value, self.doc.version) {
+                    if let Some(id) = KeyId::of_scalar(tag, style, value, self.doc.version, self.doc.limits.max_len()) {
                         frame.keys.insert(id);
                     }
                 }
@@ -1021,6 +1074,8 @@ impl<'a> Deserializer<'a> {
                 ErrorKind::LimitExceeded,
                 "aliases expand to too many events",
             ))
+        } else if let Some(budget) = &self.alias_budget {
+            budget.charge(count)
         } else {
             Ok(())
         }
@@ -1107,7 +1162,7 @@ impl<'a> Deserializer<'a> {
                         continue;
                     }
                     let version = self.doc.version;
-                    if let Some(id) = KeyId::of_scalar(key_tag, style, key_value, version)
+                    if let Some(id) = KeyId::of_scalar(key_tag, style, key_value, version, self.doc.limits.max_len())
                         && !keys.insert(id)
                     {
                         if self.config.reject_merge_conflicts {
@@ -1166,9 +1221,9 @@ fn emit_scalar<'a>(
     };
     match classify_tag(&tag) {
         ScalarTag::Str => driver.emit_borrowed(Atom::Str(value.into())),
-        ScalarTag::Standard(name) => match resolve_standard(name, value, version) {
+        ScalarTag::Standard(name) => match resolve_standard(name, value, version, driver.state().get::<de::Limits>().and_then(de::Limits::max_len)) {
             Ok(atom) => driver.emit_borrowed(atom),
-            Err(msg) => Err(error_at(start, msg)),
+            Err(mut error) => { error.set_offset(start.offset); Err(error) },
         },
         ScalarTag::Custom => emit_tagged(driver, &tag, Atom::Str(value.into())),
     }
@@ -1247,6 +1302,7 @@ fn drive_single<'de>(
     mut deserializer: Deserializer<'de>,
     driver: &mut DeserializeDriver<'_, 'de>,
 ) -> Result<(), Error> {
+    deserializer.apply_driver_context(driver);
     if deserializer.is_end() {
         return de::Deserializer::drive(&mut EmptyDocument, driver);
     }
@@ -1260,5 +1316,23 @@ struct EmptyDocument;
 impl<'de> de::Deserializer<'de> for EmptyDocument {
     fn drive(&mut self, driver: &mut DeserializeDriver<'_, 'de>) -> Result<(), Error> {
         driver.emit(Atom::Implicit(Implicit::new("", ImplicitValue::Null)))
+    }
+}
+
+#[cfg(test)]
+mod bounded_input_tests {
+    use super::*;
+
+    #[test]
+    fn configured_limits_bound_scalar_scratch_and_anchor_nodes() {
+        let config = DeserializerConfig::builder().context(deser_core::Context::with(
+            deser_core::de::Limits::builder().max_len(4).max_depth(2).max_events(8).max_items(2).build()
+        )).build();
+        for input in ["\"abcd\\nx\"", "|\n  abcdef\n", "&a [a, b, c, d, e]", "[[[1]]]", "[&a x, &b y, &c z]"] {
+            let error = config.from_str::<deser_core::de::Recording>(input).err().unwrap();
+            assert_eq!(error.kind(), ErrorKind::LimitExceeded, "{input}: {error}");
+        }
+        assert_eq!(config.from_str::<String>("\"abcd\"").unwrap(), "abcd");
+        assert_eq!(config.from_str::<String>("\"a\\nb\\n\"").unwrap(), "a\nb\n");
     }
 }

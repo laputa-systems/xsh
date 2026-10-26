@@ -5,7 +5,7 @@ use deser::de::{DeserializeOwned, Limits, Slot};
 use std::collections::HashMap;
 
 use common::{Value, de, hex};
-use deser::{Deserialize, ErrorKind};
+use deser::{Context, Deserialize, ErrorKind};
 use deser_msgpack::Ext;
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -78,6 +78,85 @@ fn forged_length_does_not_allocate() {
     assert_eof::<String>("dbffffffff");
     assert_eof::<Vec<u32>>("ddffffffff");
     assert_eof::<HashMap<u32, u32>>("dfffffffff");
+}
+
+#[test]
+fn scalar_length_limit_precedes_payload_read() {
+    let config = deser_msgpack::DeserializerConfig::builder()
+        .context(Context::with(Limits::builder().max_len(4).build()))
+        .build();
+
+    assert_eq!(
+        config
+            .from_slice::<String>(&[0xa4, b'a', b'b', b'c', b'd'])
+            .unwrap(),
+        "abcd"
+    );
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&[0xc4, 4, 1, 2, 3, 4])
+            .unwrap(),
+        [1, 2, 3, 4]
+    );
+    assert_eq!(
+        config
+            .from_slice::<Ext>(&[0xc7, 4, 0x2a, 1, 2, 3, 4])
+            .unwrap(),
+        Ext::new(0x2a, vec![1, 2, 3, 4])
+    );
+    assert_eq!(
+        config
+            .from_slice::<String>(&[0xa5, b'a', b'b', b'c', b'd', b'e'])
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&[0xc4, 5, 1, 2, 3, 4, 5])
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let declared_five_byte_string = [0xdb, 0, 0, 0, 5];
+    assert_eq!(
+        config
+            .from_slice::<String>(&declared_five_byte_string)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let declared_five_byte_binary = [0xc6, 0, 0, 0, 5];
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&declared_five_byte_binary)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let declared_five_byte_extension = [0xc7, 5, 0x2a];
+    assert_eq!(
+        config
+            .from_slice::<Ext>(&declared_five_byte_extension)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    assert_eq!(
+        config
+            .from_slice::<String>(&[0xdb, 0, 0])
+            .unwrap_err()
+            .kind(),
+        ErrorKind::EndOfFile
+    );
+    assert_eq!(
+        deser_msgpack::from_slice::<String>(&[0xa5, b'a', b'b', b'c', b'd', b'e']).unwrap(),
+        "abcde"
+    );
 }
 
 #[test]

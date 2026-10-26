@@ -228,11 +228,16 @@ impl Parser {
         mut out: O,
     ) -> Result<Progress, Error> {
         let out = &mut out;
+        let max_len = out
+            .state_mut()
+            .get::<deser_core::de::Limits>()
+            .and_then(|limits| limits.max_len());
         self.recoverable = None;
         let mut cur = Cursor {
             input,
             pos,
             base,
+            max_len,
             hit_end: false,
             sink_failed: false,
             opened: None,
@@ -424,10 +429,15 @@ impl Parser {
         out: &mut O,
     ) -> Continue {
         let mut frame = self.frame;
+        let max_len = out
+            .state_mut()
+            .get::<deser_core::de::Limits>()
+            .and_then(|limits| limits.max_len());
         let mut cur = Cursor {
             input,
             pos,
             base,
+            max_len,
             hit_end: false,
             sink_failed: false,
             opened: None,
@@ -523,6 +533,7 @@ pub(crate) fn check_raw_limits(
         input,
         pos: 0,
         base: 0,
+        max_len: None,
         hit_end: false,
         sink_failed: false,
         opened: None,
@@ -583,6 +594,7 @@ pub(crate) struct Cursor<'a> {
     pos: usize,
     // the offset of the input in the stream
     base: usize,
+    max_len: Option<usize>,
     // `true` if an item ran into the end of the input
     hit_end: bool,
     // `true` if a sink failed
@@ -752,6 +764,13 @@ impl<'a> Cursor<'a> {
     #[inline]
     fn read_body(&mut self, len: u32) -> Result<&'a [u8], Error> {
         let len = len as usize;
+        if self.max_len.is_some_and(|max_len| len > max_len) {
+            return Err(Error::with_offset(
+                ErrorKind::LimitExceeded,
+                "string or bytes too long",
+                self.base + self.pos,
+            ));
+        }
         let input = self.input;
         if len > input.len() - self.pos {
             self.hit_end = true;

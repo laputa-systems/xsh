@@ -65,3 +65,19 @@ test test_cbor_reports_integer_underflow_as_overflow {
   test.error_kind(codec.decode_bytes("cbor", b"\xc3\x49\x01\0\0\0\0\0\0\0\0"), "CodecError.Overflow")
   test.error_kind(codec.decode_bytes("cbor", b"\xa1\x3b\x80\0\0\0\0\0\0\0\x01"), "CodecError.Overflow")
 }
+
+test test_binary_codecs_reject_declared_oversized_scalars_before_payload {
+  let cbor_string = b"\x5b\0\0\0\0\x01\0\0\x01"
+  let cbor_bignum = b"\xc2\x5b\0\0\0\0\x01\0\0\x01"
+  let cbor_chunk = b"\x5f\x5b\0\0\0\0\x01\0\0\x01"
+  let msgpack_string = b"\xdb\x01\0\0\x01"
+  let msgpack_bytes = b"\xc6\x01\0\0\x01"
+  let msgpack_timestamp_ext = b"\xc9\x01\0\0\x01\xff"
+
+  test.error_kind(codec.decode_bytes("cbor", cbor_string), "CodecError.Limit")
+  test.error_kind(codec.decode_bytes("cbor", cbor_bignum), "CodecError.Limit")
+  test.error_kind(codec.decode_bytes("cbor", cbor_chunk), "CodecError.Limit")
+  test.error_kind(codec.decode_bytes("msgpack", msgpack_string), "CodecError.Limit")
+  test.error_kind(codec.decode_bytes("msgpack", msgpack_bytes), "CodecError.Limit")
+  test.error_kind(codec.decode_bytes("msgpack", msgpack_timestamp_ext), "CodecError.Limit")
+}

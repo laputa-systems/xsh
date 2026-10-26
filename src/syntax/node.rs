@@ -88,12 +88,12 @@ impl Effect {
                 }
                 _ => &[Self::Process],
             },
-            "json" => match function {
-                "read" | "read_as" | "write" => &[Self::Fs],
+            "codec" => match function {
+                "read" | "read_as" | "read_all" | "write" => &[Self::Fs],
                 _ => &[],
             },
-            "codec" | "yaml" | "toml" | "ini" | "csv" => match function {
-                "read" | "read_as" | "write" => &[Self::Fs],
+            "json" | "yaml" | "toml" | "ini" | "csv" => match function {
+                "read" | "write" => &[Self::Fs],
                 _ => &[],
             },
             "mime" => match function {

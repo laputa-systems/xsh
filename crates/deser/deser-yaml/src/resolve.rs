@@ -243,9 +243,19 @@ pub(crate) fn resolve_standard<'x>(
     name: &str,
     value: Cow<'x, str>,
     version: Version,
-) -> Result<Atom<'x>, &'static str> {
+    max_len: Option<usize>,
+) -> Result<Atom<'x>, deser_core::Error> {
     let s = &*value;
-    match name {
+    if name == "binary" {
+        let encoded = s.bytes().filter(|byte| !byte.is_ascii_whitespace()).count();
+        let padding = s.bytes().rev().filter(|byte| !byte.is_ascii_whitespace()).take(2).take_while(|byte| *byte == b'=').count();
+        let content = encoded - padding;
+        let decoded = content / 4 * 3 + (content % 4).saturating_sub(1);
+        if max_len.is_some_and(|limit| decoded > limit) {
+            return Err(deser_core::Error::new(deser_core::ErrorKind::LimitExceeded, "string or bytes too long"));
+        }
+    }
+    let resolved = match name {
         "str" => Ok(Atom::Str(value.into())),
         "null" => parse_null(s).ok_or("invalid !!null value"),
         "bool" => parse_bool(s, version).ok_or("invalid !!bool value"),
@@ -268,7 +278,8 @@ pub(crate) fn resolve_standard<'x>(
             .map(|value| Atom::Ext(ExtValue::owned(value)))
             .ok_or("invalid !!timestamp value"),
         _ => Err("tag does not apply to scalars"),
-    }
+    };
+    resolved.map_err(|message| deser_core::Error::new(deser_core::ErrorKind::Syntax, message))
 }
 
 /// Parses a YAML timestamp (<https://yaml.org/type/timestamp.html>).

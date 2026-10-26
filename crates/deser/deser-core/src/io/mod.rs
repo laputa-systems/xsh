@@ -132,6 +132,7 @@ pub struct Reader<R, D: StreamDeserializer> {
     buffer: InputBuffer<D>,
     // the value that is read with `read_next` (an `ElementReader`)
     pending: Option<Box<dyn Any + Send>>,
+    input_buffer_limit: Option<usize>,
 }
 
 impl<R: Read, D: StreamDeserializer> Reader<R, D> {
@@ -145,7 +146,13 @@ impl<R: Read, D: StreamDeserializer> Reader<R, D> {
             reader,
             buffer: InputBuffer::new(deserializer),
             pending: None,
+            input_buffer_limit: None,
         }
+    }
+
+    /// Bounds retained input before parsing can emit an event, including framing lookahead.
+    pub fn set_input_buffer_limit(&mut self, limit: usize) {
+        self.input_buffer_limit = Some(limit);
     }
 
     /// Sets the context the values are deserialized in.
@@ -178,7 +185,10 @@ impl<R: Read, D: StreamDeserializer> Reader<R, D> {
 
     /// Reads more input into the buffer.
     fn read_more(&mut self) -> Result<(), Error> {
-        let buf = self.buffer.read_buf();
+        let buf = match self.input_buffer_limit {
+            Some(limit) => self.buffer.read_buf_bounded(limit)?,
+            None => self.buffer.read_buf(),
+        };
         let read = loop {
             match self.reader.read(buf) {
                 Ok(read) => break read,

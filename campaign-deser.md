@@ -7,9 +7,10 @@ Goal: use Deser for structured-data parsing and emission while XSH continues to
 own values, schemas, effects and resources. Vendor only the useful codec family;
 make one hard cutover and delete the replaced implementations.
 
-Current checkpoint: implementation through S4 is integrated; CSV/TSV and
-explicit typed lexical decoding have focused native and cold proof. S5 sequences,
-final production cost acceptance, generated documentation and Full/Linux
+Current checkpoint: implementation through S5 is integrated. CSV/TSV and
+explicit typed lexical decoding have focused native and cold proof. Sequences
+have focused Rust and upstream proof; native sequence qualification, final
+production cost acceptance, generated documentation and Full/Linux
 qualification remain. Native macOS qualification is externally blocked by the
 unavailable host. No campaign completion or S2/S3 global acceptance is claimed.
 The owner separately authorized integrating the optional-module-call compiler
@@ -17,6 +18,17 @@ repair; `cadc4468b` preserves checked result/effect contracts and its focused
 cold-authority and native regressions pass. The unchanged Laputa xinit help
 command passes with that repair; Laputa lifecycle assertions remain unverified
 and are excluded from this campaign by the owner.
+
+S5 adds five list/stream operations with filesystem effects only for read_all.
+The frozen codec check passes 34 tests, including 18 sequence cases covering
+lazy construction, reader close, recovery, host errors, frame/input/item/output
+limits and cumulative YAML alias replay. YAML passes 12 unit, 81 integration,
+402 upstream corpus and 23 doc tests; the bounded core reader passes three.
+Binary scalar guards retain CBOR 8 unit/105 integration and MessagePack 6 unit/
+86 integration passes. Negative controls reproduce the former semantic scalar,
+discarded block-break, alias-reset, frame-context and buffer-growth defects.
+Independent final source review finds no remaining issue. Added native file
+tests still require execution; no native S5 or global acceptance is claimed.
 
 Acceleration checkpoint: the complete lint-invariance partition passes all 11
 selected tests. The bounded corpus check passes with package optimization level

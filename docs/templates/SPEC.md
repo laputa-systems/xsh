@@ -5146,6 +5146,52 @@ extensions. Single decode rejects trailing data. `codec.encode_bytes("cbor",
 value, canonical: true)` uses canonical CBOR ordering and numeric encoding;
 `canonical: true` on another format fails with `CodecError.Options`.
 
+`codec.decode_all(format, text)` and `codec.decode_all_bytes(format, bytes)`
+return `Result[Stream[Result[Any, CodecError]], CodecError]`.
+`codec.read_all(format, path)` returns the same owned stream through the ordinary
+file-error union and declares filesystem effects. Supported sequences are JSON
+Lines, YAML documents, CSV/TSV records and consecutive CBOR/MessagePack values.
+TOML and INI reject sequence operations. The text operation rejects binary
+formats; the byte operation accepts binary input and validates text frames as
+UTF-8. Stream construction consumes no item. Memory input remains owned for the
+stream lifetime; file input has one reader owner. Exhaustion, terminal error,
+cancellation and early drop release that reader. File-opening failures return
+from read_all; later host read failures propagate at the pulling site with
+their host facets. Codec errors retain the original input Path, including
+format and option failures discovered before opening a file.
+
+Each pull yields one Ok(value) or Err(CodecError). Blank JSON Lines are skipped.
+A failed framed JSON line or CSV data record may be followed by another item.
+Header/framing failures, all limit failures, and YAML/binary failures terminate
+after one error. The value_path field identifies the one-based sequence item as
+`[n]`; available global source coordinates are preserved. Pulls provide backpressure; there is no
+worker thread or producer queue.
+
+Sequence input is limited cumulatively to 256 MiB and 1,000,000 items, with the
+existing per-value bounds. Supplied memory input is still limited to 64 MiB.
+YAML alias replay is limited to 10,000 events across the whole sequence.
+Each framed value is at most 64 MiB; a fixed, bounded delimiter lookahead is
+separate from that value limit. Parser storage is bounded before growth from
+declared lengths or incomplete frames.
+
+Decoded sequence output has a 128 MiB logical-payload allowance. Null costs one
+byte; Bool costs two; numeric scalars cost nine. Str, Bytes and Path cost nine
+plus their byte length. Containers cost nine plus their keys and children;
+Result envelopes cost one plus their payload. CodecError charges its family,
+variant, kind, message, payload record and facets. This is a deterministic
+logical bound, not a heap-size claim. One bounded terminal Limit item is reserved
+inside the allowance; ordinary values and recoverable errors share the remainder.
+An item that cannot fit is discarded, the reader closes, and that final error is
+emitted once. YAML alias replay consumes the same output allowance.
+
+`codec.encode_all(format, values)` and `codec.encode_all_bytes(format, values)`
+encode an explicit List[Any] as a sequence and return Str or Bytes. The text
+operation rejects binary formats. They never resume a Stream or execute script
+callbacks. CSV/TSV retain one header order and require the same record keys in
+every row. Per-value limits apply independently, with a cumulative maximum of
+1,000,000 values and 128 MiB of encoded output. Failure returns an error without
+publishing a partial result.
+
 ## 15. Standard Modules
 
 Standard modules are always in scope. Operations on a value are methods on its

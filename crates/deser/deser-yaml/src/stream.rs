@@ -52,6 +52,7 @@ fn classify(line: &[u8]) -> Line {
 struct StreamState {
     // the start of the next line to scan
     pos: usize,
+    scanned: usize,
     // the lines scanned so far contain a document
     has_document: bool,
 }
@@ -59,6 +60,7 @@ struct StreamState {
 impl StreamState {
     fn document(&mut self, end: usize) -> Frame {
         self.pos = 0;
+        self.scanned = 0;
         self.has_document = false;
         Frame::Value {
             start: 0,
@@ -134,16 +136,25 @@ impl de::StreamDeserializer for StreamDeserializer {
     fn frame(&mut self, input: &[u8], eof: bool) -> Result<Frame, Error> {
         let state = &mut self.state;
         loop {
+            let remaining = input[state.pos..].strip_prefix(b"\xef\xbb\xbf").unwrap_or(&input[state.pos..]);
+            if state.has_document && remaining.starts_with(b"---")
+                && (remaining.get(3).is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n')) || eof && remaining.len() == 3)
+            {
+                return Ok(state.document(state.pos));
+            }
             // a carriage return alone is a line break too (`\r\n` is a
             // line followed by an empty one)
-            let line_end = match input[state.pos..]
+            let line_end = match input[state.scanned..]
                 .iter()
                 .position(|&b| b == b'\n' || b == b'\r')
             {
-                Some(index) => state.pos + index + 1,
+                Some(index) => state.scanned + index + 1,
                 None if eof => input.len(),
                 // wait for the whole line
-                None => return Ok(Frame::Incomplete { consumed: 0 }),
+                None => {
+                    state.scanned = input.len();
+                    return Ok(Frame::Incomplete { consumed: 0 });
+                }
             };
             if line_end == state.pos {
                 // the end of the stream
@@ -165,6 +176,7 @@ impl de::StreamDeserializer for StreamDeserializer {
                 Line::DocumentEnd | Line::Other => {}
             }
             state.pos = line_end;
+            state.scanned = line_end;
         }
     }
 
@@ -231,4 +243,22 @@ impl DeserializerConfig {
 #[cfg(feature = "io")]
 pub fn from_reader<T: DeserializeOwned, R: Read>(reader: R) -> Result<T, Error> {
     DeserializerConfig::new().from_reader(reader)
+}
+
+#[cfg(test)]
+mod bounded_frame_tests {
+    use super::*;
+    use deser_core::de::StreamDeserializer as _;
+
+    #[test]
+    fn incomplete_lines_keep_the_scanned_prefix_and_next_marker_out_of_the_frame() {
+        let mut parser = StreamDeserializer::new();
+        assert!(matches!(parser.frame(b"1 # long", false).unwrap(), Frame::Incomplete { consumed: 0 }));
+        assert_eq!(parser.state.scanned, 8);
+        assert!(matches!(parser.frame(b"1 # longer", false).unwrap(), Frame::Incomplete { consumed: 0 }));
+        assert_eq!(parser.state.scanned, 10);
+        assert!(matches!(parser.frame(b"1 # longer\n---", false).unwrap(), Frame::Incomplete { consumed: 0 }));
+        assert!(matches!(parser.frame(b"1 # longer\n--- # next document", false).unwrap(), Frame::Value { end: 11, consumed: 11, .. }));
+        assert_eq!(parser.state.scanned, 0);
+    }
 }

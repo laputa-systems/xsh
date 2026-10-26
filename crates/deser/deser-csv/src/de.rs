@@ -603,11 +603,13 @@ impl StreamState {
             return Ok(Frame::Incomplete { consumed: 0 });
         }
         if input.starts_with(b"\xff\xfe") || input.starts_with(b"\xfe\xff") {
-            return Err(Error::with_offset(
+            let mut error = Error::with_offset(
                 ErrorKind::Syntax,
                 "input is UTF-16, only UTF-8 is supported",
                 0,
-            ));
+            );
+            error.set_source(core::str::from_utf8(input).expect_err("UTF-16 BOM is not UTF-8"));
+            return Err(error);
         }
         let bom = if input.starts_with(BOM) { BOM.len() } else { 0 };
         let rest = &input[bom..];
@@ -682,12 +684,14 @@ impl StreamState {
                     }
                     names.push(name);
                 }
-                Err(_) => {
-                    return Err(Error::with_offset(
+                Err(source) => {
+                    let mut error = Error::with_offset(
                         ErrorKind::Syntax,
                         "name is not valid UTF-8",
                         field.span_start,
-                    ));
+                    );
+                    error.set_source(source);
+                    return Err(error);
                 }
             }
         }

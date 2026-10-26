@@ -59,6 +59,11 @@ fn test_limits() {
             "string or bytes too long",
         ),
         (
+            "5b0000000000000005",
+            Limits::builder().max_len(4).build(),
+            "string or bytes too long",
+        ),
+        (
             "7f626162626364ff",
             Limits::builder().max_len(3).build(),
             "string or bytes too long",

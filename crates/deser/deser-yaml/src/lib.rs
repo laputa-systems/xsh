@@ -200,6 +200,7 @@ pub mod style;
 mod tag;
 
 pub use self::de::{
+    AliasBudget,
     Deserializer, DeserializerConfig, DeserializerConfigBuilder, Iter, from_slice, from_str,
 };
 pub use self::resolve::Version;

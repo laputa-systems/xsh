@@ -56,6 +56,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub(crate) fn set_limits(&mut self, limits: deser_core::de::Limits) { self.scanner.set_limits(limits); }
+
     /// Returns the next event.
     ///
     /// After [`EventKind::StreamEnd`] or an error, no more events must be

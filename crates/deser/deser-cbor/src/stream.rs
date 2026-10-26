@@ -19,6 +19,13 @@ const MAJOR_TAG: u8 = 6;
 const MAJOR_SIMPLE: u8 = 7;
 const INDEFINITE: u8 = 31;
 
+#[derive(Clone, Copy)]
+struct IndefiniteString {
+    depth: usize,
+    major: u8,
+    len: usize,
+}
+
 /// The state of a CBOR stream that is read.
 #[derive(Default)]
 struct StreamState {
@@ -27,6 +34,7 @@ struct StreamState {
     // the number of items the open containers (and tags) still need, `None`
     // for indefinite lengths.
     stack: Vec<Option<u64>>,
+    indefinite_string: Option<IndefiniteString>,
     // an item was not well-formed
     failed: bool,
     // parses items while their input arrives (see `drive_partial`)
@@ -56,11 +64,12 @@ enum Scan {
     Incomplete,
     /// The item is not well-formed at the given offset.
     Malformed(usize),
+    LimitExceeded(usize),
 }
 
 impl StreamState {
     /// Scans the item from the current position.
-    fn scan(&mut self, input: &[u8]) -> Scan {
+    fn scan(&mut self, input: &[u8], max_len: Option<usize>) -> Scan {
         loop {
             let head_start = self.pos;
             let Some(&initial) = input.get(head_start) else {
@@ -92,12 +101,29 @@ impl StreamState {
             let item_done = if info == INDEFINITE {
                 match major {
                     MAJOR_BYTES | MAJOR_TEXT | MAJOR_ARRAY | MAJOR_MAP => {
+                        let depth = self.stack.len();
                         self.stack.push(None);
+                        if matches!(major, MAJOR_BYTES | MAJOR_TEXT) {
+                            self.indefinite_string = Some(IndefiniteString {
+                                depth,
+                                major,
+                                len: 0,
+                            });
+                        }
                         false
                     }
                     // the end of an indefinite length item
                     MAJOR_SIMPLE => match self.stack.pop() {
-                        Some(None) => true,
+                        Some(None) => {
+                            let depth = self.stack.len();
+                            if self
+                                .indefinite_string
+                                .is_some_and(|string| string.depth == depth)
+                            {
+                                self.indefinite_string = None;
+                            }
+                            true
+                        }
                         _ => return Scan::Malformed(head_start),
                     },
                     _ => return Scan::Malformed(head_start),
@@ -105,11 +131,34 @@ impl StreamState {
             } else {
                 match major {
                     MAJOR_BYTES | MAJOR_TEXT => {
-                        let end = usize::try_from(arg)
-                            .ok()
-                            .and_then(|len| pos.checked_add(len));
+                        let len = usize::try_from(arg).ok();
+                        if max_len.is_some_and(|max_len| len.map_or(true, |len| len > max_len)) {
+                            return Scan::LimitExceeded(head_start);
+                        }
+                        let Some(len) = len else {
+                            return Scan::Malformed(head_start);
+                        };
+                        let chunk_total = self.indefinite_string.and_then(|string| {
+                            (string.depth + 1 == self.stack.len() && string.major == major)
+                                .then_some(IndefiniteString {
+                                    len: string.len.saturating_add(len),
+                                    ..string
+                                })
+                        });
+                        if chunk_total.is_some_and(|string| {
+                            max_len.is_some_and(|max_len| string.len > max_len)
+                        })
+                        {
+                            return Scan::LimitExceeded(head_start);
+                        }
+                        let end = pos.checked_add(len);
                         match end {
-                            Some(end) if end <= input.len() => pos = end,
+                            Some(end) if end <= input.len() => {
+                                pos = end;
+                                if chunk_total.is_some() {
+                                    self.indefinite_string = chunk_total;
+                                }
+                            }
                             Some(_) => return Scan::Incomplete,
                             None => return Scan::Malformed(head_start),
                         }
@@ -272,6 +321,11 @@ impl de::StreamDeserializer for StreamDeserializer {
     }
 
     fn frame(&mut self, input: &[u8], eof: bool) -> Result<Frame, Error> {
+        let max_len = self
+            .config
+            .context()
+            .get::<deser_core::de::Limits>()
+            .and_then(|limits| limits.max_len());
         let state = &mut self.state;
         if state.failed {
             return Err(Error::new(
@@ -282,7 +336,7 @@ impl de::StreamDeserializer for StreamDeserializer {
         if input.is_empty() && eof {
             return Ok(Frame::End);
         }
-        let end = match state.scan(input) {
+        let end = match state.scan(input, max_len) {
             Scan::Complete(end) => end,
             Scan::Incomplete if !eof => return Ok(Frame::Incomplete { consumed: 0 }),
             // the parser reports the error
@@ -291,9 +345,18 @@ impl de::StreamDeserializer for StreamDeserializer {
                 state.failed = true;
                 offset + 1
             }
+            Scan::LimitExceeded(offset) => {
+                state.failed = true;
+                return Err(Error::with_offset(
+                    ErrorKind::LimitExceeded,
+                    "string or bytes too long",
+                    offset,
+                ));
+            }
         };
         state.pos = 0;
         state.stack.clear();
+        state.indefinite_string = None;
         Ok(Frame::Value {
             start: 0,
             end,

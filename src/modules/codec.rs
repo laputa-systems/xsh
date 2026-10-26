@@ -1,3 +1,4 @@
+pub(crate) mod sequence;
 pub(crate) mod config;
 pub(crate) mod table;
 use crate::runtime::value::{FloatValue, RecordMap, RuntimeError, Value};
@@ -442,16 +443,21 @@ pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: 
     else { encode_text(format, value, span).map(String::into_bytes) }
 }
 
+fn input_io_error(path: &std::path::Path, error: std::io::Error, span: Span) -> RuntimeError {
+    let mut failure = RuntimeError::host("fs-read", &error).with_span(span);
+    failure.message = format!("{}: {}", path.display(), failure.message);
+    failure
+}
+
+pub(crate) fn open_input(path: &std::path::Path, span: Span) -> Result<std::fs::File, RuntimeError> {
+    std::fs::File::open(path).map_err(|error| input_io_error(path, error, span))
+}
+
 pub(crate) fn read_input(path: &std::path::Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     use std::io::Read;
-    let host_error = |error: std::io::Error| {
-        let mut failure = RuntimeError::host("fs-read", &error).with_span(span);
-        failure.message = format!("{}: {}", path.display(), failure.message);
-        failure
-    };
-    let file = std::fs::File::open(path).map_err(host_error)?;
+    let file = open_input(path, span)?;
     let mut bytes = Vec::new();
-    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes).map_err(host_error)?;
+    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes).map_err(|error| input_io_error(path, error, span))?;
     Ok(bytes)
 }
 

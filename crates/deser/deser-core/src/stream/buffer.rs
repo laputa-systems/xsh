@@ -491,6 +491,33 @@ impl<D: StreamDeserializer> InputBuffer<D> {
         &mut self.data[self.end..]
     }
 
+    /// Returns writable space without allocating or retaining more than `limit` bytes.
+    /// A full unconsumed buffer reports `LimitExceeded`, never an empty EOF-like slice.
+    pub fn read_buf_bounded(&mut self, limit: usize) -> Result<&mut [u8], Error> {
+        if self.start > 0 {
+            self.data.copy_within(self.start..self.end, 0);
+            self.end -= self.start;
+            self.start = 0;
+        }
+        if self.end >= limit {
+            return Err(Error::new(ErrorKind::LimitExceeded, "input buffer limit exceeded"));
+        }
+        if self.data.capacity() > limit {
+            let mut data = Vec::with_capacity(limit);
+            data.extend_from_slice(&self.data[..self.end]);
+            self.data = data;
+        }
+        let read_end = self.end.saturating_add(READ_SIZE).min(limit);
+        if self.data.len() < read_end {
+            let desired = read_end.max(self.data.len().saturating_mul(2)).min(limit);
+            if self.data.capacity() < desired {
+                self.data.reserve_exact(desired - self.data.len());
+            }
+            self.data.resize(desired, 0);
+        }
+        Ok(&mut self.data[self.end..read_end])
+    }
+
     /// Adds data that was read into [`read_buf`](Self::read_buf).
     ///
     /// # Panics
@@ -641,4 +668,58 @@ impl<D: StreamDeserializer> InputBuffer<D> {
 #[cold]
 fn failed_error() -> Error {
     Error::new(ErrorKind::InvalidState, "cannot continue after an error")
+}
+
+#[cfg(test)]
+mod bounded_buffer_tests {
+    use super::*;
+
+    struct Framer;
+    impl StreamDeserializer for Framer {
+        fn frame(&mut self, input: &[u8], eof: bool) -> Result<crate::de::Frame, Error> {
+            if input.len() > 16 { return Err(Error::new(ErrorKind::LimitExceeded, "frame limit")); }
+            Ok(if eof && input.is_empty() { crate::de::Frame::End } else if eof { crate::de::Frame::Value { start: 0, end: input.len(), consumed: input.len() } } else { crate::de::Frame::Incomplete { consumed: 0 } })
+        }
+        fn drive_frame<'de>(&mut self, frame: &'de [u8], driver: &mut DeserializeDriver<'_, 'de>) -> Result<(), Error> { driver.emit(frame.len() as u64) }
+    }
+
+    #[test]
+    fn bounded_small_frames_reuse_the_existing_backing_allocation() {
+        let mut buffer = InputBuffer::new(Framer);
+        for _ in 0..10_000 {
+            buffer.read_buf_bounded(1024 * 1024).unwrap()[0] = b'x';
+            buffer.filled(1);
+            buffer.consume(1);
+            assert_eq!(buffer.data.capacity(), READ_SIZE);
+        }
+    }
+
+    #[cfg(feature = "io")]
+    #[test]
+    fn bounded_reader_accepts_an_exact_final_frame_and_rejects_overflow() {
+        let mut reader = crate::io::Reader::new(&b"0123456789abcdef"[..], Framer);
+        reader.set_input_buffer_limit(17);
+        assert_eq!(reader.read::<u64>().unwrap(), Some(16));
+        assert_eq!(reader.read::<u64>().unwrap(), None);
+        let mut reader = crate::io::Reader::new(&b"0123456789abcdefx"[..], Framer);
+        reader.set_input_buffer_limit(17);
+        assert_eq!(reader.read::<u64>().unwrap_err().kind(), ErrorKind::LimitExceeded);
+    }
+
+    #[test]
+    fn bounded_fill_clamps_allocation_and_preserves_the_last_eof_probe() {
+        let mut buffer = InputBuffer::new(Framer);
+        buffer.read_buf_bounded(17).unwrap()[..16].fill(b'x');
+        buffer.filled(16);
+        assert_eq!(buffer.poll().unwrap(), Status::NeedInput);
+        assert_eq!(buffer.read_buf_bounded(17).unwrap().len(), 1);
+        assert!(buffer.data.capacity() <= 17);
+        buffer.set_eof();
+        assert_eq!(buffer.poll().unwrap(), Status::Ready);
+        let mut full = InputBuffer::new(Framer);
+        full.read_buf_bounded(17).unwrap().fill(b'x');
+        full.filled(17);
+        assert_eq!(full.read_buf_bounded(17).unwrap_err().kind(), ErrorKind::LimitExceeded);
+        assert!(full.data.capacity() <= 17);
+    }
 }

@@ -39,3 +39,12 @@ for duplicate/range classification without matching error prose. CBOR checks
 configured scalar length before growing indefinite-string scratch storage.
 These patches have retained upstream corpus and focused negative controls;
 reapply and verify them when updating the frozen source.
+
+The core reader accepts a bounded input buffer. CSV checks header uniqueness,
+field lengths and record limits while scanning, and can emit an explicit header
+for an empty document. Binary decoders check configured string and byte lengths
+before reading or allocating declared payloads. YAML bounds parser scratch,
+nodes and anchors before producing events; its sequence context also shares an
+alias replay allowance across documents. Scalar limits apply to resolved values,
+including decoded binary tags, rather than tag metadata or stripped whitespace.
+These opt-in limits preserve the standalone packages' defaults.

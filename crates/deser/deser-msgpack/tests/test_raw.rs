@@ -58,6 +58,16 @@ fn test_limits() {
             "string or bytes too long",
         ),
         (
+            "db00000005",
+            Limits::builder().max_len(4).build(),
+            "string or bytes too long",
+        ),
+        (
+            "c7052a",
+            Limits::builder().max_len(4).build(),
+            "string or bytes too long",
+        ),
+        (
             "81a46162636400",
             Limits::builder().max_len(3).build(),
             "string or bytes too long",

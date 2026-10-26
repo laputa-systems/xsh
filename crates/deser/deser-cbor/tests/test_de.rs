@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use common::{Value, de, hex};
 use deser::ext::BigInt;
-use deser::{Deserialize, ErrorKind};
+use deser::{Context, Deserialize, ErrorKind};
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub enum Enum {
@@ -90,6 +90,89 @@ fn forged_length_does_not_allocate() {
     assert_eof::<Vec<u32>>("9bffffffffffffffff");
     assert_eof::<HashMap<u32, u32>>("bbffffffffffffffff");
     assert_eof::<Value>("5f5bffffffffffffffff");
+}
+
+#[test]
+fn scalar_length_limit_precedes_payload_read() {
+    let config = deser_cbor::DeserializerConfig::builder()
+        .context(Context::with(Limits::builder().max_len(4).build()))
+        .build();
+
+    assert_eq!(
+        config
+            .from_slice::<String>(&[0x64, b'a', b'b', b'c', b'd'])
+            .unwrap(),
+        "abcd"
+    );
+    assert_eq!(
+        config.from_slice::<Vec<u8>>(&[0x44, 1, 2, 3, 4]).unwrap(),
+        [1, 2, 3, 4]
+    );
+    assert_eq!(
+        config
+            .from_slice::<Value>(&[0xc2, 0x44, 0, 0, 0, 1])
+            .unwrap(),
+        Value::from(1u64)
+    );
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&[0x5f, 0x43, 1, 2, 3, 0x41, 4, 0xff])
+            .unwrap(),
+        [1, 2, 3, 4]
+    );
+    assert_eq!(
+        config
+            .from_slice::<String>(&[0x65, b'a', b'b', b'c', b'd', b'e'])
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&[0x45, 1, 2, 3, 4, 5])
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let declared_five_bytes = [0x5b, 0, 0, 0, 0, 0, 0, 0, 5];
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&declared_five_bytes)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let declared_five_byte_bignum = [0xc2, 0x5b, 0, 0, 0, 0, 0, 0, 0, 5];
+    assert_eq!(
+        config
+            .from_slice::<Value>(&declared_five_byte_bignum)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    let chunks_over_limit = [0x5f, 0x43, 1, 2, 3, 0x42, 4, 5, 0xff];
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&chunks_over_limit)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+
+    assert_eq!(
+        config
+            .from_slice::<Vec<u8>>(&[0x5b, 0, 0])
+            .unwrap_err()
+            .kind(),
+        ErrorKind::EndOfFile
+    );
+    assert_eq!(
+        deser_cbor::from_slice::<String>(&[0x65, b'a', b'b', b'c', b'd', b'e']).unwrap(),
+        "abcde"
+    );
 }
 
 #[test]

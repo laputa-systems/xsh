@@ -1093,6 +1093,16 @@ impl<'a> Cursor<'a> {
     #[inline]
     fn read_body(&mut self, head: Head) -> Result<&'a [u8], Error> {
         let len = head.arg;
+        if self
+            .max_len
+            .is_some_and(|max_len| usize::try_from(len).map_or(true, |len| len > max_len))
+        {
+            return Err(Error::with_offset(
+                ErrorKind::LimitExceeded,
+                "string or bytes too long",
+                self.base + self.pos,
+            ));
+        }
         let input = self.input;
         if len > (input.len() - self.pos) as u64 {
             self.hit_end = true;

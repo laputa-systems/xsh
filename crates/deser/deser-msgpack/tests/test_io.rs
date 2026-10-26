@@ -27,6 +27,21 @@ impl Read for Blocking<'_> {
     }
 }
 
+struct BlockingChunks<'a> {
+    input: &'a [u8],
+    size: usize,
+}
+
+impl Read for BlockingChunks<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        assert!(!self.input.is_empty(), "read would block");
+        let len = self.size.min(buf.len()).min(self.input.len());
+        buf[..len].copy_from_slice(&self.input[..len]);
+        self.input = &self.input[len..];
+        Ok(len)
+    }
+}
+
 fn events(value: Recording) -> Vec<Event<'static>> {
     value.events().cloned().collect()
 }
@@ -203,6 +218,35 @@ fn test_feeding_with_limits() {
         reader.read_with::<Vec<Vec<u32>>, _>(limits).unwrap(),
         Some(vec![vec![1]])
     );
+}
+
+#[test]
+fn test_stream_checks_declared_scalar_length_before_body_reads() {
+    let config = DeserializerConfig::builder()
+        .context(deser::Context::with(Limits::builder().max_len(4).build()))
+        .build();
+    let exact = [0xa4, b'a', b'b', b'c', b'd'];
+    let mut reader = config.reader(Chunked {
+        input: &exact,
+        size: 1,
+    });
+    assert_eq!(reader.read::<String>().unwrap().as_deref(), Some("abcd"));
+
+    let header = [0xdb, 0, 0, 0, 5];
+    let mut reader = config.reader(BlockingChunks {
+        input: &header,
+        size: 1,
+    });
+    let error = reader.read::<String>().unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+
+    let ext_header = [0xc7, 5, 0x2a];
+    let mut reader = config.reader(BlockingChunks {
+        input: &ext_header,
+        size: 1,
+    });
+    let error = reader.read::<Vec<u8>>().unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::LimitExceeded);
 }
 
 #[test]

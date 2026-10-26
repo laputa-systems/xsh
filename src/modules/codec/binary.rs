@@ -4,6 +4,18 @@ use crate::source::Span;
 use deser::de::{Layer, LayerEvent, Next};
 use deser::{Atom, Error, ErrorKind, Event, Serialize};
 
+pub(super) fn setup_decode(format: Format, driver: &mut deser::de::DeserializeDriver<'_, '_>) {
+    driver.push_layer(RejectBinaryMetadata { format });
+}
+
+pub(super) fn cbor_config() -> deser_cbor::DeserializerConfig {
+    deser_cbor::DeserializerConfig::builder().context(super::decode_context(Format::Cbor)).build()
+}
+
+pub(super) fn msgpack_config() -> deser_msgpack::DeserializerConfig {
+    deser_msgpack::DeserializerConfig::builder().context(super::decode_context(Format::Msgpack)).build()
+}
+
 pub(crate) fn decode(format: Format, bytes: &[u8], span: Span) -> Result<Value, RuntimeError> {
     if bytes.len() > super::INPUT_LIMIT {
         return Err(super::runtime_error(
@@ -29,13 +41,11 @@ pub(crate) fn decode(format: Format, bytes: &[u8], span: Span) -> Result<Value, 
 }
 
 fn decode_cbor(bytes: &[u8], format: Format, span: Span) -> Result<Value, RuntimeError> {
-    let config = deser_cbor::DeserializerConfig::builder()
-        .context(super::decode_context(format))
-        .build();
+    let config = cbor_config();
     let mut deserializer = deser_cbor::Deserializer::from_slice_with_config(bytes, config);
     let decoded = deserializer
         .deserialize_with::<Decoded, _>(|driver| {
-            driver.push_layer(RejectBinaryMetadata { format });
+            setup_decode(format, driver);
         })
         .map_err(|error| super::runtime_error(error, format.identifier(), span))?;
     deserializer
@@ -45,13 +55,11 @@ fn decode_cbor(bytes: &[u8], format: Format, span: Span) -> Result<Value, Runtim
 }
 
 fn decode_msgpack(bytes: &[u8], format: Format, span: Span) -> Result<Value, RuntimeError> {
-    let config = deser_msgpack::DeserializerConfig::builder()
-        .context(super::decode_context(format))
-        .build();
+    let config = msgpack_config();
     let mut deserializer = deser_msgpack::Deserializer::from_slice_with_config(bytes, config);
     let decoded = deserializer
         .deserialize_with::<Decoded, _>(|driver| {
-            driver.push_layer(RejectBinaryMetadata { format });
+            setup_decode(format, driver);
         })
         .map_err(|error| super::runtime_error(error, format.identifier(), span))?;
     deserializer

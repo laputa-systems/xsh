@@ -1074,3 +1074,38 @@ fn test_quoted_scalars() {
     let err = from_str::<BTreeMap<String, String>>("k: \"ä\\q\"").unwrap_err();
     assert_eq!((err.line(), err.column()), (Some(1), Some(6)));
 }
+
+#[test]
+fn test_binary_scalar_limits_count_decoded_bytes_for_every_scalar_style() {
+    let config = DeserializerConfig::builder().context(deser::Context::with(
+        deser::de::Limits::builder().max_len(4).build()
+    )).build();
+    let expected = Value::Bytes(vec![1, 2, 3, 4]);
+    let mut failures = Vec::new();
+    for source in [
+        "!!binary AQIDBA==",
+        "!!binary \"AQIDBA==\"",
+        "!!binary \"AQID\\x42A==\"",
+        "!!binary |-\n  AQIDBA==\n",
+        "%TAG !b! tag:yaml.org,2002:\n--- !b!binary \"AQID\\x42A==\"",
+        "!<tag:yaml.org,2002:binary> |-\n  AQIDBA==\n",
+    ] {
+        assert_eq!(from_str::<Value>(source).unwrap(), expected, "{source}");
+        match config.from_str::<Value>(source) {
+            Ok(value) if value == expected => {}
+            result => failures.push((source, format!("{result:?}"))),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn test_stripped_block_scalar_limits_exclude_discarded_trailing_breaks() {
+    let source = "|-\n  a\n\n\n";
+    assert_eq!(from_str::<String>(source).unwrap(), "a");
+    let config = DeserializerConfig::builder().context(deser::Context::with(
+        deser::de::Limits::builder().max_len(1).build()
+    )).build();
+    assert_eq!(config.from_str::<String>(source).unwrap(), "a");
+    assert_eq!(config.from_str::<String>("|-\n  ab\n\n").unwrap_err().kind(), ErrorKind::LimitExceeded);
+}
