@@ -11271,6 +11271,11 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn is_empty_map_module_call(&self, instruction: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = self.expression_view(instruction)? else { return Ok(false) };
+        Ok(op == RuntimeOp::MapEmpty && args.len() == 0)
+    }
+
     fn checked_module_call_return_type(
         op: RuntimeOp,
         call_plan: Option<&crate::runtime::eval::ModuleCallPlan>,

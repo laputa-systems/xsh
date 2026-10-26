@@ -333,6 +333,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                     } else {
                         match decoder.derive_checked_expression_type(value)? {
                             Some(ty) => ty.is_result() || ty == Type::Any,
+                            None if decoder.is_empty_map_module_call(value)? => false,
                             None if !super::indexed_expr_can_complete(decoder, value, 0)? => false,
                             None => return Err(IrVerifyError::new("implicit discard has no executable value contract")),
                         }
