@@ -118,6 +118,14 @@ const ALLOWED: &[(&str, &str)] = &[
         "bytes helper reads and writes user-supplied byte paths",
     ),
     (
+        "src/modules/codec.rs",
+        "codec file adapters read bounded user-supplied paths after filesystem-effect admission",
+    ),
+    (
+        "src/modules/codec/sequence.rs",
+        "codec sequence readers retain and close admitted file handles for lazy reads",
+    ),
+    (
         "src/modules/compression.rs",
         "compression helpers operate on user-supplied archive paths",
     ),
@@ -153,7 +161,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "src/modules/hash.rs",
         "hash helper reads user-supplied files",
     ),
-    ("src/modules/ini.rs", "INI helper reads user-supplied files"),
     (
         "src/modules/json.rs",
         "JSON helper reads user-supplied files",
