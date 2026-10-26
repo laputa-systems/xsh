@@ -2075,6 +2075,87 @@ mod tests {
     }
 
     #[test]
+    fn driver_empty_map_context_authenticates_its_owner_guard_and_operands_when_cold() {
+        use super::super::super::{FullCodec, FullCursor, LoweredType, LoweredTypeCheck};
+        let mut program = prepare(r#"
+let wrong_key: Any = 2
+let wrong_value: Any = true
+let other: Map[List[Bool]] = map.empty().set("entry", [true])
+var table: Map[List[Int]] = map.empty().set("entry", [1])
+"#);
+        program.store.in_place.take();
+        let fields = |step| {
+            let decoder = super::super::decoder_for_driver_step(&program.store, step).unwrap();
+            let range = program.store.driver_steps[step].data.range().bounds(program.store.extra.len()).unwrap();
+            let mut payload = FullCursor::new(&program.store.extra[range.clone()]);
+            let target: Name = FullCodec::decode(&decoder, &mut payload).unwrap();
+            let _: Option<LoweredType> = FullCodec::decode(&decoder, &mut payload).unwrap();
+            let validation_start = range.start + payload.index;
+            let _: Option<LoweredTypeCheck> = FullCodec::decode(&decoder, &mut payload).unwrap();
+            let annotation_start = range.start + payload.index;
+            let _: Option<Type> = FullCodec::decode(&decoder, &mut payload).unwrap();
+            let annotation_end = range.start + payload.index;
+            let _: bool = FullCodec::decode(&decoder, &mut payload).unwrap();
+            (target, range.start, validation_start..annotation_start, annotation_start..annotation_end, range.start + payload.index)
+        };
+        let step = (0..program.store.driver_steps.len()).find(|&step| fields(step).0 == "table").unwrap();
+        let other = (0..program.store.driver_steps.len()).find(|&step| fields(step).0 == "other").unwrap();
+        let (_, target, validation, annotation, initializer) = fields(step);
+        let (_, other_target, other_validation, other_annotation, other_initializer) = fields(other);
+        let decoder = super::super::decoder_for_driver_step(&program.store, step).unwrap();
+        let method = program.store.extra[initializer] as usize;
+        let schema::ExprView::Method { receiver, args, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let arguments = args.collect::<Result<Vec<_>, _>>().unwrap();
+        let schema::ExprView::List(mut items) = decoder.expression_view(arguments[1].raw() as usize).unwrap() else { unreachable!() };
+        let item = items.next().unwrap().unwrap().raw() as usize;
+        let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+        let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+        let operation = program.store.extra[program.store.data[receiver.raw() as usize].range().start as usize] as usize;
+        let reject = |mut changed: FullProgram, expected: &str| {
+            changed.store.in_place.take();
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains(expected), "{error:?}");
+        };
+        let mut wrong_target = program.clone();
+        wrong_target.store.extra[target] = program.store.extra[other_target];
+        reject(wrong_target, "writer");
+        let mut wrong_validation = program.clone();
+        wrong_validation.store.extra[validation].copy_from_slice(&program.store.extra[other_validation]);
+        reject(wrong_validation, "validation");
+        let mut wrong_annotation = program.clone();
+        wrong_annotation.store.extra[annotation].copy_from_slice(&program.store.extra[other_annotation]);
+        reject(wrong_annotation, "validation");
+        let mut wrong_initializer = program.clone();
+        wrong_initializer.store.extra[initializer] = program.store.extra[other_initializer];
+        reject(wrong_initializer, "belongs to another function");
+        let binding = program.store.driver_writers[program.store.driver_steps[step].writers.start as usize].binding_identity as usize;
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.binding_identities[binding].owner = program.store.binding_identities[binding].name;
+        reject(wrong_owner, "owner");
+        let mut wrong_factory = program.clone();
+        wrong_factory.store.runtime_ops[operation] = super::super::super::RuntimeOp::SetEmpty;
+        reject(wrong_factory, "contract");
+        for (subject, replacement) in [(arguments[0].raw() as usize, integer), (item, boolean)] {
+            let mut changed = program.clone();
+            changed.store.tags[subject] = program.store.tags[replacement];
+            changed.store.data[subject] = program.store.data[replacement];
+            reject(changed, "contract");
+        }
+    }
+
+    #[test]
+    fn driver_map_runtime_validation_preserves_dynamic_admission() {
+        for source in [
+            r#"let raw: Any = {["entry"]: [1]}; let admitted: Map[List[Int]] = raw.require(Map[List[Int]])?"#,
+            "let raw: Any = true; let admitted: Map[List[Int]] = raw.require(Map[List[Int]])?",
+        ] {
+            let mut program = prepare(source);
+            program.store.in_place.take();
+            FullVerifier::verify(&program).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
+        }
+    }
+
+    #[test]
     fn fresh_empty_map_methods_authenticate_constructor_and_arguments_when_cold() {
         let mut program = prepare(r#"
 pure make() -> Map[List[Int]] {

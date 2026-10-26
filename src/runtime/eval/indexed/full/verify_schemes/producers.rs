@@ -2681,6 +2681,12 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
         proof.budget.charge(arguments.len())?;
         if proof.operand_context(&decoder, receiver)?.ty().is_none()
+            && let Some(expected) = proof.driver_initializer_method_context(&decoder, instruction)? {
+            proof.expression(owner, instruction, expected, false);
+            seeded_method_roots.push((owner, instruction));
+            continue;
+        }
+        if proof.operand_context(&decoder, receiver)?.ty().is_none()
             && let Some((call, expected)) = proof.ground_call_argument_ancestor(owner, instruction)? {
             proof.budget.charge(1)?;
             proof.expression(owner, call, expected, false);
@@ -7381,6 +7387,27 @@ impl<'a> ProducerProof<'a> {
         let result = decoder.checked_method_return_type(&receiver_type, name, &arguments)?;
         if result.as_ref() != Some(expected) { return Ok(None); }
         Ok(Some(receiver_type))
+    }
+
+    fn driver_initializer_method_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let Some(step) = super::super::driver_owner_index(decoder.owner) else { return Ok(None) };
+        let driver = self.store.driver_steps[step];
+        if driver.tag != super::super::FullDriverTag::Let { return Ok(None); }
+        let mut payload = super::super::FullCursor::new(self.store.payload(driver.data.range())?);
+        let _: Name = super::super::FullCodec::decode(decoder, &mut payload)?;
+        let runtime_type: Option<super::super::LoweredType> = super::super::FullCodec::decode(decoder, &mut payload)?;
+        let context = super::super::DecodeContext::from_decoder(decoder);
+        let validation = Option::<super::super::LoweredTypeCheck>::borrow(context, &mut payload)?;
+        let annotation = Option::<Type>::borrow(context, &mut payload)?;
+        let _: bool = super::super::FullCodec::decode(decoder, &mut payload)?;
+        if payload.raw()? as usize != instruction { return Ok(None); }
+        let (Some(validation), Some(annotation)) = (validation, annotation) else { return Ok(None) };
+        if validation.schema.is_some() { return Ok(None); }
+        let expected = self.contract_type(annotation.id)?;
+        let checked = self.contract_type(validation.ty.id)?;
+        super::super::verify_driver_annotation(&expected, runtime_type, Some(&checked), None)?;
+        if self.checked_fresh_collection_method_receiver(decoder, instruction, &expected)?.is_none() { return Ok(None); }
+        Ok(Some(expected))
     }
 
     fn ground_call_argument_ancestor(&mut self, owner: u32, instruction: usize) -> Result<Option<(usize, Arc<Type>)>, IrVerifyError> {
