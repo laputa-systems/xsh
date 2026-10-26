@@ -85,6 +85,14 @@ pub(crate) fn borrowed_codec_record<'a>(
     json::borrowed_record(format, record, span)
 }
 
+pub(crate) fn borrowed_codec_value<'a>(
+    format: crate::modules::codec::Format,
+    value: &'a Value,
+    span: Span,
+) -> impl deser::Serialize + 'a {
+    json::borrowed_runtime(format, value, span)
+}
+
 pub(crate) fn encode_runtime_json(
     value: &Value,
     pretty: bool,
