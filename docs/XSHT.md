@@ -149,6 +149,8 @@ existing finite key-domain requirement on that type parameter.
 includes check warnings. Lint warnings fail with status 1; notes are advice,
 exit 0 on their own, and are counted at the end of a report that contains them.
 `--deny-notes` makes notes fail with status 1.
+For multiple files, the highest status wins: 1 for lint warnings, 2 for check
+or read errors, and 4 for write errors. File order does not change the status.
 
 `--only` selects lint rules or other fixable diagnostic codes. Naming a rule
 enables it even when its `[lint]` switch is off, but `[lint.RULE] exclude` still

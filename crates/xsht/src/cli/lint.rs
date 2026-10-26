@@ -106,7 +106,7 @@ pub fn lint_files_timed(
         match result.kind {
             LintResultKind::Clean => {}
             LintResultKind::ReadError(message) => {
-                status = 2;
+                status = status.max(2);
                 stderr.push_str(&message);
             }
             LintResultKind::FixDiagnostics {
@@ -114,13 +114,7 @@ pub fn lint_files_timed(
                 diagnostics,
                 stderr: result_stderr,
             } => {
-                if result_status == 1 {
-                    if status == 0 {
-                        status = 1;
-                    }
-                } else {
-                    status = result_status;
-                }
+                status = status.max(result_status);
                 for diagnostic in diagnostics {
                     if seen_diagnostics.insert(diagnostic.key) {
                         counts.add(diagnostic.severity);
@@ -133,13 +127,7 @@ pub fn lint_files_timed(
                 status: result_status,
                 diagnostics,
             } => {
-                if result_status == 1 {
-                    if status == 0 {
-                        status = 1;
-                    }
-                } else {
-                    status = result_status;
-                }
+                status = status.max(result_status);
                 for diagnostic in diagnostics {
                     if seen_diagnostics.insert(diagnostic.key) {
                         counts.add(diagnostic.severity);
@@ -154,9 +142,7 @@ pub fn lint_files_timed(
                 diagnostics,
                 stderr: result_stderr,
             } => {
-                if result_status > status {
-                    status = result_status;
-                }
+                status = status.max(result_status);
                 for diagnostic in diagnostics {
                     if seen_diagnostics.insert(diagnostic.key) {
                         counts.add(diagnostic.severity);

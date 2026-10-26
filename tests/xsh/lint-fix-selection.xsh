@@ -89,3 +89,36 @@ print pick(B)
   assert "check.unreachable-match-arm" not in selected.stderr, selected.stderr
   assert selected.status.exited_with(1), selected.stderr
 }
+
+test test_lint_failure_status_survives_notes_in_either_file_order { |ctx|
+  let warning = "proc unused() { print warning }\n"
+  let checked_error = "let value: Int = \"wrong\"\nprint value\n"
+  let note = "proc launch(argv: List[Str]) { run @argv }\nlaunch([\"true\"])\n"
+  let cases = [
+    {sources: [warning], expected: 1, diagnostics: ["warn[lint.unused-callable]"]},
+    {sources: [checked_error], expected: 2, diagnostics: ["err[check.type-mismatch]"]},
+    {sources: [warning, checked_error], expected: 2, diagnostics: ["warn[lint.unused-callable]", "err[check.type-mismatch]"]},
+    {sources: [checked_error, warning], expected: 2, diagnostics: ["err[check.type-mismatch]", "warn[lint.unused-callable]"]},
+  ]
+  for fix in [false, true] {
+    for notes_first in [false, true] {
+      for {sources, expected, diagnostics} in cases {
+        let root = test.temp_dir(ctx, name: "lint-status-precedence")?
+        let prefix = if notes_first { "a" } else { "z" }
+        fp"{root}/{prefix}-notes.xsh".write(note)
+        var index = 0
+        for source in sources {
+          fp"{root}/m-{index}.xsh".write(source)
+          index += 1
+        }
+        let args = if fix { ["lint", "--fix"] } else { ["lint"] }
+        let output = run.capture --text --accept=[0, 1, 2] "xsht" @args $root
+        assert output.status.exited_with(expected), f"fix={fix} notes_first={notes_first} expected={expected}: {output.stderr}"
+        for diagnostic in diagnostics {
+          assert diagnostic in output.stderr, output.stderr
+        }
+        assert "note[lint.prefer-non-empty-argv]" in output.stderr, output.stderr
+      }
+    }
+  }
+}
