@@ -17,7 +17,6 @@ pub struct ApiSpec {
     module_index: FxHashMap<&'static str, usize>,
     methods: Vec<MethodReceiverSig>,
     registered_method_locations: Vec<(usize, usize, usize)>,
-    docs: BTreeMap<String, ApiDocs>,
     /// Reverse map from a `RuntimeOp` to its `module.function` spelling, for
     /// `module.call`/`module.result` trace event names.
     op_names: FxHashMap<RuntimeOp, String>,
@@ -82,24 +81,10 @@ impl ApiSpec {
         impls
     }
 
-    fn from_registry(spec: &registry::ApiSpec) -> Self {
-        Self::new(
-            spec.modules.iter().map(convert_module_entry).collect(),
-            spec.methods
-                .iter()
-                .map(convert_method_receiver_sig)
-                .collect(),
-            spec.docs_entries()
-                .map(|(id, docs)| (id.to_string(), docs.clone()))
-                .collect(),
-        )
-    }
-
-    fn new(
-        modules: Vec<ModuleEntry>,
-        methods: Vec<MethodReceiverSig>,
-        docs: BTreeMap<String, ApiDocs>,
-    ) -> Self {
+    fn from_canonical_registry() -> Self {
+        let spec = registry::api_spec();
+        let modules: Vec<_> = spec.modules.iter().map(convert_module_entry).collect();
+        let methods: Vec<_> = spec.methods.iter().map(convert_method_receiver_sig).collect();
         let registered_method_locations = methods.iter().enumerate().flat_map(|(receiver, entry)| {
             entry.methods.iter().enumerate().flat_map(move |(method, named)| {
                 (0..named.overloads.len()).map(move |overload| (receiver, method, overload))
@@ -136,7 +121,6 @@ impl ApiSpec {
             module_index,
             methods,
             registered_method_locations,
-            docs,
             op_names,
         }
     }
@@ -148,11 +132,11 @@ impl ApiSpec {
     }
 
     pub fn docs(&self, id: &str) -> Option<&ApiDocs> {
-        self.docs.get(id)
+        registry::api_spec().docs(id)
     }
 
     pub fn docs_entries(&self) -> impl Iterator<Item = (&str, &ApiDocs)> {
-        self.docs.iter().map(|(id, docs)| (id.as_str(), docs))
+        registry::api_spec().docs_entries()
     }
 
     #[allow(dead_code)]
@@ -662,7 +646,7 @@ pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceive
 
 pub fn api_spec() -> &'static ApiSpec {
     static SPEC: OnceLock<ApiSpec> = OnceLock::new();
-    SPEC.get_or_init(|| ApiSpec::from_registry(registry::api_spec()))
+    SPEC.get_or_init(ApiSpec::from_canonical_registry)
 }
 
 #[cfg(test)]
@@ -943,6 +927,10 @@ mod tests {
             main.docs_entries().collect::<Vec<_>>(),
             registry.docs_entries().collect::<Vec<_>>()
         );
+        for (id, docs) in main.docs_entries() {
+            assert!(std::ptr::eq(docs, registry.docs(id).unwrap()));
+            assert!(std::ptr::eq(main.docs(id).unwrap(), docs));
+        }
 
         assert_eq!(main.modules.len(), registry.modules.len());
         for (main_module, registry_module) in main.modules.iter().zip(&registry.modules) {
