@@ -466,6 +466,10 @@ impl Evaluator {
         }
         match lowered_runtime_value(value, span)? {
             LoweredValue::Record(record) => Ok(take_shared(record)),
+            LoweredValue::RecordVec(fields) => Ok(take_shared(fields)
+                .into_iter()
+                .map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value))
+                .collect()),
             other => Err(RuntimeError::new(
                 error_kind,
                 format!(
