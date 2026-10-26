@@ -8,7 +8,7 @@ use deser::{Atom, Deserialize, Error, ErrorKind, State};
 use deser::de::{DeserializeDriver, Sink, SinkHandle};
 use std::sync::Arc;
 use crate::map_key::MapKey;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) mod binary;
 
@@ -153,9 +153,41 @@ pub(crate) fn encode_table<T: deser::Serialize + ?Sized>(
 }
 
 pub(crate) struct Decoded(pub(crate) Value);
+
+enum DecodeValue {
+    Atom(Value),
+    List(Vec<Value>),
+    Record(DecodedRecord),
+    Map(BTreeMap<MapKey, Value>),
+}
+
+#[derive(Default)]
+struct DecodedRecord {
+    fields: Vec<(Arc<str>, Value)>,
+    keys: BTreeSet<Arc<str>>,
+}
+
+impl DecodedRecord {
+    fn insert(&mut self, key: Arc<str>, value: Value) -> Result<(), Error> {
+        if !self.keys.insert(key.clone()) {
+            return Err(Error::new(ErrorKind::DuplicateKey, format!("duplicate key `{key}`")));
+        }
+        self.fields.push((key, value));
+        Ok(())
+    }
+
+    fn finish(self) -> RecordMap {
+        let Self { fields, keys } = self;
+        drop(keys);
+        RecordMap::from_name_values(
+            fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
+        )
+    }
+}
+
 struct DecodeSink<'a> {
     out: &'a mut Option<Decoded>,
-    value: Option<Value>,
+    value: Option<DecodeValue>,
     key: Option<MapKey>,
     slot: Option<Decoded>,
 }
@@ -184,15 +216,12 @@ impl DecodeSink<'_> {
     fn flush(&mut self) -> Result<(), Error> {
         if let Some(Decoded(child)) = self.slot.take() {
             match self.value.as_mut() {
-                Some(Value::List(items)) => items.push(child),
-                Some(Value::Record(fields)) => {
+                Some(DecodeValue::List(items)) => items.push(child),
+                Some(DecodeValue::Record(fields)) => {
                     let MapKey::Str(key) = self.key.take().expect("decoded object key") else { return Err(Error::new(ErrorKind::UnsupportedType, "textual object keys must be strings")); };
-                    if fields.get(&key).is_some() {
-                        return Err(Error::new(ErrorKind::DuplicateKey, format!("duplicate key `{key}`")));
-                    }
-                    fields.insert(key, child);
+                    fields.insert(key, child)?;
                 }
-                Some(Value::Map(fields)) => {
+                Some(DecodeValue::Map(fields)) => {
                     let key = self.key.take().expect("decoded map key");
                     if fields.insert(key, child).is_some() { return Err(Error::new(ErrorKind::DuplicateKey, "duplicate map key")); }
                 }
@@ -213,7 +242,7 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
     fn atom(&mut self, atom: Atom, state: &mut State) -> Result<(), Error> {
         let format = *state.get::<Format>().expect("codec decode format");
         let atom = match atom { Atom::Implicit(value) => value.value().to_atom(), other => other };
-        self.value = Some(match atom {
+        self.value = Some(DecodeValue::Atom(match atom {
             Atom::Null => Value::Null,
             Atom::Bool(v) => Value::Bool(v),
             Atom::I64(v) => Value::Int(v),
@@ -233,13 +262,13 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
                 } else { return Err(Error::new(ErrorKind::UnsupportedType, "unsupported codec extension")); }
             }
             _ => return Err(Error::new(ErrorKind::UnsupportedType, "unsupported codec atom")),
-        });
+        }));
         Ok(())
     }
-    fn seq(&mut self, _: &mut State) -> Result<(), Error> { self.value = Some(Value::List(Vec::new())); Ok(()) }
+    fn seq(&mut self, _: &mut State) -> Result<(), Error> { self.value = Some(DecodeValue::List(Vec::new())); Ok(()) }
     fn map(&mut self, state: &mut State) -> Result<(), Error> {
         let format = *state.get::<Format>().expect("codec decode format");
-        self.value = Some(if format.is_binary() { Value::Map(BTreeMap::new()) } else { Value::Record(RecordMap::new()) });
+        self.value = Some(if format.is_binary() { DecodeValue::Map(BTreeMap::new()) } else { DecodeValue::Record(DecodedRecord::default()) });
         Ok(())
     }
     fn next_key(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
@@ -253,17 +282,17 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
     fn finish(&mut self, _: &mut State) -> Result<(), Error> {
         self.flush()?;
         let value = match self.value.take().expect("decoded value") {
-            Value::Record(RecordMap::Dynamic(fields)) => Value::Record(RecordMap::from_name_values(
-                fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
-            )),
-            Value::Map(fields) if !fields.is_empty() && fields.keys().all(|key| key.as_str().is_some()) => {
+            DecodeValue::Record(fields) => Value::Record(fields.finish()),
+            DecodeValue::Map(fields) if !fields.is_empty() && fields.keys().all(|key| key.as_str().is_some()) => {
                 let values = fields.into_iter().map(|(key, value)| {
                     let MapKey::Str(key) = key else { unreachable!("string-keyed binary map") };
                     (Name::intern(&key), value)
                 }).collect();
                 Value::Record(RecordMap::from_name_values(values))
             }
-            value => value,
+            DecodeValue::Map(fields) => Value::Map(fields),
+            DecodeValue::List(items) => Value::List(items),
+            DecodeValue::Atom(value) => value,
         };
         *self.out = Some(Decoded(value));
         Ok(())
@@ -365,6 +394,20 @@ mod tests {
     use crate::source::SourceId;
 
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
+
+    #[test]
+    fn malformed_text_objects_do_not_intern_unfinished_record_keys() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
+        for (format, text, variant) in [
+            (Format::Json, "{\"unfinished-json-key\":1,\"unfinished-json-key\":2}", "DuplicateKey"),
+            (Format::Yaml, "unfinished-yaml-key: 1\n42: 2\n", "UnsupportedValue"),
+            (Format::Json, "{\"unfinished-syntax-key\":1,", "Syntax"),
+        ] {
+            assert_eq!(decode_text(format, text, span()).unwrap_err().variant, variant);
+            assert_eq!(symbols.dynamic_stats(), (0, 0));
+        }
+    }
 
     #[test]
     fn decoded_objects_share_compact_shapes_across_codec_boundaries() {
