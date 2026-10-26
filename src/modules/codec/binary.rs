@@ -192,6 +192,8 @@ mod tests {
 
     #[test]
     fn binary_string_maps_become_records_and_cbor_canonical_is_exact() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
         let value = map([
             (MapKey::Str(Arc::from("b")), Value::Int(2)),
             (MapKey::Str(Arc::from("a")), Value::Int(1)),

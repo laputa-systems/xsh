@@ -357,6 +357,8 @@ mod tests {
 
     #[test]
     fn nested_runtime_and_lowered_values_share_the_borrowed_encoder() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
         let input = r#"{"z":[null,true,-9223372036854775808,0.125,"\u0000"],"a":{"empty":[]}}"#;
         let runtime = crate::modules::codec::decode_json(input, span()).unwrap();
         let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&runtime).unwrap();

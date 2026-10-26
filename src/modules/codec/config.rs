@@ -188,6 +188,8 @@ mod tests {
 
     #[test]
     fn configuration_backends_enforce_textual_contracts_and_roundtrip_values() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
         for (format, input) in [
             (Format::Yaml, "name: worker\nratio: 1.0\nflags: [true, false]\n"),
             (Format::Toml, "name = \"worker\"\nratio = 1.0\nflags = [true, false]\n"),
@@ -222,6 +224,8 @@ mod tests {
 
     #[test]
     fn yaml_alias_expansion_budget_rejects_only_after_10000_replayed_scalar_events() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
         let document = |count: usize| format!("base: &base value\ncopies: [{}]\n", vec!["*base"; count].join(","));
         let value = decode(Format::Yaml, &document(10_000), span()).unwrap();
         let Value::Record(fields) = value else { panic!("YAML record"); };
@@ -232,6 +236,8 @@ mod tests {
 
     #[test]
     fn configuration_decoders_retain_coordinates_and_declared_limits() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
         let error = decode(Format::Toml, "a = 1\na = 2\n", span()).unwrap_err();
         assert_eq!(error.family, "CodecError");
         assert_eq!(error.variant, "DuplicateKey");

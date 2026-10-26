@@ -3,6 +3,7 @@ pub(crate) mod config;
 pub(crate) mod table;
 use crate::runtime::value::{FloatValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
+use crate::symbol::Name;
 use deser::{Atom, Deserialize, Error, ErrorKind, State};
 use deser::de::{DeserializeDriver, Sink, SinkHandle};
 use std::sync::Arc;
@@ -252,13 +253,15 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
     fn finish(&mut self, _: &mut State) -> Result<(), Error> {
         self.flush()?;
         let value = match self.value.take().expect("decoded value") {
+            Value::Record(RecordMap::Dynamic(fields)) => Value::Record(RecordMap::from_name_values(
+                fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
+            )),
             Value::Map(fields) if !fields.is_empty() && fields.keys().all(|key| key.as_str().is_some()) => {
-                let mut record = RecordMap::new();
-                for (key, value) in fields {
+                let values = fields.into_iter().map(|(key, value)| {
                     let MapKey::Str(key) = key else { unreachable!("string-keyed binary map") };
-                    record.insert(key, value);
-                }
-                Value::Record(record)
+                    (Name::intern(&key), value)
+                }).collect();
+                Value::Record(RecordMap::from_name_values(values))
             }
             value => value,
         };
@@ -364,7 +367,58 @@ mod tests {
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
 
     #[test]
+    fn decoded_objects_share_compact_shapes_across_codec_boundaries() {
+        fn collect(value: &Value, shapes: &mut Vec<Arc<crate::runtime::value::RecordShapeData>>) {
+            match value {
+                Value::Record(fields) => {
+                    let RecordMap::Shaped { shape, values } = fields else { panic!("decoded object retains a per-instance tree instead of compact shared shape storage") };
+                    assert_eq!(values.len(), fields.len());
+                    if fields.get("name").is_some() && fields.get("version").is_some() { shapes.push(shape.clone()); }
+                    for (_, value) in fields.iter() { collect(value, shapes); }
+                }
+                Value::List(values) => for value in values { collect(value, shapes); },
+                _ => {}
+            }
+        }
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut shapes = Vec::new();
+            for (format, text) in [
+                (Format::Json, r#"[{"version":1,"name":"pkg-one"},{"name":"pkg-two","version":2}]"#),
+                (Format::Yaml, "- name: pkg-one\n  version: 1\n- name: pkg-two\n  version: 2\n"),
+                (Format::Toml, "[[rows]]\nname = \"pkg-one\"\nversion = 1\n[[rows]]\nname = \"pkg-two\"\nversion = 2\n"),
+                (Format::Ini, "[one]\nname=pkg-one\nversion=1\n[two]\nname=pkg-two\nversion=2\n"),
+                (Format::Csv, "name,version\npkg-one,1\npkg-two,2\n"),
+                (Format::Tsv, "name\tversion\npkg-one\t1\npkg-two\t2\n"),
+            ] {
+                let decoded = decode_text(format, text, span()).unwrap();
+                let start = shapes.len(); collect(&decoded, &mut shapes);
+                assert_eq!(shapes.len() - start, 2, "{format:?}");
+                if format == Format::Json {
+                    let Value::List(rows) = decoded else { panic!("JSON row list") };
+                    let Value::Record(first) = &rows[0] else { panic!("JSON row record") };
+                    assert_eq!(first.get("name"), Some(&Value::Str("pkg-one".into())));
+                    assert_eq!(first.get("version"), Some(&Value::Int(1)));
+                    assert_eq!(super::super::json::encode_json(&rows[1], false, span()).unwrap(), r#"{"name":"pkg-two","version":2}"#);
+                }
+            }
+            let rows = [BTreeMap::from([("name", "pkg-one"), ("version", "1")]), BTreeMap::from([("name", "pkg-two"), ("version", "2")])];
+            for (format, empty, scalar_map) in [(Format::Cbor, &[0xa0][..], &[0xa1, 1, 2][..]), (Format::Msgpack, &[0x80][..], &[0x81, 1, 2][..])] {
+                let bytes = encode_bytes(format, &rows, false, span()).unwrap();
+                let decoded = decode_bytes(format, &bytes, span()).unwrap();
+                let start = shapes.len(); collect(&decoded, &mut shapes);
+                assert_eq!(shapes.len() - start, 2, "{format:?}");
+                assert!(matches!(decode_bytes(format, empty, span()).unwrap(), Value::Map(fields) if fields.is_empty()));
+                assert!(matches!(decode_bytes(format, scalar_map, span()).unwrap(), Value::Map(fields) if fields.get(&MapKey::Int(1)) == Some(&Value::Int(2))));
+            }
+            assert!(shapes.iter().all(|shape| Arc::ptr_eq(shape, &shapes[0])));
+            assert_eq!(decode_json(r#"{"name":"first","name":"second"}"#, span()).unwrap_err().variant, "DuplicateKey");
+        });
+    }
+
+    #[test]
     fn json_decodes_directly_with_exact_integer_and_float_boundaries() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
         for (input, expected) in [("-9223372036854775808", i64::MIN), ("9223372036854775807", i64::MAX), ("-0.0", 0), ("1e2", 100)] {
             assert!(matches!(decode_json(input, span()).unwrap(), Value::Int(value) if value == expected), "{input}");
         }
