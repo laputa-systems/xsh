@@ -7,6 +7,27 @@ Goal: use Deser for structured-data parsing and emission while XSH continues to
 own values, schemas, effects and resources. Vendor only the useful codec family;
 make one hard cutover and delete the replaced implementations.
 
+Current checkpoint: implementation through S3 is integrated; S4 tables and
+explicit typed lexical decoding are under isolated development. S5 sequences,
+final production cost acceptance, generated documentation and Full/Linux
+qualification remain. Native macOS qualification is externally blocked by the
+unavailable host. No campaign completion or S2/S3 global acceptance is claimed.
+The owner separately authorized integrating the optional-module-call compiler
+repair; `cadc4468b` preserves checked result/effect contracts and its focused
+cold-authority and native regressions pass. The unchanged Laputa xinit help
+command passes with that repair; Laputa lifecycle assertions remain unverified
+and are excluded from this campaign by the owner.
+
+Acceleration checkpoint: the complete lint-invariance partition passes all 11
+selected tests. The tooling aggregate and default debug corpus assertion still
+lack completed evidence after their cumulative time limits. A bounded corpus
+check uses package optimization level 1 while retaining debug assertions and
+overflow checks; this changes no tracked profile and cannot stand in for the
+default aggregate gate. Finish the remaining disjoint assertions on frozen
+master while one S4 cohort prepares CSV/TSV and the coupled explicit schema
+boundary in separate worktrees. Keep S3 and S4 provisional until their matching
+proof completes; no third feature cohort or optional tooling work starts.
+
 Deliverables:
 
 1. A normal in-tree Deser crate family with seven codecs: JSON, YAML, TOML,
