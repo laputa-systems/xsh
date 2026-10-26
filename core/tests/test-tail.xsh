@@ -520,19 +520,22 @@ test test_tail_follow_name_banners_for_names_created_after_failed_opens { |ctx|
   let second = fp"{root}/log2"
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.2; printf 'ping\\n' > \"$1\"; sleep 0.2; printf 'pong\\n' > \"$2\"" sh $first $second ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)
-
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log1", "log2"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
-  let status = process.run(plan)?
+  let follower = spawn plan?
+  defer follower.cancel(signal: "KILL", kill_after: 0ms)
+  assert tail_wait_for_bytes(stderr, b"tail: cannot open 'log1' for reading: No such file or directory\ntail: cannot open 'log2' for reading: No such file or directory\n")?, stderr.read_text()?
+  first.write(b"ping\n")
+  assert tail_wait_for_bytes(stdout, b"==> log1 <==\nping\n")?, stdout.read_text()?
+  second.write(b"pong\n")
+  assert tail_wait_for_bytes(stdout, b"==> log1 <==\nping\n\n==> log2 <==\npong\n")?, stdout.read_text()?
+  let status = wait follower?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
   assert stdout.read_text()? == "==> log1 <==\nping\n\n==> log2 <==\npong\n", stdout.read_text()?
   assert stderr.read_text()? == "tail: cannot open 'log1' for reading: No such file or directory\ntail: cannot open 'log2' for reading: No such file or directory\ntail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n", stderr.read_text()?
-  assert (wait writer?).exited_with(0)
 }
 
 test test_tail_validates_follow_options { |ctx|
@@ -717,7 +720,6 @@ test test_tail_debug_reports_the_follow_implementation_like_gnu { |ctx|
 test test_tail_debug_reports_blocking_and_polling_while_following { |ctx|
   let root = test.temp_dir(ctx, name: "tail-debug-follow")?
   fp"{root}/n20".write(numbers(1, 20))
-  let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
 
   let cases: List[DebugCase] = [
@@ -726,14 +728,18 @@ test test_tail_debug_reports_blocking_and_polling_while_following { |ctx|
     {args: ["--debug", "-f", "n20", "/dev/null"], stderr: "tail: using polling mode\n"},
   ]
 
+  var index = 0
   for case in cases {
-    let stdout = fp"{root}/stdout"
-    let stderr = fp"{root}/stderr"
-    let argv = [ctx.xsh_bin.display(), timeout.display(), ".2", ctx.xsh_bin.display(), tail.display()].extend(case.args)
+    index += 1
+    let stdout = fp"{root}/stdout-{index}"
+    let stderr = fp"{root}/stderr-{index}"
+    let argv = [ctx.xsh_bin.display(), tail.display()].extend(case.args)
     let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
-    let status = process.run(plan)?
-
-    assert status.exit_code()? == 124, f"exit={status.exit_code()?} stderr={stderr.read_text()?}"
+    let follower = spawn plan?
+    defer follower.cancel(signal: "KILL", kill_after: 0ms)
+    assert tail_wait_for_bytes(stderr, bytes.from_text(case.stderr))?, stderr.read_text()?
+    assert process.wait_timeout([follower], 0ms)? == null, f"follower exited: {stderr.read_text()?}"
+    follower.cancel(signal: "KILL", kill_after: 0ms)
     assert stderr.read_text()? == case.stderr, stderr.read_text()?
   }
 
