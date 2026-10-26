@@ -1661,6 +1661,15 @@ type BlockSourceObservation = {
   sha256_hex: Str?,
 }
 
+type BlockBundleWireEntryPath = {storage_path: Str}
+type BlockBundleWireSourcePath = {path: Str}
+type BlockBundleWireLayoutPaths = {entries: List[BlockBundleWireEntryPath], source_paths: List[Str]}
+type BlockBundleWirePaths = {
+  layout: BlockBundleWireLayoutPaths,
+  changing_stats: List[Str],
+  sources: List[BlockBundleWireSourcePath],
+}
+
 type BlockBundleCapture = {
   schema_version: Int,
   origin: Str,
@@ -15153,7 +15162,16 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     reference:,
     counters:,
   )
-  let wire: Any = capture
+  let wire = {
+    ...capture,
+    layout: {
+      ...capture.layout,
+      entries: [{...entry, storage_path: entry.storage_path.display()} for entry in capture.layout.entries],
+      source_paths: [relative.display() for relative in capture.layout.source_paths],
+    },
+    changing_stats: [relative.display() for relative in capture.changing_stats],
+    sources: [{...item, path: item.path.display()} for item in capture.sources],
+  }
   let encoded = json.encode(wire, pretty: true)?
   if encoded.byte_len() > 16777216 {
     return Err(check_failure("block capture metadata exceeds its replay bound"))
@@ -15164,7 +15182,17 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
 ## Rejects altered block links, source bytes, absences, and independent references.
 export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(BlockBundleCapture)?
+  let wire = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(BlockBundleWirePaths)?
+  let capture = {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      entries: [{...entry, storage_path: fp"{entry.storage_path}".require(RelPath)?} for entry in wire.layout.entries],
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    changing_stats: [fp"{relative}".require(RelPath)? for relative in wire.changing_stats],
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(BlockBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "block-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
