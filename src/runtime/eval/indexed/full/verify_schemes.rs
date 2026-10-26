@@ -2501,7 +2501,9 @@ fn verify_body_expression(
             if !layout.fields.is_empty() { return Err(IrVerifyError::new("generic nullary tag producer disagrees with its declared payload layout")); }
             SchemeType::Ground(Type::Tag(type_name))
         }
-        schema::ExprView::Path(_) => SchemeType::Ground(Type::Path),
+        schema::ExprView::Path(path) => SchemeType::Ground(if ty.closed_ground_type() == Some(Type::rel_path())
+            && crate::sema::validated::is_rel_path(path)
+        { Type::rel_path() } else { Type::Path }),
         schema::ExprView::List(mut values) => {
             let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list producer has no item contract")); };
             for value in &mut values {
@@ -4614,7 +4616,10 @@ fn verify_instantiated_call_arguments(
             .ok_or_else(|| IrVerifyError::new("generic call argument type is invalid"))?;
         let pipeline_item = if is_splice { None } else { producer_proof.pipeline_item_argument_type(decoder.owner, value.raw() as usize)? };
         let literal_context = if pipeline_item.is_some() { None } else { producer_proof.literal_argument_type(decoder.owner, value.raw() as usize)? };
-        let actual = if let Some(actual) = literal_context { Some(actual) }
+        let actual = if producer_proof.contextual_relative_path_argument(decoder.owner, value.raw() as usize, &expected)? {
+            materialization.charge_clone(&expected)?;
+            Some(CheckedArgumentType::Known(expected.clone()))
+        } else if let Some(actual) = literal_context { Some(actual) }
         else if pipeline_item.is_some() { None } else { checked_argument_type(
             store,
             &decoder,

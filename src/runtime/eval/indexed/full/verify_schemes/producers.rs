@@ -2884,6 +2884,15 @@ impl<'a> ProducerProof<'a> {
         Ok(Some((*actual).clone()))
     }
 
+    pub(super) fn contextual_relative_path_argument(&mut self, owner: u32, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if expected != &Type::rel_path() { return Ok(false); }
+        let decoder = self.owner(owner)?;
+        if !self.relative_path_literal_argument(&decoder, instruction, expected)? { return Ok(false); }
+        self.budget.charge_clone(expected)?;
+        self.expression(owner, instruction, Arc::new(expected.clone()), false);
+        Ok(true)
+    }
+
     pub(super) fn literal_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<CheckedArgumentType>, IrVerifyError> {
         if !matches!(self.store.tags.get(instruction), Some(FullTag::ExprList | FullTag::ExprListBuild)) { return Ok(None); }
         let decoder = self.owner(owner)?;
@@ -7077,6 +7086,15 @@ impl<'a> ProducerProof<'a> {
             let binding = self.binding(decoder.owner, argument, slot)?;
             let ProducerBinding::ScopedDeclaration(result, _) = binding else { return Ok(false); };
             let owner = &self.index.owners[&decoder.owner];
+            if self.store.tags[result] == FullTag::StmtLet {
+                let writers = owner.writers.get(&binding).map(Vec::as_slice).unwrap_or(&[]);
+                self.budget.charge(writers.len())?;
+                if writers != [result] { return Ok(false); }
+                let schema::StmtView::Let { slot: declared, value, annotation: None } = decoder.statement_view(result)? else { return Ok(false); };
+                if declared != slot { return Ok(false); }
+                argument = value.raw() as usize;
+                continue;
+            }
             let Some(parent) = owner.parents[result - owner.range.start] else { return Ok(false); };
             let Some((source_binding, source)) = self.checked_match_binding(decoder, parent)? else { return Ok(false); };
             if source_binding != binding { return Ok(false); }

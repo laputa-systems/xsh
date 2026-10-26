@@ -6070,7 +6070,10 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     #[test]
     fn generic_fsroot_calls_authenticate_native_target_receiver_effects_and_owner() {
         use crate::modules::RuntimeOp;
-        let program = prepare("proc listed(marker, root: FsRoot, wrong: Str) [fs, error] { let _ = marker; let _ = wrong; root.children(p\".\")? }\npure foreign(value: Str) -> Str { value }\n");
+        let mut program = prepare("proc listed(marker, root: FsRoot, wrong: Str) [fs, error] { let _ = marker; let _ = wrong; root.children(p\".\")? }\npure foreign(value: Str) -> Str { value }\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
         let (owner, scheme) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let (call, receiver) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
@@ -6082,6 +6085,17 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let words = wrong_receiver.store.data[receiver].range().bounds(wrong_receiver.store.extra.len()).unwrap();
         wrong_receiver.store.extra[words.start] = 2;
         assert!(FullVerifier::verify(&wrong_receiver).is_err());
+        let schema::ExprView::ModuleCall { args, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let path_argument = args.collect::<Result<Vec<_>, _>>().unwrap()[1].unwrap().raw() as usize;
+        let wrong = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+        let mut wrong_argument = program.clone();
+        wrong_argument.store.tags[path_argument] = program.store.tags[wrong];
+        wrong_argument.store.data[path_argument] = program.store.data[wrong];
+        assert!(FullVerifier::verify(&wrong_argument).is_err());
+        let wrong_type = program.store.scheme_body_facts.iter().find(|fact| fact.function.index() == owner && fact.instruction as usize == wrong).unwrap().ty().unwrap();
+        let mut wrong_result = program.clone();
+        wrong_result.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == call).unwrap().value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(wrong_type);
+        assert!(FullVerifier::verify(&wrong_result).is_err());
         let mut wrong_target = program.clone();
         let words = wrong_target.store.data[call].range().bounds(wrong_target.store.extra.len()).unwrap();
         let operation = wrong_target.store.extra[words.start] as usize;
@@ -6097,6 +6111,25 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == receiver).unwrap();
         fact.function = IrFunctionId::new(foreign).unwrap();
         assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
+    fn generic_fsroot_relative_literals_authenticate_physical_bytes_when_cold() {
+        let mut program = prepare(r#"proc listed(marker, root: FsRoot) [fs,error] { let _ = marker; root.children(p"data")? }"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let (owner, _) = generic_owner(&program);
+        let path = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprPath).unwrap();
+        let raw = program.store.payload(program.store.data[path].range()).unwrap()[0];
+        let bytes = crate::runtime::eval::indexed::IrBytesId::from_raw(raw).unwrap();
+        let range = program.store.bytes[bytes.index()].bounds(program.store.byte_data.len()).unwrap();
+        assert_eq!(&program.store.byte_data[range.clone()], b"data");
+        for replacement in [b"/ata", b"../x"] {
+            let mut forged = program.clone();
+            forged.store.byte_data[range.clone()].copy_from_slice(replacement);
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic body expression disagrees with its checked type");
+        }
     }
 
     #[test]
