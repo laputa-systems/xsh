@@ -1,3 +1,5 @@
+type BinaryAnswer = {answer: Int}
+
 test test_binary_codecs_round_trip_native_bytes {
   let value = {payload: b"\0\x80\xff"}
   let cbor = codec.encode_bytes("cbor", value)?
@@ -9,28 +11,28 @@ test test_binary_codecs_round_trip_native_bytes {
 }
 
 test test_binary_codecs_preserve_scalar_map_keys_and_empty_maps {
-  let cbor_ints: Map[Int, Int] = codec.decode_bytes("cbor", b"\xa1\x01\x02")?
-  let msgpack_ints: Map[Int, Int] = codec.decode_bytes("msgpack", b"\x81\x01\x02")?
+  let cbor_ints = codec.decode_bytes("cbor", b"\xa1\x01\x02")?.require(Map[Int, Int])?
+  let msgpack_ints = codec.decode_bytes("msgpack", b"\x81\x01\x02")?.require(Map[Int, Int])?
   assert cbor_ints[1] == 2
   assert msgpack_ints[1] == 2
 
-  let cbor_bools: Map[Bool, Int] = codec.decode_bytes("cbor", b"\xa1\xf4\x02")?
-  let msgpack_bools: Map[Bool, Int] = codec.decode_bytes("msgpack", b"\x81\xc2\x02")?
+  let cbor_bools = codec.decode_bytes("cbor", b"\xa1\xf4\x02")?.require(Map[Bool, Int])?
+  let msgpack_bools = codec.decode_bytes("msgpack", b"\x81\xc2\x02")?.require(Map[Bool, Int])?
   assert cbor_bools[false] == 2
   assert msgpack_bools[false] == 2
 
-  let cbor_bytes: Map[Bytes, Int] = codec.decode_bytes("cbor", b"\xa1\x42\x80\xff\x02")?
-  let msgpack_bytes: Map[Bytes, Int] = codec.decode_bytes("msgpack", b"\x81\xc4\x02\x80\xff\x02")?
+  let cbor_bytes = codec.decode_bytes("cbor", b"\xa1\x42\x80\xff\x02")?.require(Map[Bytes, Int])?
+  let msgpack_bytes = codec.decode_bytes("msgpack", b"\x81\xc4\x02\x80\xff\x02")?.require(Map[Bytes, Int])?
   assert cbor_bytes[b"\x80\xff"] == 2
   assert msgpack_bytes[b"\x80\xff"] == 2
 
-  let cbor_record: {answer: Int} = codec.decode_bytes("cbor", b"\xa1\x61a\x01")?
-  let msgpack_record: {answer: Int} = codec.decode_bytes("msgpack", b"\x81\xa6answer\x01")?
+  let cbor_record = codec.decode_bytes("cbor", b"\xa1\x66answer\x01")?.require(BinaryAnswer)?
+  let msgpack_record = codec.decode_bytes("msgpack", b"\x81\xa6answer\x01")?.require(BinaryAnswer)?
   assert cbor_record.answer == 1
   assert msgpack_record.answer == 1
 
-  let cbor_empty: Map[Int, Int] = codec.decode_bytes("cbor", b"\xa0")?
-  let msgpack_empty: Map[Int, Int] = codec.decode_bytes("msgpack", b"\x80")?
+  let cbor_empty = codec.decode_bytes("cbor", b"\xa0")?.require(Map[Int, Int])?
+  let msgpack_empty = codec.decode_bytes("msgpack", b"\x80")?.require(Map[Int, Int])?
   assert cbor_empty.is_empty()
   assert msgpack_empty.is_empty()
 }
