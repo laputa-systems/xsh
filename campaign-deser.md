@@ -1,7 +1,7 @@
 # Replace XSH serialization with a pruned, vendored Deser
 
-Status: preflighted 2026-10-26; implementation has not started. Execution requires
-an explicit campaign launch. Work on `master`, as the owner directed.
+Status: executing 2026-10-26 on `master` under the owner's explicit launch,
+including repo-local commits and final manual verification. No push is authorized.
 
 Goal: use Deser for structured-data parsing and emission while XSH continues to
 own values, schemas, effects and resources. Vendor only the useful codec family;
@@ -21,11 +21,13 @@ Deliverables:
 5. Behavioral acceptance, authored and generated documentation, dependency
    accounting, final production-size/RSS checks and readiness-qualified timing.
 
-Last source checkpoint: `5d461bc9e` on master. No implementation commits exist.
-No Deser implementation is accepted or provisional. The performance/deployment
+Launch baseline: `9d893e0075d284db4b158eef419654677e8b1288` on master.
+S0 focused baseline passes: JSON module 18/18 and the selected INI file case 1/1.
+S1/S2 adapter, vendor and host migrations are provisional in one foundation lane.
+No Deser implementation is accepted yet. The performance/deployment
 campaign is paused; its outstanding acceptance does not disappear here.
 Current ruling: feature completeness and behavior first, final optimization last.
-Next substantive milestone after a launch: the direct adapter plus a real JSON
+Next substantive milestone: the direct adapter plus a real JSON
 cutover, with focused native and host-consumer proof.
 
 ## Charter
@@ -569,12 +571,11 @@ JSON implementations to evade the migration's cost gate.
 
 ## Execution boundary and non-goals
 
-This request authorized preflight edits to this document only. Implementation,
+The owner launched execution on 2026-10-26, authorizing implementation,
 vendoring into tracked source, local implementation commits and the named final
-full scope require a subsequent explicit launch. The launch can authorize these
-repo-local changes as one campaign; no repeated approval is needed for routine
-choices already settled here. Effects outside that grant park only the affected
-item. Pushes, upstream edits, other-repository changes, destructive user-data
+manual verification. No repeated approval is needed for routine choices already
+settled here. Effects outside that grant park only the affected item.
+Pushes, upstream edits, other-repository changes, destructive user-data
 operations and installed-system changes remain forbidden.
 
 Contract changes to surface in the final report: typed intrinsic schema operands,
@@ -619,6 +620,31 @@ Upstream source, inspected at the frozen commit:
 - [Reylo](https://github.com/colinhacks/reylo): inspiration for one owner of types only. No database access, code generation or external-file type discovery is imported into XSH.
 
 ## Decision and campaign log
+
+2026-10-26 launch: clean `master` at `9d893e007`, newer than the preflight
+checkpoint. The approved `xsh-test` image is present at `ef7c79658855`.
+`cargo dev gate src/modules/json.rs src/runtime/eval/json.rs --plan` selects
+10 Change cases, including native stdlib, runtime, facade, registry, signature,
+API and lowering coverage. Full remains reserved for closeout.
+Existing verification products pass all 18 JSON native cases and the selected
+INI file case, with no skips. These products establish runnable comparison
+behavior, not matched production cost evidence or current-source full acceptance.
+The inherited 230-pass/two-failure integration attempt remains unqualified.
+One foundation lane owns the adapter and vendoring; the coordinator migrates
+disjoint host consumers. The next acceptance wave is the combined S1/S2 tree.
+No additional codec writers start before that wave passes.
+The native corpus rejects four scratch mutations: a changed JSON value, missing
+child output, a wrong error category and a wrong lowered-record projection.
+Reference executables are retained under `.work/tmp/deser/reference` until parity
+is accepted. A detached launch-source checkout at `.work/wt/deser-cost` supplies
+the matched baseline for S6.
+
+S2 dependency ruling: the existing `rustybench` 0.1 dev-dependency also brings in
+miniserde. Preserve its benchmark and allocation contracts with a local library
+copy under `third_party/rustybench`, migrating only JSON report derives/rendering
+to Deser. Omit the standalone CLI and its fixtures. This necessary host-consumer
+migration adds no production dependency or benchmark framework. The external
+benchmark driver and its repository remain unchanged.
 
 2026-10-25: owner overrides the draft's all-17/published-crate/compatibility
 requirements with a pruned source vendor and hard cutover. Preflight selects
