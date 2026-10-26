@@ -12,14 +12,14 @@ message = hello
   assert "Global = root" in encoded
   assert "Host = example.test" in encoded
   assert json.encode(ini.decode(encoded)?)? == json.encode(config)?
-  let path = test.temp_path(ctx, name: "app.ini")
-  ini.write(path, {Global: "root", server: {Host: "example.test"}})
-  assert json.get(ini.read(path)?, ["server", "Host"])? == "example.test"
-  test.error_kind(ini.write(path, {Global: "again"}, overwrite: false), "ini-write")
-  test.error_kind(ini.write(path, {Global: 1}, overwrite: false), "CodecError.UnsupportedValue")
-  assert ini.read(path)?.Global == "root"
-  ini.write(path, {Global: "replaced"})
-  assert ini.read(path)?.Global == "replaced"
+  let config_path = test.temp_path(ctx, name: "app.ini")
+  ini.write(config_path, {Global: "root", server: {Host: "example.test"}})
+  assert json.get(ini.read(config_path)?, ["server", "Host"])? == "example.test"
+  test.error_kind(ini.write(config_path, {Global: "again"}, overwrite: false), "ini-write")
+  test.error_kind(ini.write(config_path, {Global: 1}, overwrite: false), "CodecError.UnsupportedValue")
+  assert ini.read(config_path)?.Global == "root"
+  ini.write(config_path, {Global: "replaced"})
+  assert ini.read(config_path)?.Global == "replaced"
 }
 
 test test_ini_common_dialect_preserves_case_quotes_comments_and_strings {

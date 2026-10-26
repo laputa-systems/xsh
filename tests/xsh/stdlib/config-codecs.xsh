@@ -61,9 +61,9 @@ test test_yaml_encoding_roundtrips_nested_values_and_files { |ctx|
   assert json.get(decoded, ["nested", "flag"])? == true
   assert json.get(decoded, ["empty"])? == []
   assert json.get(decoded, ["data"])?.require(Bytes)? == b"\0\xffa"
-  let path = test.temp_path(ctx, name: "config.yaml")
-  yaml.write(path, value)
-  assert json.get(yaml.read(path)?, ["nested", "items"])? == [1, 2]
+  let config_path = test.temp_path(ctx, name: "config.yaml")
+  yaml.write(config_path, value)
+  assert json.get(yaml.read(config_path)?, ["nested", "items"])? == [1, 2]
   let unsupported: Any = p"data"
   test.error_kind(yaml.encode(unsupported), "CodecError.UnsupportedValue")
 }
@@ -101,12 +101,12 @@ test test_toml_encoding_roundtrips_and_preserves_failed_destinations { |ctx|
   let value = {title: "example", enabled: true, nested: {ports: [80, 443]}, services: [{name: "api"}, {name: "worker"}]}
   let encoded = toml.encode(value)?
   assert json.encode(toml.decode(encoded)?)? == json.encode(value)?
-  let path = test.temp_path(ctx, name: "config.toml")
-  toml.write(path, value)
-  assert json.encode(toml.read(path)?)? == json.encode(value)?
-  let original = path.read_text()?
-  test.error_kind(toml.write(path, {bad: null}), "CodecError.UnsupportedValue")
-  assert path.read_text()? == original
+  let config_path = test.temp_path(ctx, name: "config.toml")
+  toml.write(config_path, value)
+  assert json.encode(toml.read(config_path)?)? == json.encode(value)?
+  let original = config_path.read_text()?
+  test.error_kind(toml.write(config_path, {bad: null}), "CodecError.UnsupportedValue")
+  assert config_path.read_text()? == original
 }
 
 

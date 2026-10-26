@@ -19,18 +19,18 @@ test test_codec_dispatch_preserves_values_and_rejects_wrong_boundaries {
 }
 
 test test_codec_file_writes_encode_before_atomic_no_clobber { |ctx|
-  let path = test.temp_path(ctx, name: "value.json")
-  codec.write("json", path, {value: 1})
-  test.error_kind(codec.write("json", path, {value: 2}), "fs-write")
-  assert codec.read("json", path)? == json.decode("{\"value\":1}")?
+  let config_path = test.temp_path(ctx, name: "value.json")
+  codec.write("json", config_path, {value: 1})
+  test.error_kind(codec.write("json", config_path, {value: 2}), "fs-write")
+  assert codec.read("json", config_path)? == json.decode("{\"value\":1}")?
   let unsupported: Any = p"data"
-  test.error_kind(codec.write("json", path, unsupported), "CodecError.UnsupportedValue")
-  assert codec.read("json", path)? == json.decode("{\"value\":1}")?
-  codec.write("json", path, {value: 2}, overwrite: true)
-  assert codec.read("json", path)? == json.decode("{\"value\":2}")?
-  path.write_bytes(b"\xff")
-  match codec.read("json", path) {
-    Err(CodecError.Encoding {input_path: input_path, ..}) => assert input_path == path
+  test.error_kind(codec.write("json", config_path, unsupported), "CodecError.UnsupportedValue")
+  assert codec.read("json", config_path)? == json.decode("{\"value\":1}")?
+  codec.write("json", config_path, {value: 2}, overwrite: true)
+  assert codec.read("json", config_path)? == json.decode("{\"value\":2}")?
+  config_path.write(b"\xff")
+  match codec.read("json", config_path) {
+    Err(CodecError.Encoding {input_path: input_path, ..}) => assert input_path == config_path
     else => return test.fail("expected codec input path")
   }
 }
