@@ -594,3 +594,24 @@ test test_json_paths_reject_non_string_map_keys {
   test.error_kind(json.get(value, ["1"]), "json-path")
   test.error_kind(json.remove(value, ["1"]), "json-path")
 }
+
+test test_json_nested_pretty_output_matches_the_compact_value {
+  let value = json.decode(r"""{"z":[1,2,{"empty":[]}],"a":{"escaped":"☃","flags":[true,null,false]}}""")?
+  assert json.encode(value, pretty: true)? == """{
+  "a": {
+    "escaped": "☃",
+    "flags": [
+      true,
+      null,
+      false
+    ]
+  },
+  "z": [
+    1,
+    2,
+    {
+      "empty": []
+    }
+  ]
+}"""
+}
