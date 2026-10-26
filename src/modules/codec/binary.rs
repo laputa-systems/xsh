@@ -113,11 +113,15 @@ impl Layer for RejectBinaryMetadata {
         if self.format == Format::Cbor && deser_cbor::take_tag(next.state_mut()).is_some() {
             return Err(Error::new(ErrorKind::UnsupportedType, "unsupported CBOR tag"));
         }
-        if matches!(event.event(), Event::Atom(Atom::Ext(_))) {
-            return Err(Error::new(
-                ErrorKind::UnsupportedType,
-                "unsupported MessagePack extension",
-            ));
+        if let Event::Atom(Atom::Ext(value)) = event.event() {
+            if self.format == Format::Cbor && (value.downcast_ref::<i128>().is_some()
+                || value.downcast_ref::<u128>().is_some()
+                || value.downcast_ref::<deser::ext::BigInt>().is_some())
+            {
+                return Err(Error::new(ErrorKind::OutOfRange, "integer exceeds i64"));
+            }
+            return Err(Error::new(ErrorKind::UnsupportedType,
+                format!("unsupported {} extension", self.format.identifier())));
         }
         next.emit(event)
     }
@@ -203,6 +207,14 @@ mod tests {
         assert_eq!(decode(Format::Msgpack, &[0xd4, 0x2a, 0x00], span()).unwrap_err().variant, "UnsupportedValue");
         assert_eq!(decode(Format::Msgpack, &[0xd6, 0xff, 0x51, 0x4b, 0x67, 0xb0], span()).unwrap_err().variant, "UnsupportedValue");
         assert_eq!(decode(Format::Cbor, &[0x1b, 0x80, 0, 0, 0, 0, 0, 0, 0], span()).unwrap_err().variant, "Overflow");
+        for bytes in [
+            &[0x3b, 0x80, 0, 0, 0, 0, 0, 0, 0][..],
+            &[0xc3, 0x49, 1, 0, 0, 0, 0, 0, 0, 0, 0][..],
+            &[0xc2, 0x49, 1, 0, 0, 0, 0, 0, 0, 0, 0][..],
+            &[0xc3, 0x51, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][..],
+        ] {
+            assert_eq!(decode(Format::Cbor, bytes, span()).unwrap_err().variant, "Overflow");
+        }
         assert_eq!(decode(Format::Msgpack, &[0xcf, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff], span()).unwrap_err().variant, "Overflow");
         assert_eq!(decode(Format::Cbor, &[0x01, 0x02], span()).unwrap_err().variant, "Syntax");
         assert_eq!(decode(Format::Msgpack, &[0xcc, 0x01, 0x02], span()).unwrap_err().variant, "Syntax");

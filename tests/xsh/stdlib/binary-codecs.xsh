@@ -58,3 +58,10 @@ test test_binary_codecs_reject_overflow_complex_keys_and_incomplete_values {
   test.error_kind(codec.decode_bytes("cbor", b"\x01\x02"), "CodecError.Syntax")
   test.error_kind(codec.decode_bytes("msgpack", b"\x01\x02"), "CodecError.Syntax")
 }
+
+test test_cbor_reports_integer_underflow_as_overflow {
+  assert codec.decode_bytes("cbor", b"\x3b\x7f\xff\xff\xff\xff\xff\xff\xff")? == -9223372036854775807 - 1
+  test.error_kind(codec.decode_bytes("cbor", b"\x3b\x80\0\0\0\0\0\0\0"), "CodecError.Overflow")
+  test.error_kind(codec.decode_bytes("cbor", b"\xc3\x49\x01\0\0\0\0\0\0\0\0"), "CodecError.Overflow")
+  test.error_kind(codec.decode_bytes("cbor", b"\xa1\x3b\x80\0\0\0\0\0\0\0\x01"), "CodecError.Overflow")
+}
