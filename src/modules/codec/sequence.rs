@@ -483,13 +483,14 @@ struct Sequence<R, D: StreamDeserializer> {
 }
 
 fn from_reader<R: Read + Send + 'static>(format: Format, input: R, path: Option<PathValue>, span: Span) -> Result<StreamValue, RuntimeError> {
-    fn source<R: Read + Send + 'static, D: StreamDeserializer + Send + 'static>(format: Format, input: R, path: Option<PathValue>, parser: D, span: Span) -> StreamValue {
+    fn source<D: StreamDeserializer + Send + 'static>(format: Format, input: Box<dyn Read + Send>, path: Option<PathValue>, parser: D, span: Span) -> StreamValue {
         let input = CountedInput { inner: input, bytes: 0, exceeded: false, io_error: None };
         let mut reader = deser::io::Reader::new(input, Framed { inner: parser, fatal: false, encoding: false, value_start: None, items: 0 });
         reader.set_input_buffer_limit(INPUT_LIMIT + FRAME_LOOKAHEAD);
         let budget = EmittedBudget::new(format, path.as_ref(), span);
         StreamValue::from_live("codec sequence", Sequence { reader: Some(reader), format, path, items: 0, budget })
     }
+    let input: Box<dyn Read + Send> = Box::new(input);
     Ok(match format {
         Format::Json => {
             let config = deser_json::DeserializerConfig::builder().trailing(deser_json::Trailing::Newline).context(super::decode_context(format)).build();
