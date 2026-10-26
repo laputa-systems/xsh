@@ -10,9 +10,10 @@ make one hard cutover and delete the replaced implementations.
 Current checkpoint: implementation through S5 is integrated; final cost and
 Full/Linux qualification remain. Native macOS qualification is externally
 blocked by the unavailable host. No campaign completion is claimed.
-The current implementation at `ebaf919e7` preserves compact records through
-runtime-to-lowered conversion. Small records retain compact field storage;
-wide records retain indexed lookup. Focused tests preserve symbol ownership,
+The current implementation at `9f246dcc7` preserves compact records through
+runtime-to-lowered conversion. Small records with program-owned or preloaded
+names retain compact field storage. Other records retain owned-string indexed
+lookup, so data keys do not enter the program symbol owner. Focused tests preserve symbol ownership,
 last-wins duplicate fields, copy-on-write updates, order-independent equality
 and bounded work for nested equality. All six selected regressions pass.
 Canonical documentation remains lazy for internal construction and eager for
@@ -77,7 +78,24 @@ defers only fresh literal-null payloads through the existing storage-check owner
 Before publication, those checks preserve exact Null and reject non-null
 contexts. All 82 focused cases pass, including both evaluator routes, Any-to-Str
 rejection, exact Null and sourced record, parameter, callable and module guards.
-Independent review finds no remaining defect. Full is running on that repair.
+Independent review finds no remaining defect. That Full run passes all 2,822
+debug checks with three ignored, then reports 145 tooling passes and one
+desugar-parity failure. Two tail fixtures read or change files before follower
+startup. `0a405dcd6` uses exact readiness barriers and unique output paths. It
+keeps mode/output checks and replaces the debug fixture's incidental timeout
+status with follower liveness. Both exact native regressions pass.
+A separate bounded streaming probe finds data-name retention: equal 30.35 MB
+JSONLines inputs peak at about 29 MB for repeated keys and 103 MB for distinct
+keys in one diagnostic pair. `9f246dcc7` gives deserialize State its own name
+owner, retained by live record shapes. Lowering reuses only program-owned names
+and preserves other keys as owned strings. The unconditional compactness
+fixture is corrected without dropping its Unicode, ordering or copy-on-write
+checks. Host lookup, record and codec checks pass 1, 6 and 38 cases. Pinned
+verification passes the new active-program RSS regression, symbol plateau,
+profile guards and public INI ownership case. Source review finds no open defect.
+The combined Full rerun has passed integration 238, policy 2, symbol/RSS 4,
+core boundaries 23, compatibility 58, soundness 14 and debug 2,826, with three
+debug cases ignored. Tooling and later owners remain in progress.
 Final production cost qualification must cover the combined source.
 Three clean, patch-equivalent allocator/documentation worktrees are retired.
 Dirty, unique, parked and proof-bearing worktrees remain intact.
