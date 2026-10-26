@@ -10,14 +10,17 @@ make one hard cutover and delete the replaced implementations.
 Current checkpoint: implementation through S5 is integrated; final cost and
 Full/Linux qualification remain. Native macOS qualification is externally
 blocked by the unavailable host. No campaign completion is claimed.
-The production implementation at `2a022465c` keeps compact shared records, one
+The measured production implementation at `89d2645eb` keeps compact shared records, one
 sequence reader type and canonical documentation loaded only on request.
 Public API construction still validates documentation eagerly; clones retain
 their original documentation catalog. The focused registry tests pass 20/20.
-The Linux xsh entry point sets a zero-delay mimalloc purge default while
-preserving explicit allocator environment overrides. Its exact direct sys
-dependency supplies the already-locked mimalloc header; it adds no package or
-transitive feature. Production sizes pass: xsh 27,210,304, xsht 39,111,552 and
+The Linux xsh constructor disables eager arena commitment before allocation,
+preserving explicit allocator environment overrides and the original purge delay.
+The constructor object links only into xsh. Pinned production checks confirm its
+initialization order, arena protection, child environment and missing-descriptor
+behavior. Its exact direct sys dependency supplies the already-locked mimalloc
+header; it adds no package or transitive feature.
+Production sizes pass: xsh 27,212,992, xsht 39,115,392 and
 xshi 44,232 bytes.
 
 Matched memory sampling now verifies both executable files are evicted, then
@@ -32,9 +35,14 @@ Five runs each also complete an exact 64 MiB document, reject its one-byte
 overrun and keep stream memory bounded at 64/256 MiB and the stream overrun.
 All outputs and statuses match. The 18-workload CPU batch accepts 130 samples
 with successful readiness checks before and after. Its remaining failure is
-large JSON: 208.436 to 227.267 ms median, an 18.831 ms increase against an
-11.187 ms allowance from the paired spread. Allocator diagnostics are pending;
-build CPU qualification has not run. Earlier timing results below are historical.
+large JSON: 198.466 to 226.633 ms median across five alternating pairs.
+The 28.167 ms increase exceeds the 20.208 ms allowance from the paired spread.
+Every pair regresses, by 17.727 to 37.935 ms. A separate phase probe identifies
+read/decode as the strongest lead and encoding as a secondary contributor.
+Build CPU qualification has not run. Earlier timing results below are historical.
+The owner is replacing BTreeMap and BTreeSet with bbtree on master. Keep the
+pre-cutover baseline frozen and take final measurements after those edits settle.
+The measurements above qualify only the recorded production source.
 
 The grammar repair passes 43/43 checks, including 5,398 shallow and 20,097 deep
 generated sentences and the parsed repository corpus. It also repairs the
@@ -45,8 +53,14 @@ positive. The generated grammar reference is refreshed. Full passes its
 238-test integration aggregate, then exposes missing filesystem-boundary
 registrations. `e9090ccb1` registers the two admitted codec adapters and retires
 the pure INI allowance; the focused policy checks pass 2/2. Production effects
-and cold authority checks are unchanged. Full is restarted on that test-only
-repair; remaining owners and the isolated Linux resource case are pending.
+and cold authority checks are unchanged. The latest Full run passes integration
+238, filesystem policy 2, symbol plateau 1 and core boundaries 23. It then fails
+eight core compatibility cases because `e78cd5afa` rejects a valid inferred
+iteration receiver. `bc267943b` narrows that diagnostic to propagation from an
+authenticated Err constructor. Its 37 focused debug checks preserve cold
+contracts and both execution routes. Pinned compatibility and fuzz checks remain
+pending in an isolated checkout. Full's remaining owners and the isolated Linux
+resource case are pending. Final qualification must cover the combined master.
 The owner separately authorized integrating the optional-module-call compiler
 repair; `cadc4468b` preserves checked result/effect contracts and its focused
 cold-authority and native regressions pass. The unchanged Laputa xinit help
