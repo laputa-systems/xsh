@@ -19,14 +19,33 @@ command passes with that repair; Laputa lifecycle assertions remain unverified
 and are excluded from this campaign by the owner.
 
 Acceleration checkpoint: the complete lint-invariance partition passes all 11
-selected tests. The tooling aggregate and default debug corpus assertion still
-lack completed evidence after their cumulative time limits. A bounded corpus
-check uses package optimization level 1 while retaining debug assertions and
-overflow checks; this changes no tracked profile and cannot stand in for the
-default aggregate gate. Finish the remaining disjoint assertions on frozen
-master while one S4 cohort prepares CSV/TSV and the coupled explicit schema
-boundary in separate worktrees. Keep S3 and S4 provisional until their matching
-proof completes; no third feature cohort or optional tooling work starts.
+selected tests. The bounded corpus check passes with package optimization level
+1, debug assertions and overflow checks retained. The same lowering group
+reports 1,509 passes and eight failures: five incorrect test expectations are
+corrected by `265832e60`; three baseline generic filesystem failures are fixed
+by `8f391a30d`. Thirteen focused tests pass, including cold authority controls,
+and independent source review finds no gap. The default aggregate gate remains
+incomplete; no tracked profile or timeout policy changed.
+
+The pinned tail gate passes syntax 59, grammar 40, native formatter 12, the
+workspace compile check, route-witness unit 12, inherited-environment 2 and
+native environment 1. Its tooling native case reports 161 passes, one failure
+and one skip. The failure reproduces before Deser: an erased Record initializer
+with an empty-list member lacks contextual producer proof. `6d6be4da9` routes
+that exact record into existing writer/payload authentication; six focused tests
+pass with scalar, owner and writer defenses. Ordinary require is unchanged.
+The pinned native case has not yet been rerun with that correction.
+
+The isolated combined S4 libraries compile without warnings. Codec unit checks
+pass 16/16, borrowed encoders 5/5 and retained strict schema guards 3/3.
+Patched upstream CSV passes 9 unit and 60 integration tests; PapaParse retains
+125 passes, 40 skips and 34 known failures. New duplicate-header, scanner-field
+and completed-record limit controls fail when their corresponding repairs are
+disabled. Typed cold/evaluator tests and native qualification remain pending.
+Batch both table and typed code into one S4 candidate before the optimized
+native build. Keep S3 and S4 provisional until their matching proof completes;
+no third feature cohort or optional tooling work starts. The remaining tooling
+partitions and final Full/Linux scope are preserved.
 
 Deliverables:
 
