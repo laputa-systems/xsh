@@ -1,4 +1,5 @@
 use super::type_view::ValueView;
+use crate::modules::codec::Format;
 use super::{LoweredValue, Value};
 use crate::map_key::{MapKey, MapKeyRef};
 use crate::runtime::value::{RecordIter, RuntimeError};
@@ -7,15 +8,16 @@ use crate::symbol::Name;
 use std::collections::BTreeMap;
 use std::borrow::Cow;
 use deser::{Atom, Error, ErrorKind, Serialize, State};
-use deser::ser::{Emit, SeqEmitter, SerializeHandle, StructEmitter};
+use deser::ser::{Emit, MapEmitter, SeqEmitter, SerializeHandle, StructEmitter};
 use std::sync::Arc;
 
 const NON_FINITE_FLOAT_MESSAGE: &str = "non-finite Float values are not JSON-compatible";
 const NON_STRING_KEY_MESSAGE: &str = "JSON objects require Str map keys";
 
 #[derive(Clone, Copy)]
-enum JsonInput<'a> {
+enum CodecInput<'a> {
     Runtime(&'a Value),
+    Record(&'a crate::runtime::value::RecordMap),
     Lowered(&'a LoweredValue),
     Key(MapKeyRef<'a>),
     Path(&'a crate::runtime::value::PathValue),
@@ -24,35 +26,36 @@ enum JsonInput<'a> {
     LoweredMap(&'a BTreeMap<MapKey, LoweredValue>),
 }
 
-enum JsonNode<'a> {
+enum CodecNode<'a> {
     Null,
     Bool(bool),
     Int(i64),
     Float(f64),
     Str(&'a str),
+    Bytes(&'a [u8]),
     Wire(&'a str),
     MissingWireVariant,
-    Sequence(JsonSequence<'a>),
-    Map(JsonMap<'a>),
-    Object(JsonFields<'a>),
-    Stats(JsonStats<'a>),
+    Sequence(CodecSequence<'a>),
+    Map(CodecMap<'a>),
+    Object(CodecFields<'a>),
+    Stats(CodecStats<'a>),
     Key(MapKeyRef<'a>),
-    Unsupported(JsonInput<'a>),
+    Unsupported(CodecInput<'a>),
 }
 
-enum JsonSequence<'a> {
+enum CodecSequence<'a> {
     Paths(std::slice::Iter<'a, crate::runtime::value::PathValue>),
     Runtime(std::slice::Iter<'a, Value>),
     Lowered(std::slice::Iter<'a, LoweredValue>),
     Set(std::collections::btree_set::Iter<'a, MapKey>),
 }
 
-enum JsonMap<'a> {
+enum CodecMap<'a> {
     Runtime(&'a BTreeMap<MapKey, Value>),
     Lowered(&'a BTreeMap<MapKey, LoweredValue>),
 }
 
-impl<'a> JsonMap<'a> {
+impl<'a> CodecMap<'a> {
     fn all_string_keys(&self) -> bool {
         match self {
             Self::Runtime(fields) => fields.keys().all(|key| key.as_str().is_some()),
@@ -60,21 +63,21 @@ impl<'a> JsonMap<'a> {
         }
     }
 
-    fn fields(self) -> JsonFields<'a> {
+    fn fields(self) -> CodecFields<'a> {
         match self {
-            Self::Runtime(fields) => JsonFields::RuntimeMap(fields.iter()),
-            Self::Lowered(fields) => JsonFields::LoweredMap(fields.iter()),
+            Self::Runtime(fields) => CodecFields::RuntimeMap(fields.iter()),
+            Self::Lowered(fields) => CodecFields::LoweredMap(fields.iter()),
         }
     }
 }
 
-enum JsonFieldKey<'a> {
+enum CodecFieldKey<'a> {
     Map(MapKeyRef<'a>),
     Name(Name),
     Str(&'a str),
 }
 
-enum JsonFields<'a> {
+enum CodecFields<'a> {
     Empty,
     RuntimeMap(std::collections::btree_map::Iter<'a, MapKey, Value>),
     LoweredMap(std::collections::btree_map::Iter<'a, MapKey, LoweredValue>),
@@ -83,87 +86,91 @@ enum JsonFields<'a> {
     RecordVec(std::vec::IntoIter<(&'a Name, &'a LoweredValue)>),
 }
 
-impl<'a> Iterator for JsonFields<'a> {
-    type Item = (JsonFieldKey<'a>, JsonInput<'a>);
+impl<'a> Iterator for CodecFields<'a> {
+    type Item = (CodecFieldKey<'a>, CodecInput<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Empty => None,
-            Self::RuntimeMap(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Map(key.as_ref()), JsonInput::Runtime(value))),
-            Self::LoweredMap(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Map(key.as_ref()), JsonInput::Lowered(value))),
-            Self::RuntimeRecord(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Str(key), JsonInput::Runtime(value))),
-            Self::LoweredRecord(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Str(key), JsonInput::Lowered(value))),
-            Self::RecordVec(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Name(*key), JsonInput::Lowered(value))),
+            Self::RuntimeMap(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Map(key.as_ref()), CodecInput::Runtime(value))),
+            Self::LoweredMap(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Map(key.as_ref()), CodecInput::Lowered(value))),
+            Self::RuntimeRecord(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Str(key), CodecInput::Runtime(value))),
+            Self::LoweredRecord(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Str(key), CodecInput::Lowered(value))),
+            Self::RecordVec(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Name(*key), CodecInput::Lowered(value))),
         }
     }
 }
 
-struct JsonStats<'a> {
+struct CodecStats<'a> {
     blanks: i64,
     blobs: Option<&'a BTreeMap<MapKey, LoweredValue>>,
     code: i64,
     comments: i64,
 }
 
-fn project<'a>(value: JsonInput<'a>) -> JsonNode<'a> {
+fn project<'a>(value: CodecInput<'a>) -> CodecNode<'a> {
     match value {
-        JsonInput::LoweredMap(value) => JsonNode::Map(JsonMap::Lowered(value)),
-        JsonInput::Integer(value) => JsonNode::Int(value),
-        JsonInput::EmptyObject => JsonNode::Object(JsonFields::Empty),
-        JsonInput::Key(key) => JsonNode::Key(key),
-        JsonInput::Path(path) => JsonNode::Unsupported(JsonInput::Path(path)),
-        JsonInput::Runtime(value) => match value {
-            Value::Null => JsonNode::Null,
-            Value::Bool(value) => JsonNode::Bool(*value),
-            Value::Int(value) => JsonNode::Int(*value),
-            Value::Float(value) => JsonNode::Float(value.0),
-            Value::Str(value) => JsonNode::Str(value),
-            Value::EnvPathList(paths) => JsonNode::Sequence(JsonSequence::Paths(paths.entries().iter())),
-            Value::List(items) => JsonNode::Sequence(JsonSequence::Runtime(items.iter())),
-            Value::Set(items) => JsonNode::Sequence(JsonSequence::Set(items.iter())),
-            Value::Map(fields) => JsonNode::Map(JsonMap::Runtime(fields)),
-            Value::Record(fields) => JsonNode::Object(JsonFields::RuntimeRecord(fields.iter())),
+        CodecInput::LoweredMap(value) => CodecNode::Map(CodecMap::Lowered(value)),
+        CodecInput::Integer(value) => CodecNode::Int(value),
+        CodecInput::EmptyObject => CodecNode::Object(CodecFields::Empty),
+        CodecInput::Key(key) => CodecNode::Key(key),
+        CodecInput::Path(path) => CodecNode::Unsupported(CodecInput::Path(path)),
+        CodecInput::Record(fields) => CodecNode::Object(CodecFields::RuntimeRecord(fields.iter())),
+        CodecInput::Runtime(value) => match value {
+            Value::Null => CodecNode::Null,
+            Value::Bool(value) => CodecNode::Bool(*value),
+            Value::Int(value) => CodecNode::Int(*value),
+            Value::Float(value) => CodecNode::Float(value.0),
+            Value::Str(value) => CodecNode::Str(value),
+            Value::Bytes(value) => CodecNode::Bytes(value),
+            Value::EnvPathList(paths) => CodecNode::Sequence(CodecSequence::Paths(paths.entries().iter())),
+            Value::List(items) => CodecNode::Sequence(CodecSequence::Runtime(items.iter())),
+            Value::Set(items) => CodecNode::Sequence(CodecSequence::Set(items.iter())),
+            Value::Map(fields) => CodecNode::Map(CodecMap::Runtime(fields)),
+            Value::Record(fields) => CodecNode::Object(CodecFields::RuntimeRecord(fields.iter())),
             Value::Tag { type_name, name, fields, wire: Some(mapping) }
                 if fields.is_empty() && *type_name == mapping.type_name =>
             {
-                mapping.variants.get(&Name::intern(name.as_ref())).map_or(JsonNode::MissingWireVariant, |wire| JsonNode::Wire(wire))
+                mapping.variants.get(&Name::intern(name.as_ref())).map_or(CodecNode::MissingWireVariant, |wire| CodecNode::Wire(wire))
             }
-            _ => JsonNode::Unsupported(JsonInput::Runtime(value)),
+            _ => CodecNode::Unsupported(CodecInput::Runtime(value)),
         },
-        JsonInput::Lowered(value) => match value {
-            LoweredValue::Null => JsonNode::Null,
-            LoweredValue::Bool(value) => JsonNode::Bool(*value),
-            LoweredValue::Int(value) => JsonNode::Int(*value),
-            LoweredValue::Float(value) => JsonNode::Float(value.0),
-            LoweredValue::Str(value) => JsonNode::Str(value),
-            LoweredValue::StrView(value) => JsonNode::Str(value.as_str()),
+        CodecInput::Lowered(value) => match value {
+            LoweredValue::Null => CodecNode::Null,
+            LoweredValue::Bool(value) => CodecNode::Bool(*value),
+            LoweredValue::Int(value) => CodecNode::Int(*value),
+            LoweredValue::Float(value) => CodecNode::Float(value.0),
+            LoweredValue::Str(value) => CodecNode::Str(value),
+            LoweredValue::Bytes(value) => CodecNode::Bytes(value),
+            LoweredValue::BytesView(value) => CodecNode::Bytes(value.as_slice()),
+            LoweredValue::StrView(value) => CodecNode::Str(value.as_str()),
             LoweredValue::Tag(tag) if tag.wire.is_some() && tag.fields.is_empty() && tag.type_name == tag.wire.as_ref().expect("checked mapping").type_name => {
-                tag.wire.as_ref().and_then(|mapping| mapping.variants.get(&Name::intern(tag.name.as_ref()))).map_or(JsonNode::MissingWireVariant, |wire| JsonNode::Wire(wire))
+                tag.wire.as_ref().and_then(|mapping| mapping.variants.get(&Name::intern(tag.name.as_ref()))).map_or(CodecNode::MissingWireVariant, |wire| CodecNode::Wire(wire))
             }
-            LoweredValue::EnvPathList(paths) => JsonNode::Sequence(JsonSequence::Paths(paths.entries().iter())),
-            LoweredValue::List(items) => JsonNode::Sequence(JsonSequence::Lowered(items.iter())),
-            LoweredValue::SharedList(items) => JsonNode::Sequence(JsonSequence::Lowered(items.iter())),
-            LoweredValue::Set(items) => JsonNode::Sequence(JsonSequence::Set(items.iter())),
-            LoweredValue::Map(fields) => JsonNode::Map(JsonMap::Lowered(fields)),
-            LoweredValue::Record(fields) => JsonNode::Object(JsonFields::LoweredRecord(fields.iter())),
+            LoweredValue::EnvPathList(paths) => CodecNode::Sequence(CodecSequence::Paths(paths.entries().iter())),
+            LoweredValue::List(items) => CodecNode::Sequence(CodecSequence::Lowered(items.iter())),
+            LoweredValue::SharedList(items) => CodecNode::Sequence(CodecSequence::Lowered(items.iter())),
+            LoweredValue::Set(items) => CodecNode::Sequence(CodecSequence::Set(items.iter())),
+            LoweredValue::Map(fields) => CodecNode::Map(CodecMap::Lowered(fields)),
+            LoweredValue::Record(fields) => CodecNode::Object(CodecFields::LoweredRecord(fields.iter())),
             LoweredValue::RecordVec(fields) => {
                 let mut ordered: Vec<_> = fields.iter().map(|(key, value)| (key, value)).collect();
                 ordered.sort_unstable_by_key(|(name, _)| *name);
-                JsonNode::Object(JsonFields::RecordVec(ordered.into_iter()))
+                CodecNode::Object(CodecFields::RecordVec(ordered.into_iter()))
             }
-            LoweredValue::Stats { blanks, code, comments } => JsonNode::Stats(JsonStats { blanks: *blanks, blobs: None, code: *code, comments: *comments }),
-            LoweredValue::StatsBlob(stats) => JsonNode::Stats(JsonStats { blanks: stats.blanks, blobs: Some(&stats.blobs), code: stats.code, comments: stats.comments }),
-            _ => JsonNode::Unsupported(JsonInput::Lowered(value)),
+            LoweredValue::Stats { blanks, code, comments } => CodecNode::Stats(CodecStats { blanks: *blanks, blobs: None, code: *code, comments: *comments }),
+            LoweredValue::StatsBlob(stats) => CodecNode::Stats(CodecStats { blanks: stats.blanks, blobs: Some(&stats.blobs), code: stats.code, comments: stats.comments }),
+            _ => CodecNode::Unsupported(CodecInput::Lowered(value)),
         },
     }
 }
 
 pub(super) fn encode_runtime(value: &Value, pretty: bool, span: Span) -> Result<String, RuntimeError> {
-    encode_tree(JsonInput::Runtime(value), pretty, span)
+    encode_tree(CodecInput::Runtime(value), pretty, span)
 }
 
 pub(super) fn encode_lowered(value: &LoweredValue, pretty: bool, span: Span) -> Result<String, RuntimeError> {
-    encode_tree(JsonInput::Lowered(value), pretty, span)
+    encode_tree(CodecInput::Lowered(value), pretty, span)
 }
 
 pub(super) fn encode_lowered_for_write(value: &LoweredValue, pretty: bool, span: Span) -> Result<String, RuntimeError> {
@@ -184,11 +191,11 @@ pub(super) fn encode_lowered_lines_for_write(values: &LoweredValue, span: Span) 
     Ok(output)
 }
 
-fn encode_tree(value: JsonInput<'_>, pretty: bool, span: Span) -> Result<String, RuntimeError> {
+fn encode_tree(value: CodecInput<'_>, pretty: bool, span: Span) -> Result<String, RuntimeError> {
     let mut config = deser_json::SerializerConfig::new();
     if pretty { config.set_pretty(deser_json::Indent::Spaces(2)); }
     let mut output = crate::modules::codec::Output::new();
-    let result = config.writer(&mut output).write_with(&BorrowedValue { value, pretty, span }, |driver| {
+    let result = config.writer(&mut output).write_with(&BorrowedValue { value, pretty, span, format: Format::Json }, |driver| {
         driver.push_layer(crate::modules::codec::EncodeLimits::default());
     });
     let output = output.finish(result)
@@ -197,7 +204,8 @@ fn encode_tree(value: JsonInput<'_>, pretty: bool, span: Span) -> Result<String,
 }
 
 struct BorrowedValue<'a> {
-    value: JsonInput<'a>,
+    value: CodecInput<'a>,
+    format: Format,
     pretty: bool,
     span: Span,
 }
@@ -210,82 +218,125 @@ impl Serialize for BorrowedValue<'_> {
     fn serialize<'a>(value: &'a Self, state: &mut State) -> Result<Emit<'a>, Error> {
         if state.depth() > 128 { return Err(Error::new(ErrorKind::LimitExceeded, "codec nesting exceeds 128")); }
         Ok(match project(value.value) {
-            JsonNode::Null => Emit::Atom(Atom::Null),
-            JsonNode::Bool(v) => Emit::Atom(Atom::Bool(v)),
-            JsonNode::Int(v) => Emit::Atom(Atom::I64(v)),
-            JsonNode::Float(v) if v.is_finite() => Emit::Atom(Atom::F64(v)),
-            JsonNode::Float(_) => return Err(rejected(NON_FINITE_FLOAT_MESSAGE)),
-            JsonNode::Str(v) | JsonNode::Wire(v) => {
+            CodecNode::Null => Emit::Atom(Atom::Null),
+            CodecNode::Bool(v) => Emit::Atom(Atom::Bool(v)),
+            CodecNode::Int(v) => Emit::Atom(Atom::I64(v)),
+            CodecNode::Float(v) if v.is_finite() => Emit::Atom(Atom::F64(v)),
+            CodecNode::Float(_) => return Err(rejected(if value.format == Format::Json { NON_FINITE_FLOAT_MESSAGE } else { "codec Float values must be finite" })),
+            CodecNode::Bytes(bytes) if value.format.supports_bytes() => Emit::Atom(Atom::Bytes(deser::Bytes::borrowed(bytes))),
+            CodecNode::Bytes(_) => return Err(rejected(unsupported_type("Bytes", value.format))),
+            CodecNode::Str(v) | CodecNode::Wire(v) => {
                 if v.len() > 16 * 1024 * 1024 { return Err(Error::new(ErrorKind::LimitExceeded, "codec string exceeds 16 MiB")); }
                 Emit::Atom(Atom::Str(v.into()))
             }
-            JsonNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
-            JsonNode::Sequence(items) => Emit::seq(Items { items, pretty: value.pretty, span: value.span }, state),
-            JsonNode::Map(fields) => {
+            CodecNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
+            CodecNode::Sequence(items) => Emit::seq(Items { items, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Map(fields) if value.format.is_binary() => Emit::map(BinaryFields { fields: fields.fields(), pending: None, format: value.format, pretty: value.pretty, span: value.span }, state),
+            CodecNode::Map(fields) => {
                 if !value.pretty && !fields.all_string_keys() { return Err(rejected(NON_STRING_KEY_MESSAGE)); }
-                Emit::structure(Fields { fields: fields.fields(), pretty: value.pretty, span: value.span }, state)
+                Emit::structure(Fields { fields: fields.fields(), pretty: value.pretty, span: value.span, format: value.format }, state)
             }
-            JsonNode::Object(fields) => Emit::structure(Fields { fields, pretty: value.pretty, span: value.span }, state),
-            JsonNode::Stats(stats) => Emit::structure(StatsFields { stats, index: 0, pretty: value.pretty, span: value.span }, state),
-            JsonNode::Key(MapKeyRef::Str(v)) => Emit::Atom(Atom::Str(v.into())),
-            JsonNode::Key(MapKeyRef::Int(v)) => Emit::Atom(Atom::I64(v)),
-            JsonNode::Key(MapKeyRef::Bool(v)) => Emit::Atom(Atom::Bool(v)),
-            JsonNode::Key(key) => return Err(rejected(incompatible(JsonInput::Key(key), value.span).message)),
-            JsonNode::Unsupported(v) => return Err(rejected(incompatible(v, value.span).message)),
+            CodecNode::Object(fields) => Emit::structure(Fields { fields, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Stats(stats) => Emit::structure(StatsFields { stats, index: 0, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Key(MapKeyRef::Str(v)) => Emit::Atom(Atom::Str(v.into())),
+            CodecNode::Key(MapKeyRef::Int(v)) => Emit::Atom(Atom::I64(v)),
+            CodecNode::Key(MapKeyRef::Bool(v)) => Emit::Atom(Atom::Bool(v)),
+            CodecNode::Key(MapKeyRef::Bytes(v)) if value.format.supports_bytes() => Emit::Atom(Atom::Bytes(deser::Bytes::borrowed(v))),
+            CodecNode::Key(key) => return Err(rejected(incompatible(CodecInput::Key(key), value.format))),
+            CodecNode::Unsupported(v) => return Err(rejected(incompatible(v, value.format))),
         })
     }
 }
 
-struct Items<'a> { items: JsonSequence<'a>, pretty: bool, span: Span }
+struct Items<'a> { items: CodecSequence<'a>, pretty: bool, span: Span, format: Format }
 impl SeqEmitter for Items<'_> {
     fn next(&mut self, state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
         let value = match &mut self.items {
-            JsonSequence::Paths(items) => items.next().map(JsonInput::Path),
-            JsonSequence::Runtime(items) => items.next().map(JsonInput::Runtime),
-            JsonSequence::Lowered(items) => items.next().map(JsonInput::Lowered),
-            JsonSequence::Set(items) => items.next().map(|v| JsonInput::Key(v.as_ref())),
+            CodecSequence::Paths(items) => items.next().map(CodecInput::Path),
+            CodecSequence::Runtime(items) => items.next().map(CodecInput::Runtime),
+            CodecSequence::Lowered(items) => items.next().map(CodecInput::Lowered),
+            CodecSequence::Set(items) => items.next().map(|v| CodecInput::Key(v.as_ref())),
         };
-        Ok(value.map(|value| SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span }, state)))
+        Ok(value.map(|value| SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format }, state)))
     }
 }
 
-struct Fields<'a> { fields: JsonFields<'a>, pretty: bool, span: Span }
+struct Fields<'a> { fields: CodecFields<'a>, pretty: bool, span: Span, format: Format }
 impl StructEmitter for Fields<'_> {
     fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let Some((key, value)) = self.fields.next() else { return Ok(None); };
         let key = match key {
-            JsonFieldKey::Str(key) | JsonFieldKey::Map(MapKeyRef::Str(key)) => Cow::Borrowed(key),
-            JsonFieldKey::Name(name) => Cow::Owned(name.to_string()),
-            JsonFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
+            CodecFieldKey::Str(key) | CodecFieldKey::Map(MapKeyRef::Str(key)) => Cow::Borrowed(key),
+            CodecFieldKey::Name(name) => Cow::Owned(name.to_string()),
+            CodecFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
         };
-        Ok(Some((key, SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span }, state))))
+        Ok(Some((key, SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format }, state))))
     }
 }
 
-struct StatsFields<'a> { stats: JsonStats<'a>, index: usize, pretty: bool, span: Span }
+struct StatsFields<'a> { stats: CodecStats<'a>, index: usize, pretty: bool, span: Span, format: Format }
 impl StructEmitter for StatsFields<'_> {
     fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let (key, value) = match self.index {
-            0 => ("blanks", JsonInput::Integer(self.stats.blanks)),
-            1 => ("blobs", self.stats.blobs.map_or(JsonInput::EmptyObject, |v| JsonInput::LoweredMap(v))),
-            2 => ("code", JsonInput::Integer(self.stats.code)),
-            3 => ("comments", JsonInput::Integer(self.stats.comments)),
+            0 => ("blanks", CodecInput::Integer(self.stats.blanks)),
+            1 => ("blobs", self.stats.blobs.map_or(CodecInput::EmptyObject, |v| CodecInput::LoweredMap(v))),
+            2 => ("code", CodecInput::Integer(self.stats.code)),
+            3 => ("comments", CodecInput::Integer(self.stats.comments)),
             _ => return Ok(None),
         };
         self.index += 1;
-        Ok(Some((Cow::Borrowed(key), SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span }, state))))
+        Ok(Some((Cow::Borrowed(key), SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format }, state))))
     }
 }
 
-fn incompatible(value: JsonInput<'_>, span: Span) -> RuntimeError {
+fn unsupported_type(name: &str, format: Format) -> String {
+    if format == Format::Json {
+        format!("{name} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly")
+    } else { format!("{name} is not representable in {}", format.identifier()) }
+}
+
+fn incompatible(value: CodecInput<'_>, format: Format) -> String {
     let view = match value {
-        JsonInput::Runtime(value) => ValueView::Runtime(value),
-        JsonInput::Lowered(value) => ValueView::Lowered(value),
-        JsonInput::Key(key) => ValueView::Key(key),
-        JsonInput::Path(path) => ValueView::Path(&path.bytes),
-        JsonInput::Integer(_) | JsonInput::EmptyObject | JsonInput::LoweredMap(_) => unreachable!("synthetic JSON nodes are representable"),
+        CodecInput::Runtime(value) => ValueView::Runtime(value),
+        CodecInput::Lowered(value) => ValueView::Lowered(value),
+        CodecInput::Key(key) => ValueView::Key(key),
+        CodecInput::Path(path) => ValueView::Path(&path.bytes),
+        CodecInput::Record(_) | CodecInput::Integer(_) | CodecInput::EmptyObject | CodecInput::LoweredMap(_) => unreachable!("synthetic codec nodes are representable"),
     };
-    RuntimeError::new("json-compatible", format!("{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly", view.type_name())).with_span(span)
+    unsupported_type(view.type_name(), format)
+}
+
+pub(super) fn borrowed_record<'a>(format: Format, record: &'a crate::runtime::value::RecordMap, span: Span) -> impl Serialize + 'a {
+    BorrowedValue { value: CodecInput::Record(record), format, pretty: false, span }
+}
+
+pub(super) fn borrowed_runtime<'a>(format: Format, value: &'a Value, span: Span) -> impl Serialize + 'a {
+    BorrowedValue { value: CodecInput::Runtime(value), format, pretty: false, span }
+}
+
+pub(super) fn borrowed_lowered<'a>(format: Format, value: &'a LoweredValue, span: Span) -> impl Serialize + 'a {
+    BorrowedValue { value: CodecInput::Lowered(value), format, pretty: false, span }
+}
+
+struct BinaryFields<'a> {
+    fields: CodecFields<'a>,
+    pending: Option<CodecInput<'a>>,
+    format: Format,
+    pretty: bool,
+    span: Span,
+}
+
+impl MapEmitter for BinaryFields<'_> {
+    fn next_key(&mut self, state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
+        let Some((key, value)) = self.fields.next() else { return Ok(None); };
+        let CodecFieldKey::Map(key) = key else { unreachable!("binary map scalar key") };
+        self.pending = Some(value);
+        Ok(Some(SerializeHandle::arena(BorrowedValue { value: CodecInput::Key(key), format: self.format, pretty: self.pretty, span: self.span }, state)))
+    }
+    fn next_value(&mut self, state: &mut State) -> Result<SerializeHandle<'_>, Error> {
+        let value = self.pending.take().expect("binary map value after key");
+        Ok(SerializeHandle::arena(BorrowedValue { value, format: self.format, pretty: self.pretty, span: self.span }, state))
+    }
 }
 
 #[cfg(test)]
