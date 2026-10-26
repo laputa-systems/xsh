@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use deser_core::ext::Number;
 use deser_core::ser::{self, SerializeDriver, SerializeRef};
@@ -517,7 +517,7 @@ struct Table {
     /// The names of the keys and tables (lowercased like git reads them in
     /// git's config files, except for subsections), with whether they are
     /// tables.
-    names: HashMap<String, bool>,
+    names: BTreeMap<String, bool>,
 }
 
 enum Frame {
@@ -560,7 +560,7 @@ impl Writer<'_> {
                     body: String::new(),
                     tables: String::new(),
                     key: None,
-                    names: HashMap::new(),
+                    names: BTreeMap::new(),
                 })),
                 Event::Atom(Atom::Null) => {}
                 _ => {
@@ -686,7 +686,7 @@ impl Writer<'_> {
             body: String::new(),
             tables: String::new(),
             key: None,
-            names: HashMap::new(),
+            names: BTreeMap::new(),
         }));
         Ok(())
     }
