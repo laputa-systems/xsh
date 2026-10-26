@@ -65,12 +65,12 @@ struct ApiResponse {
     details: ApiDetails,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, deser::Serialize)]
 struct ApiSummary {
     standard_modules: usize,
     module_functions: usize,
     module_overloads: usize,
-    method_receivers: usize,
+    method_receiver_count: usize,
     methods: usize,
     method_overloads: usize,
     standard_records: usize,
@@ -78,31 +78,32 @@ struct ApiSummary {
     total_queryable_items: usize,
     documented_items: usize,
     modules: Vec<ApiModuleTree>,
+    #[deser(rename = "method_receivers")]
     method_receivers_tree: Vec<ApiMethodReceiverTree>,
     records: Vec<String>,
     language_groups: Vec<ApiLanguageGroup>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, deser::Serialize)]
 struct ApiModuleTree {
     name: String,
     functions: Vec<ApiCallableTree>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, deser::Serialize)]
 struct ApiMethodReceiverTree {
     name: String,
     methods: Vec<ApiCallableTree>,
     references: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, deser::Serialize)]
 struct ApiCallableTree {
     name: String,
     overloads: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, deser::Serialize)]
 struct ApiLanguageGroup {
     name: String,
     items: Vec<String>,
@@ -264,7 +265,7 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         .flat_map(|module| module.functions.iter())
         .map(|function| function.overloads)
         .sum();
-    let method_receivers = method_receivers_tree.len();
+    let method_receiver_count = method_receivers_tree.len();
     let methods = method_receivers_tree
         .iter()
         .map(|receiver| receiver.methods.len())
@@ -289,7 +290,7 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         standard_modules,
         module_functions,
         module_overloads,
-        method_receivers,
+        method_receiver_count,
         methods,
         method_overloads,
         standard_records,
@@ -917,7 +918,7 @@ documented items: {}\n\
         summary.standard_modules,
         summary.module_functions,
         summary.module_overloads,
-        summary.method_receivers,
+        summary.method_receiver_count,
         summary.methods,
         summary.method_overloads,
         summary.standard_records,
@@ -952,26 +953,18 @@ documented items: {}\n\
     output
 }
 
+#[derive(deser::Serialize)]
+struct ApiSummaryJson<'a> {
+    schema_version: u32,
+    kind: &'static str,
+    #[deser(flatten)]
+    summary: &'a ApiSummary,
+}
+
 fn render_summary_jsonl(summary: &ApiSummary) -> String {
-    let mut output = format!(
-        "{{\"schema_version\":1,\"kind\":\"summary\",\"standard_modules\":{},\"module_functions\":{},\"module_overloads\":{},\"method_receivers\":{},\"methods\":{},\"method_overloads\":{},\"standard_records\":{},\"language_reference_items\":{},\"total_queryable_items\":{},\"documented_items\":{}",
-        summary.standard_modules,
-        summary.module_functions,
-        summary.module_overloads,
-        summary.method_receivers,
-        summary.methods,
-        summary.method_overloads,
-        summary.standard_records,
-        summary.language_reference_items,
-        summary.total_queryable_items,
-        summary.documented_items,
-    );
-    push_summary_modules_json(&mut output, &summary.modules);
-    push_summary_methods_json(&mut output, &summary.method_receivers_tree);
-    output.push(',');
-    push_json_array(&mut output, "records", &summary.records, false);
-    push_summary_language_json(&mut output, &summary.language_groups);
-    output.push_str("}\n");
+    let mut output = deser_json::to_string(&ApiSummaryJson { schema_version: 1, kind: "summary", summary })
+        .expect("registered API summary is serializable");
+    output.push('\n');
     output
 }
 
@@ -1060,74 +1053,6 @@ fn append_group_tree(output: &mut String, title: &str, groups: &[(&String, &Vec<
             output.push('\n');
         }
     }
-}
-
-fn push_summary_modules_json(output: &mut String, modules: &[ApiModuleTree]) {
-    output.push_str(",\"modules\":[");
-    for (module_index, module) in modules.iter().enumerate() {
-        if module_index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"name\":");
-        push_json_string(output, &module.name);
-        output.push_str(",\"functions\":[");
-        push_callable_tree_json(output, &module.functions);
-        output.push_str("]}");
-    }
-    output.push(']');
-}
-
-fn push_summary_methods_json(output: &mut String, receivers: &[ApiMethodReceiverTree]) {
-    output.push_str(",\"method_receivers\":[");
-    for (receiver_index, receiver) in receivers.iter().enumerate() {
-        if receiver_index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"name\":");
-        push_json_string(output, &receiver.name);
-        output.push_str(",\"methods\":[");
-        push_callable_tree_json(output, &receiver.methods);
-        output.push_str("],\"references\":[");
-        for (reference_index, reference) in receiver.references.iter().enumerate() {
-            if reference_index > 0 {
-                output.push(',');
-            }
-            push_json_string(output, reference);
-        }
-        output.push_str("]}");
-    }
-    output.push(']');
-}
-
-fn push_callable_tree_json(output: &mut String, callables: &[ApiCallableTree]) {
-    for (callable_index, callable) in callables.iter().enumerate() {
-        if callable_index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"name\":");
-        push_json_string(output, &callable.name);
-        output.push_str(&format!(",\"overloads\":{}}}", callable.overloads));
-    }
-}
-
-fn push_summary_language_json(output: &mut String, groups: &[ApiLanguageGroup]) {
-    output.push_str(",\"language_groups\":[");
-    for (group_index, group) in groups.iter().enumerate() {
-        if group_index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"name\":");
-        push_json_string(output, &group.name);
-        output.push_str(",\"items\":[");
-        for (item_index, item) in group.items.iter().enumerate() {
-            if item_index > 0 {
-                output.push(',');
-            }
-            push_json_string(output, item);
-        }
-        output.push_str("]}");
-    }
-    output.push(']');
 }
 
 fn summary_receiver_name(receiver: MethodReceiver) -> &'static str {

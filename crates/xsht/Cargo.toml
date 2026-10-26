@@ -11,6 +11,7 @@ default = ["native-tests"]
 native-tests = ["xsh/native-tests", "xsh-registry/native-tests"]
 
 [dependencies]
+deser = { path = "../deser/deser", features = ["derive"] }
 deser-json = { path = "../deser/deser-json" }
 crossbeam-channel = "0.5"
 ignore = "=0.4.25"
@@ -26,7 +27,6 @@ xsh-registry = { path = "../xsh-registry" }
 syscalls = { version = "0.8.1", default-features = false, features = ["aarch64", "x86_64"] }
 
 [dev-dependencies]
-deser = { path = "../deser/deser", features = ["derive"] }
 sha2 = "0.11"
 
 [[test]]

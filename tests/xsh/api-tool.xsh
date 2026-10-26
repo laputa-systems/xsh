@@ -5,7 +5,7 @@
 
 type Guide = {kind: Str}
 
-type Summary = {modules: List[Any], method_receivers: List[Any], records: List[Any], language_groups: List[Any]}
+type Summary = {modules: List[Any], method_receiver_count: Int, method_receivers: List[Any], records: List[Any], language_groups: List[Any]}
 
 # The stdout of a successful `xsht api ARGS...` run that printed no diagnostics.
 proc api(arguments: List[Str]) [process, error] -> Result[Str] {
@@ -265,6 +265,7 @@ test test_api_summary_jsonl_is_one_structured_response {
   )
   let summary = json.decode(stdout.trim())?.require(Summary)?
   assert ! summary.modules.is_empty(), stdout
+  assert summary.method_receiver_count == summary.method_receivers.len(), stdout
 }
 
 test test_api_summary_rejects_selectors {
@@ -463,13 +464,6 @@ test test_api_core_bindings_names_var_and_let_immutability {
   )
 }
 
-# The public API surface remains unchanged when implementations move into
-# embedded scripts.
-#
-# The recorded API summary covers every standard module, function, overload
-# count, method receiver, method, and record. Additions, removals, renames,
-# shape changes, and overload-count changes all fail this check. The behavior
-# of those entries is covered separately; this test guards the public surface.
 test test_api_surface_matches_the_recorded_reference {
   let expected = p"tests/fixtures/modules/standard-api-surface.jsonl".read_text()?
   let output = run.capture --text "xsht" api summary --format jsonl

@@ -36,6 +36,14 @@ remove files from its source denominator. `[check] annotate`, `[lint]`,
 in `crates/xsht/src/cli/files.rs` owns accepted keys and defaults.
 The `[lint]` section rejects unknown keys, including retired rule switches.
 
+## API inventory
+
+`xsht api summary --format jsonl` emits one JSON object with `schema_version: 1`.
+`method_receiver_count` is the number of method receivers; `method_receivers`
+is their inventory array. The summary also includes module, record and language
+inventories with their counts. Field names are unique, so strict JSON decoders
+can consume the complete response without discarding a count or an inventory.
+
 ## Checking and annotation
 
 `xsht check` prepares each script through the same pre-evaluation check path as
