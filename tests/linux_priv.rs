@@ -768,10 +768,7 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
         report_text(report_field(pid_max_value, "state")),
         "permission_denied"
     );
-    assert!(matches!(
-        report_field(pid_max_value, "value"),
-        JsonValue::null()
-    ));
+    assert!(report_field(pid_max_value, "value").is_null());
     let swappiness = sysctls
         .iter()
         .find(|item| report_text(report_field(item, "name")) == "vm.swappiness")
