@@ -319,10 +319,6 @@ inferred(true)<?>
   )
 }
 
-# The tail still supplies the function's `Result`: a caller that binds it gets
-# the `Err` as data, a restricted proc needs no `error` effect for it, and a
-# tail that constructs or is declared a value stays one. A proc whose return
-# is inferred from such a tail reports the failure from inside as well.
 test test_result_unit_function_tail_is_still_the_functions_result { |ctx|
   let output = test.expect(
     ctx,
@@ -353,7 +349,7 @@ print ${block_value()?}
   )?
   assert output.stdout == "restricted\nrestricted\ntrue true true true\ntrue\n7\n"
 
-  test.expect(
+  let failed = test.expect(
     ctx,
     PRELUDE + r"""
 proc work() {
@@ -363,8 +359,9 @@ proc work() {
 work()
 """,
     status: 3,
-    stderr: ["proc work at"],
+    stderr: [":11:1-12:1\n"],
   )?
+  assert "proc work at" not in failed.stderr, failed.stderr
 }
 
 # A `cd`, `env`, `try`, or `retry` block in statement position is a
