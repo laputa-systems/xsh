@@ -5065,6 +5065,55 @@ path is missing. `json.set` updates or inserts at an existing parent, and
 Treat `Any` as a short-lived boundary value. Use `.require(T)?` when the
 program knows the shape, and keep dynamic matching inside small helpers.
 
+
+### Structured text and binary codecs
+
+`codec.decode(format, text)` and `codec.encode(format, value)` return
+`Result[Any, CodecError]` and `Result[Str, CodecError]`. Binary formats use
+`codec.decode_bytes` and `codec.encode_bytes`; text formats accept bytes only
+after strict UTF-8 validation and emit UTF-8 bytes. Identifiers are fixed and
+case-sensitive: `json`, `yaml`, `toml`, `ini`, `csv`, `tsv`, `cbor`, `msgpack`.
+No filename detection or aliases apply. `codec.formats()` returns capabilities
+in that order. `yaml` and `toml` expose thin decode/encode/read/write entries.
+
+`codec.read(format, path)` returns a normal result containing host or codec
+errors. Codec failures carry the input path. `codec.write(format, path, value,
+overwrite: false)` encodes completely before opening its destination. The
+default atomically creates a new file and refuses existing leaf paths,
+including symlinks. `overwrite: true` uses normal host replacement writes;
+parent symlinks follow host path resolution. Encoding failure leaves an existing
+file unchanged; a later host write failure may leave partial output. These
+operations do not promise crash durability. Existing JSON write behavior and
+INI's default `overwrite: true` remain unchanged.
+
+All formats enforce the JSON input, scalar, nesting, container, event and output
+bounds above, including native byte scalars. Encoders additionally bound total
+raw scalar payload to 128 MiB before buffered serialization. Values that cannot
+be represented faithfully fail instead of being stringified or omitted.
+
+YAML uses version 1.2 scalar resolution, including explicit 1.2 directives;
+1.1 directives fail. Quoted values remain strings. Native binary scalars become
+Bytes. Custom tags, timestamps and non-string keys fail. Aliases may expand at
+most 10,000 events and 128 MiB of scalar/key bytes. Disjoint merge keys work;
+conflicting merged or explicit keys fail as duplicates. Single decode rejects
+additional documents.
+
+TOML preserves arrays of tables and finite floats. Datetime values have no XSH
+representation and fail. Null fields and native Bytes fail during encoding
+rather than disappearing. INI preserves key and section case; global keys and
+one level of sections contain strings. Whole quoted values are unquoted;
+whitespace-delimited inline comments and continuations use Deser's common
+dialect. Repeated sections merge only when keys are disjoint. Untyped fields
+remain strings. Nested sections and non-string output fields fail.
+
+CBOR and MessagePack preserve Bytes, signed i64 integers, finite floats, lists
+and maps. Map keys may be Str, Bool, Int or Bytes; other key types fail without
+stringification. Empty binary maps become Map; nonempty all-string maps become
+records. Unsupported tags and extensions fail, including MessagePack timestamp
+extensions. Single decode rejects trailing data. `codec.encode_bytes("cbor",
+value, canonical: true)` uses canonical CBOR ordering and numeric encoding;
+`canonical: true` on another format fails with `CodecError.Options`.
+
 ## 15. Standard Modules
 
 Standard modules are always in scope. Operations on a value are methods on its

@@ -145,7 +145,10 @@ fn module_docs(module: &str) -> ApiDocs {
             "Digest calculation and checksum verification.",
             "Hash file contents as bytes, not formatted text.",
         ),
-        "ini" => ("INI decoding, encoding, and file helpers.", ""),
+        "codec" => ("Structured text and binary encoding, decoding, and files.", "Formats use fixed identifiers and reject values without a faithful representation."),
+        "yaml" => ("YAML 1.2 decoding, encoding, and files.", "Custom tags and conflicting merged keys are rejected."),
+        "toml" => ("TOML decoding, encoding, and files.", "Datetime values have no XSH representation and are rejected."),
+        "ini" => ("Case-preserving INI decoding, encoding, and file helpers.", "Untyped fields remain strings."),
         "io" => ("Script stdin and stdout helpers.", ""),
         "json" => (
             "JSON encoding, decoding, files, and streams.",
@@ -264,6 +267,41 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("system", "parse_long_double") => Some(("Parses a native C long double prefix and returns its ordering key.", "Consumed is a byte offset, including leading whitespace, or zero when no number is recognized. NUL ends parsing. range_error reports native ERANGE. C locale is isolated from process locale. Keys compare lexically: failed conversion, NaN, negative infinity, negative finite values, zero, positive finite values, positive infinity. All NaNs and signed zeros compare equal. Keys are opaque and target-specific.", &["numeric", "parsing", "ordering"])),
         ("system", "format_long_double") => Some(("Parses and formats numeric text with native C long double precision.", "Accepts fFeEgGaA with optional nonnegative C-int precision; null uses the native default. alternate selects the # form. Reports consumed bytes and ERANGE from parsing. Uses C locale; retains signed zero, infinities, NaNs and target-native rounding. Invalid conversions, invalid precision, formatting and allocation failures return errors.", &["numeric", "formatting"])),
         ("system", "long_double_precision") => Some(("Returns the target C long double significand bit count.", "Matches the native parsing and formatting boundary: 64 on x86 extended precision, 113 on IEEE binary128 targets, and 53 on targets where C long double is binary64.", &["numeric", "precision"])),
+        ("codec", "decode") | ("yaml", "decode") | ("toml", "decode") => Some((
+            "Decode one bounded text document with strict duplicate-key rejection.",
+            "Binary formats require codec.decode_bytes; untyped INI fields remain strings.",
+            &["codec", "text", "dynamic"],
+        )),
+        ("codec", "decode_bytes") => Some((
+            "Decode binary data directly or text after strict UTF-8 validation.",
+            "Trailing documents, unsupported tags and values outside the XSH representation fail.",
+            &["codec", "bytes", "dynamic"],
+        )),
+        ("codec", "encode") | ("yaml", "encode") | ("toml", "encode") => Some((
+            "Encode a value as one text document.",
+            "Unsupported values fail rather than being stringified or omitted.",
+            &["codec", "encoding", "text"],
+        )),
+        ("codec", "encode_bytes") => Some((
+            "Encode binary formats directly or text as UTF-8 bytes.",
+            "canonical defaults to false; true is supported only for CBOR.",
+            &["codec", "encoding", "bytes"],
+        )),
+        ("codec", "read") | ("yaml", "read") | ("toml", "read") => Some((
+            "Read and decode one bounded document from a path.",
+            "Host errors remain host errors; codec failures include the input path.",
+            &["codec", "filesystem"],
+        )),
+        ("codec", "write") | ("yaml", "write") | ("toml", "write") => Some((
+            "Encode fully before creating or replacing the destination.",
+            "overwrite defaults to false and atomically refuses existing paths, including leaf symlinks. Replacement follows host write semantics.",
+            &["codec", "filesystem", "encoding"],
+        )),
+        ("codec", "formats") => Some((
+            "Return capabilities in stable format order.",
+            "Each record names its identifier and text, binary, single, sequence and lexical_typing support.",
+            &["codec", "discovery"],
+        )),
         ("json", "read") => Some((
             "Reads one JSON document from a path.",
             "Successful parsing returns Any; require a schema before trusting fields.",

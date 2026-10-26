@@ -62,6 +62,7 @@ mod module_accounts;
 mod module_archive;
 mod module_cli;
 mod module_codecs;
+mod module_structured_data;
 mod module_dns;
 mod module_env;
 mod module_fs;
@@ -6177,6 +6178,7 @@ impl Evaluator {
                 lowered_result_ok(LoweredValue::Path(path))
             }
             callable; RuntimeOp::EnvPathEntries if values.len() == 1 => return self.eval_lowered_env_path_entries_values(values, span),
+            callable; RuntimeOp::CodecDecode | RuntimeOp::CodecDecodeBytes | RuntimeOp::CodecEncode | RuntimeOp::CodecEncodeBytes | RuntimeOp::CodecRead | RuntimeOp::CodecWrite | RuntimeOp::CodecFormats | RuntimeOp::YamlDecode | RuntimeOp::YamlEncode | RuntimeOp::YamlRead | RuntimeOp::YamlWrite | RuntimeOp::TomlDecode | RuntimeOp::TomlEncode | RuntimeOp::TomlRead | RuntimeOp::TomlWrite => return self.eval_lowered_codec_values(op, values, span),
             callable; RuntimeOp::JsonDecode if values.len() == 1 => {
                 let Some(text) = lowered_str_value(&values[0]) else {
                     return Err(

@@ -579,6 +579,15 @@ pub(crate) fn write_path(path: PathBuf, data: &[u8], span: Span) -> Result<(), R
     name_error_path(&shown, write_path_unnamed(path, data, span))
 }
 
+pub(crate) fn create_path(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, (|| {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+            .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
+        file.write_all(data).map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))
+    })())
+}
+
 fn write_path_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)

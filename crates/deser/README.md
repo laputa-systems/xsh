@@ -31,3 +31,11 @@ coverage bound update risk; upstream activity alone does not establish stability
 The foundation's local verification build peaked at 4,273,080 KiB RSS. This
 observation controls build concurrency only. Matched binary-size, build CPU,
 startup and runtime acceptance remains the campaign's final cost gate.
+
+Local integration patches retain upstream defaults while adding explicit YAML
+version admission and merge-conflict rejection. XSH selects YAML 1.2 and rejects
+conflicting merged keys. TOML and INI parser failures carry typed syntax details
+for duplicate/range classification without matching error prose. CBOR checks
+configured scalar length before growing indefinite-string scratch storage.
+These patches have retained upstream corpus and focused negative controls;
+reapply and verify them when updating the frozen source.

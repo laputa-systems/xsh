@@ -92,7 +92,7 @@ impl Effect {
                 "read" | "write" => &[Self::Fs],
                 _ => &[],
             },
-            "ini" => match function {
+            "codec" | "yaml" | "toml" | "ini" => match function {
                 "read" | "write" => &[Self::Fs],
                 _ => &[],
             },

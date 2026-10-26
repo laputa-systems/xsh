@@ -45,6 +45,9 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 name: "cli",
                 sig: cli_module(),
             },
+            ModuleEntry { name: "codec", sig: codec_module() },
+            ModuleEntry { name: "yaml", sig: text_codec_module([RuntimeOp::YamlDecode, RuntimeOp::YamlEncode, RuntimeOp::YamlRead, RuntimeOp::YamlWrite]) },
+            ModuleEntry { name: "toml", sig: text_codec_module([RuntimeOp::TomlDecode, RuntimeOp::TomlEncode, RuntimeOp::TomlRead, RuntimeOp::TomlWrite]) },
             ModuleEntry {
                 name: "compression",
                 sig: compression_module(),
@@ -5210,4 +5213,41 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         contract: doc.1,
         tags: doc.2,
     })
+}
+
+fn codec_result(ok: Type) -> Type {
+    Type::Result(Box::new(ok), Box::new(Type::ErrorFamily("CodecError")))
+}
+
+fn codec_option(name: &'static str) -> super::ParamSig {
+    let mut option = default_param(name, Type::Bool);
+    option.label = super::LabelRule::Required;
+    option
+}
+
+fn text_codec_module(ops: [RuntimeOp; 4]) -> ModuleSig {
+    let [decode, encode, read, write] = ops;
+    module_sig(vec![
+        ("decode", sig(vec![param("text", Type::Str)], codec_result(Type::Any), true, decode)),
+        ("encode", sig(vec![param("value", Type::Any)], codec_result(Type::Str), true, encode)),
+        ("read", sig(vec![param("path", Type::Path)], result(Type::Any), false, read)),
+        ("write", sig(vec![param("path", Type::Path), param("value", Type::Any), codec_option("overwrite")], result(Type::Unit), false, write)),
+    ])
+}
+
+fn codec_module() -> ModuleSig {
+    let capability = Type::Record(btree_map([
+        ("identifier".into(), Type::Str), ("text".into(), Type::Bool),
+        ("binary".into(), Type::Bool), ("single".into(), Type::Bool),
+        ("sequence".into(), Type::Bool), ("lexical_typing".into(), Type::Bool),
+    ]));
+    module_sig(vec![
+        ("decode", sig(vec![param("format", Type::Str), param("text", Type::Str)], codec_result(Type::Any), true, RuntimeOp::CodecDecode)),
+        ("decode_bytes", sig(vec![param("format", Type::Str), param("bytes", Type::Bytes)], codec_result(Type::Any), true, RuntimeOp::CodecDecodeBytes)),
+        ("encode", sig(vec![param("format", Type::Str), param("value", Type::Any)], codec_result(Type::Str), true, RuntimeOp::CodecEncode)),
+        ("encode_bytes", sig(vec![param("format", Type::Str), param("value", Type::Any), codec_option("canonical")], codec_result(Type::Bytes), true, RuntimeOp::CodecEncodeBytes)),
+        ("read", sig(vec![param("format", Type::Str), param("path", Type::Path)], result(Type::Any), false, RuntimeOp::CodecRead)),
+        ("write", sig(vec![param("format", Type::Str), param("path", Type::Path), param("value", Type::Any), codec_option("overwrite")], result(Type::Unit), false, RuntimeOp::CodecWrite)),
+        ("formats", sig(vec![], Type::List(Box::new(capability)), true, RuntimeOp::CodecFormats)),
+    ])
 }

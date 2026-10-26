@@ -348,3 +348,62 @@ mod tests {
         assert!(matches!(flags.as_slice(), [Value::Bool(true), Value::Int(2)]));
     }
 }
+
+pub(crate) fn decode_text(format: Format, text: &str, span: Span) -> Result<Value, RuntimeError> {
+    if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+    match format {
+        Format::Json => decode_json(text, span),
+        Format::Yaml | Format::Toml | Format::Ini => config::decode(format, text, span),
+        _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support text decoding", span)),
+    }
+}
+
+pub(crate) fn decode_bytes(format: Format, bytes: &[u8], span: Span) -> Result<Value, RuntimeError> {
+    if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+    if format.is_binary() { return binary::decode(format, bytes, span); }
+    let text = std::str::from_utf8(bytes).map_err(|error| {
+        codec_error("Encoding", format.identifier(), "invalid UTF-8".into(), None, None, Some(error.valid_up_to()), span)
+    })?;
+    decode_text(format, text, span)
+}
+
+pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<String, RuntimeError> {
+    match format {
+        Format::Json => {
+            let mut output = Output::new();
+            let result = deser_json::SerializerConfig::new().writer(&mut output).write_with(value, |driver| driver.push_layer(EncodeLimits::default()));
+            output.finish(result).map_err(|error| runtime_error(error, "json", span))
+        }
+        Format::Yaml | Format::Toml | Format::Ini => config::encode(format, value, span),
+        _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support text encoding", span)),
+    }
+}
+
+pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: &T, canonical: bool, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    if canonical && format != Format::Cbor { return Err(failure("Options", format.identifier(), "canonical encoding requires cbor", span)); }
+    if format.is_binary() { binary::encode(format, value, canonical, span) }
+    else { encode_text(format, value, span).map(String::into_bytes) }
+}
+
+pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<Value, RuntimeError> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+    let mut bytes = Vec::new();
+    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes)
+        .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+    decode_bytes(format, &bytes, span).map_err(|mut error| {
+        error.payload.insert("input_path".into(), Value::Path(input_path.clone()));
+        error
+    })
+}
+
+pub(crate) fn formats() -> Value {
+    Value::List(FORMATS.iter().map(|info| Value::Record(RecordMap::from([
+        ("identifier".into(), Value::Str(info.identifier.into())),
+        ("text".into(), Value::Bool(matches!(info.kind, FormatKind::Text))),
+        ("binary".into(), Value::Bool(matches!(info.kind, FormatKind::Binary))),
+        ("single".into(), Value::Bool(true)),
+        ("sequence".into(), Value::Bool(info.format.supports_sequence())),
+        ("lexical_typing".into(), Value::Bool(info.format.supports_lexical())),
+    ]))).collect())
+}
