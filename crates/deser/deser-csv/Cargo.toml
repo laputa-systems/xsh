@@ -8,7 +8,6 @@ description = "CSV, TSV and other delimited text for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "csv", "tsv"]
 categories = ["encoding", "parser-implementations", "no-std"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-csv"
 # the vendored conformance test data is only needed for development
@@ -43,3 +42,5 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

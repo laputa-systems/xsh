@@ -8,7 +8,6 @@ description = "YAML support for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "yaml", "config"]
 categories = ["encoding", "parser-implementations", "config"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-yaml"
 # the vendored conformance test data is only needed for development
@@ -40,3 +39,5 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

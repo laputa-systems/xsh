@@ -8,7 +8,6 @@ description = "INI files (and git's config files) for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "ini", "config", "configparser"]
 categories = ["encoding", "parser-implementations", "config"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-ini"
 # the vendored test corpus is only needed for development
@@ -39,3 +38,5 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

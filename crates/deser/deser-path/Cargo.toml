@@ -8,7 +8,6 @@ description = "Tracks the path of values (like servers[1].port) for errors of de
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "path", "errors"]
 categories = ["encoding", "no-std"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-path"
 autotests = false
@@ -23,3 +22,5 @@ deser-json = { path = "../deser-json" }
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

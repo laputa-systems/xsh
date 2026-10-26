@@ -8,7 +8,6 @@ description = "Core traits and types of deser, use the deser crate instead"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization"]
 categories = ["encoding", "no-std"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser"
 
@@ -45,3 +44,5 @@ deser = { path = "../deser", features = ["derive", "open-enums"] }
 # the examples of user facing features deserialize JSON (without std so that
 # the no-default-features builds of the tests stay without std)
 deser-json = { path = "../deser-json", default-features = false }
+
+[lints]

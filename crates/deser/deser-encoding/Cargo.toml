@@ -8,7 +8,6 @@ description = "Hex and base32 encodings of bytes for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "hex", "base32"]
 categories = ["encoding"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-encoding"
 
@@ -21,3 +20,5 @@ data-encoding = "2.6"
 deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
 deser-cbor = { path = "../deser-cbor" }
 deser-json = { path = "../deser-json" }
+
+[lints]

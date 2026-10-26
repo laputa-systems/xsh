@@ -8,7 +8,6 @@ description = "A dynamic value type for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "value", "dynamic"]
 categories = ["encoding", "data-structures"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-value"
 autotests = false
@@ -29,3 +28,5 @@ deser-yaml = { version = "0.10.1", path = "../deser-yaml" }
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

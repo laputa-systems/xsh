@@ -8,7 +8,6 @@ description = "CBOR support for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "cbor", "binary"]
 categories = ["encoding", "parser-implementations", "no-std"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-cbor"
 autotests = false
@@ -34,3 +33,5 @@ deser-json = { path = "../deser-json" }
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

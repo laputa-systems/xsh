@@ -8,7 +8,6 @@ description = "Derive macros for the Serialize and Deserialize traits of deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "derive"]
 categories = ["encoding", "development-tools::procedural-macro-helpers"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser"
 
@@ -27,3 +26,5 @@ open-enums = ["syn/full"]
 proc-macro2 = "1.0.91"
 quote = "1.0.35"
 syn = "3.0.6"
+
+[lints]

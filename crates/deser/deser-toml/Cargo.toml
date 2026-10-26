@@ -8,7 +8,6 @@ description = "TOML support for deser"
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "toml", "config"]
 categories = ["encoding", "parser-implementations", "config"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser-toml"
 # the vendored conformance test data is only needed for development
@@ -42,3 +41,5 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]

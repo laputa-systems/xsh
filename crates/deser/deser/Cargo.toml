@@ -8,7 +8,6 @@ description = "An experimental serialization and deserialization library for Rus
 repository = "https://github.com/mitsuhiko/deser"
 keywords = ["serialization", "deserialization", "serde", "derive", "no_std"]
 categories = ["encoding", "no-std"]
-readme = "README.md"
 license = "Apache-2.0"
 documentation = "https://docs.rs/deser"
 autotests = false
@@ -46,3 +45,5 @@ jiff = { version = "0.2.14", default-features = false, features = ["std"] }
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[lints]
