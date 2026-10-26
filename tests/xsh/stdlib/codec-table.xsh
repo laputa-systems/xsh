@@ -41,3 +41,25 @@ test test_csv_formula_escaping_is_opt_in_and_tsv_uses_its_preset {
 test test_codec_table_dispatch_uses_strict_utf8 {
   test.error_kind(codec.decode_bytes("csv", b"name\n\xff\n"), "CodecError.Encoding")
 }
+
+test test_csv_files_preserve_options_and_failed_write_destinations { |ctx|
+  let config_path = test.temp_path(ctx, name: "ordered.csv")
+  let rows = [{a: "one", b: "two"}]
+  csv.write(config_path, rows, headers: false, delimiter: ";", columns: ["b", "a"])?
+  assert config_path.read_text()? == "two;one\n"
+  assert csv.read(config_path, headers: false, delimiter: ";")? == [["two", "one"]]
+  test.error_kind(csv.write(config_path, rows), "fs-write")
+  test.error_kind(csv.write(config_path, [{a: "changed"}], columns: ["a", "b"], overwrite: true), "CodecError.UnsupportedValue")
+  test.error_kind(csv.write(config_path, rows, delimiter: "\n", overwrite: true), "CodecError.Options")
+  assert config_path.read_text()? == "two;one\n"
+  csv.write(config_path, rows, overwrite: true)?
+  assert csv.read(config_path)? == rows
+  assert codec.read("csv", config_path)? == rows
+  config_path.write(b"name\n\xff\n")
+  match csv.read(config_path) {
+    Err(CodecError.Encoding {input_path: actual, ..}) => assert actual == config_path
+    else => return test.fail("expected CSV input path")
+  }
+  let effect = test.expect(ctx, "pure read_csv(config_path: Path) -> Result[Any] { csv.read(config_path) }\n", status: 2)?
+  assert "effect" in effect.stderr
+}
