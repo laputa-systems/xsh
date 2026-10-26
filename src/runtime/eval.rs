@@ -2720,10 +2720,19 @@ pub(in crate::runtime::eval) fn lowered_values_semantically_equal(
                 && lowered_semantic_map_eq(&left.blobs, &right.blobs)
         }
         (LoweredValue::RecordVec(left), LoweredValue::RecordVec(right)) => {
-            left.len() == right.len()
-                && left.iter().zip(right.iter()).all(|((left_key, left), (right_key, right))| {
-                    left_key == right_key && lowered_values_semantically_equal(left, right)
-                })
+            if left.len() != right.len() { return false; }
+            for (index, ((left_key, left_value), (right_key, right_value))) in left.iter().zip(right.iter()).enumerate() {
+                if left_key != right_key {
+                    let mut ordered = right.iter().collect::<Vec<_>>();
+                    ordered.sort_unstable_by_key(|(key, _)| *key);
+                    return left[index..].iter().all(|(key, value)| {
+                        ordered.binary_search_by_key(key, |(key, _)| *key)
+                            .is_ok_and(|index| lowered_values_semantically_equal(value, &ordered[index].1))
+                    });
+                }
+                if !lowered_values_semantically_equal(left_value, right_value) { return false; }
+            }
+            true
         }
         (LoweredValue::List(left), LoweredValue::List(right)) => {
             lowered_semantic_slice_eq(left, right)

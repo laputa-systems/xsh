@@ -1240,11 +1240,24 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
 }
 
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
+    const MAX_COMPACT_RECORD_FIELDS: usize = 16;
+    if value.len() > MAX_COMPACT_RECORD_FIELDS {
+        let mut record = BTreeMap::new();
+        for (key, value) in value.owned_key_iter() {
+            record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
+        }
+        return Some(LoweredValue::Record(Arc::new(record)));
+    }
     let mut record = Vec::with_capacity(value.len());
     for (key, value) in value.owned_key_iter() {
         record.push((Name::intern(key.as_str()), lowered_value_from_runtime_any(value)?));
     }
-    record.sort_unstable_by_key(|(key, _)| *key);
+    record.sort_by_key(|(key, _)| *key);
+    record.dedup_by(|later, retained| {
+        if later.0 != retained.0 { return false; }
+        std::mem::swap(&mut later.1, &mut retained.1);
+        true
+    });
     Some(LoweredValue::RecordVec(Arc::new(record)))
 }
 
@@ -3114,6 +3127,54 @@ mod record_update_tests {
     use crate::source::{SourceId, Span};
     use crate::symbol::Name;
     use std::sync::Arc;
+
+    #[test]
+    fn runtime_record_projection_preserves_order_independent_equality() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let record = RecordMap::from([(Arc::from("alpha"), Value::Int(1)), (Arc::from("zeta"), Value::Int(2))]);
+        let projected = lowered_record_from_runtime(&record).unwrap();
+        let unordered = LoweredValue::RecordVec(Arc::new(vec![(Name::intern("zeta"), LoweredValue::Int(2)), (Name::intern("alpha"), LoweredValue::Int(1))]));
+        assert!(super::super::lowered_values_semantically_equal(&projected, &unordered));
+        assert!(super::super::lowered_values_semantically_equal(&unordered, &projected));
+        let different = LoweredValue::RecordVec(Arc::new(vec![(Name::intern("zeta"), LoweredValue::Int(3)), (Name::intern("alpha"), LoweredValue::Int(1))]));
+        assert!(!super::super::lowered_values_semantically_equal(&projected, &different));
+        let [a, b, c] = ["a", "b", "c"].map(Name::intern);
+        let mut left = LoweredValue::Int(1);
+        let mut right = LoweredValue::Int(1);
+        for _ in 0..32 {
+            left = LoweredValue::RecordVec(Arc::new(vec![(a, left), (b, LoweredValue::Int(2)), (c, LoweredValue::Int(3))]));
+            right = LoweredValue::RecordVec(Arc::new(vec![(a, right), (c, LoweredValue::Int(3)), (b, LoweredValue::Int(2))]));
+        }
+        assert!(super::super::lowered_values_semantically_equal(&left, &right));
+    }
+
+    #[test]
+    fn runtime_record_projection_keeps_the_last_duplicate_field() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let shape = RecordShape::new(vec![Arc::from("duplicate"), Arc::from("duplicate")]);
+        let record = RecordMap::shaped(&shape, vec![Value::Int(1), Value::Int(2)]);
+        let LoweredValue::RecordVec(fields) = lowered_record_from_runtime(&record).unwrap() else {
+            panic!("compact record");
+        };
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].1, LoweredValue::Int(2));
+    }
+
+    #[test]
+    fn runtime_record_projection_retains_tree_lookup_for_wide_records() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let record = (0..64).map(|index| (Arc::from(format!("field_{index:02}")), Value::Int(index))).collect::<RecordMap>();
+        let LoweredValue::Record(fields) = lowered_record_from_runtime(&record).unwrap() else {
+            panic!("wide records must retain tree lookup");
+        };
+        assert_eq!(fields.len(), 64);
+        for index in 0..64 {
+            assert_eq!(fields.get(format!("field_{index:02}").as_str()), Some(&LoweredValue::Int(index)));
+        }
+    }
 
     #[test]
     fn runtime_record_projection_preserves_compact_fields_and_value_semantics() {
