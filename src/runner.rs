@@ -724,7 +724,7 @@ fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> St
                 "line_count".to_string(),
                 JsonValue::from(file.line_count()),
             ),
-        ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+        ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
         output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
         output.push('\n');
     }
@@ -777,7 +777,7 @@ fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> St
                         "end_offset".to_string(),
                         JsonValue::from(span.end()),
                     ),
-                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
+                ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ));
         }
 
@@ -810,11 +810,11 @@ fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> St
                         "end_offset".to_string(),
                         JsonValue::from(span.end()),
                     ),
-                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
+                ]).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ));
         }
 
-        let value = (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+        let value = (fields).into_iter().collect::<bbtree::unsync::BBTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
         output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
         output.push('\n');
     }

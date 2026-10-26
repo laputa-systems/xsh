@@ -37,7 +37,7 @@ use crate::trace::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::ops::ControlFlow;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -817,7 +817,7 @@ struct BuildScratch {
     scheme_application_calls: Vec<Option<u32>>,
     scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
     scheme_completion_sources: BTreeMap<usize, SchemeCompletionSource>,
-    scheme_noncompleting: std::collections::BTreeSet<usize>,
+    scheme_noncompleting: bbtree::unsync::BBTreeSet<usize>,
     scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
     scheme_operations: BTreeMap<usize, u32>,
     scheme_methods: BTreeMap<usize, u32>,
@@ -2838,7 +2838,7 @@ fn runtime_values_semantically_equal(left: &Value, right: &Value) -> bool {
 mod semantic_float_equality_tests {
     use super::{LoweredValue, lowered_values_semantically_equal};
     use crate::runtime::value::FloatValue;
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use std::sync::Arc;
 
     #[test]
@@ -8848,7 +8848,7 @@ mod frame_scheduler_marker_tests {
 #[cfg(test)]
 mod runtime_env_route_witness_tests {
     use super::RuntimeEnv;
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     #[test]
     fn route_witness_prefix_environment_names_are_ordinary_entries() {

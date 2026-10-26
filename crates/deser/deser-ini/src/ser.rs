@@ -33,7 +33,7 @@ use crate::{Continuation, InlineComments, Quotes, Syntax};
 /// [`BytesFormat`](deser_core::BytesFormat) of the context).
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_ini::SerializerConfig;
 ///
 /// let value = BTreeMap::from([
@@ -92,7 +92,7 @@ impl SerializerConfig {
     /// See [`Syntax::Git`].
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_ini::SerializerConfig;
     ///
     /// let value = BTreeMap::from([(
@@ -319,7 +319,7 @@ impl Default for SerializerConfigBuilder {
 /// An INI file holds a single value, writing a second one fails.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_ini::Serializer;
 ///
 /// let mut serializer = Serializer::new();
@@ -455,7 +455,7 @@ impl SerializerConfig {
 /// The file is written with a single write once it's complete.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 ///
 /// let mut out = Vec::new();
 /// deser_ini::to_writer(&mut out, &BTreeMap::from([("a", 1)])).unwrap();

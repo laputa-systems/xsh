@@ -654,7 +654,7 @@ impl Serializer {
     /// appended to an existing file.
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_csv::{Serializer, SerializerConfig};
     ///
     /// let mut serializer =

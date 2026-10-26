@@ -10,7 +10,7 @@
 //! removes: it is excluded from the comparison, and formatted output must
 //! have none.
 
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

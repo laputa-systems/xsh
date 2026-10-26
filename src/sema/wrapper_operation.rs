@@ -442,7 +442,7 @@ mod tests {
     fn guarded_field_projection_preserves_nullability_error_identity_and_one_hop() {
         SymbolOwner::new().with_current(|| {
             let name = Name::intern("name");
-            let row = Type::Record(std::sync::Arc::new(std::collections::BTreeMap::from([(name, Type::Optional(Box::new(Type::Str)))])));
+            let row = Type::Record(std::sync::Arc::new(bbtree::unsync::BBTreeMap::from([(name, Type::Optional(Box::new(Type::Str)))])));
             let field = |source: &Type, name| match source { Type::Record(fields) => fields.get(&name).cloned(), _ => None };
             let optional = Type::Optional(Box::new(row.clone()));
             let projected = guarded_field_projection(&optional, name, field).unwrap();

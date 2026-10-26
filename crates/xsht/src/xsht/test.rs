@@ -6,7 +6,8 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::FileToolConfig;
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{IsTerminal, Write};
@@ -2549,7 +2550,7 @@ mod tests {
         options.exact_ids = vec![format!("{}::one", first.display()), format!("{}::two", first.display()), format!("{}::three", second.display())];
         let cases = super::discover_native_tests(&[root.path().to_owned()], &super::ConfigCache::default(), &options).unwrap_or_else(|_| panic!("selected native discovery failed"));
         assert_eq!(cases.len(), 3);
-        let mut modules = std::collections::BTreeMap::<String, std::sync::Arc<xsh::execution::evaluator::PreparedTestProgram>>::new();
+        let mut modules = bbtree::unsync::BBTreeMap::<String, std::sync::Arc<xsh::execution::evaluator::PreparedTestProgram>>::new();
         for case in cases {
             let super::TestCase::Native(case) = case else { panic!("the selected module must prepare successfully") };
             if let Some(previous) = modules.get(&case.file) { assert!(std::sync::Arc::ptr_eq(previous, &case.prepared)); }

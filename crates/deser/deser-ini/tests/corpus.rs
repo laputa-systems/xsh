@@ -26,7 +26,7 @@
 //! expected to fail are listed in `corpus_known_failures.txt`, the run fails
 //! if any other case fails or if a listed case passes.  Set
 //! `DESER_INI_BLESS=1` to rewrite the list from the results.
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::fs;
 use std::panic;
 use std::path::{Path, PathBuf};

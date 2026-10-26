@@ -41,9 +41,9 @@ fn collect_body_type_facts(
 ) -> (
     BTreeMap<ExprId, Type>,
     BTreeMap<StmtId, Type>,
-    std::collections::BTreeSet<Span>,
-    std::collections::BTreeSet<super::BindingId>,
-    std::collections::BTreeSet<StmtId>,
+    bbtree::unsync::BBTreeSet<Span>,
+    bbtree::unsync::BBTreeSet<super::BindingId>,
+    bbtree::unsync::BBTreeSet<StmtId>,
     FxHashSet<ExprId>,
 ) {
     #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -59,7 +59,7 @@ fn collect_body_type_facts(
     let mut binding_targets = FxHashSet::default();
     let mut assign_targets = FxHashSet::default();
     let mut builder_blocks = FxHashSet::default();
-    let mut expression_spans = std::collections::BTreeSet::new();
+    let mut expression_spans = bbtree::unsync::BBTreeSet::new();
     let mut failure_only_completion_expressions = FxHashSet::default();
     let mut types = BTreeMap::new();
     let mut tail_types = BTreeMap::new();
@@ -137,7 +137,7 @@ fn collect_body_type_facts(
             | ArenaChild::BuilderBlock(_) => {}
         }
     }
-    let mut reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect::<std::collections::BTreeSet<_>>();
+    let mut reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect::<bbtree::unsync::BBTreeSet<_>>();
     for &(expression, usage) in &expressions {
         if usage == BodyFactUse::Executable && let crate::syntax::arena::ArenaExprKind::Record(fields) = arena.expr(expression).kind {
             for field in arena.record_fields(fields) {
@@ -178,16 +178,16 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) callable: Arc<CallableScheme>,
     pub(super) scope: crate::sema::constraints::CallableGeneralizationScope,
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
-    noncompleting_expressions: std::collections::BTreeSet<ExprId>,
+    noncompleting_expressions: bbtree::unsync::BBTreeSet<ExprId>,
     guard_scopes: crate::sema::guarded_requirements::GuardBodyScopes,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     constructor_instances: BTreeMap<ExprId, crate::sema::constants::CheckedRecordConstructor<crate::sema::schemes::SchemeType>>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
     pub(super) calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::CheckedInstantiation>,
     registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
-    read_bindings: std::collections::BTreeSet<super::BindingId>,
-    local_statements: std::collections::BTreeSet<StmtId>,
-    pub(super) expression_spans: std::collections::BTreeSet<Span>,
+    read_bindings: bbtree::unsync::BBTreeSet<super::BindingId>,
+    local_statements: bbtree::unsync::BBTreeSet<StmtId>,
+    pub(super) expression_spans: bbtree::unsync::BBTreeSet<Span>,
 }
 
 struct PreparedCheckedFunction {
@@ -237,7 +237,7 @@ impl Checker {
         if self.declaration_inference.pending(declaration)?.generalized().is_some() {
             return Some(());
         }
-        let prepared = self.prepare_function_generalization(program, def_id, &std::collections::BTreeSet::from([declaration.effect_declaration()]))?;
+        let prepared = self.prepare_function_generalization(program, def_id, &bbtree::unsync::BBTreeSet::from([declaration.effect_declaration()]))?;
         self.publish_function_generalization(program, prepared);
         Some(())
     }
@@ -247,7 +247,7 @@ impl Checker {
         program: &ArenaProgram,
         definitions: &[FunctionDefId],
     ) -> Result<(), crate::sema::constraints::ConstraintResolutionError> {
-        let mut captures = std::collections::BTreeSet::new();
+        let mut captures = bbtree::unsync::BBTreeSet::new();
         for &definition in definitions {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
@@ -270,7 +270,7 @@ impl Checker {
         &mut self,
         program: &ArenaProgram,
         def_id: FunctionDefId,
-        component: &std::collections::BTreeSet<super::EffectDeclarationId>,
+        component: &bbtree::unsync::BBTreeSet<super::EffectDeclarationId>,
     ) -> Option<PreparedFunctionGeneralization> {
         let def = program.arena.function_def(def_id);
         let declaration = FunctionDeclarationId::new(
@@ -325,7 +325,7 @@ impl Checker {
         let noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
             matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. })
                 && !self.stream_expr_may_complete(program, expression)
-        }).collect::<std::collections::BTreeSet<_>>();
+        }).collect::<bbtree::unsync::BBTreeSet<_>>();
         for expression in &noncompleting_expressions { body_types.remove(expression); }
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
             Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
@@ -437,7 +437,7 @@ impl Checker {
                     match self.type_constraints.unresolved_local_holes_are_input_bound(declaration.effect_declaration(), component, std::slice::from_ref(&actual), &types[..types.len() - 1]) {
                         Ok(false) => {
                             let before = self.diagnostics.len();
-                            super::local_inference::finalize_type(&self.type_constraints, &mut actual, body_span, &mut std::collections::BTreeSet::new(), &mut self.diagnostics);
+                            super::local_inference::finalize_type(&self.type_constraints, &mut actual, body_span, &mut bbtree::unsync::BBTreeSet::new(), &mut self.diagnostics);
                             if self.diagnostics.len() != before { return None; }
                         }
                         Ok(true) => {},
@@ -483,7 +483,7 @@ impl Checker {
                 crate::syntax::arena::ArenaCallArgKind::Positional(callee) | crate::syntax::arena::ArenaCallArgKind::Named { value: callee, .. } => Some(callee),
                 _ => None,
             }
-        }).collect::<std::collections::BTreeSet<_>>();
+        }).collect::<bbtree::unsync::BBTreeSet<_>>();
         let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
             let span = program.arena.expr(expression).span;
             let call = self.api_calls.get(&span)?;
@@ -867,7 +867,7 @@ impl Checker {
                 ty.contains_parameter()
                     .then_some(program.arena.stmt(statement).span)
             }))
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<bbtree::unsync::BBTreeSet<_>>();
         let generalized_bindings = local_statements.into_iter()
             .filter_map(|statement| match program.arena.stmt(statement).kind {
                 ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
@@ -875,7 +875,7 @@ impl Checker {
                     if (quantified && noncompleting_expressions.contains(&value) || generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter()))
                         && self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span).is_some_and(Type::contains_inference) => Some(program.arena.stmt(statement).span),
                 _ => None,
-            }).collect::<std::collections::BTreeSet<_>>();
+            }).collect::<bbtree::unsync::BBTreeSet<_>>();
         self.local_inference.checked_bindings.retain(|span, _| !generalized_bindings.contains(span));
         self.annotation_facts.retain(|fact| !matches!(fact.kind, super::AnnotationFactKind::Binding { span, .. } if generalized_bindings.contains(&span)));
         for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
@@ -896,7 +896,7 @@ impl Checker {
                 _ => None,
             }
         }).flat_map(|stages| program.arena.stream_stages(stages).iter().map(|stage| program.arena.span(stage.span)))
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<bbtree::unsync::BBTreeSet<_>>();
         self.declaration_inference
             .pending_mut(declaration)
             .expect("a prepared function retains its provisional declaration")
@@ -1192,7 +1192,7 @@ impl Checker {
     pub(super) fn finalize_function_declarations(
         &mut self,
         program: &ArenaProgram,
-        facts: &std::collections::BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
+        facts: &bbtree::unsync::BBTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
     ) {
         let declarations = self
             .declaration_inference
@@ -1213,7 +1213,7 @@ impl Checker {
             self.reject_recursive_component(program, &definitions);
         }
         let components = std::mem::take(&mut self.recursive_function_components);
-        let recursive_definitions = components.iter().flatten().copied().collect::<std::collections::BTreeSet<_>>();
+        let recursive_definitions = components.iter().flatten().copied().collect::<bbtree::unsync::BBTreeSet<_>>();
         for definitions in components {
             if self.recursive_component_has_errors(program, &definitions) {
                 self.reject_recursive_component(program, &definitions);
@@ -2221,7 +2221,7 @@ fn qualify_error_type(ty: &mut Type, namespace: Name, families: &FxHashSet<Name>
 }
 
 fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
-    let mut exports = std::collections::BTreeMap::new();
+    let mut exports = bbtree::unsync::BBTreeMap::new();
     for (name, ty) in &module.values {
         exports.insert(
             *name,

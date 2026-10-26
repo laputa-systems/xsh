@@ -5,7 +5,7 @@ use crate::runtime::value::{DurationValue, FloatValue, PathValue};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 

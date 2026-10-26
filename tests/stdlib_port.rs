@@ -7,7 +7,7 @@
 //! observes of the sealed implementation namespace in
 //! `tests/xsh/stdlib/embedded_sealing.xsh`.
 
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 

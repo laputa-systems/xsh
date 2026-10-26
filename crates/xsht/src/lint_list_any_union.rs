@@ -2,7 +2,7 @@
 //! filled from list literals of a few concrete element types has the closed
 //! type `List[Union[A, B]]`.
 
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use xsh::frontend::check::{Type, union_member_error};
 use xsh::frontend::source::Span;

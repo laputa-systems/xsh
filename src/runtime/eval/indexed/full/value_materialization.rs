@@ -180,7 +180,7 @@ impl super::FullProgram {
                 }
             }
             (FullMaterializationKind::Record, V::RecordVec(fields)) => {
-                let mut selected = std::collections::BTreeMap::new();
+                let mut selected = bbtree::unsync::BBTreeMap::new();
                 for child in children {
                     if self.store.materialization_nodes.get(child.node as usize).is_some_and(|node| node.kind == FullMaterializationKind::Keep) { continue; }
                     selected.insert(self.store.string(child.name)?, child.node);

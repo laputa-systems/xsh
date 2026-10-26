@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use deser::de::{

@@ -6,7 +6,7 @@ use crate::sema::schemes::{CallableMonotype, SchemeRowParameterId,
     SchemeRowTail, SchemeType, SchemeTypeParameterId, SchemeEffectParameterId, TypeScheme};
 use crate::symbol::SymbolOwner;
 use crate::syntax::arena::{ArenaProgram, ArenaTypeDefBody, TypeDefId};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -979,7 +979,7 @@ mod tests {
     use crate::source::SourceId;
     use crate::symbol::Name;
     use crate::syntax::parser::Parser;
-    use std::collections::BTreeSet;
+    use bbtree::unsync::BBTreeSet as BTreeSet;
 
     fn identity(owner: &SymbolOwner, binder: u32, result: Option<Type>) -> CheckedCallableContract {
         owner.with_current(|| {

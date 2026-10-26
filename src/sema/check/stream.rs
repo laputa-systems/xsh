@@ -6,7 +6,7 @@ use crate::syntax::arena::{
     ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStreamStage, ExprId,
 };
 use crate::syntax::node::{StreamStageKind, UnaryOp};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
     entries

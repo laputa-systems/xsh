@@ -3,7 +3,7 @@
 //! Adapted from the cbor2 test suite.
 use crate::common;
 
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use common::{Value, de, hex, ser};
 use deser::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 
 const EFFECT_A: u8 = 1;
 const EFFECT_B: u8 = 2;
@@ -438,7 +438,7 @@ mod tests {
         assignments, schemes_equivalent, Constraint, Contract, EffectScheme, EffectSet,
         EffectValue, FreeTerm, Term, Variable, ASSIGNMENT_COUNT, EFFECT_A, EFFECT_B, ERROR,
     };
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     fn set(bits: u8) -> EffectSet {
         EffectSet(bits)

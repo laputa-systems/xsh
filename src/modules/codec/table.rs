@@ -404,24 +404,24 @@ mod tests {
     #[test]
     fn explicit_columns_drive_order_formula_escape_and_exact_keysets() {
         let value = vec![
-            std::collections::BTreeMap::from([("a", "one"), ("b", "two")]),
-            std::collections::BTreeMap::from([("a", "three"), ("b", "four")]),
+            bbtree::unsync::BBTreeMap::from([("a", "one"), ("b", "two")]),
+            bbtree::unsync::BBTreeMap::from([("a", "three"), ("b", "four")]),
         ];
         let output = encode(Format::Csv, &value, EncodeOptions { headers: true, delimiter: b',', columns: Some(vec!["b".into(), "a".into()]), escape_formulas: false }, span()).unwrap();
         assert_eq!(output, "b,a\ntwo,one\nfour,three\n");
-        let invalid = vec![std::collections::BTreeMap::from([("a", "one")])];
+        let invalid = vec![bbtree::unsync::BBTreeMap::from([("a", "one")])];
         assert_eq!(encode(Format::Csv, &invalid, EncodeOptions { headers: true, delimiter: b',', columns: Some(vec!["a".into(), "b".into()]), escape_formulas: false }, span()).unwrap_err().variant, "UnsupportedValue");
         let missing = vec![
-            std::collections::BTreeMap::from([("a", "one"), ("b", "two")]),
-            std::collections::BTreeMap::from([("a", "three")]),
+            bbtree::unsync::BBTreeMap::from([("a", "one"), ("b", "two")]),
+            bbtree::unsync::BBTreeMap::from([("a", "three")]),
         ];
         assert_eq!(encode(Format::Csv, &missing, EncodeOptions::defaults(Format::Csv), span()).unwrap_err().variant, "UnsupportedValue");
         let extra = vec![
-            std::collections::BTreeMap::from([("a", "one"), ("b", "two")]),
-            std::collections::BTreeMap::from([("a", "three"), ("b", "four"), ("c", "five")]),
+            bbtree::unsync::BBTreeMap::from([("a", "one"), ("b", "two")]),
+            bbtree::unsync::BBTreeMap::from([("a", "three"), ("b", "four"), ("c", "five")]),
         ];
         assert_eq!(encode(Format::Csv, &extra, EncodeOptions::defaults(Format::Csv), span()).unwrap_err().variant, "UnsupportedValue");
-        let formulas = vec![std::collections::BTreeMap::from([("value", "=1+2")])];
+        let formulas = vec![bbtree::unsync::BBTreeMap::from([("value", "=1+2")])];
         assert_eq!(encode(Format::Csv, &formulas, EncodeOptions { headers: true, delimiter: b',', columns: None, escape_formulas: true }, span()).unwrap(), "value\n\"'=1+2\"\n");
     }
 }

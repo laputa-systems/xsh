@@ -2,7 +2,7 @@ use super::constraints::{ConstraintConflict, TypeConstraints};
 use super::types::Type;
 use crate::modules::signature::ModuleFnSig;
 use crate::source::Span;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use xsh_registry::types::BuiltinTypeParameter;
 
 /// A builtin occurrence owns fresh substitutions. Receiver facts anchor its
@@ -416,7 +416,7 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
         || signature.arg_check != ApiArgCheck::Standard && !json_encode_value_parameter(plan, 0)
         || signature.semantic_rule != SemanticRule::Standard
     { return false; }
-    let slots = plan.argument_slots.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    let slots = plan.argument_slots.iter().copied().collect::<bbtree::unsync::BBTreeSet<_>>();
     if slots.len() != plan.argument_slots.len()
         || slots.iter().any(|slot| *slot >= signature.params.len())
         || signature.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !slots.contains(&slot))

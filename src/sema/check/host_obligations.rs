@@ -2,7 +2,8 @@ use super::{ArenaCallArg, ArenaProgram, Checker, DiagnosticCode, HostCallSource,
 use crate::sema::arguments::{ExpandedArgument, StaticArgumentBinding};
 use crate::sema::builtin_templates::BuiltinInstantiation;
 use crate::sema::constraints::{ConstraintConflict, ConstraintResolutionError, TypeConstraints};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::OnceLock;
 
 #[derive(Clone, Copy)]

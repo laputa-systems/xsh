@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use deser::de::{DeserializeDriver, DeserializeOwned, LexicalRules};
 use deser::{Atom, Deserialize, Error, ErrorKind, Event, Text};
@@ -151,7 +151,7 @@ fn test_strict_rules() {
     // text is not a sequence
     let err = deserialize_strict::<Vec<u32>>(vec![lexical("42")]).unwrap_err();
     assert_eq!(err.message(), "unexpected string, expected vec");
-    assert!(deserialize_strict::<std::collections::BTreeSet<u32>>(vec![lexical("42")]).is_err());
+    assert!(deserialize_strict::<bbtree::unsync::BBTreeSet<u32>>(vec![lexical("42")]).is_err());
     assert!(deserialize_strict::<[u32; 1]>(vec![lexical("42")]).is_err());
 
     // map keys parse the same way
@@ -344,7 +344,8 @@ fn query<'a>(pairs: &[(&'a str, &[&'a str])]) -> Vec<Event<'a>> {
 
 #[test]
 fn test_single_value_sequences() {
-    use std::collections::{BTreeSet, HashSet, VecDeque};
+    use std::collections::{HashSet, VecDeque};
+    use bbtree::unsync::{BBTreeSet as BTreeSet};
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Collections {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use deser::{Deserialize, Serialize};
 use deser_toml::{DeserializerConfig, SerializerConfig};

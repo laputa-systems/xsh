@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{HashMap};
+use bbtree::unsync::{BBTreeMap as BTreeMap};
 
 use deser::adapters::MapSkipError;
 use deser::de::{DeserializeDriver, DeserializeOwned, DuplicateKeys};

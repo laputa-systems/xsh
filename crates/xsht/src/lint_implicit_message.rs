@@ -14,7 +14,7 @@
 //! edit. Findings without a fix still permit message edits that retain the family.
 
 use rustc_hash::FxHashSet;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{CheckBundleView, MessagePayloadConstructor};
 use xsh::frontend::source::Span;

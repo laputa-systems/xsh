@@ -516,7 +516,7 @@ mod tests {
                     fields
                         .iter()
                         .map(|field| (Name::intern(*field), Type::Str))
-                        .collect::<std::collections::BTreeMap<_, _>>()
+                        .collect::<bbtree::unsync::BBTreeMap<_, _>>()
                         .into(),
                 )
             };

@@ -22,7 +22,7 @@ use crate::parser::{ROOT, parse};
 /// [`TrackLocations`]).
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_toml::DeserializerConfig;
 ///
 /// const CONFIG: DeserializerConfig = DeserializerConfig::new();
@@ -179,7 +179,7 @@ impl Default for DeserializerConfigBuilder {
 ///
 /// ```
 /// use deser_toml::Deserializer;
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 ///
 /// let mut de = Deserializer::from_str("a = 1\nb = 2");
 /// let value: BTreeMap<String, u32> = de.deserialize().unwrap();

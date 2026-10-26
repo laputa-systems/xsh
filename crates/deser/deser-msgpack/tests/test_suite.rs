@@ -6,7 +6,7 @@
 //! the shortest encoding.
 //!
 //! [kawanet/msgpack-test-suite]: https://github.com/kawanet/msgpack-test-suite
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use crate::common;
 

@@ -4,7 +4,7 @@ use xsh::frontend::check::{CheckBundleView, Checker};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
 use xsh::frontend::syntax::parser::Parser;
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::Arc;
 
 fn lint_source_only(source: &str, only: Vec<DiagnosticCode>) -> Vec<Diagnostic> {

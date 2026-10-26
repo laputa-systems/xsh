@@ -13,6 +13,7 @@ documentation = "https://docs.rs/deser-value"
 autotests = false
 
 [dependencies]
+bbtree = "0.1.5"
 deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
 indexmap = { version = "2.9", default-features = false, features = ["std"] }
 

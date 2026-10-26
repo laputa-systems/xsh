@@ -1,6 +1,6 @@
 //! The adapters provided by deser.
 use alloc::borrow::Cow;
-use alloc::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use alloc::format;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -1336,7 +1336,7 @@ impl<T: Sync, A: Serialize<T>> Serialize<Vec<T>> for VecSkipError<A> {
 /// Serialization uses the inner adapters.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser::Deserialize;
 /// use deser::adapters::MapSkipError;
 ///

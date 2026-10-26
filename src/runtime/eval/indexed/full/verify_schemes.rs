@@ -35,7 +35,7 @@ use crate::sema::schemes::{CallableMonotype, SchemeParameter, SchemeRowParameter
 use crate::sema::validated::{IntRange, ValidatedType, Validation};
 use crate::symbol::Name;
 use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::Arc;
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use crate::runtime::value::{ErrorContext, RunError, Value};
 use rustc_hash::FxHashMap;
 use rustix::{event as revent, fs as rfs, io as rio, process as rprocess, stdio, termios};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io;

@@ -1,6 +1,6 @@
 //! Tests of the context (configuration given to serializations and
 //! deserializations from the outside).
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use deser::de::{
     CollectErrors, DeserializeDriver, Deserializer, DuplicateKeys, Layer, LayerEvent, LexicalRules,

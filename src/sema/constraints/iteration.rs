@@ -2,7 +2,7 @@ use super::{ConstraintChange, ConstraintConflict, ConstraintResolutionError, Gen
 use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind, SchemeType, SchemeTypeParameterId};
 use crate::sema::types::Type;
 use crate::source::Span;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 type IterationConflict = (Type, Type, Option<ConstraintResolutionError>);
 

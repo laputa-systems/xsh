@@ -262,12 +262,12 @@ mod tests {
     #[test]
     fn configuration_encode_guards_reject_silent_loss_and_accept_yaml_bytes() {
         for format in [Format::Ini, Format::Toml] {
-            assert_eq!(encode(format, &std::collections::BTreeMap::from([("a", Option::<i64>::None)]), span()).unwrap_err().variant, "UnsupportedValue");
+            assert_eq!(encode(format, &bbtree::unsync::BBTreeMap::from([("a", Option::<i64>::None)]), span()).unwrap_err().variant, "UnsupportedValue");
             let bytes = Value::Bytes(b"raw".to_vec());
             let borrowed = crate::runtime::eval::borrowed_codec_value(format, &bytes, span());
             assert_eq!(encode(format, &borrowed, span()).unwrap_err().variant, "UnsupportedValue");
         }
-        let nested = std::collections::BTreeMap::from([("section", std::collections::BTreeMap::from([("nested", std::collections::BTreeMap::from([("key", "value")]))]))]);
+        let nested = bbtree::unsync::BBTreeMap::from([("section", bbtree::unsync::BBTreeMap::from([("nested", bbtree::unsync::BBTreeMap::from([("key", "value")]))]))]);
         assert_eq!(encode(Format::Ini, &nested, span()).unwrap_err().variant, "UnsupportedValue");
         let bytes = Value::Bytes(b"\0\xff".to_vec());
         let borrowed = crate::runtime::eval::borrowed_codec_value(Format::Yaml, &bytes, span());

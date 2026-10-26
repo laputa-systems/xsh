@@ -2,7 +2,7 @@ use super::{bounded, mark_range, FullStore, IrVerifyError, SchemeInstantiationBu
 use super::super::schemes::{FullEffectContract, FullEffectParameter, FullEffectPredicate};
 use crate::sema::effects::{EffectContract, EffectExpr, EffectPredicate, EffectSet};
 use crate::sema::schemes::SchemeEffectParameterId;
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 
 #[derive(Clone, Default)]
 pub(super) struct EffectScope {

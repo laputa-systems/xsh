@@ -44,7 +44,7 @@ pub(crate) type EventFn<'f> =
 ///     }
 /// }
 ///
-/// let mut map = std::collections::BTreeMap::new();
+/// let mut map = bbtree::unsync::BBTreeMap::new();
 /// map.insert("key", "value");
 /// let mut events = Vec::new();
 /// let mut driver = SerializeDriver::new(&map);

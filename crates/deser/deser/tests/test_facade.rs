@@ -2,7 +2,7 @@
 //!
 //! deser re-exports the items of deser-core one by one (so that they are
 //! documented as part of deser), new items are easily forgotten.
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use std::path::Path;
 
 /// Returns the names of the public items a crate root defines or re-exports.

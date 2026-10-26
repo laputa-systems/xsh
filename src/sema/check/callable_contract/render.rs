@@ -9,7 +9,7 @@ use crate::sema::schemes::{
 use crate::sema::types::{CallableType, ModuleExportType, Type};
 use crate::sema::validated::Validation;
 use crate::syntax::node::Effect;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::fmt;
 
 #[derive(Default)]
@@ -271,7 +271,7 @@ impl fmt::Display for CheckedCallableContract {
 struct CallableRenderContext<'a> {
     table: Option<&'a SchemeCallableTable>,
     labels: BTreeMap<crate::sema::scheme_callable::SchemeCallableId, usize>,
-    active: std::collections::BTreeSet<crate::sema::scheme_callable::SchemeCallableId>,
+    active: bbtree::unsync::BBTreeSet<crate::sema::scheme_callable::SchemeCallableId>,
 }
 
 pub(in crate::sema::check) fn render_revealed_type(ty: &Type, table: &SchemeCallableTable) -> String {

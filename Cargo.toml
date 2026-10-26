@@ -111,6 +111,7 @@ deser-csv = { path = "crates/deser/deser-csv" }
 deser-cbor = { path = "crates/deser/deser-cbor" }
 deser-msgpack = { path = "crates/deser/deser-msgpack" }
 deser-value = { path = "crates/deser/deser-value" }
+bbtree = "0.1.5"
 regex-lite = "0.1.9"
 rustc-hash = "2.1.3"
 rustix = { version = "1.1.4", features = [
@@ -224,3 +225,4 @@ strip = true
 [patch.crates-io]
 rustybench = { path = "third_party/rustybench" }
 regex-lite = { path = "third_party/regex-lite" }
+bbtree = { path = "third_party/bbtree" }

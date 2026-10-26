@@ -1,6 +1,6 @@
 //! The adapters that accept values in more than one form, with JSON.
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use deser::adapters::{

@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use std::sync::Arc;
 
 use xsh::diagnostic::DiagnosticCode;

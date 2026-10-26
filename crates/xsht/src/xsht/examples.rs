@@ -1,5 +1,5 @@
 use crate::xsht::format::Formatter;
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use std::fs;
 use std::path::Path;
 use xsh::frontend::source::SourceMap;

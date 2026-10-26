@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{CheckBundleView, CheckOptions, CheckOutput, Type};
 use xsh::frontend::source::Span;

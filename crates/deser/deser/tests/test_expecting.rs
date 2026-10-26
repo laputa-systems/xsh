@@ -4,7 +4,8 @@
 //! creates reports the same with `Sink::expecting` (for slots this is
 //! where it comes from).
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::net::IpAddr;
 use std::num::NonZero;
 use std::ops::{Bound, Range};

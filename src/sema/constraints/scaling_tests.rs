@@ -2,7 +2,7 @@ use super::{ConstraintMetrics, RowShape, RowTail, TypeConstraints};
 use crate::sema::types::Type;
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::Arc;
 
 fn span(start: usize) -> Span {

@@ -923,7 +923,7 @@ impl<'a> Linter<'a> {
 #[cfg(test)]
 mod tests {
     use super::{checked_return_removal_facts_from_output, checked_source_effect_bodies, standalone_sources};
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use xsh::diagnostic::Diagnostic;
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::{SourceId, Span};

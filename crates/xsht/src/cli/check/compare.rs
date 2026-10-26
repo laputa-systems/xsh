@@ -1,6 +1,6 @@
 use super::{CliOutput, Stage, StageTimings, cancellation_output, text_bytes};
 use crate::xsht::config::config_for_file;
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

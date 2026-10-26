@@ -11,7 +11,7 @@ use crate::sema::schemes::{
 };
 use crate::sema::types::Type;
 use crate::sema::validated::Validation;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::Arc;
 use crate::symbol::Name;
 
@@ -1922,7 +1922,7 @@ mod tests {
     use crate::sema::types::Type;
     use crate::symbol::Name;
     use crate::syntax::node::Effect;
-    use std::collections::{BTreeMap, BTreeSet};
+    use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
     use std::{cell::RefCell, rc::Rc};
 
     #[test]

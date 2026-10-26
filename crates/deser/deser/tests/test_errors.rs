@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use deser::de::{
     DeserializeDriver, Deserializer, Layer, LayerEvent, Limits, Next, deserialize_value,

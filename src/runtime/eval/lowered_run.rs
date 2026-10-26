@@ -41,7 +41,7 @@ use crate::trace::{
 use directories::{ProjectDirs, UserDirs};
 use rustc_hash::FxHashMap;
 use rustix::event as revent;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
 use std::ffi::OsString;
@@ -939,10 +939,10 @@ fn lowered_reduce_group_insert(
     span: Span,
 ) -> Result<(), RuntimeError> {
     match groups.entry(key) {
-        std::collections::btree_map::Entry::Vacant(slot) => {
+        bbtree::unsync::bbtree_map::Entry::Vacant(slot) => {
             slot.insert(value);
         }
-        std::collections::btree_map::Entry::Occupied(mut slot) => {
+        bbtree::unsync::bbtree_map::Entry::Occupied(mut slot) => {
             let prev = std::mem::replace(slot.get_mut(), LoweredValue::Unit);
             *slot.get_mut() = lowered_reduce_combine(op, prev, value, span)?;
         }
@@ -6606,7 +6606,7 @@ impl Evaluator {
             // Lowering builds both from the checked call; these are what a
             // call that reaches the module operation itself evaluates to.
             callable; RuntimeOp::SetEmpty if values.is_empty() => {
-                LoweredValue::Set(Arc::new(std::collections::BTreeSet::new()))
+                LoweredValue::Set(Arc::new(bbtree::unsync::BBTreeSet::new()))
             }
             callable; RuntimeOp::SetFrom if values.len() == 1 => match values.pop() {
                 Some(LoweredValue::List(items)) => {
@@ -8223,7 +8223,7 @@ impl Evaluator {
         let key = lowered_projected_key_value(&state.projection, &item, indices.as_ref(), span)?;
         let key = lowered_reduce_key_value(&key, span)?;
         match groups.entry(key) {
-            std::collections::btree_map::Entry::Vacant(slot) => {
+            bbtree::unsync::bbtree_map::Entry::Vacant(slot) => {
                 slot.insert(LoweredValue::RecordVec(Arc::new(
                     lowered_projected_record_value(
                         &state.projection,
@@ -8233,7 +8233,7 @@ impl Evaluator {
                     )?,
                 )));
             }
-            std::collections::btree_map::Entry::Occupied(mut slot) => {
+            bbtree::unsync::bbtree_map::Entry::Occupied(mut slot) => {
                 if let LoweredValue::RecordVec(acc) = slot.get_mut() {
                     if state.output_fields_unique
                         && lowered_projected_acc_layout_matches(&state.projection, acc)
@@ -8326,11 +8326,11 @@ mod record_binding_tests {
                 Box::new(LoweredCompTarget::Record { fields: nested }),
                 span,
             ));
-            let source = LoweredValue::Record(Arc::new(std::collections::BTreeMap::from([
+            let source = LoweredValue::Record(Arc::new(bbtree::unsync::BBTreeMap::from([
                 (Arc::from("first"), LoweredValue::Int(9)),
                 (
                     Arc::from("nested"),
-                    LoweredValue::Record(Arc::new(std::collections::BTreeMap::new())),
+                    LoweredValue::Record(Arc::new(bbtree::unsync::BBTreeMap::new())),
                 ),
             ])));
             let mut slots = [LoweredValue::Int(1), LoweredValue::Int(2)];

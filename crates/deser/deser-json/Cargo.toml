@@ -22,6 +22,7 @@ io = ["std", "deser-core/io"]
 speedups = ["dep:simdutf8"]
 
 [dependencies]
+bbtree = "0.1.5"
 deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
 simdutf8 = { version = "0.1.5", optional = true, default-features = false }
 itoa = "1.0.18"

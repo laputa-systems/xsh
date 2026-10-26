@@ -6,7 +6,7 @@
 //! native test corpus to the same contract and also runs it.
 
 use super::{Formatter, fresh_name, hidden_names, is_spellable_name};
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;

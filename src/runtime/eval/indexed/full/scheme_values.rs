@@ -1,6 +1,6 @@
 use super::{FullBuilder, FullCallableContract, IrBuildError, IrFunctionId, IrRange, LoweredFunctionKey, QualifiedName, Type, TypeId};
 use crate::sema::scheme_callable::{SchemeCallableError, SchemeCallableId};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use crate::sema::check::SchemeBinderCorrespondence;
 use crate::sema::schemes::{CallableRequirements, CallableScheme, SchemeEffectParameterId, SchemeRowParameterId, SchemeTypeParameterId};
 
@@ -91,7 +91,7 @@ pub(super) fn correspondence_namespaces(store: &super::FullStore, canonical: IrF
         FullCallableContract::Scheme(id) => Ok(id), _ => Err(invalid()),
     };
     let mut pending = vec![(canonical, target.function, 0)];
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = bbtree::unsync::BBTreeSet::new();
     let mut offsets = [0u32; 3];
     let mut result = Vec::new();
     while let Some((canonical_function, actual_function, depth)) = pending.pop() {
@@ -187,7 +187,7 @@ impl FullBuilder {
                 if !matches!(header.contract, FullCallableContract::Scheme(_)) { return Err(Self::scheme_callable_build_error()); }
                 let actual = target.contract().scheme();
                 let mut encoded = (Vec::new(), Vec::new(), Vec::new());
-                let mut seen = std::collections::BTreeSet::new();
+                let mut seen = bbtree::unsync::BBTreeSet::new();
                 let mut pending = vec![(canonical.callable().as_ref(), actual.callable().as_ref(), target.correspondence(), 0)];
                 while let Some((canonical, actual, mapping, depth)) = pending.pop() {
                     if depth > crate::sema::constraints::MAX_TYPE_DEPTH { return Err(Self::scheme_callable_build_error()); }

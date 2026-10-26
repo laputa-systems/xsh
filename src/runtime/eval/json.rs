@@ -5,7 +5,7 @@ use crate::map_key::{MapKey, MapKeyRef};
 use crate::runtime::value::{RecordIter, RuntimeError};
 use crate::source::Span;
 use crate::symbol::Name;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::borrow::Cow;
 use deser::{Atom, Error, ErrorKind, Serialize, State};
 use deser::ser::{Emit, MapEmitter, SeqEmitter, SerializeHandle, StructEmitter};
@@ -46,7 +46,7 @@ enum CodecSequence<'a> {
     Paths(std::slice::Iter<'a, crate::runtime::value::PathValue>),
     Runtime(std::slice::Iter<'a, Value>),
     Lowered(std::slice::Iter<'a, LoweredValue>),
-    Set(std::collections::btree_set::Iter<'a, MapKey>),
+    Set(bbtree::unsync::bbtree_set::Iter<'a, MapKey>),
 }
 
 enum CodecMap<'a> {
@@ -78,10 +78,10 @@ enum CodecFieldKey<'a> {
 
 enum CodecFields<'a> {
     Empty,
-    RuntimeMap(std::collections::btree_map::Iter<'a, MapKey, Value>),
-    LoweredMap(std::collections::btree_map::Iter<'a, MapKey, LoweredValue>),
+    RuntimeMap(bbtree::unsync::bbtree_map::Iter<'a, MapKey, Value>),
+    LoweredMap(bbtree::unsync::bbtree_map::Iter<'a, MapKey, LoweredValue>),
     RuntimeRecord(RecordIter<'a>),
-    LoweredRecord(std::collections::btree_map::Iter<'a, Arc<str>, LoweredValue>),
+    LoweredRecord(bbtree::unsync::bbtree_map::Iter<'a, Arc<str>, LoweredValue>),
     RecordVec(std::vec::IntoIter<(&'a Name, &'a LoweredValue)>),
 }
 

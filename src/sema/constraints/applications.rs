@@ -4,7 +4,8 @@ use crate::sema::callable_application::{CallableApplication, CallableInvocation,
 use crate::sema::check::EffectDeclarationId;
 use crate::sema::effects::{EffectContract, EffectSet};
 use crate::sema::types::{CallableKind, Type};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_APPLICATION: AtomicU64 = AtomicU64::new(1);

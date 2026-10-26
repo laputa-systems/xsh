@@ -419,7 +419,7 @@
 //! same containers:
 //!
 //! ```
-//! use std::collections::BTreeMap;
+//! use bbtree::unsync::BBTreeMap as BTreeMap;
 //! use std::net::IpAddr;
 //! use deser::{Deserialize, Serialize};
 //! use deser::adapters::DisplayFromStr;

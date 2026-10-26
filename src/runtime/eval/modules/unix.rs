@@ -6,7 +6,7 @@ use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use rustix::{io as rio, process as rprocess};
 #[cfg(feature = "native-tests")]
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::num::NonZeroI32;
 
 /// The native-test double for the `unix` process-group, PID 1, tty, identity,

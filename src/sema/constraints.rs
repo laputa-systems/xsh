@@ -8,7 +8,7 @@ use super::schemes::TypeScheme;
 use crate::source::Span;
 use crate::syntax::arena::{ExprId, StmtId};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -2328,7 +2328,7 @@ impl TypeConstraints {
     pub(crate) fn contextual_record_fields(
         &self,
         expected: &Type,
-    ) -> Result<Option<std::collections::BTreeMap<crate::symbol::Name, Type>>, ConstraintResolutionError> {
+    ) -> Result<Option<bbtree::unsync::BBTreeMap<crate::symbol::Name, Type>>, ConstraintResolutionError> {
         let expected = self.resolve(expected)?;
         match expected.unvalidated() {
             Type::Record(fields) => Ok(Some(fields.as_ref().clone())),
@@ -5192,7 +5192,7 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
 }
 
 fn module_has_inference(
-    exports: &std::collections::BTreeMap<crate::symbol::Name, ModuleExportType>,
+    exports: &bbtree::unsync::BBTreeMap<crate::symbol::Name, ModuleExportType>,
     depth: usize,
 ) -> Result<bool, ConstraintResolutionError> {
     for export in exports.values() {
@@ -6426,7 +6426,7 @@ mod tests {
             let field = crate::symbol::Name::intern("field");
             let tail = constraints.fresh_row(span(3), [field]);
             let row = RowShape {
-                fields: std::collections::BTreeMap::from([(field, field_type.clone())]),
+                fields: bbtree::unsync::BBTreeMap::from([(field, field_type.clone())]),
                 tail: RowTail::Variable(tail),
             };
             constraints
@@ -6454,7 +6454,7 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let record_type = constraints.fresh(span(1));
             let row = RowShape {
-                fields: std::collections::BTreeMap::from([(
+                fields: bbtree::unsync::BBTreeMap::from([(
                     crate::symbol::Name::intern("field"),
                     Type::Int,
                 )]),
@@ -6490,11 +6490,11 @@ mod tests {
             let left_tail = constraints.fresh_row(span(3), [left_field]);
             let right_tail = constraints.fresh_row(span(4), [right_field]);
             let left_row = RowShape {
-                fields: std::collections::BTreeMap::from([(left_field, Type::Int)]),
+                fields: bbtree::unsync::BBTreeMap::from([(left_field, Type::Int)]),
                 tail: RowTail::Variable(left_tail),
             };
             let right_row = RowShape {
-                fields: std::collections::BTreeMap::from([(right_field, Type::Bool)]),
+                fields: bbtree::unsync::BBTreeMap::from([(right_field, Type::Bool)]),
                 tail: RowTail::Variable(right_tail),
             };
             constraints
@@ -6513,7 +6513,7 @@ mod tests {
                 .unwrap();
             constraints.constrain(&left, &right, span(7)).unwrap();
 
-            let closed = Type::Record(Arc::new(std::collections::BTreeMap::from([
+            let closed = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([
                 (left_field, Type::Int),
                 (right_field, Type::Bool),
             ])));
@@ -6951,9 +6951,9 @@ mod tests {
             let inference = base.fresh(span(1));
             let inner_name = crate::symbol::Name::intern("inner");
             let outer_name = crate::symbol::Name::intern("outer");
-            let original = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+            let original = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                 outer_name,
-                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                     inner_name,
                     inference.clone(),
                 )]))),
@@ -6973,9 +6973,9 @@ mod tests {
 
             assert_eq!(
                 int_record,
-                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                     outer_name,
-                    Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                         inner_name,
                         Type::Int,
                     )]))),
@@ -6983,9 +6983,9 @@ mod tests {
             );
             assert_eq!(
                 path_record,
-                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                     outer_name,
-                    Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                         inner_name,
                         Type::Path,
                     )]))),
@@ -6993,9 +6993,9 @@ mod tests {
             );
             assert_eq!(
                 original,
-                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                     outer_name,
-                    Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                         inner_name,
                         inference,
                     )]))),
@@ -7010,7 +7010,7 @@ mod tests {
             let name = crate::symbol::Name::intern("next");
             let mut ground = Type::Int;
             for _ in 0..=MAX_TYPE_DEPTH {
-                ground = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                ground = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                     name, ground,
                 )])));
             }
@@ -7027,7 +7027,7 @@ mod tests {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let mut owner = TypeConstraints::default();
             let foreign = owner.fresh(span(1));
-            let record = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+            let record = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                 crate::symbol::Name::intern("value"),
                 foreign,
             )])));
@@ -7145,7 +7145,7 @@ mod tests {
                     .is_err()
             );
         }
-        let record = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+        let record = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
             crate::symbol::Name::intern("value"),
             Type::Int,
         )])));
@@ -7169,10 +7169,10 @@ mod tests {
             let item = constraints.fresh(span(1));
             let name = crate::symbol::Name::intern("value");
             let expected = Type::List(Box::new(Type::Record(Arc::new(
-                std::collections::BTreeMap::from([(name, item.clone())]),
+                bbtree::unsync::BBTreeMap::from([(name, item.clone())]),
             ))));
             let actual = Type::List(Box::new(Type::Record(Arc::new(
-                std::collections::BTreeMap::from([
+                bbtree::unsync::BBTreeMap::from([
                     (name, Type::Int),
                     (crate::symbol::Name::intern("extra"), Type::Bool),
                 ]),
@@ -7185,11 +7185,11 @@ mod tests {
     fn optional_record_contributions_keep_one_shape_in_either_order() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let name = crate::symbol::Name::intern("value");
-            let narrow = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+            let narrow = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(
                 name,
                 Type::Int,
             )])));
-            let wide = Type::Record(Arc::new(std::collections::BTreeMap::from([
+            let wide = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([
                 (name, Type::Int),
                 (crate::symbol::Name::intern("extra"), Type::Bool),
             ])));
@@ -7222,7 +7222,7 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let item = constraints.fresh(span(1));
             let recursive = ConstraintType::Record(RowShape {
-                fields: std::collections::BTreeMap::from([(
+                fields: bbtree::unsync::BBTreeMap::from([(
                     crate::symbol::Name::intern("item"),
                     item.clone(),
                 )]),
@@ -7246,11 +7246,11 @@ mod tests {
             let field = crate::symbol::Name::intern("field");
             let tail = constraints.fresh_row(span(1), std::iter::empty());
             let empty = RowShape {
-                fields: std::collections::BTreeMap::new(),
+                fields: bbtree::unsync::BBTreeMap::new(),
                 tail: RowTail::Variable(tail),
             };
             let recursive = RowShape {
-                fields: std::collections::BTreeMap::from([(field, Type::Int)]),
+                fields: bbtree::unsync::BBTreeMap::from([(field, Type::Int)]),
                 tail: RowTail::Variable(tail),
             };
             assert!(constraints
@@ -7269,14 +7269,14 @@ mod tests {
             let field = crate::symbol::Name::intern("field");
             constraints.constrain(&alias, &first, span(3)).unwrap();
             let left = RowShape {
-                fields: std::collections::BTreeMap::from([
+                fields: bbtree::unsync::BBTreeMap::from([
                     (field, alias.clone()),
                     (crate::symbol::Name::intern("fixed"), Type::Int),
                 ]),
                 tail: RowTail::Closed,
             };
             let right = RowShape {
-                fields: std::collections::BTreeMap::from([
+                fields: bbtree::unsync::BBTreeMap::from([
                     (field, Type::Path),
                     (crate::symbol::Name::intern("fixed"), Type::Str),
                 ]),
@@ -7301,11 +7301,11 @@ mod tests {
             let left_tail = constraints.fresh_row(span(40), [field, extra]);
             let right_tail = constraints.fresh_row(span(41), [field, extra]);
             let left = RowShape {
-                fields: std::collections::BTreeMap::from([(field, variables[7].clone())]),
+                fields: bbtree::unsync::BBTreeMap::from([(field, variables[7].clone())]),
                 tail: RowTail::Variable(left_tail),
             };
             let right = RowShape {
-                fields: std::collections::BTreeMap::from([
+                fields: bbtree::unsync::BBTreeMap::from([
                     (field, Type::Int),
                     (extra, Type::Bool),
                 ]),
@@ -7321,7 +7321,7 @@ mod tests {
             assert_eq!(
                 constraints.resolve_row(&left).unwrap(),
                 RowShape {
-                    fields: std::collections::BTreeMap::from([(field, variables[0].clone())]),
+                    fields: bbtree::unsync::BBTreeMap::from([(field, variables[0].clone())]),
                     tail: RowTail::Variable(left_tail),
                 }
             );
@@ -7337,11 +7337,11 @@ mod tests {
             let field_type = constraints.fresh(span(1));
             let tail = constraints.fresh_row(span(2), [field]);
             let open = RowShape {
-                fields: std::collections::BTreeMap::from([(field, field_type.clone())]),
+                fields: bbtree::unsync::BBTreeMap::from([(field, field_type.clone())]),
                 tail: RowTail::Variable(tail),
             };
             let closed = RowShape {
-                fields: std::collections::BTreeMap::from([
+                fields: bbtree::unsync::BBTreeMap::from([
                     (field, Type::Int),
                     (extra, Type::Set(Box::new(Type::Any))),
                 ]),
@@ -7367,20 +7367,20 @@ mod tests {
             let field = crate::symbol::Name::intern("field");
             let tail = base.fresh_row(span(1), std::iter::empty());
             let open = RowShape {
-                fields: std::collections::BTreeMap::from([(field, Type::Int)]),
+                fields: bbtree::unsync::BBTreeMap::from([(field, Type::Int)]),
                 tail: RowTail::Variable(tail),
             };
             let mut integer_probe = base.clone();
             let mut string_probe = base.clone();
             let integer_row = RowShape {
-                fields: std::collections::BTreeMap::from([
+                fields: bbtree::unsync::BBTreeMap::from([
                     (field, Type::Int),
                     (crate::symbol::Name::intern("extra"), Type::Bool),
                 ]),
                 tail: RowTail::Closed,
             };
             let string_row = RowShape {
-                fields: std::collections::BTreeMap::from([
+                fields: bbtree::unsync::BBTreeMap::from([
                     (field, Type::Int),
                     (crate::symbol::Name::intern("extra"), Type::Str),
                 ]),
@@ -7414,11 +7414,11 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let field = crate::symbol::Name::intern("required");
             let expected = RowShape {
-                fields: std::collections::BTreeMap::from([(field, Type::Int)]),
+                fields: bbtree::unsync::BBTreeMap::from([(field, Type::Int)]),
                 tail: RowTail::Closed,
             };
             let actual = RowShape {
-                fields: std::collections::BTreeMap::new(),
+                fields: bbtree::unsync::BBTreeMap::new(),
                 tail: RowTail::Closed,
             };
             assert!(constraints

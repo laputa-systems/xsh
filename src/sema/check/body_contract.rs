@@ -12,7 +12,7 @@ use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::arena::{ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
 use crate::syntax::node::{BinaryOp, StreamStageKind};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

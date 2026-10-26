@@ -2,7 +2,7 @@ use super::schemes::{FullBinderRanges, FullInstantiation, FullRequirementRanges,
 use super::{FullBuilder, IrBuildError, IrRange, IR_NONE};
 use crate::sema::guarded_requirements::{GuardBinding, GuardRequirements};
 use crate::sema::schemes::{SchemeEffectParameterId, SchemeRowParameterId, SchemeTypeParameterId};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

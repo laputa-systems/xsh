@@ -1,5 +1,5 @@
 use crate::syntax::node::Effect;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableEffects {

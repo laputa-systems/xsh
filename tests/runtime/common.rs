@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-pub(crate) use std::collections::BTreeMap;
+pub(crate) use bbtree::unsync::BBTreeMap as BTreeMap;
 pub(crate) use std::io::{BufRead, BufReader, Read, Write};
 pub(crate) use std::os::unix::ffi::{OsStrExt, OsStringExt};
 pub(crate) use std::path::{Path, PathBuf};

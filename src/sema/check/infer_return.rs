@@ -458,7 +458,7 @@ impl Checker {
             self.function_return_types.insert(body, ty);
         }
         let mut propagations = Vec::new();
-        let mut inferred_dynamic_returns = std::collections::BTreeSet::new();
+        let mut inferred_dynamic_returns = bbtree::unsync::BBTreeSet::new();
         for &index in component {
             let declaration = &declarations[index];
             let Some(definition) = declaration.definition() else {
@@ -984,7 +984,7 @@ pub(super) fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
             Some(Type::Record(
                 left.iter()
                     .map(|(name, ty)| Some((*name, unify_return_shapes(ty, &right[name])?)))
-                    .collect::<Option<std::collections::BTreeMap<_, _>>>()?
+                    .collect::<Option<bbtree::unsync::BBTreeMap<_, _>>>()?
                     .into(),
             ))
         }

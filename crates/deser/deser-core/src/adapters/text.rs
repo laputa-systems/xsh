@@ -1,7 +1,8 @@
 //! Adapters that work on the text of values: [`Separated`],
 //! [`TrimWhitespace`] and [`SkipBlank`].
 use alloc::borrow::Cow;
-use alloc::collections::{BTreeSet, VecDeque};
+use alloc::collections::{VecDeque};
+use bbtree::unsync::{BBTreeSet as BTreeSet};
 use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;

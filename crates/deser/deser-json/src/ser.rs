@@ -61,7 +61,7 @@ pub enum InlinePolicy {
 /// own:
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_json::{Indent, SerializerConfig};
 ///
 /// let value = BTreeMap::from([("name", vec!["a", "b"])]);
@@ -207,7 +207,7 @@ impl SerializerConfig {
     /// that is not followed by a line break:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_json::SerializerConfig;
     ///
     /// let value = BTreeMap::from([("a", vec![1, 2])]);
@@ -259,7 +259,7 @@ impl SerializerConfig {
     /// is [`Indent::None`], in which case the output is compact again.
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_json::{Indent, SerializerConfig};
     ///
     /// let value = BTreeMap::from([("a", 1)]);

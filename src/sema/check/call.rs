@@ -1639,7 +1639,7 @@ impl Checker {
                         let declaration = super::FunctionDeclarationId::new(owner);
                         let pending = self.declaration_inference.pending(declaration)?;
                         let formals = pending.provisional()?.params().iter().map(|parameter| parameter.signature.ty.clone()).collect::<Vec<_>>();
-                        self.type_constraints.unresolved_local_holes_are_input_bound(owner, &std::collections::BTreeSet::from([owner]), &instance.arguments, &formals)
+                        self.type_constraints.unresolved_local_holes_are_input_bound(owner, &bbtree::unsync::BBTreeSet::from([owner]), &instance.arguments, &formals)
                             .ok().filter(|bound| *bound).map(|_| declaration)
                     });
                     if let Some(owner) = owner {

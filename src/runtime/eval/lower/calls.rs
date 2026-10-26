@@ -13,7 +13,7 @@ use super::{
 
 pub(super) struct CheckedRecordConstruction<T = Type> {
     pub(super) schema: T,
-    pub(super) defaults: std::collections::BTreeMap<Name, crate::sema::constants::LiteralConstant>,
+    pub(super) defaults: bbtree::unsync::BBTreeMap<Name, crate::sema::constants::LiteralConstant>,
     pub(super) positional_fields: Vec<Name>,
     pub(super) name: Arc<str>,
 }
@@ -26,7 +26,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     pub(super) fn lower_scheme_stage_value_call(
         &mut self, callee: ExprId, argument: CallArgument<super::SchemeType>, slots: &mut SlotScope,
-        current_function: Name, facts: &super::SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
+        current_function: Name, facts: &super::SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut bbtree::unsync::BBTreeMap<BuildExprId, super::SchemeType>,
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(callee).span;
         let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(callee)).copied();

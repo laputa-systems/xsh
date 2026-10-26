@@ -1,5 +1,5 @@
 //! Raw CBOR values.
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use crate::common::{hex, to_hex};
 use deser::adapters::Borrowed;

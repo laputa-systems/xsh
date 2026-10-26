@@ -104,8 +104,8 @@ impl Checker {
                     _ => None,
                 };
                 if matches!(context, StorageContext::Expected(_)) && expected_fields.is_none() { return Ok(keep()); }
-                let mut plans = std::collections::BTreeMap::new();
-                let mut destination = std::collections::BTreeMap::new();
+                let mut plans = bbtree::unsync::BBTreeMap::new();
+                let mut destination = bbtree::unsync::BBTreeMap::new();
                 for (&name, field) in fields.iter() {
                     let plan = self.storage_materialization_plan(field, context.child(expected_fields.as_ref().and_then(|fields| fields.get(&name))), span, depth + 1)?;
                     destination.insert(name, plan.destination.clone());

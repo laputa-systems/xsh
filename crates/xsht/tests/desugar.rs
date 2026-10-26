@@ -13,7 +13,7 @@
 //! `crates/xsht/src/desugar_tests.rs` hold a handful of inline programs to
 //! the checking half of the same contract.
 
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::{Path, PathBuf};

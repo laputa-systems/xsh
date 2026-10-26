@@ -10,3 +10,6 @@ native-tests = []
 
 [lints]
 workspace = true
+
+[dependencies]
+bbtree = "0.1.5"

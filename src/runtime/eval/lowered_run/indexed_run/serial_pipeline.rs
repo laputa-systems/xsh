@@ -339,7 +339,7 @@ enum IndexedKeyedStage {
     Count {
         slot: usize,
         key: u32,
-        counts: std::collections::BTreeMap<String, i64>,
+        counts: bbtree::unsync::BBTreeMap<String, i64>,
     },
     Unique {
         slot: usize,
@@ -621,7 +621,7 @@ impl IndexedMaterializedStage {
                 keyed = Some(IndexedKeyedStage::Count {
                     slot,
                     key: key.raw(),
-                    counts: std::collections::BTreeMap::new(),
+                    counts: bbtree::unsync::BBTreeMap::new(),
                 });
             }
             StageView::UniqueBy { slot, key } => {
@@ -1868,7 +1868,7 @@ pub(super) fn indexed_table_print(
     };
     let records = lowered_pipeline_record_list(&LoweredValue::List(collected), span)?;
     let columns = columns.unwrap_or_else(|| {
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = bbtree::unsync::BBTreeSet::new();
         let mut columns = Vec::new();
         for record in &records {
             for key in record.keys() {

@@ -1237,7 +1237,7 @@ impl<'de> Drop for DriverCore<'de> {
 fn test_arena_is_not_orphaned() {
     use crate::arena::ORPHANED;
     use crate::de::Recording;
-    use alloc::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use alloc::string::String;
 
     let orphaned = ORPHANED.with(|x| x.get());
@@ -1291,7 +1291,7 @@ fn test_arena_is_not_orphaned() {
 fn test_sink_outlives_state() {
     use crate::arena::ORPHANED;
     use crate::de::OwnedSink;
-    use alloc::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use alloc::string::String;
 
     // the sink is in the arena of a temporary state, the arena is orphaned
@@ -1333,7 +1333,7 @@ fn test_sink_outlives_state() {
 
 #[test]
 fn test_driver() {
-    let mut out: Option<alloc::collections::BTreeMap<u32, String>> = None;
+    let mut out: Option<bbtree::unsync::BBTreeMap<u32, String>> = None;
     {
         let mut driver = DeserializeDriver::new(&mut out);
         driver.emit(Event::map_start()).unwrap();

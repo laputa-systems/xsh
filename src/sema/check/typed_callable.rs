@@ -186,7 +186,7 @@ impl Checker {
             assert!(args.is_empty(), "a checked argument replaces source arguments");
             vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: argument.ty.clone(), span: argument.span }]
         } else {
-            let mut checked = std::collections::BTreeMap::new();
+            let mut checked = bbtree::unsync::BBTreeMap::new();
             for argument in args {
                 let value = match argument.kind {
                     ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }

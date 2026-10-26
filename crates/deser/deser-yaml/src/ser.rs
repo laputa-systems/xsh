@@ -101,7 +101,7 @@ pub enum NullStyle {
 /// * bytes are written as `!!binary` (see [`set_binary`](Self::set_binary)).
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_yaml::SerializerConfig;
 ///
 /// let mut value = BTreeMap::new();

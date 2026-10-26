@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::fs;
 use std::io::Read;
 use xsh::api::api_spec;

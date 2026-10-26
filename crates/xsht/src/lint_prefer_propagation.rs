@@ -1,5 +1,5 @@
 use super::lint_redundant_propagation::PropagationFacts;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{EffectDeclarationId, FunctionEffectFact, StatementPosition, Type};
 use xsh::frontend::source::Span;

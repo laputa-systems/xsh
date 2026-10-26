@@ -1,7 +1,7 @@
 use deser::Error;
 use deser::State;
 use deser::ser::{Emit, MapEmitter, Serialize, SerializeDriver, SerializeHandle};
-use std::collections::{BTreeMap, btree_map};
+use bbtree::unsync::{BBTreeMap as BTreeMap, bbtree_map as btree_map};
 
 struct Flags(BTreeMap<u64, bool>);
 

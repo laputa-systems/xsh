@@ -2,7 +2,7 @@ use crate::modules::{group, unix, user};
 use crate::runtime::process::ProcessInvocation;
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::{SourceId, Span};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};

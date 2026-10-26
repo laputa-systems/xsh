@@ -1,5 +1,5 @@
 use super::{ApiDocs, MethodReceiver, MethodReceiverSig, ModuleEntry};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 pub fn module_api_id(module: &str, function: &str) -> String {
     format!("module.{module}.{function}")

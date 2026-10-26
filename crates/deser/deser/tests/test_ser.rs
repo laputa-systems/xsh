@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 
 use deser::ser::{SerializeDriver, SerializeRef};
 use deser::{Atom, Event, Serialize};
@@ -185,7 +185,7 @@ fn test_is_map_key() {
     #[derive(Serialize)]
     struct Item {
         id: u32,
-        tags: std::collections::BTreeMap<u32, (u32, u32)>,
+        tags: bbtree::unsync::BBTreeMap<u32, (u32, u32)>,
     }
 
     let item = Item {
@@ -298,7 +298,8 @@ fn test_describe_through_layers() {
 /// `next`.
 #[test]
 fn test_drive_like_next() {
-    use std::collections::{BTreeMap, VecDeque};
+    use std::collections::{VecDeque};
+    use bbtree::unsync::{BBTreeMap as BTreeMap};
 
     fn check<T: Serialize + ?Sized>(value: &T) {
         type Seen = (Event<'static>, bool, usize);
@@ -338,7 +339,7 @@ fn test_drive_like_next() {
         "a".to_string(),
         1u8,
     )])]);
-    check(&std::collections::BTreeSet::from([(1u8, 'x')]));
+    check(&bbtree::unsync::BBTreeSet::from([(1u8, 'x')]));
     check(&std::collections::HashSet::from([1u64]));
 
     // structs emit runs of plain fields
@@ -431,7 +432,8 @@ fn test_drive_like_next() {
 }
 
 mod pausing {
-    use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+    use std::collections::{HashMap, VecDeque};
+    use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 
     use deser::ser::{EventSink, Layer, Next, SerializeDriver, SerializeRef};
     use deser::{Error, Event, Serialize, State};

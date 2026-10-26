@@ -16,7 +16,7 @@ mod imp {
     use crate::runtime::namespace::NamespaceKind;
     use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
     use crate::source::Span;
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use std::fs;
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};

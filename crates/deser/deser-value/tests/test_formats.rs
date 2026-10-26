@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 
 use deser::ext::{Datetime, Number};
 use deser::hints::Compact;
@@ -129,7 +129,7 @@ fn test_yaml_plain_scalars() {
             owner: None,
         }
     );
-    let map: std::collections::BTreeMap<String, String> = deser_yaml::from_str("200: ok").unwrap();
+    let map: bbtree::unsync::BBTreeMap<String, String> = deser_yaml::from_str("200: ok").unwrap();
     assert_eq!(map["200"], "ok");
 }
 

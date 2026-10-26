@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn missing_target_returns_run_error_value_and_process_end() {
         let span = Span::new(SourceId::new(0), 0, 4);
-        let mut env: std::collections::BTreeMap<Vec<u8>, Vec<u8>> = std::env::vars_os()
+        let mut env: bbtree::unsync::BBTreeMap<Vec<u8>, Vec<u8>> = std::env::vars_os()
             .map(|(name, value)| {
                 use std::os::unix::ffi::OsStrExt;
                 (

@@ -1,4 +1,4 @@
-use alloc::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -252,7 +252,7 @@ impl DeserializerConfig {
     /// the delimiter of the file.
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     ///
     /// let config = deser_csv::DeserializerConfig::builder().sep_line(true).build();
     /// let rows: Vec<BTreeMap<String, u32>> =

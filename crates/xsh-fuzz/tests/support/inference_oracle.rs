@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 
 #[path = "inference_effect_oracle.rs"]
 pub mod effects;

@@ -8,7 +8,7 @@ use xsh::frontend::syntax::arena::{
 };
 
 use rustc_hash::FxHashSet;
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 
 /// Checker uses without an expression node still keep a root alive when they
 /// transfer it through a tail or a record shorthand.

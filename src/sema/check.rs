@@ -15,7 +15,7 @@ pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, Una
 use callable_alias::CallableAlias;
 pub use callable_alias::StaticCallableAlias;
 pub(crate) use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::Arc;
 
 /// Borrowed reachable scopes keep preparation on the original stable arena IDs.
@@ -1154,7 +1154,7 @@ impl PendingFunctionSig {
         }
     }
 
-    pub(super) fn generalized_noncompleting_expressions(&self) -> Option<&std::collections::BTreeSet<ExprId>> {
+    pub(super) fn generalized_noncompleting_expressions(&self) -> Option<&bbtree::unsync::BBTreeSet<ExprId>> {
         match &self.callable {
             PendingCallable::Generalized(callable) => Some(&callable.noncompleting_expressions),
             PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
@@ -1198,7 +1198,7 @@ impl PendingFunctionSig {
         }
     }
 
-    pub(super) fn generalized_read_bindings(&self) -> Option<&std::collections::BTreeSet<BindingId>> {
+    pub(super) fn generalized_read_bindings(&self) -> Option<&bbtree::unsync::BBTreeSet<BindingId>> {
         match &self.callable {
             PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.read_bindings),
@@ -1210,12 +1210,12 @@ impl PendingFunctionSig {
         callable: Arc<super::schemes::CallableScheme>,
         generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
-        noncompleting_expressions: std::collections::BTreeSet<ExprId>,
+        noncompleting_expressions: bbtree::unsync::BBTreeSet<ExprId>,
         constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
         constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
-        read_bindings: std::collections::BTreeSet<BindingId>,
+        read_bindings: bbtree::unsync::BBTreeSet<BindingId>,
         guard_scopes: super::guarded_requirements::GuardBodyScopes,
     ) {
         assert!(
@@ -1242,12 +1242,12 @@ struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
     generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
-    noncompleting_expressions: std::collections::BTreeSet<ExprId>,
+    noncompleting_expressions: bbtree::unsync::BBTreeSet<ExprId>,
     constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
     constructor_instances: BTreeMap<ExprId, super::constants::CheckedRecordConstructor<super::schemes::SchemeType>>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
-    read_bindings: std::collections::BTreeSet<BindingId>,
+    read_bindings: bbtree::unsync::BBTreeSet<BindingId>,
     guard_scopes: super::guarded_requirements::GuardBodyScopes,
 }
 

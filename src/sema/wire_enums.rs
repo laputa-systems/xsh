@@ -4,7 +4,7 @@ use crate::sema::constants::LiteralConstant;
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaTypeDefBody, ExprId};
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::Arc;
 
 /// A declaring enum's validated wire mapping, shared by constructors and schemas.

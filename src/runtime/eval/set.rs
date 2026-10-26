@@ -11,7 +11,7 @@ use super::{LoweredValue, RuntimeError};
 use crate::map_key::{MapKey, MapKeyRef};
 use crate::source::Span;
 use crate::syntax::node::BinaryOp;
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 use std::sync::Arc;
 
 fn require_element_domain(

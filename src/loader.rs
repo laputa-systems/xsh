@@ -14,7 +14,7 @@ use crate::syntax::cst::{LazyCst, SyntaxTree};
 use crate::syntax::parser::{ArenaParseOutput, Parser};
 use crate::syntax::token::TokenTable;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

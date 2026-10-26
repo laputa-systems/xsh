@@ -20,7 +20,7 @@ impl Checker {
                 let left = self.scheme_callable_relationship(*left).ok()?;
                 let right = self.scheme_callable_relationship(*right).ok()?;
                 let callables = self.scheme_callables.lock().expect("checked scheme callable table is poisoned");
-                let mut targets = std::collections::BTreeMap::new();
+                let mut targets = bbtree::unsync::BBTreeMap::new();
                 for target in left.targets().iter().chain(right.targets()) {
                     let identity = target.target();
                     let key = (identity.namespace, identity.name, identity.definition.index());
@@ -37,7 +37,7 @@ impl Checker {
             (Type::Optional(left), Type::Optional(right)) => Some(Type::Optional(Box::new(self.merge_scheme_callable_parts(left, right)?))),
             (Type::Result(left, left_error), Type::Result(right, right_error)) if left_error == right_error => Some(Type::Result(Box::new(self.merge_scheme_callable_parts(left, right)?), left_error.clone())),
             (Type::Record(left), Type::Record(right)) if left.keys().eq(right.keys()) => {
-                let fields = left.iter().map(|(&name, left)| Some((name, self.merge_scheme_callable_parts(left, &right[&name])?))).collect::<Option<std::collections::BTreeMap<_, _>>>()?;
+                let fields = left.iter().map(|(&name, left)| Some((name, self.merge_scheme_callable_parts(left, &right[&name])?))).collect::<Option<bbtree::unsync::BBTreeMap<_, _>>>()?;
                 Some(Type::Record(Arc::new(fields)))
             }
             _ => None,

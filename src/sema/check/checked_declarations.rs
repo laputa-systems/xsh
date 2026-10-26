@@ -168,10 +168,10 @@ impl CheckedDeclarations {
             }
             let Some(signature) = signature else { continue; };
             match output.function_signatures.entry(body) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
+                bbtree::unsync::bbtree_map::Entry::Vacant(entry) => {
                     entry.insert(signature.clone());
                 }
-                std::collections::btree_map::Entry::Occupied(entry) => {
+                bbtree::unsync::bbtree_map::Entry::Occupied(entry) => {
                     assert_eq!(entry.get(), &signature, "one function body has one checked signature");
                 }
             }
@@ -369,7 +369,7 @@ mod tests {
     use crate::symbol::{Name, QualifiedName, SymbolOwner};
     use crate::syntax::arena::{ExprId, FunctionDefId};
     use crate::syntax::parser::Parser;
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use std::sync::Arc;
 
     // Native commands stop after a check error; this boundary exercises the
@@ -660,11 +660,11 @@ mod tests {
             );
             let body_facts = SchemeBodyFacts::new(
                 std::sync::Arc::clone(&scheme),
-                std::collections::BTreeMap::from([(
+                bbtree::unsync::BBTreeMap::from([(
                     ExprId::from_index(0),
                     SchemeType::Parameter(type_parameter),
                 )]),
-                std::collections::BTreeMap::new(),
+                bbtree::unsync::BBTreeMap::new(),
             )
             .unwrap();
             declarations.functions.insert(

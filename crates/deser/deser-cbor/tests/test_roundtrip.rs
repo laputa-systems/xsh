@@ -3,7 +3,8 @@
 //! Adapted from the cbor2 test suite.
 use crate::common;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{HashMap};
+use bbtree::unsync::{BBTreeMap as BTreeMap};
 use std::fmt::Debug;
 
 use common::{Value, de, hex, ser};

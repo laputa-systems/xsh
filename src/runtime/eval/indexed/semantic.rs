@@ -4,7 +4,7 @@ use crate::sema::validated::{ValidatedType, Validation};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::mem::size_of;
 
 const PARAM_DEFAULTED: u32 = 1;
@@ -1864,7 +1864,7 @@ mod tests {
 
     use super::*;
     use crate::sema::types::{CallableParamType, CallableType};
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     #[test]
     fn to_type_rejects_semantic_type_graphs_beyond_nesting_limit() {

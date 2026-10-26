@@ -59,7 +59,7 @@ use crate::syntax::node::{
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19512,7 +19512,7 @@ impl FullVerifier {
                 || mapping
                     .variants
                     .values()
-                    .collect::<std::collections::BTreeSet<_>>()
+                    .collect::<bbtree::unsync::BBTreeSet<_>>()
                     .len()
                     != mapping.variants.len()
             {
@@ -21244,7 +21244,7 @@ impl FullCodec for Arc<crate::sema::wire_enums::WireEnumMapping> {
                 || mapping
                     .variants
                     .values()
-                    .collect::<std::collections::BTreeSet<_>>()
+                    .collect::<bbtree::unsync::BBTreeSet<_>>()
                     .len()
                     != mapping.variants.len())
         {
@@ -27019,7 +27019,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             let apply = scheme_fixture_root_function(&forged, "apply");
             forged.store.function_metadata[apply].callable_kind = crate::sema::types::CallableKind::Pure;
             forged.store.function_metadata[apply].flags &= !1;
-            let ty = Type::Record(Arc::new(std::collections::BTreeMap::from([(Name::intern("handle"), Type::Function(crate::sema::types::CallableKind::Pure))])));
+            let ty = Type::Record(Arc::new(bbtree::unsync::BBTreeMap::from([(Name::intern("handle"), Type::Function(crate::sema::types::CallableKind::Pure))])));
             let ty = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &ty).unwrap();
             let captures = forged.store.functions[apply].captures.bounds(forged.store.captures.len()).unwrap();
             let capture = captures.into_iter().find(|&index| forged.store.string(forged.store.captures[index].name).unwrap() == "box").unwrap();
@@ -34486,7 +34486,7 @@ assert measured() == 1
         wrong.store.tags[writer] = FullTag::ExprStr;
         wrong.store.data[writer] = program.store.data[wrong_value];
         let _symbols = program.symbol_owner().enter();
-        let erased = Type::Record(std::collections::BTreeMap::from([
+        let erased = Type::Record(bbtree::unsync::BBTreeMap::from([
             (Name::intern("blanks"), Type::Any),
             (Name::intern("children"), Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
         ]).into());
@@ -57335,7 +57335,7 @@ proc local() [env, error] -> Int {
             }))
         };
         let module = Type::Module(Arc::new(crate::sema::types::ModuleType::exact(
-            std::collections::BTreeMap::new(),
+            bbtree::unsync::BBTreeMap::new(),
         )));
         let variants = vec![
             (Type::Unknown, LoweredType::Any),
@@ -57358,7 +57358,7 @@ proc local() [env, error] -> Int {
                 },
                 LoweredType::Error,
             ),
-            (Type::Record(std::collections::BTreeMap::new().into()), LoweredType::Record),
+            (Type::Record(bbtree::unsync::BBTreeMap::new().into()), LoweredType::Record),
             (module, LoweredType::Module),
             (callable(true), LoweredType::Function(crate::sema::types::CallableKind::Pure)),
             (callable(false), LoweredType::Function(crate::sema::types::CallableKind::Proc)),
@@ -57369,7 +57369,7 @@ proc local() [env, error] -> Int {
             assert_eq!(lowered_type_from_type(&ty), Ok(expected), "{ty:?}");
         }
 
-        let mut fields = std::collections::BTreeMap::new();
+        let mut fields = bbtree::unsync::BBTreeMap::new();
         fields.insert(Name::intern("field"), Type::Int);
         let nominal = Type::Validated(Box::new(
             crate::sema::validated::ValidatedType::new(

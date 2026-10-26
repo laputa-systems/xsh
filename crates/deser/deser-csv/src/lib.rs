@@ -185,7 +185,7 @@ use deser_core::de::Deserialize;
 /// Where the names of the columns come from.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_csv::{DeserializerConfig, Headers};
 ///
 /// let rows: Vec<BTreeMap<String, u32>> =
@@ -398,7 +398,7 @@ pub fn from_str<'de, T: Deserialize<'de>>(s: &'de str) -> Result<T, Error> {
 /// Fields which are not UTF-8 are passed on as bytes.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 ///
 /// let rows: Vec<BTreeMap<String, u32>> =
 ///     deser_csv::from_slice(b"a,b\n1,2\n").unwrap();

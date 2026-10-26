@@ -15,7 +15,7 @@ use crate::modules::api_spec;
 use crate::modules::signature::RuntimeOp;
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaCommand, ArenaExprKind, AstArena, CommandStmtId, ExprId};
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 
 /// A function whose body the runtime provides as a private representation
 /// operation.

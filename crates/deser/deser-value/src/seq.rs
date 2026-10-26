@@ -93,7 +93,7 @@ impl Seq {
     /// effect once the sequence has values.
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_value::{Seq, Value};
     ///
     /// let mut seq = Seq::new();

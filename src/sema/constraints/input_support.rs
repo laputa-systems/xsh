@@ -2,7 +2,7 @@ use super::{Binding, CallableApplicationScope, ConstraintResolutionError, Effect
 use crate::sema::effects::EffectContract;
 use crate::sema::types::{ModuleExportType, Type};
 use rustc_hash::FxHashSet;
-use std::collections::BTreeSet;
+use bbtree::unsync::BBTreeSet as BTreeSet;
 
 #[derive(Default)]
 pub(super) struct UnresolvedVariables {

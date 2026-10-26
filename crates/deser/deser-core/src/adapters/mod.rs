@@ -18,7 +18,7 @@
 //! attribute `_` can be used as a shorthand for [`Same`]:
 //!
 //! ```
-//! use std::collections::BTreeMap;
+//! use bbtree::unsync::BBTreeMap as BTreeMap;
 //! use std::net::IpAddr;
 //! use deser::{Deserialize, Serialize};
 //! use deser::adapters::DisplayFromStr;
@@ -283,7 +283,7 @@ pub(crate) use self::stock::skip_map_sink;
 /// `#[deser(as = ...)]` attributes `_` can be used instead.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser::Deserialize;
 /// use deser::adapters::DisplayFromStr;
 ///

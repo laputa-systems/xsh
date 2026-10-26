@@ -977,7 +977,7 @@ pub fn complete_remote_path(
     host: &str,
     path_prefix: &str,
     comp: &mut Completions,
-    env: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+    env: &bbtree::unsync::BBTreeMap<Vec<u8>, Vec<u8>>,
 ) {
     complete_remote_path_with_executable(
         std::path::Path::new("ssh"),
@@ -994,7 +994,7 @@ fn complete_remote_path_with_executable(
     host: &str,
     path_prefix: &str,
     timeout: std::time::Duration,
-    env: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+    env: &bbtree::unsync::BBTreeMap<Vec<u8>, Vec<u8>>,
     comp: &mut Completions,
 ) {
     use std::os::unix::ffi::OsStrExt;

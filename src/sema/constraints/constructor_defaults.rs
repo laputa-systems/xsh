@@ -1,7 +1,7 @@
 use super::{CallableApplicationScope, ConstraintChange, ConstraintResolutionError, SchemeOperationError, Type, TypeConstraints, TypeVariableId, Variable};
 use crate::sema::check::EffectDeclarationId;
 use crate::source::Span;
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_CONSTRUCTOR_DEFAULT: AtomicU64 = AtomicU64::new(1);

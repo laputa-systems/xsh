@@ -3,7 +3,8 @@ use super::application_constraints::ApplicationDependency;
 use crate::sema::sealed_operation::{ArithmeticDomain, ArithmeticSignature, SealedOperation, SealedOperationSignature, index_selection, slice_selection, record_override_selection, arithmetic_domain_accepts, arithmetic_result, arithmetic_selection};
 use crate::sema::types::Type;
 use crate::source::Span;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 

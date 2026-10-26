@@ -5102,7 +5102,7 @@ mod arena_tests {
     #[test]
     fn inferred_receiver_field_projection_uses_an_open_row() {
         use crate::sema::types::Type;
-        use std::collections::BTreeMap;
+        use bbtree::unsync::BBTreeMap as BTreeMap;
         use std::sync::Arc;
 
         let source = "pure select(value) { value.name }\n";

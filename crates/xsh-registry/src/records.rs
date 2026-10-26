@@ -12,7 +12,7 @@ pub use net_sockets::{
     linux_socket_address_argument_type, linux_socket_address_type,
 };
 pub use sampling::{linux_sample_type, linux_cpu_sample_type, linux_disk_sample_type, linux_process_sample_type};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::LazyLock;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {

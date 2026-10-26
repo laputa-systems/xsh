@@ -727,7 +727,7 @@ fn specialized_stats_blob_transfers_handles_in_its_map() {
     );
     let summary = super::super::LoweredValue::StatsBlob(Box::new(super::super::LoweredStatsValue {
         blanks: 0,
-        blobs: std::collections::BTreeMap::from([(crate::runtime::value::MapKey::Str("job".into()), super::super::LoweredValue::NetJob(Box::new(job.clone())))]),
+        blobs: bbtree::unsync::BBTreeMap::from([(crate::runtime::value::MapKey::Str("job".into()), super::super::LoweredValue::NetJob(Box::new(job.clone())))]),
         code: 0,
         comments: 0,
     }));

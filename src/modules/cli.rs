@@ -3,7 +3,7 @@
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustc_hash::FxHashSet;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -2901,7 +2901,7 @@ mod tests {
     use crate::sema::types::Type;
     use crate::source::{SourceId, Span};
     use crate::symbol::{Name, SymbolOwner};
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
     use std::sync::Arc;
 
     fn record_fields(ty: &Type) -> &Arc<BTreeMap<Name, Type>> {

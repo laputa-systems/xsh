@@ -24,7 +24,7 @@ use crate::source::Span;
 use crate::symbol::Name;
 use crate::syntax::node::{AssignOp, BinaryOp};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::Arc;
 
 pub(super) fn append_lowered_list_element(

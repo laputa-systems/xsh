@@ -16,7 +16,7 @@ use crate::sema::schemes::{
 use crate::sema::types::{CallableKind, Type};
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::Arc;
 
 struct ActualEquation {

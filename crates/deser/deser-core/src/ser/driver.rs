@@ -1309,7 +1309,7 @@ fn test_seq_emitting() {
 
 #[test]
 fn test_map_emitting() {
-    let mut map = alloc::collections::BTreeMap::new();
+    let mut map = bbtree::unsync::BBTreeMap::new();
     map.insert((1u32, 2u32), "first");
     map.insert((2, 3), "second");
 

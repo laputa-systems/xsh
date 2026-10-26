@@ -212,7 +212,7 @@ fn test_field_explicit_default() {
 
 #[test]
 fn test_field_expression_defaults() {
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     fn make_tags(n: usize) -> Vec<String> {
         (0..n).map(|x| x.to_string()).collect()

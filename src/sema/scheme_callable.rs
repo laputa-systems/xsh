@@ -1,6 +1,6 @@
 use super::check::{CheckedCallableContract, CheckedFunctionTarget, SchemeBinderCorrespondence};
 use std::num::NonZeroU64;
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -133,10 +133,10 @@ impl SchemeCallableRelationship {
 
 #[derive(Default)]
 pub(crate) struct SchemeCallableRetainedAllocations {
-    tables: std::collections::BTreeSet<usize>,
-    relationships: std::collections::BTreeSet<usize>,
-    schemes: std::collections::BTreeSet<usize>,
-    schemas: std::collections::BTreeSet<usize>,
+    tables: bbtree::unsync::BBTreeSet<usize>,
+    relationships: bbtree::unsync::BBTreeSet<usize>,
+    schemes: bbtree::unsync::BBTreeSet<usize>,
+    schemas: bbtree::unsync::BBTreeSet<usize>,
 }
 
 #[derive(Debug, Default)]
@@ -147,7 +147,7 @@ pub(crate) struct SchemeCallableTable {
 }
 
 impl SchemeCallableTable {
-    pub(crate) fn retained_bytes(&self, allocations: &mut SchemeCallableRetainedAllocations, counted_schemes: &std::collections::BTreeSet<usize>) -> usize {
+    pub(crate) fn retained_bytes(&self, allocations: &mut SchemeCallableRetainedAllocations, counted_schemes: &bbtree::unsync::BBTreeSet<usize>) -> usize {
         use std::mem::size_of;
         allocations.schemes.extend(counted_schemes);
         if !allocations.tables.insert(self as *const Self as usize) { return 0; }
@@ -202,7 +202,7 @@ impl SchemeCallableTable {
 pub(crate) struct SchemeCallableRebaser {
     destination: Arc<std::sync::Mutex<SchemeCallableTable>>,
     relationships: BTreeMap<SchemeCallableId, SchemeCallableId>,
-    active: std::collections::BTreeSet<SchemeCallableId>,
+    active: bbtree::unsync::BBTreeSet<SchemeCallableId>,
     schemes: BTreeMap<(SchemeCallableOwner, usize), (Arc<super::schemes::TypeScheme>, Arc<super::schemes::TypeScheme>)>,
 }
 

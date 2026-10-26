@@ -13,7 +13,7 @@ use super::shell::{
 };
 use super::signal;
 use rustix::termios::{self as rtermios, OptionalActions, Termios};
-use std::collections::BTreeMap;
+use bbtree::unsync::BBTreeMap as BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead, Write};

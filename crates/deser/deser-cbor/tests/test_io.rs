@@ -290,7 +290,8 @@ fn test_feeding_bounds_the_buffer() {
 }
 
 mod partial {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{HashMap};
+    use bbtree::unsync::{BBTreeMap as BTreeMap};
 
     use deser::ser::{Emit, SeqEmitter, Serialize, SerializeHandle};
     use deser::{Error, State};

@@ -11,7 +11,7 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::UnaryOp;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{BTreeMap, BTreeSet};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// A bounded literal value, independent of runtime bindings or evaluation.
@@ -3740,7 +3740,7 @@ impl ConstantPreparation<'_> {
                 if let ArenaTypeDefBody::RecordSchema(fields) = arena.type_def(definition).body {
                     for field in arena.schema_fields(fields) {
                         if let Some(default) = field.default
-                            && let std::collections::btree_map::Entry::Vacant(entry) =
+                            && let bbtree::unsync::bbtree_map::Entry::Vacant(entry) =
                                 values.entry(field.name)
                         {
                             entry.insert(self.expression(

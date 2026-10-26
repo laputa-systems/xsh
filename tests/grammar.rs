@@ -202,7 +202,7 @@ fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, ta
             .flat_map(|rule| (0..targeted_seeds).map(move |seed| (targeted_depth, seed, Some(rule.name)))),
     );
     let sentences = AtomicUsize::new(0);
-    let covered = Mutex::new(std::collections::BTreeSet::new());
+    let covered = Mutex::new(bbtree::unsync::BBTreeSet::new());
     let failures = for_each_parallel(&jobs, |&(depth, seed, target)| {
         let mut generator = Generator::new(grammar);
         let source = match target {

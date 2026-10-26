@@ -32,7 +32,7 @@
 //! events into it and the driver passes them on to the right sinks.
 //!
 //! ```rust
-//! use std::collections::BTreeMap;
+//! use bbtree::unsync::BBTreeMap as BTreeMap;
 //! use deser::de::DeserializeDriver;
 //! use deser::Event;
 //!

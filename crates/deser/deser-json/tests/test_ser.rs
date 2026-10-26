@@ -54,7 +54,7 @@ fn test_char() {
 
 #[test]
 fn test_map_keys() {
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     let mut map = BTreeMap::new();
     map.insert(42u32, 23u32);
@@ -112,7 +112,7 @@ fn test_string_escapes() {
 
 #[test]
 fn test_key_escapes() {
-    let mut map = std::collections::BTreeMap::new();
+    let mut map = bbtree::unsync::BBTreeMap::new();
     map.insert("plain", 1);
     map.insert("a \"quoted\" key", 2);
     map.insert("\n", 3);
@@ -142,7 +142,7 @@ fn test_string_lengths() {
 
 #[test]
 fn test_nested_containers() {
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     assert_eq!(
         to_string(&vec![vec![1u32, 2], vec![], vec![3]]).unwrap(),
@@ -169,7 +169,7 @@ fn test_wide_integers() {
     assert_eq!(to_string(&u128::MAX).unwrap(), u128::MAX.to_string());
     assert_eq!(to_string(&i128::MIN).unwrap(), i128::MIN.to_string());
 
-    let mut map = std::collections::BTreeMap::new();
+    let mut map = bbtree::unsync::BBTreeMap::new();
     map.insert(u128::MAX, 1u32);
     assert_eq!(
         to_string(&map).unwrap(),
@@ -180,7 +180,7 @@ fn test_wide_integers() {
 #[test]
 fn test_well_known_types() {
     use deser::ext::{BigInt, Datetime, Decimal, Duration, Timestamp, Uuid};
-    use std::collections::BTreeMap;
+    use bbtree::unsync::BBTreeMap as BTreeMap;
 
     // decimals and big integers are written as numbers
     let decimal: Decimal = "-12.50".parse().unwrap();
@@ -356,7 +356,7 @@ fn test_serializer() {
     );
     serializer.serialize(&1).unwrap();
     // a value that fails writes nothing
-    let invalid = std::collections::BTreeMap::from([(vec![1u32], 1u32)]);
+    let invalid = bbtree::unsync::BBTreeMap::from([(vec![1u32], 1u32)]);
     assert!(serializer.serialize(&invalid).is_err());
     serializer.serialize(&2).unwrap();
     assert_eq!(serializer.finish(), "1\n2\n");

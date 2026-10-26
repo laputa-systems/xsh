@@ -2,7 +2,8 @@ use super::{ConstraintChange, ConstraintResolutionError, Generalization, TypeCon
 use super::application_constraints::ApplicationDependency;
 use crate::sema::schemes::{CallableScheme, MethodFamilyRequirement, SchemeType};
 use crate::source::Span;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap, BBTreeSet as BTreeSet};
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 

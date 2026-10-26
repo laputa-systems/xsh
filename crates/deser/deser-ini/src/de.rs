@@ -20,7 +20,7 @@ use crate::{Continuation, InlineComments, Quotes, Syntax};
 /// once (even as a constant) and used for many inputs.
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use bbtree::unsync::BBTreeMap as BTreeMap;
 /// use deser_ini::{DeserializerConfig, Quotes};
 ///
 /// const CONFIG: DeserializerConfig =
@@ -81,7 +81,7 @@ impl DeserializerConfig {
     /// their case.
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_ini::DeserializerConfig;
     ///
     /// let value: BTreeMap<String, BTreeMap<String, String>> =
@@ -103,7 +103,7 @@ impl DeserializerConfig {
     /// `.gitmodules` like git does.
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use bbtree::unsync::BBTreeMap as BTreeMap;
     /// use deser_ini::DeserializerConfig;
     ///
     /// type Config = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;

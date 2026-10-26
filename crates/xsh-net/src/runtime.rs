@@ -8,7 +8,8 @@ use super::{NetAgent, NetDownload, NetError, NetRequest, NetResponse, NetResult,
 use async_executor::{Executor, Task};
 use async_io::{Async, Timer};
 use crossbeam_channel::{Receiver, Select, SelectTimeoutError, Sender, bounded};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{VecDeque};
+use bbtree::unsync::{BBTreeMap as BTreeMap};
 use std::future::Future;
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
