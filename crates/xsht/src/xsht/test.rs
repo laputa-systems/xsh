@@ -1372,12 +1372,24 @@ fn run_native_test_with_timeout(
         let route_witness_output_dir = route_witness_output_dir.clone();
         std::thread::Builder::new().name(format!("xsht-test-{index}")).spawn(move || {
             let outcome = run_native_test(case, index, &run_id, &options, route_witness_output_dir.as_deref(), cancellation);
-            let _ = tx.send(outcome);
+            let _ = tx.send(native_test_outcome_for_publication(outcome, cancellation_requested_signal()));
         })
     };
     let handle = match spawned { Ok(handle) => handle, Err(error) => return test_failure(format!("failed to start test thread: {error}")) };
     let outcome = wait_native_test(handle, rx, cancellation, options.timeout, stopped);
     finish_route_witness(outcome, route_witness_tempdir)
+}
+
+fn native_test_outcome_for_publication(mut outcome: TestOutcome, signal: Option<i32>) -> TestOutcome {
+    if signal.is_some() {
+        let detail = match outcome.kind {
+            TestOutcomeKind::Failed(detail) | TestOutcomeKind::Cancelled(detail) => detail,
+            _ => String::new(),
+        };
+        outcome.kind = TestOutcomeKind::Cancelled(detail);
+        outcome.coverage_trace = None;
+    }
+    outcome
 }
 
 fn wait_native_test(
@@ -2432,6 +2444,28 @@ mod tests {
         let outcome = super::wait_native_test(worker, rx, xsh::execution::evaluator::TestCancellation::default(), None, &stopped);
         assert!(matches!(outcome.kind, super::TestOutcomeKind::Passed));
         assert!(outcome.cleanup_error.is_none());
+    }
+
+    #[test]
+    fn native_child_failure_publication_retains_cancellation_origin() {
+        for signal in [Some(libc::SIGTERM), Some(libc::SIGINT), None] {
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+            let worker = std::thread::spawn(move || {
+                let outcome = super::test_failure("owned child terminated".into());
+                tx.send(super::native_test_outcome_for_publication(outcome, signal)).unwrap();
+                finished_tx.send(()).unwrap();
+            });
+            finished_rx.recv().unwrap();
+            let stopped = std::sync::atomic::AtomicBool::new(true);
+            let outcome = super::wait_native_test(worker, rx, xsh::execution::evaluator::TestCancellation::default(), None, &stopped);
+            let expected = if signal.is_some() { super::TestTerminal::Cancelled } else { super::TestTerminal::Failed };
+            let mut ledger = super::TestRunLedger::new("publication", ["case".to_owned()], None).unwrap();
+            ledger.start("case").unwrap();
+            ledger.finish("case", &outcome).unwrap();
+            assert!(matches!(ledger.cases["case"], super::CaseLifecycle::Finished(actual) if actual == expected));
+            assert!(outcome.cleanup_error.is_none());
+        }
     }
 
     #[test]
