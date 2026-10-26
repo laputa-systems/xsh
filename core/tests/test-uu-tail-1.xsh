@@ -639,11 +639,11 @@ test test_uu_tail_follow_multiple_untailable { |ctx|
 test test_uu_tail_follow_name_hash_table_stress { |ctx|
   let s = uu.scene(ctx)?
   for name in ["1", "2", "3", "4", "5", "6", "7", "8", "9"] { uu.touch(s, name) }
-  for row in [{delay: 100ms, extra: [], expected: "x\na\n"}, {delay: 300ms, extra: ["---disable-inotify"], expected: "a\nx\na\n"}] {
-  let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "-q", "-F", "1", "2", "3", "4", "5", "6", "7", "8", "9"].extend(row.extra))?
+  for row in [{delay: 100ms, extra: [], initial: b"", ready: b"tail: using notification mode\n", expected: "x\na\n"}, {delay: 300ms, extra: ["---disable-inotify"], initial: b"a\nx\n", ready: b"tail: using polling mode\n", expected: "a\nx\na\n"}] {
+  let plan = follow(s, ["--debug", "-s.1", "--max-unchanged-stats=1", "-q", "-F", "1", "2", "3", "4", "5", "6", "7", "8", "9"].extend(row.extra))?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-    time.sleep(row.delay)
+    wait_output(s, row.initial, row.ready)
     alive(child)
     let current9 = uu.at(s, "9").read_text()?
     if current9 == "" {
@@ -659,7 +659,7 @@ test test_uu_tail_follow_name_hash_table_stress { |ctx|
     time.sleep(row.delay)
     alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
-    let r = streams(s)?
+    let r = streams(s, err_offset: row.ready.len())?
     uu.stderr_is(r, "tail: '1' has become inaccessible: No such file or directory\ntail: '1' has appeared;  following new file\n")
     uu.stdout_is(r, row.expected)
     uu.remove(s, "moved")
