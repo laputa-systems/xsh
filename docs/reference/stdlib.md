@@ -59,6 +59,25 @@ Script command-line parsing into typed option records.
 - `cli.tokens(argv: List[Str], value_flags: List[Str] = default) -> Result[List[{kind: Str, name: Str, value: Str}], Error]` — Tokenizes command-line flags without executing them.
 - `cli.usage(schema: Record, command: Str = default) -> Str` — Renders usage text from a command-line descriptor.
 
+### `codec`
+
+Structured text and binary encoding, decoding, and files.
+
+- `codec.decode(format: Str, text: Str) -> Result[Any, CodecError]` — Decode one bounded text document with strict duplicate-key rejection.
+- `codec.decode_all(format: Str, text: Str) -> Result[Stream[Result[Any, CodecError]], CodecError]` — Creates an owned lazy stream of decoded items.
+- `codec.decode_all_bytes(format: Str, bytes: Bytes) -> Result[Stream[Result[Any, CodecError]], CodecError]` — Creates an owned lazy stream of decoded items.
+- `codec.decode_as(format: Str, text: Str, T) -> Result[T, Error]` — Decodes lexical fields using an explicit schema.
+- `codec.decode_bytes(format: Str, bytes: Bytes) -> Result[Any, CodecError]` — Decode binary data directly or text after strict UTF-8 validation.
+- `codec.encode(format: Str, value: Any) -> Result[Str, CodecError]` — Encode a value as one text document.
+- `codec.encode_all(format: Str, values: List[Any]) -> Result[Str, CodecError]` — Encodes an explicit list as a format sequence.
+- `codec.encode_all_bytes(format: Str, values: List[Any]) -> Result[Bytes, CodecError]` — Encodes an explicit list as a format sequence.
+- `codec.encode_bytes(format: Str, value: Any, canonical: Bool = default) -> Result[Bytes, CodecError]` — Encode binary formats directly or text as UTF-8 bytes.
+- `codec.formats() -> List[{binary: Bool, identifier: Str, lexical_typing: Bool, sequence: Bool, single: Bool, text: Bool}]` — Return capabilities in stable format order.
+- `codec.read(format: Str, path: Path) -> Result[Any, Error]` — Read and decode one bounded document from a path.
+- `codec.read_all(format: Str, path: Path) -> Result[Stream[Result[Any, CodecError]], Error]` — Opens one owned reader for lazy decoded items.
+- `codec.read_as(format: Str, path: Path, T) -> Result[T, Error]` — Reads lexical fields using an explicit schema.
+- `codec.write(format: Str, path: Path, value: Any, overwrite: Bool = default) -> Result[Unit, Error]` — Encode fully before creating or replacing the destination.
+
 ### `compression`
 
 Bounded compression of files or standard streams.
@@ -77,6 +96,15 @@ CPU capability queries.
 Ed25519 signature verification.
 
 - `crypto.ed25519_verify(message: Bytes, public_key: Bytes, signature: Bytes) -> Result[Bool, Error]` — Verifies a detached RFC 8032 Ed25519 signature.
+
+### `csv`
+
+Delimited tables with explicit header, delimiter and column options.
+
+- `csv.decode(text: Str, headers: Bool = default, delimiter: Str = default) -> Result[Any, CodecError]` — Decodes delimited rows with explicit table options.
+- `csv.encode(value: Any, headers: Bool = default, delimiter: Str = default, columns: List[Str]? = default, escape_formulas: Bool = default) -> Result[Str, CodecError]` — Encodes rows with explicit column order.
+- `csv.read(path: Path, headers: Bool = default, delimiter: Str = default) -> Result[Any, Error]` — Reads delimited rows from a file.
+- `csv.write(path: Path, value: Any, headers: Bool = default, delimiter: Str = default, columns: List[Str]? = default, escape_formulas: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Writes delimited rows after validating encoding.
 
 ### `diff`
 
@@ -212,7 +240,7 @@ Digest calculation and checksum verification.
 
 ### `ini`
 
-INI decoding, encoding, and file helpers.
+Case-preserving INI decoding, encoding, and file helpers.
 
 - `ini.decode(text: Str) -> Result[Record, Error]` — Parses INI text into a structured map.
 - `ini.encode(value: Record) -> Result[Str, Error]` — Encodes a structured map as INI text.
@@ -560,6 +588,15 @@ Clock, sleep, command measurement, and duration display.
 - `time.sleep(duration: Duration) -> Result[Unit, Error]` — Suspends the current XSH operation for a duration.
 - `time.to_calendar(epoch_ns: Int, utc: Bool = default) -> Result[{day: Int, hour: Int, minute: Int, month: Int, nanosecond: Int, offset_seconds: Int, second: Int, weekday: Int, year: Int}, Error]` — Converts a Unix nanosecond timestamp into calendar fields.
 
+### `toml`
+
+TOML decoding, encoding, and files.
+
+- `toml.decode(text: Str) -> Result[Any, CodecError]` — Decode one bounded text document with strict duplicate-key rejection.
+- `toml.encode(value: Any) -> Result[Str, CodecError]` — Encode a value as one text document.
+- `toml.read(path: Path) -> Result[Any, Error]` — Read and decode one bounded document from a path.
+- `toml.write(path: Path, value: Any, overwrite: Bool = default) -> Result[Unit, Error]` — Encode fully before creating or replacing the destination.
+
 ### `tui`
 
 Terminal styling, control sequences, and width-aware text padding.
@@ -664,6 +701,15 @@ Unix user lookup records.
 Process-scoped utility helpers.
 
 - `utils.cache(fn: Any, args: List[Any] = default) -> Any` — Reads or writes a process-scoped utility cache entry.
+
+### `yaml`
+
+YAML 1.2 decoding, encoding, and files.
+
+- `yaml.decode(text: Str) -> Result[Any, CodecError]` — Decode one bounded text document with strict duplicate-key rejection.
+- `yaml.encode(value: Any) -> Result[Str, CodecError]` — Encode a value as one text document.
+- `yaml.read(path: Path) -> Result[Any, Error]` — Read and decode one bounded document from a path.
+- `yaml.write(path: Path, value: Any, overwrite: Bool = default) -> Result[Unit, Error]` — Encode fully before creating or replacing the destination.
 
 ## Methods
 

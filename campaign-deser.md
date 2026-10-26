@@ -41,6 +41,16 @@ x86-64-v3, fat LTO and the distribution feature set. Baseline sizes are xsh
 distribution commands compile successfully but their existing xshi --help smoke
 fails because that Linux feature set intentionally builds the disabled shell
 stub. Do not claim distribution smoke or any timing acceptance from these runs.
+The initial matched large-JSON transform also fails memory acceptance: peak RSS
+is 178,782,208 versus baseline 132,894,720 bytes with identical complete output.
+A decode-only quiescent probe retains 146,296,832 versus 96,124,928 bytes.
+Baseline objects use the existing compact RecordMap shape owner; the new decode
+sink retains dynamic B-trees for completed objects. A focused repair is open.
+The private reader-boxing candidate passes 34 codec tests and shares five typed
+pull-loop implementations instead of fifteen reader-specific ones; its actual
+production size and runtime effects remain unmeasured. Generated SPEC and
+stdlib references are refreshed through the same documentation generator used
+by make docs, using the matching verification tools admitted by the Full owner.
 
 Acceleration checkpoint: the complete lint-invariance partition passes all 11
 selected tests. The bounded corpus check passes with package optimization level

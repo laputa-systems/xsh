@@ -1452,9 +1452,9 @@ implement only the facets below (`xsht api language:facet`);
 | Facet | Meaning | Contract |
 |---|---|---|
 | `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`. |
-| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`. |
+| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`. |
 | `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, host OS errors of every kind without a more specific facet. |
-| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, host OS errors of kind `InvalidData`. |
+| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, host OS errors of kind `InvalidData`. |
 | `MismatchedExport` | A module export has another kind or signature than its contract declares. | Implemented by a failed `.require(Contract)` on a module whose export differs from the contract. |
 | `MissingExport` | A module lacks an export its contract requires. | Implemented by a failed `.require(Contract)` on a module without a required export. |
 | `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
@@ -6011,6 +6011,133 @@ path is missing. `json.set` updates or inserts at an existing parent, and
 
 Treat `Any` as a short-lived boundary value. Use `.require(T)?` when the
 program knows the shape, and keep dynamic matching inside small helpers.
+
+
+### Structured text and binary codecs
+
+`codec.decode(format, text)` and `codec.encode(format, value)` return
+`Result[Any, CodecError]` and `Result[Str, CodecError]`. Binary formats use
+`codec.decode_bytes` and `codec.encode_bytes`; text formats accept bytes only
+after strict UTF-8 validation and emit UTF-8 bytes. Identifiers are fixed and
+case-sensitive: `json`, `yaml`, `toml`, `ini`, `csv`, `tsv`, `cbor`, `msgpack`.
+No filename detection or aliases apply. `codec.formats()` returns capabilities
+in that order. `yaml` and `toml` expose thin decode/encode/read/write entries.
+
+`codec.read(format, path)` returns a normal result containing host or codec
+errors. Codec failures carry the input path. `codec.write(format, path, value,
+overwrite: false)` encodes completely before opening its destination. The
+default atomically creates a new file and refuses existing leaf paths,
+including symlinks. `overwrite: true` uses normal host replacement writes;
+parent symlinks follow host path resolution. Encoding failure leaves an existing
+file unchanged; a later host write failure may leave partial output. These
+operations do not promise crash durability. Existing JSON write behavior and
+INI's default `overwrite: true` remain unchanged.
+
+All formats enforce the JSON input, scalar, nesting, container, event and output
+bounds above, including native byte scalars. Encoders additionally bound total
+raw scalar payload to 128 MiB before buffered serialization. Values that cannot
+be represented faithfully fail instead of being stringified or omitted.
+
+YAML uses version 1.2 scalar resolution, including explicit 1.2 directives;
+1.1 directives fail. Quoted values remain strings. Native binary scalars become
+Bytes. Custom tags, timestamps and non-string keys fail. Aliases may expand at
+most 10,000 events and 128 MiB of scalar/key bytes. Disjoint merge keys work;
+conflicting merged or explicit keys fail as duplicates. Single decode rejects
+additional documents.
+
+TOML preserves arrays of tables and finite floats. Datetime values have no XSH
+representation and fail. Null fields and native Bytes fail during encoding
+rather than disappearing. INI preserves key and section case; global keys and
+one level of sections contain strings. Whole quoted values are unquoted;
+whitespace-delimited inline comments and continuations use Deser's common
+dialect. Repeated sections merge only when keys are disjoint. Untyped fields
+remain strings. Nested sections and non-string output fields fail.
+
+`codec.decode_as(format, text, T)` and `codec.read_as(format, path, T)` return
+`Result[T]`. The mandatory third operand uses schema type syntax; it is not a
+runtime value and is never inferred from an assignment or adjacent require.
+The two value operands retain declared order and evaluate left to right.
+Matching labels in that order are allowed; reordered, duplicate or spread
+arguments and runtime third operands fail checking.
+Only CSV, TSV and INI support this lexical boundary. Other formats and unknown identifiers fail with
+`CodecError.UnsupportedFormat`.
+Plain decoding and ordinary `.require(T)` remain strict.
+
+Typed lexical Str, Any and extra fields retain exact text. Int accepts signed
+decimal within i64; UInt also requires a nonnegative value. Bool accepts exactly
+`true` or `false`. Float accepts finite decimal/exponent text with f64 rounding.
+There is no whitespace trimming, radix, underscore, truthiness or date inference
+at this boundary. Empty fields become null only for optional targets. A union
+that admits Str preserves its string; otherwise exactly one distinct primitive
+interpretation must satisfy admission. Ambiguity and schema failures return
+`CodecError.Schema` with value_path. Existing schema admission owns missing
+fields, refinements, wire enums and nested shapes, preserves extra fields, and
+runs after the direct lexical sink. File codec failures also retain input_path.
+CSV cell strings are not parsed as nested container encodings.
+
+`csv.decode(text, headers: true, delimiter: ",")` returns row records; setting
+headers false returns row lists. Headers are unique and row widths equal.
+`csv.encode(value, headers: true, delimiter: ",", columns: null,
+escape_formulas: false)` accepts explicit column order for record rows.
+Headerless output omits the header while retaining that order. Decode rejects
+columns. Delimiters are one ASCII byte excluding NUL, newline and quote.
+`csv.read` and `csv.write` expose the same options at the filesystem boundary;
+write defaults overwrite to false and encodes before touching its destination.
+Generic CSV/TSV operations use fixed presets without an options bag.
+
+CBOR and MessagePack preserve Bytes, signed i64 integers, finite floats, lists
+and maps. Map keys may be Str, Bool, Int or Bytes; other key types fail without
+stringification. Empty binary maps become Map; nonempty all-string maps become
+records. Unsupported tags and extensions fail, including MessagePack timestamp
+extensions. Single decode rejects trailing data. `codec.encode_bytes("cbor",
+value, canonical: true)` uses canonical CBOR ordering and numeric encoding;
+`canonical: true` on another format fails with `CodecError.Options`.
+
+`codec.decode_all(format, text)` and `codec.decode_all_bytes(format, bytes)`
+return `Result[Stream[Result[Any, CodecError]], CodecError]`.
+`codec.read_all(format, path)` returns the same owned stream through the ordinary
+file-error union and declares filesystem effects. Supported sequences are JSON
+Lines, YAML documents, CSV/TSV records and consecutive CBOR/MessagePack values.
+TOML and INI reject sequence operations. The text operation rejects binary
+formats; the byte operation accepts binary input and validates text frames as
+UTF-8. Stream construction consumes no item. Memory input remains owned for the
+stream lifetime; file input has one reader owner. Exhaustion, terminal error,
+cancellation and early drop release that reader. File-opening failures return
+from read_all; later host read failures propagate at the pulling site with
+their host facets. Codec errors retain the original input Path, including
+format and option failures discovered before opening a file.
+
+Each pull yields one Ok(value) or Err(CodecError). Blank JSON Lines are skipped.
+A failed framed JSON line or CSV data record may be followed by another item.
+Header/framing failures, all limit failures, and YAML/binary failures terminate
+after one error. The value_path field identifies the one-based sequence item as
+`[n]`; available global source coordinates are preserved. Pulls provide backpressure; there is no
+worker thread or producer queue.
+
+Sequence input is limited cumulatively to 256 MiB and 1,000,000 items, with the
+existing per-value bounds. Supplied memory input is still limited to 64 MiB.
+YAML alias replay is limited to 10,000 events across the whole sequence.
+Each framed value is at most 64 MiB; a fixed, bounded delimiter lookahead is
+separate from that value limit. Parser storage is bounded before growth from
+declared lengths or incomplete frames.
+
+Decoded sequence output has a 128 MiB logical-payload allowance. Null costs one
+byte; Bool costs two; numeric scalars cost nine. Str, Bytes and Path cost nine
+plus their byte length. Containers cost nine plus their keys and children;
+Result envelopes cost one plus their payload. CodecError charges its family,
+variant, kind, message, payload record and facets. This is a deterministic
+logical bound, not a heap-size claim. One bounded terminal Limit item is reserved
+inside the allowance; ordinary values and recoverable errors share the remainder.
+An item that cannot fit is discarded, the reader closes, and that final error is
+emitted once. YAML alias replay consumes the same output allowance.
+
+`codec.encode_all(format, values)` and `codec.encode_all_bytes(format, values)`
+encode an explicit List[Any] as a sequence and return Str or Bytes. The text
+operation rejects binary formats. They never resume a Stream or execute script
+callbacks. CSV/TSV retain one header order and require the same record keys in
+every row. Per-value limits apply independently, with a cumulative maximum of
+1,000,000 values and 128 MiB of encoded output. Failure returns an error without
+publishing a partial result.
 
 ## 15. Standard Modules
 
