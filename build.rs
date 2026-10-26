@@ -112,11 +112,10 @@ fn build_native_boundaries(root: &Path) {
         let mut allocator_flags = c_build_words(&setting("CFLAGS").unwrap_or_default());
         allocator_flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-I".into(),
             PathBuf::from(include).display().to_string(), "-c".into(),
-            root.join("src/entrypoints/allocator_purge.c").display().to_string(), "-o".into(), out.join("allocator_purge.o").display().to_string()]);
+            root.join("src/entrypoints/allocator_commit.c").display().to_string(), "-o".into(), out.join("allocator_commit.o").display().to_string()]);
         run(compiler, allocator_flags);
-        run(archiver.clone(), vec!["crs".into(), out.join("libxsh_allocator.a").display().to_string(), out.join("allocator_purge.o").display().to_string()]);
-        println!("cargo:rerun-if-changed=src/entrypoints/allocator_purge.c");
-        println!("cargo:rustc-link-lib=static=xsh_allocator");
+        println!("cargo:rerun-if-changed=src/entrypoints/allocator_commit.c");
+        println!("cargo:rustc-link-arg-bin=xsh={}", out.join("allocator_commit.o").display());
     }
     run(archiver, vec!["crs".into(), out.join("libxsh_numeric.a").display().to_string(), out.join("long_double.o").display().to_string(), out.join("startup_stdio.o").display().to_string()]);
     println!("cargo:rerun-if-changed=src/modules/numeric/long_double.c");
