@@ -6,6 +6,8 @@ use std::sync::Arc;
 use crate::map_key::MapKey;
 use std::collections::BTreeMap;
 
+pub(crate) mod binary;
+
 pub(crate) const INPUT_LIMIT: usize = 64 * 1024 * 1024;
 pub(crate) const OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
 

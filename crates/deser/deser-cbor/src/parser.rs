@@ -259,11 +259,16 @@ impl Parser {
         mut out: O,
     ) -> Result<Progress, Error> {
         let out = &mut out;
+        let max_len = out
+            .state_mut()
+            .get::<deser_core::de::Limits>()
+            .and_then(|limits| limits.max_len());
         self.recoverable = None;
         let mut cur = Cursor {
             input,
             pos,
             base,
+            max_len,
             hit_end: false,
             sink_failed: false,
             opened: None,
@@ -487,10 +492,15 @@ impl Parser {
         out: &mut O,
     ) -> Continue {
         let mut frame = self.frame;
+        let max_len = out
+            .state_mut()
+            .get::<deser_core::de::Limits>()
+            .and_then(|limits| limits.max_len());
         let mut cur = Cursor {
             input,
             pos,
             base,
+            max_len,
             hit_end: false,
             sink_failed: false,
             opened: None,
@@ -597,6 +607,7 @@ pub(crate) fn check_raw_limits(
         input,
         pos: 0,
         base: 0,
+        max_len: None,
         hit_end: false,
         sink_failed: false,
         opened: None,
@@ -622,6 +633,7 @@ pub(crate) struct Cursor<'a> {
     pos: usize,
     // the offset of the input in the stream
     base: usize,
+    max_len: Option<usize>,
     // `true` if an item ran into the end of the input
     hit_end: bool,
     // `true` if a sink failed
@@ -1122,6 +1134,15 @@ impl<'a> Cursor<'a> {
                     "invalid chunk in indefinite string",
                 ));
             }
+            if self.max_len.is_some_and(|max_len| {
+                chunk.arg > max_len.saturating_sub(buffer.len()) as u64
+            }) {
+                return Err(Error::with_offset(
+                    ErrorKind::LimitExceeded,
+                    "string or bytes too long",
+                    self.base + start,
+                ));
+            }
             buffer.extend_from_slice(self.read_body(chunk)?);
         }
     }
@@ -1324,5 +1345,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn indefinite_strings_stop_at_the_context_limit_before_buffer_growth() {
+        let input = [0x5f, 0x45, b'a', b'b', b'c', b'd', b'e', 0xff];
+        let mut out = None::<Recording>;
+        let mut parser = Parser::default();
+        let error = {
+            let mut driver = DeserializeDriver::new(&mut out);
+            driver.set_context(deser_core::Context::with(
+                deser_core::de::Limits::builder().max_len(4).build(),
+            ));
+            parser
+                .parse(&input, 0, true, 0, &mut Borrowing(&mut driver))
+                .unwrap_err()
+        };
+        assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+        assert!(parser.scratch.len() <= 4);
     }
 }
