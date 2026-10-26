@@ -1,1491 +1,648 @@
-# Coding Agent Campaign: Unify XSH's Serialization Architecture Around Deser
+# Replace XSH serialization with a pruned, vendored Deser
 
-## Mission
+Status: preflighted 2026-10-26; implementation has not started. Execution requires
+an explicit campaign launch. Work on `master`, as the owner directed.
 
-Implement a complete, native structured-data serialization subsystem in:
+Goal: use Deser for structured-data parsing and emission while XSH continues to
+own values, schemas, effects and resources. Vendor only the useful codec family;
+make one hard cutover and delete the replaced implementations.
 
-**Primary upstream:** https://github.com/mitsuhiko/deser
+Deliverables:
 
-**Architectural inspiration:** https://github.com/colinhacks/reylo
+1. A normal in-tree Deser crate family with seven codecs: JSON, YAML, TOML,
+   INI, CSV/TSV, CBOR and MessagePack. No submodules, Git dependencies or excluded
+   codec source in the vendored tree.
+2. Direct construction of XSH values and borrowed serialization of runtime and
+   lowered values; no mandatory dynamic Deser tree in language execution.
+3. Complete JSON replacement and workspace-wide `miniserde` removal, including
+   tooling and host adapters. Migrate callers; leave no compatibility backend.
+4. Coherent public text/binary, file, typed lexical and sequence APIs, with
+   explicit representation limits and structured failures.
+5. Behavioral acceptance, authored and generated documentation, dependency
+   accounting, final production-size/RSS checks and readiness-qualified timing.
 
-Replace the existing `miniserde`-based JSON implementation with Deser's serialization framework and integrate **all 17 currently supported Deser format crates** into XSH.
+Last source checkpoint: `5d461bc9e` on master. No implementation commits exist.
+No Deser implementation is accepted or provisional. The performance/deployment
+campaign is paused; its outstanding acceptance does not disappear here.
+Current ruling: feature completeness and behavior first, final optimization last.
+Next substantive milestone after a launch: the direct adapter plus a real JSON
+cutover, with focused native and host-consumer proof.
 
-The goal is not merely to add formats. It is to establish a coherent, efficient, type-aware serialization architecture for a systems programming and glue language.
+## Charter
 
-The final architecture must:
+Follow repository instructions and the `orchestrate` campaign procedure. Decide
+routine methods within this plan's bounds, record consequential rulings here,
+and continue until every deliverable passes or a named hard stop parks it.
+This document describes effects; it cannot grant permission to execute them.
 
-1. Use Deser as the common serialization/deserialization framework.
-2. Decode directly into XSH-owned runtime values without an obligatory intermediate `deser_value::Value` tree.
-3. Encode XSH values through a common adapter without unnecessarily materializing intermediate trees.
-4. Integrate naturally with XSH's existing type declarations, inference, `.require(T)`, nominal types, and error propagation.
-5. Preserve the existing public JSON API and its correctness guarantees.
-6. Introduce a cohesive public API for every supported Deser format.
-7. Provide proper support for text formats, binary formats, record-oriented formats, document sequences, and specialized formats.
-8. Respect XSH's compile-time checking, effect system, resource ownership, and performance constraints.
-9. Remove superseded JSON machinery and the `miniserde` dependency after parity is proven.
-10. Remain maintainable, with no redundant type system, generated schema files, general-purpose codec plugin framework, or speculative abstraction layers.
+Use the narrowest existing Edit/Change gate. Reuse evidence only while relevant
+source, dependencies, options, environment and acceptance inputs remain valid.
+Batch compatible candidates into one acceptance wave; do not claim intermediate
+commits passed the combined wave. Never waive a failed behavior to keep moving.
 
-**This is an implementation campaign. Do the work, run the tests, consolidate the result, and commit completed changes. Do not stop at a design document.**
+Start with one implementation lane for the adapter, JSON and shared contracts.
+After that lands, allow at most two disjoint codec lanes and one coordinator.
+The coordinator alone owns Cargo manifests/lockfile, registries, schema/IR
+contracts and generated references. At most two builds and one native suite may
+run concurrently, with two Cargo jobs each. Reserve 12 GiB host memory; admit a
+build only with at least 8 GiB additional available memory, then use observed
+peak RSS to narrow concurrency. Run `perf-gate-ready -s` before adding lanes;
+exit 75 means add no width. Headroom is a ceiling, not a target.
 
-### Repository boundaries
+Keep at most two provisional capabilities awaiting acceptance. At every wave,
+after two failed attempts, or after 45 minutes without a substantive delivery,
+the parent performs the steering checkpoint: identify accepted progress, the
+limiting stage, drift, the next useful delivery and any changed method. Reduce
+writers when review or verification queues grow. Two checkpoints dominated by
+tooling require a smaller method and a real codec delivery next.
 
-All production implementation belongs in `xsh`.
+A failing item gets two causal repairs after its minimal reproducer, then parks
+with cause, evidence, prerequisite and retry condition. Do not retry an unchanged
+external blocker. One coordinator owns shared environment problems. A focused
+loop over five minutes gets one bounded loop repair with a two-attempt limit;
+return to delivery after it works. Fix a baseline failure only when it blocks the
+selected capability. Record unrelated findings without starting another sweep.
 
-Do not modify Deser upstream or other repositories.
+All worktrees live at `.work/wt/deser-NAME`; scratch lives at `.work/tmp` and
+`TMPDIR` points there. Confirm `.work/` is ignored in `.git/info/exclude` before
+writing. Commit durable source and decisions under the later launch grant;
+keep disposable probes outside tracked source. Preserve useful artifacts before
+normal worktree removal. Follow `orchestrate`'s worktree lifecycle and use
+`campaign-winddown`/the closeout guard if execution is paused.
 
-Use published, pinned Deser versions where available. The upstream source currently advertises version `0.10.1`; verify that the required versions have actually been published before selecting dependency pins.
+Local commits, if authorized by the launch, must be Conventional Commits; put
+item IDs in bodies. Breaking contracts use `!` or a `BREAKING CHANGE:` footer.
+Never push, change CI, run formatters/autofixers, change the pinned Rust nightly,
+modify another repository or update installed systems. Reserve release builds
+for final verification. No background retry or watcher survives a pause.
 
-The repository's default branch is currently `master`, not `main`. Fetch current state and confirm the target branch before making changes.
+## Decisions
 
-Do not overwrite concurrent work, force-push, or discard unrelated changes.
+### Owner-decided, 2026-10-25
 
----
+- Vendor Deser directly, without submodules. Upstream development is active;
+  published-release availability is not a prerequisite.
+- Keep the important codecs and physically omit unnecessary ones, including PHP
+  and pickle. Codec selection is delegated to this preflight.
+- Hard cutover: no old parser, compatibility flag, fallback, deprecated alias or
+  requirement to preserve obsolete implementation quirks.
+- Continue on master. Feature completeness takes priority over waiting on perf.
+  Busy timing can defer final acceptance; it cannot stop independent delivery.
 
-## 1. Read the architecture before editing
+### Prescribed
 
-Read `AGENTS.md` in full and follow its requirements.
+- Retain the seven codecs in the inventory below. This covers configuration,
+  tabular data and common binary interchange without niche object-graph or
+  document-model support. A future codec needs a separate owner request.
+- Freeze upstream commit `8c15055178fcf2488dcd1ac70e6d1ff18689b486`, inspected
+  2026-10-25, whose packages declare `0.10.1`, edition 2024 and Rust 1.88.
+  Do not chase upstream HEAD during execution. Updates are separate reviewed
+  changes with the same focused contract tests; do not change XSH's toolchain.
+- Keep useful JSON language functions as the canonical Deser-backed API. Their
+  continued names are not a compatibility layer. Preserve documented language
+  invariants; retire backend-specific error strings, old INI dialect quirks and
+  duplicate-key last-wins behavior as explicitly listed below.
+- Use a direct XSH sink plus borrowed emitter. A second dynamic tree for all
+  language values loses on allocation, ownership and the owner's requirement;
+  an unsafe thread-safety assertion is forbidden. Scratch proof demonstrates
+  actual runtime `Value: Send + Sync`. Check private `LoweredValue` separately
+  during S1; project supported borrowed nodes if needed, without copying an
+  entire value tree or exposing resources.
+- Typed lexical parsing uses explicit schema-bearing calls, not hidden
+  decode/require fusion. Ordinary `.require`, `.require_exact` and
+  `.require_stripped` remain unchanged. The draft's exact CSV example is
+  superseded by the typed API below: a plain decoded string remains a string.
+- Use existing prepared schemas and the existing validator for final admission,
+  including nominal/refined values and wire enums. No new schema language,
+  generated Rust type, first-class runtime type object or duplicate validator.
+- Keep a narrowly scoped `deser-value` dependency for existing Rust/tooling JSON
+  documents and temporary reference comparisons. It replaces the public
+  miniserde DOM used by host consumers and preserves their full u64 domain.
+  It must never become the language decoder or a fallback from the direct sink.
+  Replace the old raw-helper family with `xsh::host::json::{Value, parse, encode,
+  encode_pretty}`: a Deser DOM re-export and fallible parse/render functions.
+  Callers use its normal constructors/accessors; migrate the old helper imports
+  and miniserde derives together. Exposing this dependency type is deliberate
+  host-tooling interop, not XSH's runtime value representation.
+- No public transcode operation, environment codec or debug codec. Cross-format
+  workflows go through XSH values and must honor representation failures.
+- Measure cost throughout; optimize after completeness. Final gates below are
+  binding and cannot be waived by dropping an included codec.
 
-Inspect:
+### Delegated within bounds
 
-- `Cargo.toml` and `Cargo.lock`
-- `docs/SPEC.md`, especially sections 4, 5, 13, 14, and 15
-- `docs/ARCHITECTURE.md`
-- `docs/DESIGN.md`
-- `docs/TESTING.md`
-- `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`
-- `docs/user-tour.md`
-- `src/runtime/value.rs`
-- `src/runtime/eval/type_view.rs`
-- `src/runtime/eval/json.rs`
-- `src/modules/json.rs`
-- `src/modules/ini.rs`
-- `src/modules/mod.rs`
-- `src/runtime/eval/lowered_run.rs`
-- `src/runtime/eval/lowered_run/module_codecs.rs`
-- `src/modules/signature.rs`
-- `crates/xsh-registry/src/signature/modules.rs`
-- `crates/xsh-registry/src/runtime_op.rs`
-- `crates/xsh-registry/src/errors.rs`
-- Existing JSON and INI unit/integration tests
-- Existing JSON Lines and stream tests
-- The native API golden fixtures
-- Representative JSON workloads from `bench/consolidation/` and `bench/stdlib-port/`
+The executor chooses private file splits, exact native test names, the smallest
+safe event/sink lifetimes, and upstream configuration calls. Preserve these
+contracts and ownership boundaries. Use an upstream option before a local
+parser patch. A local patch needs a reproduced missing behavior and focused
+proof; do not reshape upstream unsafe arenas or driver lifetime erasure.
+If a required behavior cannot be delivered within two causal attempts, park the
+item with a concrete prerequisite. Do not silently reduce the supported subset.
 
-XSH already has substantial runtime and serialization infrastructure.
+## Baseline and foundation proof
 
-In particular, `src/runtime/eval/json.rs` implements:
+The source is the truth: JSON parsing uses miniserde in `src/modules/json.rs`;
+`src/runtime/eval/json.rs` already traverses runtime and lowered values directly
+for compact output and has tree/pretty routes. Runtime integers are i64.
+`UInt` is a nonnegative refinement of that representation, not a u64 variant.
+Records use owned string keys; maps have the closed XSH scalar-key vocabulary.
 
-- `JsonInput`
-- `JsonNode`
-- `JsonSink`
-- Specialized `Value` and `LoweredValue` traversal
-- Compact JSON output
-- Pretty JSON output
-- Record/map serialization
-- Wire enum handling
-- Error handling for unsupported values
+`src/modules/ini.rs` is a custom parser/encoder. It folds keys and rejects
+repeats, unlike upstream's default dialect. `src/lib.rs` exports raw JSON host
+helpers whose types expose miniserde. Removing only the language decoder would
+leave locale loading, route-witness/formal-bridge code, statistics, fake Linux
+fixtures, XSHT and Rust tests dependent on it. S2 owns these consumers.
 
-Much of this is intentional performance engineering.
+The paused campaign's canonical run has 230 Rust integration passes, two known
+failures, one filtered test; the daemon and nested-parameter repairs have focused
+proof, but the full retry was cancelled. No current-source full acceptance is
+available. Use `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md` for the exact state.
+Do not inherit old full passes or run a new full baseline as an entry fee here.
 
-Do not delete it blindly.
+Preflight ran scratch code against the inspected Deser source and actual XSH
+`Value`. It directly decoded a nested JSON record/list into XSH values, emitted
+it through borrowed scalar/container views, reused the sink for YAML and CSV,
+rejected duplicate JSON keys and an integer above i64, and enforced a depth
+limit. It compiled the actual `Value: Send + Sync` assertion without unsafe.
+A typed upstream CSV sink parsed `8080` as i64 while the untyped XSH sink retained
+`"8080"`; a JSON string could not deserialize as i64. This proves the adapter
+shape and the need for an explicit lexical schema boundary, not full parity.
 
-Understand what is generic value traversal, what is JSON-specific behavior, and what is necessary for optimized lowered-value execution.
+Diagnostic loop observations on this host, with existing verification products:
 
-Likewise, understand XSH's existing `Value`, `LoweredValue`, `RecordMap`, `MapKey`, `FloatValue`, nominal values, and schema-validation mechanisms.
-
-**Do not redesign XSH's runtime value model to accommodate Deser. Deser is the codec engine; XSH remains the owner of its data model.**
-
----
-
-## 2. Study Deser and its complete format family
-
-Inspect the current upstream implementation, not only README examples.
-
-### Core
-
-Study:
-
-- `deser-core/src/event.rs`
-- `deser-core/src/de/mod.rs`
-- `deser-core/src/ser/mod.rs`
-- `deser-core/src/de/driver.rs`
-- `deser-core/src/ser/driver.rs`
-- `deser-core/src/de/limits.rs`
-- `deser-core/src/ext/`
-- `deser-value/src/`
-- `deser-path/`
-- `deser-location/`
-- `deser-transcode/`
-
-Study Deser's treatment of:
-
-- Atoms and implicit lexical values.
-- `Deserialize` sinks.
-- `Serialize` emitters.
-- Event-driven iteration.
-- `Send` and `Sync` requirements.
-- Recursive data.
-- Borrowed versus owned values.
-- Exact numeric representation.
-- Unicode and byte buffers.
-- Container shape and map ordering.
-- Unknown extension values.
-- Duplicate-key policies.
-- Resource limits.
-- Streaming and cancellation.
-- Input source locations.
-- Structured error categories.
-
-Read `LIMITATIONS.md`, `SERDE.md`, `benchmark/README.md`, and `compile-times/README.md`.
-
-In particular, Deser uses dynamic dispatch and an arena-based, nonrecursive model. Its benchmarks are promising, but this design has nontrivial fixed binary-size cost.
-
-Do not confuse a compelling architecture with proven superiority on XSH's workloads.
-
-### All supported formats
-
-Integrate the following current Deser format crates.
-
-| Crate | Format | Expected use |
+| Check | Result | Observed wall time |
 |---|---|---|
-| `deser-json` | JSON | Existing API replacement |
-| `deser-jsonc` | JSON with comments | Tooling configuration |
-| `deser-json5` | JSON5 | Permissive configuration |
-| `deser-hj` | Hjson | Human-readable configuration |
-| `deser-yaml` | YAML | Kubernetes, CI, infrastructure configuration |
-| `deser-toml` | TOML | Application and build configuration |
-| `deser-ini` | INI and Git config | Legacy configuration |
-| `deser-cbor` | CBOR | Binary protocols |
-| `deser-msgpack` | MessagePack | Binary structured data |
-| `deser-xml` | XML | Documents and structured interfaces |
-| `deser-plist` | Apple property lists | XML, binary, OpenStep |
-| `deser-php` | PHP serialization | Interoperability |
-| `deser-pickle` | Python pickle | Data interchange |
-| `deser-csv` | CSV/TSV | Tabular files and streams |
-| `deser-urlencoded` | URL-encoded forms | Query strings and form data |
-| `deser-env` | Environment-variable mapping | Typed configuration from supplied variables |
-| `deser-debug` | Debug formatting | Diagnostic rendering |
-
-All 17 must receive an explicit integration disposition and tests.
-
-However, these are not identical interfaces.
-
-`deser-debug` is output-only.
-
-`deser-env` operates on environment-variable mappings, not ordinary serialized documents.
-
-CSV is a sequence of records.
-
-XML has root-element, attribute, namespace, and mixed-content semantics.
-
-JSONC, JSON5, and Hjson can be decoded with their extended syntax, but their serializers primarily emit JSON-compatible text. Do not claim they preserve input comments or formatting.
-
-PHP and pickle have object/class/reference metadata that ordinary XSH values may not represent.
-
-**Supporting a codec does not imply lossless representation of every possible value that codec can express. Explicitly diagnose unsupported representations rather than silently discarding important metadata.**
-
----
-
-## 3. Architectural objective: direct mapping to XSH values
-
-The intended architecture is:
-
-```text
-              XSH type declarations
-                       │
-                       ▼
-             Existing XSH type system
-                       │
-                 .require(T)
-                       │
-                       ▼
-        ┌──────────────────────────┐
-        │  XSH native Value model  │
-        │                          │
-        │  Record / Map / List     │
-        │  Str / Int / UInt        │
-        │  Float / Bool / Null     │
-        │  Bytes / supported enums │
-        └──────────────────────────┘
-                 ▲          │
-                 │          ▼
-        ┌──────────────────────────┐
-        │ Shared XSH/Deser adapter │
-        │ Deserialize + Serialize  │
-        └──────────────────────────┘
-                 ▲          │
-                 │          ▼
-        ┌──────────────────────────┐
-        │ Deser format codecs      │
-        │ JSON YAML TOML CBOR ...  │
-        └──────────────────────────┘
-```
-
-### Nonnegotiable: no second runtime type system
-
-Do not replace XSH's `Value` with `deser_value::Value`.
-
-Do not store Deser values as opaque runtime handles.
-
-Do not require user-defined XSH types to be recreated as Rust structs.
-
-Do not generate Rust types for each XSH schema.
-
-Do not introduce a JSON Schema or Zod-like runtime schema language.
-
-Do not make scripts duplicate their record definitions in configuration files.
-
-Deser's general-purpose dynamic `Value` is acceptable in a temporary prototype, reference test, or narrowly justified fallback, but not as the default production representation.
-
-### Decoding
-
-Implement an XSH-owned Deser deserialization adapter.
-
-Conceptually:
-
-```rust
-struct XshDecodedValue(Value);
-```
-
-Implement the necessary Deser deserialization interface to construct XSH's existing values from events.
-
-The decoder should create:
-
-- XSH scalars directly.
-- `Value::List` for sequences.
-- `Value::Record` for appropriate string-keyed objects.
-- `Value::Map` for mappings whose keys are representable by XSH.
-- `Value::Bytes` for native binary values.
-- Appropriate existing runtime representations for other supported values.
-
-Avoid building a complete `deser_value::Value` tree and then walking it again.
-
-Use bounded intermediate state only where required for constructing containers, dealing with map keys, or enforcing correct semantics.
-
-The deserializer must handle nested values without unbounded stack recursion.
-
-Respect XSH's record-shape interning and memory ownership.
-
-Do not accidentally intern attacker-controlled strings without the existing appropriate safeguards.
-
-### Encoding
-
-Implement a borrowed XSH-value serialization adapter.
-
-Conceptually:
-
-```rust
-struct XshEncodeView<'a> {
-    value: &'a Value,
-}
-```
-
-Prefer direct event production from XSH values.
-
-Also investigate supporting `LoweredValue` directly. XSH's optimized execution representation must not needlessly materialize full runtime `Value` trees just to encode JSON or YAML.
-
-**Important:** Deser's `Serialize` interface has `Sync` requirements, and its `Deserialize` interface has `Send` requirements.
-
-Confirm that the proposed XSH adapters satisfy those requirements honestly.
-
-Do not add unsound `unsafe impl Send` or `unsafe impl Sync` declarations.
-
-If XSH's full runtime `Value` is incompatible because it contains capabilities, script streams, or other nonserializable resources, implement a constrained serialization view that contains only supported value kinds.
-
-Do not copy arbitrary resource-bearing values into an ostensibly serializable representation.
-
-If a direct borrowing strategy is impossible, isolate and benchmark the smallest correct projection.
-
-### Keep serialization independent from runtime ownership
-
-The adapter may inspect values, but it must never:
-
-- Execute scripts.
-- Resume streams unexpectedly.
-- Open files.
-- Invoke commands.
-- Acquire privileged resources.
-- Mutate environment variables.
-- Change the current directory.
-- Materialize opaque capabilities as serialized identifiers.
-
-Nonserializable values must fail clearly.
-
----
-
-## 4. Apply the useful idea from Reylo
-
-Read:
-
-https://github.com/colinhacks/reylo
-
-Reylo gets types from the underlying SQL and database metadata rather than maintaining duplicate TypeScript types or generated schemas.
-
-For XSH, the analogous source of truth is **the XSH type declaration**.
-
-Consider:
-
-```xsh
-type Service = {
-  name: Str,
-  port: Int,
-  enabled: Bool,
-}
-```
-
-Users should be able to write:
-
-```xsh
-let service = yaml.read(p"service.yaml")?.require(Service)?
-```
-
-Or:
-
-```xsh
-let service = codec.read("toml", p"service.toml")?.require(Service)?
-```
-
-Without writing another schema.
-
-### Preserve `.require(T)` semantics
-
-Ordinary self-describing formats should decode directly into XSH runtime values, followed by XSH's existing validation.
-
-Do not use arbitrary Deser coercions to make invalid JSON or YAML fit an XSH schema.
-
-For example, a JSON string `"5432"` must not silently become an XSH `Int` simply because the destination field expects `Int`.
-
-Existing nominal types, validated types, unions, defaults, and type errors must continue behaving according to `docs/SPEC.md`.
-
-### Type-directed decoding for lexical formats
-
-There is a significant opportunity here.
-
-CSV, INI, URL-encoded forms, and environment variables contain textual fields whose meaning is defined by the target type.
-
-For example:
-
-```csv
-name,port,enabled
-api,8080,true
-```
-
-A decoder that first produces only strings cannot necessarily recover the intended integers and booleans using XSH's existing strict `.require(T)` validation.
-
-Support type-directed decoding using XSH's existing type information.
-
-The desired ergonomic form is:
-
-```xsh
-type Service = {
-  name: Str,
-  port: Int,
-  enabled: Bool,
-}
-
-let services =
-  codec.read("csv", p"services.csv")?.require(List[Service])?
-```
-
-Investigate how the compiler represents `.require(T)` and how much of its target schema can be passed into a Deser sink.
-
-Prefer recognizing a statically known decode-then-require boundary and allowing the decoder to consume that schema during parsing.
-
-Do not introduce a new XSH syntax merely to support type-directed codec calls.
-
-Do not duplicate XSH's schema validator inside the codec implementation.
-
-Preserve the existing visible error boundary and its effects.
-
-**This optimization must be semantics-preserving.** It may use type-directed interpretation for formats whose lexical rules require it, but must not introduce coercions forbidden by the language for self-describing formats.
-
-If direct fusion requires extensive compiler changes, implement it as a narrowly scoped subsequent lane with dedicated differential tests. Do not destabilize normal `.require(T)` operations globally.
-
-No compile-time reads of arbitrary configuration files. Reylo's external source analysis is inspiration for avoiding duplicate schemas, not permission to add unexpected filesystem access during compilation.
-
----
-
-## 5. Public API design
-
-Design a small, cohesive API rather than introducing 17 unrelated modules with repetitive plumbing.
-
-Preserve existing:
-
-```xsh
-json.decode(...)
-json.encode(...)
-json.read(...)
-json.write(...)
-json.get(...)
-json.set(...)
-json.remove(...)
-json.encode_lines(...)
-json.write_lines(...)
-```
-
-Preserve their existing overloads, effects, errors, and observable behavior.
-
-### First-class common modules
-
-Add the following particularly common formats with ergonomic APIs:
-
-```xsh
-yaml.decode(text)
-yaml.encode(value)
-yaml.read(path)
-yaml.write(path, value)
-
-toml.decode(text)
-toml.encode(value)
-toml.read(path)
-toml.write(path, value)
-```
-
-Integrate the existing `ini` module with Deser while preserving its documented behavior.
-
-Do not replace existing INI parsing semantics without compatibility tests.
-
-### Generic `codec` module
-
-Introduce a concise module for the full format family.
-
-Suggested API:
-
-```xsh
-codec.decode(format: Str, text: Str)
-codec.decode_bytes(format: Str, data: Bytes)
-
-codec.encode(format: Str, value: Any)
-codec.encode_bytes(format: Str, value: Any)
-
-codec.read(format: Str, path: Path)
-codec.write(format: Str, path: Path, value: Any, overwrite: Bool = false)
-
-codec.decode_all(format: Str, text: Str)
-codec.decode_all_bytes(format: Str, data: Bytes)
-
-codec.formats()
-```
-
-Specify proper `Result` return types through the registry.
-
-Where a function's behavior is partial, the result must be fallible.
-
-Text encoding returns `Str`; binary encoding returns `Bytes`.
-
-Never silently convert arbitrary binary output to UTF-8.
-
-Never accept a text-only format in a binary-only operation without an explicitly documented contract.
-
-The generic module should accept stable format identifiers, for example:
-
-```text
-json
-jsonc
-json5
-hjson
-yaml
-toml
-ini
-cbor
-msgpack
-xml
-plist
-plist-binary
-plist-openstep
-php
-pickle
-csv
-tsv
-urlencoded
-```
-
-Aliases and dialects should be explicitly documented.
-
-Do not derive format selection solely from filename extensions.
-
-### Specialized formats
-
-Expose Deser's remaining capabilities through interfaces that reflect their real semantics.
-
-For `deser-env`, use caller-supplied environment mappings:
-
-```xsh
-codec.env_decode(vars, prefix: "APP_")
-codec.env_encode(value, prefix: "APP_")
-```
-
-The precise signatures should follow XSH's actual type system.
-
-Do not call `deser_env::from_env` from an ostensibly pure operation. XSH already controls environment effects and needs reproducible behavior in tests and isolated execution.
-
-Use Deser's `from_vars`-style API over explicitly supplied values.
-
-For `deser-debug`, provide a rendering function such as:
-
-```xsh
-codec.debug(value)
-```
-
-This is output-only.
-
-Do not invent `debug.decode`.
-
-### Format capabilities
-
-Maintain a small static capability table specifying:
-
-- Format identifier.
-- Text or binary input.
-- Text or binary output.
-- Single-value support.
-- Multi-document/record support.
-- Type-directed lexical interpretation.
-- Relevant dialect options.
-- Relevant extension and metadata limitations.
-
-Use this table to drive dispatch, format discovery, and diagnostics.
-
-Do not build a plugin framework.
-
-Avoid adding complicated generic format-registration abstractions. A static match or similarly straightforward dispatch is appropriate.
-
----
-
-## 6. Streaming support
-
-Deser's streaming facilities are a significant advantage for XSH.
-
-Preserve XSH's existing JSON Lines functionality.
-
-Support the appropriate stream semantics for:
-
-- JSON Lines.
-- YAML document streams.
-- CBOR sequences.
-- Consecutive MessagePack values.
-- CSV/TSV records.
-- Other upstream-supported multi-value formats where meaningful.
-
-Prefer lazy XSH streams where the upstream codec supports incremental processing.
-
-Respect XSH's existing `Stream` model and backpressure/cancellation semantics.
-
-Do not create a second streaming runtime.
-
-Important implementation constraints:
-
-- No leaked input readers.
-- No unbounded buffering.
-- No accidental stream consumption when constructing a lazy stream.
-- Cancellation releases resources.
-- Errors appear at the correct stream item.
-- JSON Lines recovery semantics remain compatible.
-- YAML may buffer one document where required by its parser.
-- Input budgets apply across the stream, not just independently to each item when that would permit unlimited total consumption.
-
-Avoid building a general asynchronous codec subsystem. XSH already has its own synchronous and host-managed streaming models.
-
-Use `deser-tokio` only if the actual implementation demonstrates that it is required. Do not introduce Tokio merely because an optional upstream integration exists.
-
----
-
-## 7. Format-specific semantic policies
-
-A generic codec adapter must not flatten meaningful differences between data formats.
-
-### JSON
-
-Preserve:
-
-- XSH numeric interpretation.
-- Existing key ordering.
-- Compact output.
-- Pretty output.
-- JSON Lines behavior.
-- String escaping.
-- Existing error classes.
-- Wire enum serialization.
-- Rejection of nonfinite floats.
-- Existing restrictions on non-string map keys.
-- Existing special serialization behavior for supported runtime values.
-
-Deser may use different defaults. Set explicit options rather than inheriting behavior accidentally.
-
-### JSONC / JSON5 / Hjson
-
-Use their respective decoders.
-
-Document that encoding may produce ordinary JSON-compatible syntax rather than reconstructing comments or the original formatting.
-
-For JSON5 and Hjson, define how nonfinite values and implicit lexical scalars behave.
-
-Do not silently accept a nonfinite value into XSH if it cannot be represented according to the selected policy.
-
-### YAML
-
-Default to YAML 1.2.
-
-Support:
-
-- Anchors and aliases.
-- Quoted and plain scalars.
-- Nested mappings and sequences.
-- Multiple documents.
-- Explicit scalar tags where representable.
-- Binary scalars.
-- Strict duplicate-key handling.
-- Configurable, bounded alias expansion.
-
-Prevent alias bombs and unreasonable memory growth.
-
-Do not turn arbitrary custom YAML tags into executable behavior or forged nominal XSH values.
-
-### TOML
-
-Support TOML 1.1 according to upstream behavior.
-
-Recognize arrays of tables and native date/time forms.
-
-Preserve meaningful types where XSH can represent them.
-
-When a date/time or extension value cannot be represented exactly, define an explicit fallback or report a representability error. Avoid surprising lossy conversions.
-
-### INI
-
-Inspect the current XSH INI dialect.
-
-Compare it against Deser's default, Python, and Git-config dialects.
-
-Preserve existing public behavior. Expose additional dialects explicitly if useful.
-
-Avoid a permanent pair of unrelated INI implementations unless there is a demonstrated compatibility reason.
-
-### CBOR and MessagePack
-
-Support native byte strings as XSH `Bytes`.
-
-Support primitive scalar keys and mappings that XSH can represent.
-
-Handle numeric overflow explicitly.
-
-Reject unsupported complex keys, arbitrary extension values, or cyclic references rather than silently converting them into unrelated strings or records.
-
-Support canonical encoding where upstream provides it.
-
-Canonical encoding matters for deterministic artifacts and cryptographic signing; don't claim canonical output merely because XSH sorts its records.
-
-### XML
-
-Preserve Deser's handling of:
-
-- Root element names.
-- Attributes.
-- Text content.
-- Repeated children.
-- Namespaces.
-- Mixed content.
-
-The `deser-xml` project currently identifies itself as an early version.
-
-Do not paper over XML's structure by stringifying arbitrary nodes.
-
-Provide explicit root-name configuration for encoding when required.
-
-Where decoded XML cannot be represented without losing important structure, reject it or expose a clearly documented structured representation.
-
-### Property lists
-
-Support XML, binary, and OpenStep formats.
-
-Use byte-oriented decoding where necessary.
-
-Pay particular attention to:
-
-- Dates.
-- Binary data.
-- UID values.
-- Shared references.
-- Cycles.
-- UTF-16 input.
-- macOS interoperability.
-
-Verify compatibility using Apple's `plutil` where available, alongside portable fixtures.
-
-### PHP serialization and pickle
-
-These are data interchange formats, not permission to execute foreign code.
-
-Use only Deser's Rust implementations.
-
-Never invoke PHP's `unserialize` or Python's `pickle.loads` as part of XSH decoding.
-
-Deser's implementations do not instantiate foreign classes or execute their constructors.
-
-Even so, treat inputs as untrusted and enforce resource budgets.
-
-Handle class identity and reference metadata explicitly.
-
-When ordinary XSH values cannot preserve those semantics, reject or document the intentionally reduced data model.
-
-Do not claim arbitrary round-trip fidelity for object graphs that contain cycles.
-
-### CSV / TSV
-
-Support:
-
-- Headers.
-- Headerless records.
-- Field-count validation.
-- Configurable delimiter and quoting where justified.
-- CRLF and UTF-8.
-- Repeated rows.
-- Streaming.
-- Type-directed field interpretation.
-- Explicit output column ordering.
-- Formula-injection-safe output as an opt-in policy.
-
-Preserve default strictness. Do not silently repair malformed quotes or discard columns.
-
-### URL-encoded forms
-
-Support:
-
-- Percent decoding.
-- Repeated keys.
-- Bracket syntax.
-- Nested keys.
-- Type-directed scalar interpretation.
-- Explicit duplicate-key policy.
-
-Use no hidden HTTP request context.
-
-### Environment mappings
-
-Input must be an explicitly supplied mapping.
-
-Do not read or mutate the ambient environment inside a pure codec operation.
-
-Preserve XSH's effect and environment-scoping model.
-
-### Debug formatting
-
-Use `deser-debug` to render compatible values where appropriate.
-
-Preserve XSH's existing `Str`/debug display semantics unless deliberately introducing a separately named representation.
-
-Do not treat debug output as a stable wire format.
-
----
-
-## 8. Numeric and extension representation
-
-Audit XSH's actual supported runtime numeric values and map keys.
-
-Do not assume every Deser scalar maps directly to an XSH scalar.
-
-Define conversion policies for:
-
-- Signed integers.
-- Unsigned integers.
-- Values exceeding XSH's integer range.
-- Floating-point values.
-- NaN and infinity.
-- Exact decimal literals.
-- Big integers.
-- Binary values.
-- Date/time values.
-- UUIDs.
-- Tags and extensions.
-- Map keys of unsupported types.
-- Arbitrarily nested data.
-- Shared or cyclic references.
-
-Use the smallest policy that preserves correctness.
-
-**No silent precision loss.**
-
-Do not convert a large integer into an approximate float just to avoid an error.
-
-Do not stringify non-string keys merely to fit `Record`.
-
-Do not silently drop unknown tags when they are semantically significant.
-
-If a representation is unsupported, return a structured codec error.
-
-A later extension to XSH's value model should be justified by broad usefulness across the language, not a single obscure format edge case.
-
----
-
-## 9. JSON migration requirements
-
-The existing `miniserde` dependency must eventually be removed.
-
-Treat the current implementation as the compatibility baseline.
-
-Before replacing it, capture actual behavior through golden tests.
-
-### Decode parity
-
-Test:
-
-- Null, booleans, strings.
-- Integer boundaries.
-- Unsigned numeric boundaries.
-- Floating-point values.
-- Negative zero.
-- Exponent notation.
-- Decimal rounding.
-- Nested arrays/maps.
-- Empty collections.
-- Duplicate keys.
-- Unicode.
-- Escaped Unicode and surrogate pairs.
-- Malformed input.
-- Invalid UTF-8 for byte-based parsing.
-- Deep nesting.
-- JSON Lines.
-- Error propagation.
-- Resource exhaustion.
-
-### Encode parity
-
-Test:
-
-- Stable ordering of record keys.
-- Compact output.
-- Pretty output.
-- Float formatting.
-- Escaping.
-- Sets and supported enum values.
-- Dynamic records.
-- `Value` versus `LoweredValue`.
-- Unsupported resource values.
-- Existing error kinds.
-- Large outputs.
-- JSON Lines.
-- Filesystem writes.
-
-Build differential tests that run the old and new implementations on the same fixtures.
-
-If Deser changes a behavior, classify it as:
-
-- Required compatibility.
-- Desirable intentional semantic tightening.
-- Acceptable documented difference.
-- Regression requiring repair.
-
-Do not accidentally turn implementation changes into language-spec changes.
-
-### Remove old machinery
-
-Once parity and performance are acceptable:
-
-- Remove `miniserde`.
-- Remove superseded dynamic JSON tree conversion.
-- Remove redundant JSON emitters/traversal implementations.
-- Reuse shared codec logic for JSON and YAML where reasonable.
-- Keep specialized fast paths only when measurements justify them.
-
-The endpoint should be simpler overall, not two parallel JSON implementations connected by a compatibility switch.
-
----
-
-## 10. Error handling and resource limits
-
-Integrate with XSH's existing structured error system.
-
-Do not create stringly typed errors that downstream scripts must parse.
-
-Distinguish:
-
-- Malformed syntax.
-- Invalid encoding.
-- Unsupported format.
-- Unsupported value.
-- Numeric overflow.
-- Duplicate key.
-- Resource limit.
-- Invalid schema value.
-- Invalid format options.
-- Host I/O error.
-- Unexpected upstream failure.
-
-Retain XSH's call-site span.
-
-Include source line, column, byte offset, and value path from Deser where available.
-
-A YAML parser error should identify the YAML source location, not only the XSH function call.
-
-Use the existing error-family infrastructure or the smallest coherent extension to it.
-
-### Untrusted data limits
-
-Enforce explicit bounds on:
-
-- Input bytes.
-- Nesting depth.
-- Number of values.
-- Number of mapping entries.
-- String sizes.
-- Alias expansion.
-- Decoded output growth.
-- Stream item count where configured.
-- Parser allocations where practical.
-
-Do not assume that nonrecursive parsing eliminates resource-exhaustion risks.
-
-Do not catch panics and convert them into silent success.
-
-Use ordinary structured error returns.
-
----
-
-## 11. Preserve XSH's effects and ownership model
-
-Codec operations fall into distinct effect categories.
-
-Pure operations:
-
-- Decode from supplied text or bytes.
-- Encode in-memory values.
-- Convert explicitly supplied environment mappings.
-- Render debug text.
-
-Effectful operations:
-
-- Read files.
-- Write files.
-- Read the ambient environment if such an operation is explicitly exposed.
-- Perform stream I/O.
-
-Register those effects correctly in XSH's canonical module signatures.
-
-Do not make `codec.read` pure because the parser itself is pure.
-
-Do not bypass the language's checked `Path` and filesystem boundaries.
-
-Preserve existing file-write and overwrite policies.
-
-Do not introduce process-global mutable codec configuration.
-
-Do not expose writable global registries.
-
----
-
-## 12. Integration locations
-
-Start with these ownership boundaries.
-
-### Runtime value adapters
-
-Implement the shared adapter near XSH's existing runtime serialization machinery.
-
-Avoid putting format-specific code into `src/runtime/value.rs`.
-
-Keep core value types independent of specific codec crates.
-
-### Format backends
-
-Implement a compact backend-dispatch layer under `src/modules/` or an appropriately scoped codec module.
-
-Separate format-specific configuration from common XSH conversion logic.
-
-### Public API
-
-Register the new module APIs in:
-
-`crates/xsh-registry/src/signature/modules.rs`
-
-Add runtime operation IDs in:
-
-`crates/xsh-registry/src/runtime_op.rs`
-
-Extend lowerer/evaluator dispatch through the existing native operation mechanism.
-
-### Existing JSON
-
-Replace or consolidate:
-
-- `src/modules/json.rs`
-- `src/runtime/eval/json.rs`
-
-Retain unrelated JSON path helpers, type validation, and other functionality that is genuinely format-independent.
-
-### Existing INI
-
-Integrate `deser-ini` using the existing public API where compatible.
-
-### Errors
-
-Use:
-
-`crates/xsh-registry/src/errors.rs`
-
-and the corresponding runtime error conversion.
-
-### Documentation
-
-Update authored documentation sources before regenerating references.
-
-Follow repository instructions for generated files.
-
-Do not manually edit generated docs as the source of truth.
-
----
-
-## 13. Testing matrix
-
-Use the Deser upstream examples and fixture suites as references, but test through the actual XSH language boundary.
-
-At minimum, each format needs:
-
-| Test | Requirement |
+| Existing JSON sorted-key/compact/pretty/file native case | 1 pass | 0.12 s |
+| Existing INI decode/encode/file native case | 1 pass | 0.03 s |
+| Warm scratch compile and adapter probe | pass | 2.87 s |
+
+These are single loop observations, not performance claims. The scratch crate
+resolved its own transitive lockfile; production dependency qualification must
+use XSH's locked graph. No production size, RSS, cold-build, startup or codec
+speed claim follows. The larger initial scratch build is not an incremental
+loop baseline. Scratch artifacts are disposable and not required to resume.
+
+## Vendoring and codec inventory
+
+Place the vendored family under `crates/deser/`, with upstream package names in
+child directories and explicit members in XSH's root workspace. There is no
+nested workspace or nested `.git`. Keep relative local dependencies; remove
+workspace-package inheritance or supply explicit edition/rust-version fields.
+Do not flatten upstream's crate boundaries into one improvised implementation.
+
+Copy only `deser`, `deser-core`, the seven codec packages, `deser-path`,
+`deser-location`, `deser-value`, and `deser-derive`; keep `deser-encoding` only
+for retained conformance tests that actually import it. Location/encoding are
+test support unless a named production caller proves otherwise. Derive is
+allowed for existing Rust-owned structures such as locale data and route-witness
+artifacts; it does not generate Rust schemas for user-defined XSH types. The value
+crate has the narrow host-tooling use above. Enable only std, synchronous
+IO and existing codec speedups that the selected packages need. Enable derive
+only for those actual Rust-owned types; disable open-enums and unrelated
+external-type adapters in production.
+
+Retain Apache-2.0 LICENSE and required notices, relevant package READMEs, source
+and codec/core tests with their local fixtures. Keep one `crates/deser/README.md`
+for the upstream revision, retained scope and update procedure, because future
+vendor updates need it. Do not add a provenance manifest, updater daemon or
+second lockfile. Inspect retained dev-dependencies and test imports; prune
+unneeded cross-format examples/aggregators rather than pulling excluded codecs
+back in merely to compile their old examples. Retain selected upstream driver,
+partial-drop, errors, numeric and parser conformance coverage without weakening
+its assertions or blessing new failures.
+
+Do not copy excluded packages, their tests/examples/fixtures, benchmark projects,
+compile-time experiments, fuzz projects, workflow files, template generators for
+excluded JSON variants, Tokio/Serde bridges or upstream repository metadata.
+The checked-in JSON generated Rust sources are usable without retaining a
+multi-dialect generator. Patch only the needed generated JSON sources locally;
+a future vendor update replaces them from the frozen upstream source. No
+excluded format can be enabled through a dormant feature or dependency.
+
+All selected upstream packages declare Apache-2.0. Necessary production
+additions are number formatting (`itoa`, `zmij`), optional `simdutf8`
+acceleration and `indexmap` for the host-tooling DOM; derive adds proc-macro
+build dependencies. Inspect the resolved license/transitive graph in S1 and
+reject unrelated package upgrades. Resolve additions once against the existing
+Cargo.lock, then use `--locked`. These dependencies serve the selected codecs
+or actual host consumers; the standard library cannot supply their parsers.
+No maintenance or speed guarantee follows from upstream activity. Final size,
+memory, startup and build gates constrain the whole dependency addition.
+
+| Upstream codec | Disposition and language surface |
 |---|---|
-| Basic decode | Valid input constructs expected XSH value |
-| Basic encode | XSH value produces valid output |
-| Round trip | Values preserved where representable |
-| Invalid input | Structured error |
-| Numeric limits | No accidental overflow or precision loss |
-| Nested values | Correct container semantics |
-| Duplicate keys | Explicit documented policy |
-| Unsupported values | Fail without silent coercion |
-| Resource limits | Controlled failure |
-| File operations | Correct XSH filesystem effects |
-| Cross-platform | No platform-specific assumptions |
-| Direct adapter | No required `deser-value` intermediate tree |
+| `deser-json` | Keep; canonical `json` API plus generic `codec` dispatch and JSON Lines. |
+| `deser-yaml` | Keep; `yaml` module, YAML 1.2 and document streams. |
+| `deser-toml` | Keep; `toml` module, TOML 1.1 input and upstream output contract. |
+| `deser-ini` | Keep; canonical `ini` module, one configured common dialect. |
+| `deser-csv` | Keep; CSV and TSV identifiers, record streams and explicit table options. |
+| `deser-cbor` | Keep; bytes and CBOR sequences, explicit canonical encoding option. |
+| `deser-msgpack` | Keep; bytes and consecutive-value sequences. |
+| `deser-jsonc`, `deser-json5`, `deser-hj` | Omit physically; overlapping configuration dialects do not justify three more parsers. |
+| `deser-xml` | Omit physically; namespaces, attributes and mixed content require a separate document contract. |
+| `deser-plist` | Omit physically, all dialects; specialized platform/object-reference model. |
+| `deser-php`, `deser-pickle` | Omit physically; explicitly unwanted object-graph formats. |
+| `deser-urlencoded` | Omit physically; HTTP form nesting/multimap policy is outside this serialization delivery. |
+| `deser-env`, `deser-debug` | Omit physically; existing environment and display owners remain canonical. |
 
-Add format-specific tests for XML namespaces, pickle references, CBOR tags, YAML aliases, CSV records, plist binary input, and so on.
+No claim of supporting all 17 codecs remains. Unselected identifiers fail
+`CodecError.UnsupportedFormat`; no aliases or filename-based detection.
 
-### Cross-format tests
+## Public and runtime contracts
 
-For values representable by both formats, verify workflows such as:
+### Operations
 
-```xsh
-let value = yaml.decode(source)?
-let json_text = json.encode(value)?
-let restored = json.decode(json_text)?
+Retain `json.decode/encode/read/write/get/set/remove/encode_lines/write_lines`
+and existing overloads. JSON path utilities remain XSH-owned structural
+operations, not a second parser. Preserve current JSON write behavior and the
+existing INI `overwrite` contract; do not infer that JSON has an overwrite flag.
+
+Add `yaml` and `toml` decode/encode/read/write as thin canonical entries to the
+same implementation. The generic format identifiers are exactly `json`, `yaml`,
+`toml`, `ini`, `csv`, `tsv`, `cbor`, `msgpack`. Parse them to a private closed
+Rust enum; one capability definition drives dispatch and discovery.
+
+| Generic operation | Contract |
+|---|---|
+| `codec.decode(format, text)` | `Result[Any, CodecError]`; text formats only. |
+| `codec.decode_bytes(format, bytes)` | `Result[Any, CodecError]`; binary directly, text after strict UTF-8 validation. |
+| `codec.encode(format, value)` | `Result[Str, CodecError]`; text formats only. |
+| `codec.encode_bytes(format, value)` | `Result[Bytes, CodecError]`; binary directly, text as UTF-8 bytes. |
+| `codec.read(format, path)` | `Result[Any]`; checked filesystem boundary plus codec errors. |
+| `codec.write(format, path, value, overwrite: false)` | `Result[Unit]`; encode before touching destination; existing no-clobber/replace host operations. |
+| `codec.decode_all(format, text)` | `Result[Stream[Result[Any, CodecError]], CodecError]`; supported text sequences only. |
+| `codec.decode_all_bytes(format, bytes)` | Same, including binary sequences. |
+| `codec.read_all(format, path)` | `Result[Stream[Result[Any, CodecError]]]`; lazy owned file reader. |
+| `codec.encode_all` / `codec.encode_all_bytes` | Corresponding Str/Bytes result from an explicit `List[Any]`, for supported sequences only. |
+| `codec.formats()` | Stable ordered capability records: identifier, text/binary, single/sequence and lexical typing. |
+
+Use normal `Result` error unions at I/O boundaries. Decode/encode on supplied
+values is pure; file operations declare filesystem/IO effects. Lazy file-stream
+pulls retain their existing checked effect/ownership contract. No ambient
+process, environment, cwd, network or schema-file access is permitted.
+
+Add a small `csv` module for options with real table meaning: headers default
+true, delimiter default comma (one ASCII byte), columns default inferred from
+the first row, and `escape_formulas` default false for output. TSV's explicit
+preset uses tabs, its documented escaping and null policy. Reject conflicting
+options and invalid delimiters; headers must be unique and row widths
+must match. Headerless decoding returns row lists. Explicit columns apply to
+encoding record rows and specify their output order; decode calls reject a
+columns argument. Headerless encoding omits the header but retains that order. Generic csv/tsv dispatch uses the
+presets; it does not accept an untyped options bag. Add `codec.encode_bytes`
+named `canonical: false` for CBOR only; true on any other format errors.
+Pretty JSON remains the existing named option, without promising preservation
+of input formatting in any codec.
+
+### Typed lexical input
+
+Introduce explicit `codec.decode_as(format, text, T) -> Result[T]` and
+`codec.read_as(format, path, T) -> Result[T]` for CSV/TSV and INI. The third operand uses the
+existing schema type grammar as `.require(T)` does. This is a bounded addition
+of a type operand to these two intrinsic calls; it is not an ordinary runtime
+argument. The registry, parser/checker, AST/IR/verifier and generated API must
+all describe it. No expression-level generic syntax or first-class type values.
+
+Example: `codec.read_as("csv", p"services.csv", List[Service])?`. This replaces
+the draft's implicit `codec.read(... )?.require(List[Service])?` coercion.
+The plain form still returns strings and strict require still rejects them as
+integers. Explicit typed calls reject self-describing formats, whose callers
+use ordinary decode followed by require. No dependence on an adjacent require,
+expected assignment type, optimization level or inlining changes the result.
+
+Compile the closed target through existing prepared-schema machinery. A
+schema-guided sink interprets lexical atoms only at typed primitive leaves,
+then invokes the existing validator once for admission. No validation predicate
+runs twice. No type information comes from untrusted tags. Missing/extra-field,
+optional, union, nominal, refinement and wire-enum behavior remains owned by
+that validator. Typed entry points use ordinary preserve-extra-fields admission;
+exact/stripped policies remain explicit subsequent require calls.
+
+Lexical `Str` stays exact text. `Int` accepts signed decimal within i64; `UInt`
+adds the existing nonnegative check; Bool accepts exactly `true` or `false`;
+Float accepts finite decimal/exponent values with normal XSH f64 rounding.
+Empty lexical fields become null only for optional targets. No truncation,
+whitespace repair, arbitrary truthy spellings or date inference. If a union
+admits Str, preserve the string and validate normally; otherwise accept a
+conversion only when exactly one distinct primitive interpretation validates.
+Two matching interpretations are an explicit schema error. Unconstrained Any
+and extra fields stay strings. Nested records/maps/lists use their existing
+schema shapes; CSV nested field encodings are unsupported rather than guessed.
+
+### Representation and semantic changes
+
+- Scalars: null, Bool, Str, i64 Int and finite f64 Float. Preserve existing JSON
+  integral-float normalization, exponent/negative-zero behavior and sorted
+  compact/pretty output through differential fixtures. Reject out-of-i64 integer
+  tokens rather than converting them to approximate floats. Ordinary fractional
+  numbers retain XSH's documented f64 rounding; do not advertise arbitrary
+  decimal precision or add a bigint/decimal runtime type.
+- String-keyed objects become XSH records; preserve existing shape-interning
+  safeguards. CBOR/MessagePack maps may use existing scalar MapKey types.
+  Reject complex/nonfinite keys; never stringify them. Empty binary maps become
+  Map, and empty textual objects become Record. Non-string-keyed textual maps
+  fail; YAML complex-key support is outside the represented subset.
+- Duplicate keys are rejected for all included formats, including JSON and INI.
+  This intentionally replaces old JSON last-wins behavior. Repeated INI sections
+  may merge only when no key repeats or conflicts; duplicate sections with
+  conflicting keys fail. No compatibility switch.
+- INI uses Deser's common dialect, case-preserving names, quoted values and
+  whitespace-delimited inline comments. Untyped fields are strings. This
+  intentionally replaces XSH's lowercasing and old quote/comment interpretation.
+  Keep existing continuation/file safety invariants; migrate affected callers
+  and golden tests with before/after examples. No second INI parser or Git/Python
+  dialect API in this campaign.
+- YAML uses version 1.2; quoted scalars stay strings, plain scalars use that
+  version's resolution. Support bounded anchors/aliases, explicit standard
+  scalar tags, byte scalars and multiple documents. Reject arbitrary custom
+  tags, merge-key conflict/duplicate ambiguity and cyclic aliases. Do not allow
+  an implicit scalar fallback to turn a quoted numeric string into a number.
+- TOML accepts arrays of tables and its native date/time syntax. Recognize
+  datetime extensions and return UnsupportedValue: XSH has no exact calendar
+  value, and silently flattening it to Str loses type/precision. This is an
+  explicit supported-subset limit, not a claim of universal TOML round trips.
+- CBOR/MessagePack carry native Bytes. Honor supported scalar/container lengths,
+  reject integer overflow, unsupported CBOR tags and MessagePack extensions,
+  including timestamps. Recognize supported standard byte/integer atoms;
+  inspect extension/event metadata before accepting fallbacks. Unknown semantic
+  tags must not silently disappear. Canonical CBOR uses upstream's canonical
+  option and byte-exact fixtures, not an inference from sorted record keys.
+- Sets encode as ordered sequences and wire enums as their checked string
+  mappings. Nominal records encode as records. Reject capabilities, ordinary
+  enums, Path, Digest, Duration, Error, Result, Status, command plans and resource
+  values unless the existing JSON contract already explicitly allows the case.
+  Encoding never resumes a Stream or executes script callbacks.
+- No cycles or shared-reference graph identity is promised. Repeated immutable
+  children may encode as repeated values; cyclic/unsupported input fails.
+  No coercion creates nominal identities or resource handles.
+
+### Errors and limits
+
+Add one canonical `CodecError` family through the existing registry, with
+variants Syntax, Encoding, UnsupportedFormat, UnsupportedValue, Overflow,
+DuplicateKey, Limit and Options. Each has message, format, optional input path,
+optional line/column/byte offset and optional value path. Coordinates are
+one-based line/column and zero-based byte offset; preserve XSH call-site spans.
+Parser failures implement InvalidData, budget failures CaptureLimit; file errors
+retain actual existing host facets and causes. Schema failures retain their
+existing schema boundary. Unexpected driver invalid-state/configuration errors
+are invariant defects, not malformed-input success or blanket catch-all errors.
+
+The error fields have types `message: Str`, `format: Str`, `input_path: Path?`,
+`line: UInt?`, `column: UInt?`, `offset: UInt?`, `value_path: Str?`. Keep error
+coordinates absent when unavailable rather than using a zero sentinel.
+
+Codec-backed JSON/INI decode/encode failures migrate to this family; path-helper
+errors stay `json-path`. Update all affected tests/docs/callers in the cutover.
+Do not require byte-identical upstream prose or parse error messages to classify
+failures. Locations are optional where upstream cannot supply them. A later
+standalone require has its ordinary schema location; do not invent retained
+per-node source metadata for every decoded value.
+
+Bound untrusted supplied input and single documents to 64 MiB, scalar strings
+and byte strings to 16 MiB, nesting to 128, entries/items per container to
+1,000,000, events per value to 4,000,000 and encoded output to 128 MiB. YAML
+alias expansions are at most 10,000 and consume the same expanded-event/output
+budget. File reads stop after the input limit plus one byte; reject before
+allocating from unchecked declared lengths. Streaming limits are cumulative:
+256 MiB input, 1,000,000 documents/records and 128 MiB emitted output per
+invocation, plus the per-value bounds. Expose these fixed limits in the SPEC;
+no process-global knobs or unlimited sentinel in this delivery. Enforce parser
+buffer/anchor limits before unbounded pre-event growth; core event limits alone
+do not bound whole-document parsing. Test boundary and boundary-plus-one cases.
+
+New generic writes use existing host operations: no-clobber uses exclusive
+creation and rejects any existing destination including a dangling symlink;
+overwrite follows the existing path/symlink policy and truncates the destination.
+Validate/encode before opening. A later write failure can leave a partial file,
+as the existing nontransactional writer can; do not promise atomic replacement
+or crash durability. Readers follow the existing checked host-path policy.
+No string-to-path lossiness or new confinement claim is introduced.
+
+### Stream lifetime
+
+JSON Lines, YAML documents, CSV/TSV records, CBOR sequences and consecutive
+MessagePack values use the existing XSH Stream owner, not another runtime.
+Constructing the stream performs no item consumption. Supplied memory input is
+owned for its lifetime; file input has one reader owner, closed on exhaustion,
+error, cancellation or early drop. Keep incomplete-token state for incremental
+formats; YAML may buffer one bounded document and CSV one bounded record.
+Do not borrow local parser buffers into a returned stream or reparse prefixes
+on every pull. Never collect the whole file to claim streaming.
+
+JSON Lines and CSV may report an item error and recover at their documented
+line/record boundary. Binary syntax and YAML errors terminate after one error;
+no guessed resynchronization. Index errors by one-based item number and preserve
+source offsets. Budget exhaustion is terminal across every format. Preserve
+existing JSON line skip/recovery behavior where it is already a language
+contract. Backpressure follows pulls; no worker thread, Tokio runtime or hidden
+producer queue. TOML and INI reject sequence calls rather than silently wrap
+one whole document. Single CSV decode returns the complete bounded table.
+
+## Sequence
+
+Sizes indicate coherent capabilities, not a fixed number of commits. Every
+item includes behavior, native tests, relevant host proof and authored docs.
+Shared contract changes stay with the coordinator.
+
+| Item / phase | Size, prerequisites | Ownership and delivery | Acceptance |
+|---|---|---|---|
+| S0 Ground | S; launch | Coordinator: freeze current master, inspect source/tests/callers and approved image; characterize JSON/INI boundaries and select existing fixtures. | Existing focused JSON/INI cases, gate plan, known-red record; a comparison fixture fails when a meaningful output/value/error is changed. No cold global entry fee. |
+| S1 Direct adapter and vendor | L; S0 | Coordinator: selected `crates/deser/`, manifests/lock, `src/runtime/eval/` codec view/sinks and host dispatch. Establish direct runtime/lowered traversal, error family and limits with a JSON/YAML pilot. | Actual nested Value and LoweredValue decoding/encoding, numeric/key/unsupported-resource tests; partial failure/drop and limit controls; no dynamic DOM in language decoding. Scoped cargo checks and selected upstream driver/parser tests. |
+| S2 JSON hard cutover | L; S1 | Same lane: `src/modules/json.rs`, runtime JSON routes, locale, formal bridge, route witness, statistics, `src/lib.rs`, XSHT consumers and Rust fixtures. Replace miniserde, migrate facade consumers and remove old paths atomically with successful tests. | Full JSON behavior corpus and exact raw-host u64/locale/tooling/witness cases; no miniserde in workspace source, manifests, resolved graph or lockfile; no old serializer selection. Advance first accepted capability. |
+| S3 Configuration and binary formats | L; S2 | Two disjoint lanes: YAML/TOML/INI backends and native tests; CBOR/MessagePack backends and native tests. Coordinator integrates public registry/runtime IDs and module dispatch. | Each included format's positive/negative matrix, YAML aliases/documents and TOML datetime rejection, INI intentional changes, native bytes/scalar keys/extensions and canonical CBOR controls. Phase gate on combined source. |
+| S4 Tables and typed lexical decoding | L; S2, S3 INI | One lane: CSV/TSV backend/tests; coordinator: intrinsic type operand, schema preparation, lowering and physical verifier authority. Same prepared validator admits results. | Header/width/quote/UTF-8/null/columns/formula cases, typed primitive/nested/union/refinement controls, no JSON coercion; cold forged schema/owner/target tests fail before execution. No broad inference redesign. |
+| S5 Sequences and hardening | L; S3, S4 | One owner of existing stream integration and file adapters; backends contribute incremental state. Finish docs, effects, unsupported/error/location contracts and hostile-input limits across all formats. | Lazy read/cancel/drop/error/recovery controls, chunk boundaries, complete cumulative limits and bounded RSS; missing/read-only/symlink/non-UTF8 path and failed-write preservation cases. All feature deliverables before optimization. |
+| S6 Cost and polish | M; S2-S5 accepted | Coordinator: production artifacts, existing benchmark fixtures/adapters and dependency/features audit. Remove avoidable allocations/linkage only on measured evidence. | Matched size/RSS/build/startup/codec measurements against frozen pre-cutover source; thresholds below, with timing deferred on busy host. No codec silently dropped. |
+| S7 Close | M; S6 | Stop writers, delete dead fallback/temporary comparison code and unused dependencies; generated docs; focused independent `review` using the applicable `ultrareview` lenses on the changed serialization boundary, without an unrelated repository audit. | Fix demonstrated P1/P2 findings, final integration/Linux scope once, no open behavior, clean local commits and normal checkout cleanup. If external proof is blocked, pause with explicit unfinished acceptance. |
+
+A phase exit runs the touched-area checks selected by `cargo dev gate`; S2's
+first broad parity gate covers the complete JSON boundary, not every repository
+scenario. S3-S5 share compatible products and exact selectors. Do not start a
+new unrelated verification framework or merge the parked Pyramid tree here.
+
+## Acceptance and the fast loop
+
+Use current commands, with kache and Linux mold as repository instructions
+require. Verify selection before dispatch:
+
+```sh
+cargo dev gate src/modules/json.rs src/runtime/eval/json.rs --plan
+cargo dev gate src/modules/json.rs src/runtime/eval/json.rs
 ```
 
-Likewise:
+Extend the changed-path arguments to the actual item; inspect unmapped vendor
+paths and run the relevant explicit package checks rather than ignoring them.
+Use `cargo check --locked -p xsh -p xsht -p xshi` for shared dependency/facade
+changes, not for every codec edit. Native behavior belongs in XSH tests; Rust
+covers adapter lifetimes, exact numeric/byte transport, verifier forgeries,
+allocation and file-descriptor boundaries that native tests cannot express.
 
-```xsh
-let packet = codec.decode_bytes("cbor", binary)?
-let yaml_text = yaml.encode(packet)?
+Focused native examples, using the matching verification xsht/xsh products:
+
+```sh
+xsht test --exact tests/xsh/stdlib/json.xsh::test_json_record_keys_are_sorted_in_every_encoder
+xsht test --exact tests/xsh/stdlib/ini.xsh::test_ini_decode_encode_and_files
 ```
 
-These tests should verify data-model preservation, not necessarily byte-for-byte equality.
-
-Where conversion is impossible, require explicit errors.
-
-### Typed boundary tests
-
-Verify that `.require(T)` works identically regardless of the self-describing source format.
-
-Include:
-
-- Nested records.
-- Optional fields.
-- Lists.
-- Unions.
-- Nominal types.
-- Str-backed enums.
-- Validated integers.
-- Missing fields.
-- Wrong types.
-- Wrong enum values.
-- Error paths.
-
-Add tests for type-directed lexical formats to prove correct parsing into declared XSH schemas.
-
-Also verify that JSON/YAML strings are not silently coerced into numbers in violation of XSH semantics.
-
-### Streaming tests
-
-Verify:
-
-- Lazy consumption.
-- Cancellation.
-- Backpressure.
-- Correct item indexing.
-- Error attribution.
-- Bounded memory.
-- Repeated reads.
-- Input cleanup.
-
-### Compatibility tests
-
-Preserve XSH's existing JSON and INI golden fixtures.
-
-Run old-versus-new differential tests before retiring `miniserde`.
-
----
-
-## 14. Performance acceptance
-
-This migration affects XSH's foundational data paths and must be measured.
-
-Follow the repository's performance/deployment campaign rather than inventing a new benchmark methodology.
-
-### Benchmark at least
-
-- Small JSON decoding.
-- Small JSON encoding.
-- Large JSON decoding.
-- Large JSON encoding.
-- JSON Lines.
-- Pretty JSON.
-- Nested values.
-- Numeric-heavy JSON.
-- YAML decoding.
-- YAML encoding.
-- TOML decoding.
-- CSV record streams.
-- CBOR encoding/decoding.
-- MessagePack encoding/decoding.
-- Cold startup with no codec usage.
-- Cold startup with JSON usage.
-- Cold startup with YAML usage.
-
-Compare:
-
-1. Current `miniserde` implementation.
-2. Deser through `deser-value`.
-3. Direct XSH/Deser adapter.
-4. Optional specialized lowered-value adapter.
-
-For JSON, the existing optimized implementation is the performance baseline.
-
-**No speedup claims without matched measurements.**
-
-### Binary-size gates
-
-Measure `xsh`, `xsht`, and `xshi` using actual production build settings and targets.
-
-Account for all newly linked codecs.
-
-The current performance campaign documents a production binary-size gate of approximately 5% over its accepted baseline. Honor the exact active criterion and measure the complete products, not merely the size of the new crate.
-
-If the full codec family exceeds the limit:
-
-- Inspect which crates dominate binary growth.
-- Disable unnecessary default features.
-- Remove unused derive or auxiliary dependencies.
-- Improve dead-code elimination.
-- Investigate codec grouping and linking.
-- Avoid duplicate parsers or generic value representations.
-
-Do not silently drop required codecs.
-
-Do not hide incomplete integration behind unadvertised features.
-
-If XSH's documented acceptance thresholds remain blocked by unrelated campaign work, record that limitation and the independently verified results; do not fabricate a completed qualification.
-
-### Resource safety
-
-Measure peak RSS on representative workloads.
-
-Preserve XSH's no-unbounded-recursion guarantees.
-
-Investigate allocation patterns in the direct adapter.
-
-Do not introduce an all-value copy merely for convenience when direct serialization is feasible.
-
----
-
-## 15. Scope discipline
-
-This is a large campaign. Do not broaden it into unrelated redesign.
-
-Explicit non-goals:
-
-- Rewriting XSH's parser.
-- Replacing XSH's type system.
-- Adding language-level reflection.
-- Adding new generic syntax.
-- Generating Rust or XSH schemas from files.
-- General-purpose plugin loading.
-- Introducing Tokio as a new runtime.
-- Network configuration discovery.
-- Schema registries.
-- JSON Schema compilation.
-- ORM features.
-- YAML AST editing.
-- Comment-preserving configuration rewriting.
-- Formatters.
-- CLI wrappers around Python/PHP/XML tools.
-- New process execution mechanisms.
-- Ambient environment access from pure functions.
-- Replacing unrelated filesystem APIs.
-- Replacing unrelated HTTP or networking infrastructure.
-- Broad rewrites of deployment tooling.
-
-The objective is a better structured-data boundary inside the existing language.
-
----
-
-## 16. Execution plan
-
-Complete the campaign in independently testable stages.
-
-### Stage A — Characterize existing behavior
-
-- Establish the exact current JSON API contract.
-- Capture differential JSON fixtures.
-- Characterize INI behavior.
-- Baseline performance and binary size.
-- Inspect Deser's published crate versions and feature sets.
-- Produce a concise compatibility matrix.
-
-Do not modify the public language API yet.
-
-### Stage B — Prove direct integration
-
-- Add pinned Deser dependencies.
-- Implement a direct XSH value decoding sink.
-- Implement the narrowest correct encoding adapter.
-- Verify `Send`/`Sync` trait constraints.
-- Prototype both JSON and YAML.
-- Benchmark against the dynamic Deser-value route.
-- Resolve numeric and map-key semantics.
-
-This stage must establish that the architecture is sound before integrating all formats.
-
-### Stage C — Replace JSON
-
-- Move JSON decoding to Deser.
-- Replace the old serialization path.
-- Preserve special lowered-value behavior.
-- Retain JSON Lines support.
-- Pass differential tests.
-- Remove `miniserde` and redundant code.
-- Verify JSON benchmark regressions against baseline.
-
-No permanent compatibility backend.
-
-### Stage D — Common text formats
-
-Integrate:
-
-- YAML.
-- TOML.
-- INI.
-- JSONC.
-- JSON5.
-- Hjson.
-
-Add `yaml` and `toml` public modules and the generic codec dispatch.
-
-Retain existing JSON and INI APIs.
-
-### Stage E — Binary formats
-
-Integrate:
-
-- CBOR.
-- MessagePack.
-- Binary property lists.
-- PHP serialization.
-- Python pickle.
-
-Establish the representability and security policies.
-
-### Stage F — Specialized and record formats
-
-Integrate:
-
-- CSV/TSV.
-- URL-encoded forms.
-- XML.
-- Remaining property-list dialects.
-- Environment mappings.
-- Debug formatting.
-
-Implement type-directed lexical decoding where needed.
-
-### Stage G — Streaming and transcode capabilities
-
-Integrate supported sequence/record streams into XSH's existing `Stream` architecture.
-
-Evaluate `deser-transcode` for direct format-to-format conversion without constructing XSH values where that functionality is genuinely valuable.
-
-Do not let transcode bypass the safety and extension-representation policies.
-
-### Stage H — Consolidation
-
-- Remove dead adapters.
-- Remove duplicated traversal.
-- Simplify dispatch.
-- Deduplicate format options.
-- Audit dependencies.
-- Run differential correctness tests.
-- Run final performance gates.
-- Update documentation and examples.
-- Commit the resulting implementation.
-
-The stages are logical checkpoints, not excuses to leave half-finished public APIs.
-
----
-
-## 17. Quality review
-
-Before finalizing, perform an adversarial review.
-
-### Architecture
-
-- Is any complete value tree unnecessarily materialized?
-- Are codec-specific semantics leaking into XSH's core values?
-- Is there duplicate serialization logic?
-- Did the generic codec dispatcher become overengineered?
-- Are `deser-value` and XSH `Value` both present in production paths unnecessarily?
-- Are type conversion rules duplicated?
-- Can more logic be implemented through Deser's existing event model?
-
-### Correctness
-
-- Can number conversion lose precision?
-- Can tags or extension metadata disappear silently?
-- Do source locations survive into errors?
-- Can duplicate keys produce inconsistent results?
-- Do input/output types match their declared signatures?
-- Can lexical source values bypass XSH validation?
-- Can nominal types be forged through input metadata?
-
-### Security
-
-- Can YAML aliases cause excessive resource use?
-- Can pickle or PHP data execute foreign code? They must not.
-- Can input trigger unbounded allocation?
-- Can an environment codec mutate ambient state?
-- Can a supposedly pure operation access the filesystem?
-- Can unsupported extension objects impersonate XSH capabilities?
-
-### Performance
-
-- Are JSON hot paths slower for avoidable reasons?
-- Did dynamic dispatch introduce unacceptable overhead?
-- Did compiler/linker settings hide binary growth?
-- Are large input values copied repeatedly?
-- Can the adapter stream instead of buffering?
-
-### Simplicity
-
-- Are there unnecessary helper types?
-- Could a custom converter be replaced by upstream Deser functionality?
-- Do format-specific options duplicate upstream behavior?
-- Is every new file necessary?
-- Can tests be simplified without reducing their strength?
-
-Fix issues discovered by this review, not merely document them.
-
----
-
-## 18. Test and commit procedure
-
-Follow XSH's instructions, especially:
-
-```bash
-cargo dev build
-cargo dev gate PATH...
-cargo dev gate --full
-cargo dev test linux
-```
-
-Use the repository's documented `verification` and production profiles appropriately.
-
-Run focused tests first.
-
-Do not run Rust or XSH formatters or autofixers. The repository explicitly prohibits formatter-driven churn.
-
-Avoid unrelated test/build commands that can alter the host.
-
-Respect the existing pinned Linux container environment.
-
-Update authored documentation sources, then run the documented docs-generation/check process.
-
-Preserve existing test fixtures unless an intentional semantic change requires updating them with supporting evidence.
-
-Commit coherent stages.
-
-Only push validated commits to the confirmed target branch. Never force-push or overwrite concurrent work.
-
----
-
-## 19. Definition of done
-
-The campaign is complete when:
-
-- [ ] Deser is XSH's unified codec framework.
-- [ ] All 17 current Deser format crates have working, appropriate XSH integration surfaces.
-- [ ] Existing JSON APIs remain compatible.
-- [ ] `miniserde` is removed.
-- [ ] Obsolete JSON decoding and encoding machinery is removed.
-- [ ] A shared direct XSH value adapter is implemented.
-- [ ] Production decoding does not require `deser-value`.
-- [ ] Production encoding avoids unnecessary full-value materialization.
-- [ ] XSH remains the owner of its types and runtime values.
-- [ ] `.require(T)` works consistently with decoded self-describing values.
-- [ ] Type-directed lexical-format decoding works without a separate schema language.
-- [ ] YAML and TOML have ergonomic first-class APIs.
-- [ ] Specialized codecs have accurate interfaces and documented limitations.
-- [ ] Binary input and output are genuinely byte-safe.
-- [ ] Document and record streams are supported where appropriate.
-- [ ] Structured error semantics and source locations are preserved.
-- [ ] No unsafe coercions or silent loss of meaningful data.
-- [ ] Security and resource limits are enforced.
-- [ ] No arbitrary foreign-code execution occurs during decoding.
-- [ ] XSH's effect system remains correct.
-- [ ] Existing JSON/INI test coverage passes.
-- [ ] New cross-format and type-directed tests pass.
-- [ ] Performance and binary-size measurements are documented.
-- [ ] The relevant repository gates pass, or remaining external qualification blockers are explicitly identified.
-- [ ] Documentation and generated references are current.
-- [ ] Changes are committed without disturbing unrelated work.
-
-Do not falsely claim support for a feature that an underlying codec or XSH's value model cannot represent. A codec may have explicit, tested representability restrictions; these must be visible in its API documentation and errors.
-
-The full set of format crates must nonetheless be integrated, not merely listed as future work.
-
----
-
-## 20. Final report
-
-Report:
-
-1. Exact commit SHAs.
-2. Final module/API structure.
-3. Deser crate versions and enabled features.
-4. Public functions added or modified.
-5. Complete 17-format support matrix.
-6. Direct XSH value adapter design.
-7. Type-directed decoding mechanism.
-8. Remaining representability limitations.
-9. JSON behavioral differences, if any.
-10. `miniserde` removal confirmation.
-11. Code and dependency reductions.
-12. Binary-size changes for `xsh`, `xsht`, and `xshi`.
-13. Cold-start and codec benchmark results.
-14. Native and Rust test results.
-15. Linux verification results.
-16. Unresolved performance or compatibility risks.
-
-## Final engineering directive
-
-Build this as a **natural extension of XSH's type system and runtime**, not as a serialization framework bolted onto the side.
-
-The central design principle is the same one that makes Reylo compelling: each fact should have one owner.
-
-- XSH owns types.
-- XSH owns runtime values.
-- XSH owns validation.
-- XSH owns effects and resources.
-- Deser owns parsing and serialization.
-- The shared adapter translates between them.
-
-Do not duplicate those responsibilities.
-
-Prefer direct value construction, bounded allocation, explicit errors, deterministic behavior, and excellent compatibility.
-
-Do not preserve obsolete custom JSON code merely because it already exists. Equally, do not throw away optimized logic until its replacement is proven.
-
-**Deliver a complete, coherent multi-format serialization capability worthy of a serious systems glue language.**
+`--exact` selects one test; use separate calls or repeated `--exact-id` after
+listing IDs to batch selectors. New behavior tests receive exact selectors in
+the item report. Exclude no failing test for convenience. Intentional semantic
+changes update only the assertions whose contract changed, with the old/new
+behavior demonstrated and documented.
+
+### Required behavior corpus
+
+| Area | Observable proof required |
+|---|---|
+| JSON decode | Null/bool/string, i64 endpoints and overflows, UInt validation, finite fractions, exponents, negative zero/integral floats, empty/nested arrays/objects, Unicode/escapes/surrogates, malformed/trailing input, invalid UTF-8 bytes, duplicates and depth/resource failures. |
+| JSON encode | Sorted record/map keys, compact/pretty/escaping/float goldens, set order, wire enums, dynamic records and host Stats/StatsBlob shapes, runtime/lowered agreement, unsupported resource/map-key/nonfinite errors, large bounded output. |
+| JSON language helpers | Every get overload, set/remove missing/intermediate/root paths, read/write and JSON line newline/order/blank-line/failure behavior, actual filesystem writes and error propagation. |
+| All seven codecs | Decode and encode through the real XSH boundary, representable round trips, nested/empty containers, numeric limits, explicit duplicate policy, unsupported values, structured errors and real read/write behavior. Do not substitute existence or smoke tests. |
+| Configuration | YAML 1.2 quoted/plain types, standard/custom tags, aliases/cycles/expansion budgets and multiple docs; TOML arrays of tables/date-time rejection; INI case/quotes/comments/continuations/conflicts and caller migrations. |
+| Tables | Headers/headerless lists, unique and explicit columns/order, field-count failures, malformed quote failure, delimiters, CRLF/UTF-8, repeated rows, empty/null, TSV escapes, formula escaping opt-in and unchanged default strings. |
+| Binary | Byte-exact buffers including NUL and invalid UTF-8, all representable scalar keys, complex key rejection, integer overflow, truncated input, unsupported tags/extensions, canonical CBOR vectors and multi-value sequences. |
+| Typed boundary | Nested/optional/list/map/union targets, missing and extra fields, nominal identity, Str-backed enums, refinements exactly once, invalid primitive/enum, ambiguity and value paths; unchanged strict require/exact/stripped; JSON/YAML strings never gain numeric coercion. |
+| Compiler authority | Closed/reifiable target checks; imported/alias schema identity; malformed intrinsic operands; cold IR mutations of schema ID, owner, target type and producer; schema metadata never grants its own authority. |
+| Streaming | No pull at construction, one-byte and UTF-8/delimiter chunk splits, early close, repeated independent reads, item index/location, line recovery versus terminal errors, bounded parser buffers and cumulative byte/item/alias/output budgets. |
+| Effects and file safety | Pure encode/decode cannot open files, read environment or run resources; Path stays byte-safe; file effects are checked; no-clobber/overwrite and symlink policy use existing host boundary; invalid value/options fail before destination mutation; partial writes close readers/writers and leave the documented destination outcome. |
+| Workspace consumers | Locale lookup; raw JSON host u64 limits; actual XSHT highlight/coverage/test/example/trace/report output; route-witness/formal bridge and runtime-stat fixtures. Preserve their wire/schema contracts unless an explicit entry here changes them. |
+| Cross-format | YAML -> JSON -> value and CBOR -> YAML for the shared subset; impossible Bytes/extension conversions error. Compare values and effects, not arbitrary serializer whitespace. |
+| Upstream core | Selected driver arena lifetime, partial-drop/error/deep-nesting and codec corpus controls under pinned nightly; retain known failures visibly, never bless a new failure. |
+
+The runnable pre-cutover JSON implementation and its native tests are the
+reference, not a second production backend. Freeze the corpus once, run both
+products on identical inputs, and commit only needed golden fixtures. Preserve
+all specified language behavior except the explicit semantic changes above.
+Normalize only real nondeterminism; preserve failure categories, effect order,
+key order and multiplicity. Prove a comparison detects a corrupted value,
+missing output, changed error category and wrong lowered projection. Delete
+temporary old/new runtime selection after parity; the old Git revision remains
+an oracle. A new codec's reference is its selected upstream fixtures and its
+specified XSH subset, not universal format fidelity.
+
+At close, run one full local integration scope (`cargo dev gate --full`) because
+this change replaces a foundational boundary used by all three tools. Run
+`cargo dev test linux` through the approved pinned `Dockerfile.test` environment
+for Linux-specific coverage the local gate did not provide. Inspect the existing
+owners first and reuse identical completed coverage; do not run duplicate full
+native suites merely because both commands can dispatch them. Preserve complete
+counts and skips. Native macOS tests run only on an available macOS host; absent
+platform evidence is an explicit external qualification blocker, never a pass.
+This future launch's final full run is the only comprehensive milestone; item
+loops and phase gates remain scoped. Preflight itself runs none of these full
+commands and authorizes no new CI work.
+
+### Final cost acceptance
+
+Freeze the immediate pre-cutover baseline source and products with identical
+nightly, ef7 container, target, production flags and inputs. Reuse the existing
+campaign adapters. The protected 57a/R13 products are historical references,
+not this migration's automatically comparable baseline. Do not rebaseline to
+hide an added codec, new dependency or regression.
+
+| Cost | Final acceptance |
+|---|---|
+| Binary size | Each actual production `xsh`, `xsht`, `xshi` at most 5% above its matched pre-cutover product. Count all enabled codecs and embedded bytes. |
+| Memory | Peak RSS and retained memory independently no more than baseline + max(10%, 2 MiB) on unchanged workloads. Also test bounded document/stream memory near limits. |
+| Build | Incremental and release median CPU at most 10% above matched baseline outside observed spread; same flags, jobs, cache state and absolute staging path. |
+| Unchanged startup | No additional helper process/failure; per-case increase at most max(5%, 1 ms), subject to paired spread. Include no-codec, JSON and YAML usage. |
+| Existing substantial JSON work | Median CPU at most baseline + max(5%, paired spread), with the same complete outputs and workload size. No speedup requirement. |
+| New codecs | Publish complete-work CPU/RSS/output results for YAML/TOML, CSV streams and binary round trips. They have no old-codec speed baseline; make no cross-library speed claim from upstream numbers. |
+
+Measure small and large decode/encode, pretty output, nested/numeric-heavy JSON,
+JSON Lines and the shared real JSON-to-Tokei/representative corpus where still
+valid. Compare direct adapter and current baseline. A Deser-value route is a
+bounded scratch diagnostic only if it answers a measured allocation question;
+it is not a prerequisite benchmark framework or shipping fallback.
+
+Use at least five alternating pairs per timed claim; median and spread for
+compute, appropriate percentiles only for actual tail claims. Verify useful
+output and failures outside sampling. `perf-gate-ready` must exit 0 immediately
+before timing and `perf-gate-ready -1` immediately after; discard contaminated
+runs. If the host stays busy, report exactly `perf gate deferred: host busy`,
+continue independent features and pause final acceptance. Size/RSS still run.
+A greater-than-2x CPU or RSS regression on a matched complete workload earns one
+bounded investigation before proceeding; it does not authorize a broad rewrite.
+Final budgets remain binding even if features are complete. Never retain two
+JSON implementations to evade the migration's cost gate.
+
+## Execution boundary and non-goals
+
+This request authorized preflight edits to this document only. Implementation,
+vendoring into tracked source, local implementation commits and the named final
+full scope require a subsequent explicit launch. The launch can authorize these
+repo-local changes as one campaign; no repeated approval is needed for routine
+choices already settled here. Effects outside that grant park only the affected
+item. Pushes, upstream edits, other-repository changes, destructive user-data
+operations and installed-system changes remain forbidden.
+
+Contract changes to surface in the final report: typed intrinsic schema operands,
+new codec modules/operations and error family, fixed resource limits, JSON/INI
+duplicate/error changes, INI dialect changes, Rust host JSON facade replacement,
+format/extension subsets, stream recovery and filesystem policies. Migrate all
+tracked callers in this repository and update tests, authored docs and generated
+references together. Do not silently change persisted tooling wire schemas.
+If an external consumer must migrate, identify the new canonical API; do not
+retain the old implementation or deprecated aliases for it.
+
+Not in scope: excluded codecs, arbitrary extension/cycle fidelity, new runtime
+value kinds, language reflection/generics, generated schemas, ORM/database work,
+compile-time configuration reads, JSON Schema, AST/comment-preserving editing,
+plugin loading, network discovery, transcode API, Tokio, foreign-language codec
+commands, new process runtimes, unrelated filesystem/network redesign, CI and
+formatters. Do not revive older performance or Pyramid campaigns as prerequisites.
+
+## Source map and references
+
+Read the topic owners before editing: [tour](docs/user-tour.md),
+[SPEC](docs/SPEC.md), [architecture](docs/ARCHITECTURE.md),
+[design](docs/DESIGN.md), [testing](docs/TESTING.md) and the
+[paused campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md).
+
+| Concern | Existing owner |
+|---|---|
+| Runtime data and keys | `src/runtime/value.rs`, `src/map_key.rs`, `src/runtime/eval/type_view.rs`; public value facade in `src/execution.rs`. |
+| JSON and INI | `src/modules/json.rs`, `src/modules/ini.rs`, `src/runtime/eval/json.rs`, `src/runtime/eval/lowered_run.rs`, `src/lib.rs`. |
+| Schema admission | `src/runtime/eval/require.rs`, `src/runtime/eval/lower/types.rs`, `src/sema/check/expr.rs`, `src/syntax/parser/expr.rs`, indexed schema/producers under `src/runtime/eval/indexed/full/`. |
+| APIs/errors/dispatch | `crates/xsh-registry/src/signature/modules.rs`, `crates/xsh-registry/src/runtime_op.rs`, `crates/xsh-registry/src/errors.rs`, `src/modules/mod.rs`, `src/modules/signature.rs`, evaluator dispatch. `module_codecs.rs` currently handles hash/byte operations, not a preexisting generic codec framework. |
+| Language tests | `tests/xsh/stdlib/json.xsh`, `tests/xsh/stdlib/ini.xsh`, `tests/xsh/record-exactness.xsh`, native stream/API tests and Rust host-boundary tests. |
+| Other miniserde consumers | `src/modules/locale.rs`, Linux net/storage fixtures, `src/runtime_stats.rs`, `src/runtime/eval/route_witness.rs`, `src/runtime/eval/indexed/full/formal_bridge.rs`, `tests/runtime/common.rs`, `tests/linux_priv.rs`, `tests/libc_hygiene.rs`, `crates/xsht/` sources and tests. Re-run `rg -n miniserde` before claiming complete removal. |
+| Authored docs | `docs/templates/SPEC.md`, registry reference/docs sources, `docs/templates/user-tour.md`, codec examples and the existing docs-generation owner. |
+
+Upstream source, inspected at the frozen commit:
+
+- [Deser](https://github.com/mitsuhiko/deser/tree/8c15055178fcf2488dcd1ac70e6d1ff18689b486): core event/sink/emitter drivers, lexical/implicit atoms, extension metadata and explicit limits.
+- [Limitations](https://github.com/mitsuhiko/deser/blob/8c15055178fcf2488dcd1ac70e6d1ff18689b486/LIMITATIONS.md): thread-safety, whole-document buffering, dynamic dispatch and arena safety constraints.
+- [Serde comparison](https://github.com/mitsuhiko/deser/blob/8c15055178fcf2488dcd1ac70e6d1ff18689b486/SERDE.md): architecture reference, not a replacement language contract.
+- [Benchmark methodology](https://github.com/mitsuhiko/deser/tree/8c15055178fcf2488dcd1ac70e6d1ff18689b486/benchmark) and [compile/size notes](https://github.com/mitsuhiko/deser/tree/8c15055178fcf2488dcd1ac70e6d1ff18689b486/compile-times): motivation to measure locally, not XSH acceptance evidence.
+- [Reylo](https://github.com/colinhacks/reylo): inspiration for one owner of types only. No database access, code generation or external-file type discovery is imported into XSH.
+
+## Decision and campaign log
+
+2026-10-25: owner overrides the draft's all-17/published-crate/compatibility
+requirements with a pruned source vendor and hard cutover. Preflight selects
+seven codec crates (eight identifiers including TSV), explicit lexical schema
+calls, direct runtime adapters and workspace-wide dependency removal. The draft's
+XML/plist/object-graph/env/debug/form/transcode capabilities are out of scope;
+their security and data-model sections are superseded by physical exclusion.
+
+2026-10-26: foundation probes pass; two existing focused native cases pass.
+No implementation, production performance gate, full suite or macOS run started.
+The hard-cutover semantics and final proof floor above replace the draft's
+compatibility and “gates pass or blockers” completion ambiguity: externally
+blocked final acceptance is a pause, not completion.
+
+## For the owner afterwards
+
+Read the accepted codec/API contract and intentional semantic changes, inspect
+the vendor/dependency reduction and final matched cost results, and review local
+commits on master. No cherry-pick is needed for work already integrated there.
+The final report names exact revisions, modules/functions/traits changed,
+upstream pin/features, adapter/schema mechanism, all included/excluded codecs,
+remaining representation restrictions, miniserde/dead-code removal, native/Rust/
+Linux/macOS results, production sizes/RSS/timing and every pending blocker.
+
+Launch prompt: “Execute campaign-deser.md on master, including its repo-local
+implementation commits and final manual verification; preserve its authority
+boundaries and hard-cutover decisions.”
