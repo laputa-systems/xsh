@@ -2119,7 +2119,6 @@ dependencies = [
  "laputa-h2-futures-lite",
  "laputa-ptytest",
  "libc",
- "libmimalloc-sys",
  "lzma-rust2",
  "md-5",
  "memchr",

@@ -147,7 +147,6 @@ rustls-graviola = "0.4.0"
 xsh-registry = { path = "crates/xsh-registry" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libmimalloc-sys = "=0.1.49"
 mimalloc = "0.1.52"
 
 [[bin]]
