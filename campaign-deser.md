@@ -10,39 +10,78 @@ make one hard cutover and delete the replaced implementations.
 Current checkpoint: implementation through S5 is integrated; final cost and
 Full/Linux qualification remain. Native macOS qualification is externally
 blocked by the unavailable host. No campaign completion is claimed.
-The measured production implementation at `89d2645eb` keeps compact shared records, one
-sequence reader type and canonical documentation loaded only on request.
-Public API construction still validates documentation eagerly; clones retain
-their original documentation catalog. The focused registry tests pass 20/20.
-The Linux xsh constructor disables eager arena commitment before allocation,
-preserving explicit allocator environment overrides and the original purge delay.
-The constructor object links only into xsh. Pinned production checks confirm its
-initialization order, arena protection, child environment and missing-descriptor
-behavior. Its exact direct sys dependency supplies the already-locked mimalloc
-header; it adds no package or transitive feature.
-Production sizes pass: xsh 27,212,992, xsht 39,115,392 and
-xshi 44,232 bytes.
+The current implementation at `ebaf919e7` preserves compact records through
+runtime-to-lowered conversion. Small records retain compact field storage;
+wide records retain indexed lookup. Focused tests preserve symbol ownership,
+last-wins duplicate fields, copy-on-write updates, order-independent equality
+and bounded work for nested equality. All six selected regressions pass.
+Canonical documentation remains lazy for internal construction and eager for
+public API construction. The Linux xsh constructor disables eager arena
+commitment while preserving explicit allocator overrides and the original purge
+delay. Runtime allocation still uses mimalloc.
 
-Matched memory sampling now verifies both executable files are evicted, then
-fully resident after identical warming before each pair. A control on the same
-frozen artifacts establishes that prior cache history changes file-backed RSS;
-warming alone did not make the previous startup comparison equivalent. Tokei
-can delay eviction eligibility for about 50 ms after exit. Preparation waits at
-most one second for verified zero residency and still rejects persistent
-residency; it never retries a workload or accepts an unmet precondition.
-All eight unchanged peak and both retained-memory cases pass after this control.
-Five runs each also complete an exact 64 MiB document, reject its one-byte
-overrun and keep stream memory bounded at 64/256 MiB and the stream overrun.
-All outputs and statuses match. The 18-workload CPU batch accepts 130 samples
-with successful readiness checks before and after. Its remaining failure is
-large JSON: 198.466 to 226.633 ms median across five alternating pairs.
-The 28.167 ms increase exceeds the 20.208 ms allowance from the paired spread.
-Every pair regresses, by 17.727 to 37.935 ms. A separate phase probe identifies
-read/decode as the strongest lead and encoding as a secondary contributor.
-Build CPU qualification has not run. Earlier timing results below are historical.
-The owner is replacing BTreeMap and BTreeSet with bbtree on master. Keep the
-pre-cutover baseline frozen and take final measurements after those edits settle.
-The measurements above qualify only the recorded production source.
+The owner-authorized bbtree comparison is complete. After applying the same
+compact-record repair to both backends, five readiness-qualified alternating
+pairs find no measurable JSON difference. The 65,536-row transform medians are
+236.047 ms for std and 241.044 ms for bbtree. Its paired median increase is
+5.905 ms within a 19.998 ms spread. Tokei regresses from 41.352 to 52.384 ms.
+All five Tokei pairs are slower, by 8.800 to 11.334 ms, beyond their 2.534 ms
+spread. Tokei peak RSS also rises 39.5%. `a0ac6053e` therefore reverts bbtree
+and records the measurements. The compact-record repair remains integrated.
+No bbtree dependency or production backend remains.
+
+The compiler allocation failure has a separate cause: rustc exhausts the host's
+65,530 available process mappings despite ample memory and zero cgroup OOM
+counts. Mounting the host's musl `/usr/lib/libjemalloc.so.2` read-only activates
+the build owner's existing compiler preload. Observed mapping counts fall to 88–240 and
+the same production build succeeds. The pinned nightly, build profiles and host
+mapping limit remain unchanged. The compiler preload does not change XSH's
+runtime allocator. Both sides of final build-cost comparisons use that preload.
+Each build sample starts in a disposable container with a cold Kache cache.
+Incremental samples retain the target dependencies from their same-side release
+sample. Cargo CPU includes its waited compiler descendants.
+
+A std control with the compact-record repair passes all 18 runtime workloads,
+accepting 130 samples with exact outputs and readiness checks before and after.
+Large JSON medians are 253.549 ms for the frozen pre-cutover baseline and
+246.659 ms for the control. The paired change is -6.890 ms within a 31.960 ms
+spread. Tokei's paired increase is 1.227 ms within a 3.307 ms spread. Neither
+supports a measurable speed change.
+
+Production `61556ac5e` memory checks accept 145 peak, 20 retained and 10 document
+samples with exact outputs and expected errors. Large JSON peak RSS falls from
+135.28 to 82.91 MB and retained memory from 99.35 to 53.04 MB.
+Five runs each complete the exact 64 MiB document, reject its one-byte overrun
+and keep stream peak RSS near 24.23 MB at 64/256 MiB and the stream overrun.
+Its production sizes are xsh 27,233,856, xsht 39,138,432 and xshi 44,232 bytes.
+The increases are 4.01%, 4.16% and zero, within the 5% budgets.
+Executable-cache preparation verifies eviction and identical warming before
+memory pairs. That production xsh compiles the original optional-module
+condition reproducer and prints checked.
+
+Final runtime CPU and build CPU qualification remain. The first combined Full
+run passes 237 integration cases and fails one trace helper because the adapter
+accepts only tree-backed records. Two existing route-witness tests reproduce that rejection. `61556ac5e`
+accepts compact fields at the adapter, retaining its owned-map contract. All nine
+selected native-host, projection, copy-on-write and encoder tests pass afterward.
+Independent source review finds no analogous immediate-consumer mismatch.
+The repaired Full run passes integration 238, filesystem policy 2, symbol
+plateau 1, core boundaries 23 and core compatibility 58, with three ignored and
+two filtered compatibility cases. Soundness passes all 14 cases. The default
+debug suite passes 2,814, fails four and ignores three. Its corpus annotation
+consistency check completes successfully. `d8c01966b` repairs three stale
+fixtures: the new instruction tag, counter catalog order and the RelPath domain.
+The fourth failure exposes an Any/null record inference defect reproduced by
+the frozen pre-cutover binary. `ebaf919e7` retains known fields structurally and
+defers only fresh literal-null payloads through the existing storage-check owner.
+Before publication, those checks preserve exact Null and reject non-null
+contexts. All 82 focused cases pass, including both evaluator routes, Any-to-Str
+rejection, exact Null and sourced record, parameter, callable and module guards.
+Independent review finds no remaining defect. Full is running on that repair.
+Final production cost qualification must cover the combined source.
+Three clean, patch-equivalent allocator/documentation worktrees are retired.
+Dirty, unique, parked and proof-bearing worktrees remain intact.
+Earlier timing results below are historical.
 
 The grammar repair passes 43/43 checks, including 5,398 shallow and 20,097 deep
 generated sentences and the parsed repository corpus. It also repairs the
@@ -53,7 +92,7 @@ positive. The generated grammar reference is refreshed. Full passes its
 238-test integration aggregate, then exposes missing filesystem-boundary
 registrations. `e9090ccb1` registers the two admitted codec adapters and retires
 the pure INI allowance; the focused policy checks pass 2/2. Production effects
-and cold authority checks are unchanged. The latest Full run passes integration
+and cold authority checks are unchanged. An earlier Full run passes integration
 238, filesystem policy 2, symbol plateau 1 and core boundaries 23. It then fails
 eight core compatibility cases because `e78cd5afa` rejects a valid inferred
 iteration receiver. `bc267943b` narrows that diagnostic to propagation from an
