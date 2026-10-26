@@ -96,7 +96,10 @@ impl<T> Slots<T> {
     }
 
     /// Slot 0 of slots side by side: where a vector load over them starts.
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", any(not(target_feature = "popcnt"), target_feature = "avx512f"))
+    ))]
     #[inline(always)]
     pub(super) fn as_ptr(self) -> *const T {
         debug_assert!(self.is_contiguous());
