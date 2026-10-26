@@ -7,23 +7,46 @@ Goal: use Deser for structured-data parsing and emission while XSH continues to
 own values, schemas, effects and resources. Vendor only the useful codec family;
 make one hard cutover and delete the replaced implementations.
 
-Current checkpoint: implementation through S5 is integrated. CSV/TSV and
-explicit typed lexical decoding have focused native and cold proof. Sequences
-have focused Rust, upstream and native proof; final production cost acceptance,
-generated documentation and Full/Linux
-qualification remain. Native macOS qualification is externally blocked by the
-unavailable host. No campaign completion or S2/S3 global acceptance is claimed.
-Current cost blocker: the warmed 2,048-row JSON workload exceeds the RSS budget
-despite lower tracked live allocation. Final-write profiling attributes the gap
-to two extra 2 MiB transparent huge pages on this host. The raw-field decoder
-builder trial made that result worse and is reverted by `795e7b81f`; its
-malformed-key ownership safety test remains. The stable implementation keeps
-compact shared records, one sequence reader type and canonical documentation
-storage. Its production sizes pass: xsh 27,461,440, xsht 39,099,520 and xshi
-44,232 bytes. The bounded bulk JSON Lines helper passes its five-pair CPU gate:
-465.142 ms median versus baseline 446.588 ms, a 4.15% increase. Other final
-runtime, retained-memory and build-CPU acceptance remains open. Full manual
-integration will run with this memory failure recorded, never treated as a pass.
+Current checkpoint: implementation through S5 is integrated; final cost and
+Full/Linux qualification remain. Native macOS qualification is externally
+blocked by the unavailable host. No campaign completion is claimed.
+The production implementation at `2a022465c` keeps compact shared records, one
+sequence reader type and canonical documentation loaded only on request.
+Public API construction still validates documentation eagerly; clones retain
+their original documentation catalog. The focused registry tests pass 20/20.
+The Linux xsh entry point sets a zero-delay mimalloc purge default while
+preserving explicit allocator environment overrides. Its exact direct sys
+dependency supplies the already-locked mimalloc header; it adds no package or
+transitive feature. Production sizes pass: xsh 27,210,304, xsht 39,111,552 and
+xshi 44,232 bytes.
+
+Matched memory sampling now verifies both executable files are evicted, then
+fully resident after identical warming before each pair. A control on the same
+frozen artifacts establishes that prior cache history changes file-backed RSS;
+warming alone did not make the previous startup comparison equivalent. Tokei
+can delay eviction eligibility for about 50 ms after exit. Preparation waits at
+most one second for verified zero residency and still rejects persistent
+residency; it never retries a workload or accepts an unmet precondition.
+All eight unchanged peak and both retained-memory cases pass after this control.
+Five runs each also complete an exact 64 MiB document, reject its one-byte
+overrun and keep stream memory bounded at 64/256 MiB and the stream overrun.
+All outputs and statuses match. The 18-workload CPU batch accepts 130 samples
+with successful readiness checks before and after. Its remaining failure is
+large JSON: 208.436 to 227.267 ms median, an 18.831 ms increase against an
+11.187 ms allowance from the paired spread. Allocator diagnostics are pending;
+build CPU qualification has not run. Earlier timing results below are historical.
+
+The grammar repair passes 43/43 checks, including 5,398 shallow and 20,097 deep
+generated sentences and the parsed repository corpus. It also repairs the
+spawn-run boundary and lets guard conditions consume terminal builder/pattern
+payloads before else. The exact former guard failure now prints checked under
+the matching verification tool; the obsolete guard negative is retained as a
+positive. The generated grammar reference is refreshed. Full passes its
+238-test integration aggregate, then exposes missing filesystem-boundary
+registrations. `e9090ccb1` registers the two admitted codec adapters and retires
+the pure INI allowance; the focused policy checks pass 2/2. Production effects
+and cold authority checks are unchanged. Full is restarted on that test-only
+repair; remaining owners and the isolated Linux resource case are pending.
 The owner separately authorized integrating the optional-module-call compiler
 repair; `cadc4468b` preserves checked result/effect contracts and its focused
 cold-authority and native regressions pass. The unchanged Laputa xinit help

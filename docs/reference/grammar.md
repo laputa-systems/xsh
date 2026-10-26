@@ -252,7 +252,7 @@ arm_body = ( block | compound_statement ) ","?
 arm_statement = !"{" simple_statement
               | &( "{" "." "." | "{" "[" | "{" LABEL ":" | "{" LABEL "." | "{" STRING ":" | "{" NEWLINE "." "." | "{" NEWLINE "[" | "{" NEWLINE LABEL ":" | "{" NEWLINE LABEL "." | "{" NEWLINE STRING ":" ) record_expression "?"? ;
 guard_statement = "guard" ( !"let" guard_condition "else" block | "let" binding_target ( ":" type_expr )? "=" ( expression_item | run_form "?" ) "else" NEWLINE* block ) ;
-guard_condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) condition_expression ;
+guard_condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) expression ;
 with_statement = "with" list(IDENT "=" condition_expression) !builder_callback_before_condition_body block NEWLINE* "else" NEWLINE* block ;
 ```
 
@@ -300,7 +300,8 @@ argument = "." ~"." ~"." NEWLINE* expression
 expression_item = expression ( "?" &( NEWLINE | ";" | "," | ")" | "]" | "}" ) )? ;
 primary = literal
         | "$?"
-        | !( "collect" "{" ) !context_scope_form IDENT
+        | !( "collect" "{" ) !( "codec" "." "decode_as" "(" | "codec" "." "read_as" "(" ) !context_scope_form IDENT
+        | codec_schema_call
         | collect_expression
         | list_literal
         | record_literal
@@ -316,7 +317,7 @@ primary = literal
         | "try" run_form !"?" run_end
         | retry_expression
         | run_form ( "?" &"|>" | run_end )
-        | "spawn" ( run_form run_end | operand )
+        | "spawn" ( run_form run_end | !"run" operand )
         | "wait" !"until" operand
         | "ctx" line(condition_expression) !builder_callback_before_condition_body block
         | context_scope
@@ -326,6 +327,8 @@ primary = literal
         | builder_call
         | item_expression
         | bare_path ;
+codec_schema_call = "codec" "." "decode_as" "(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "text" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")"
+                  | "codec" "." "read_as" "(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "path" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")" ;
 literal = "null"
         | "true"
         | "false"
@@ -503,7 +506,9 @@ command_argument = call_argument_chain
                  | "(" expression ")"
                  | ( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" )
                  | word ;
-call_argument_chain = ( IDENT | STRING ) ( ~"?"? ~"." ~LABEL )* ( ~"(" call_arguments ")" | ~"?"? ~"[" index "]" ) glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
+call_argument_chain = codec_schema_argument
+                    | !( "codec" ~"." ~"decode_as" ~"(" | "codec" ~"." ~"read_as" ~"(" ) ( IDENT | STRING ) ( ~"?"? ~"." ~LABEL )* ( ~"(" call_arguments ")" | ~"?"? ~"[" index "]" ) glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
+codec_schema_argument = ( "codec" ~"." ~"decode_as" ~"(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "text" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")" | "codec" ~"." ~"read_as" ~"(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "path" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")" ) glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
 glued_postfix = ~"." member_access
               | ~"?" ~"." member_access
               | ~"[" index "]"
@@ -541,10 +546,11 @@ run_member = ~"status"
            | ~"capture" "-" ~"-" ~"bytes"
            | ~"stream" "-" ~"-" ~"text"
            | ~"stream" "-" ~"-" ~"bytes" ;
-run_option_value = INT
+run_option_value = codec_schema_argument
+                 | INT
                  | DURATION
                  | IDENT !( ~"." | ~"(" | ~"[" )
-                 | IDENT &( ~"." | ~"(" | ~"[" ) glued_postfix+ !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" )
+                 | !( "codec" ~"." ~"decode_as" ~"(" | "codec" ~"." ~"read_as" ~"(" ) IDENT &( ~"." | ~"(" | ~"[" ) glued_postfix+ !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" )
                  | !( INT | DURATION | IDENT ) primary glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
 run_argument = !( "{" | ">" | ">>" | "<" | "E>" | "E>>" | "2" ~">" | "2" ~">>" ) command_argument ;
 redirection = ( ">" | ">>" | "<" | "2" ~">" | "2" ~">>" | ">" "&" | "<" "&" ) ( BYTES glued_postfix* | command_argument ) ;
