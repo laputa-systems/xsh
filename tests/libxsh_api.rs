@@ -84,6 +84,24 @@ fn facade_keeps_source_identity_explicit() {
 }
 
 #[test]
+fn host_ini_owns_decoded_names_after_the_adapter_returns() {
+    let fields = {
+        let text = String::from("host-adapter-arbitrary-key = retained\n[host-adapter-section]\nhost-adapter-nested-key = nested\n");
+        let decoded = xsh::host::ini::decode(&text, Span::at(SourceId::new(0), 0))
+            .expect("decode host INI without an ambient symbol owner");
+        let Value::Record(fields) = decoded else { panic!("host INI record") };
+        fields
+    };
+    let other = xsh::host::ini::decode("host-adapter-other-key = other\n", Span::at(SourceId::new(0), 0))
+        .expect("decode independent host INI document");
+    drop(other);
+    assert_eq!(fields.get("host-adapter-arbitrary-key"), Some(&Value::Str("retained".into())));
+    let Some(Value::Record(nested)) = fields.get("host-adapter-section") else { panic!("host INI section") };
+    assert_eq!(nested.get("host-adapter-nested-key"), Some(&Value::Str("nested".into())));
+    assert_eq!(fields.keys().collect::<Vec<_>>(), ["host-adapter-arbitrary-key", "host-adapter-section"]);
+}
+
+#[test]
 fn host_json_preserves_unsigned_endpoints_and_escaped_documents() {
     use xsh::host::json::{Value, encode, encode_pretty, parse};
 

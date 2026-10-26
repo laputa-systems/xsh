@@ -90,8 +90,6 @@ pub fn read_project_config(path: &Path) -> Result<Option<RecordMap>, String> {
         }
     };
     let span = Span::new(SourceId::new(0), 0, 0);
-    let symbols = crate::symbol::SymbolOwner::new();
-    let _scope = symbols.enter();
     match crate::modules::ini::decode(&text, span) {
         Ok(Value::Record(fields)) => Ok(Some(fields)),
         Ok(_) => Err(format!(
