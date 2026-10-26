@@ -34,3 +34,11 @@ test test_codec_file_writes_encode_before_atomic_no_clobber { |ctx|
     else => return test.fail("expected codec input path")
   }
 }
+
+test test_codec_read_host_failure_names_the_path { |ctx|
+  let missing = test.temp_path(ctx, name: "missing.yaml")
+  match codec.read("yaml", missing) {
+    Err(error) => assert missing.display() in error.message
+    else => return test.fail("expected missing file failure")
+  }
+}

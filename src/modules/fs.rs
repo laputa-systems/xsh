@@ -1631,6 +1631,23 @@ mod tests {
     }
 
     #[test]
+    fn create_path_refuses_existing_files_and_leaf_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        super::create_path(target.clone(), b"original", test_span()).unwrap();
+        let error = super::create_path(target.clone(), b"replacement", test_span()).unwrap_err();
+        assert_eq!(error.errno(), Some(i64::from(libc::EEXIST)));
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        let link = directory.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(super::create_path(link.clone(), b"replacement", test_span()).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        std::fs::remove_file(&target).unwrap();
+        assert!(super::create_path(link, b"replacement", test_span()).is_err());
+        assert!(!target.exists());
+    }
+
+    #[test]
     fn mount_listing_skips_only_a_permission_refusal() {
         use rustix::io::Errno;
         assert!(mount_listing_skips(Errno::ACCESS));

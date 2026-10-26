@@ -17,7 +17,6 @@ const NON_STRING_KEY_MESSAGE: &str = "JSON objects require Str map keys";
 #[derive(Clone, Copy)]
 enum CodecInput<'a> {
     Runtime(&'a Value),
-    Record(&'a crate::runtime::value::RecordMap),
     Lowered(&'a LoweredValue),
     Key(MapKeyRef<'a>),
     Path(&'a crate::runtime::value::PathValue),
@@ -115,7 +114,6 @@ fn project<'a>(value: CodecInput<'a>) -> CodecNode<'a> {
         CodecInput::EmptyObject => CodecNode::Object(CodecFields::Empty),
         CodecInput::Key(key) => CodecNode::Key(key),
         CodecInput::Path(path) => CodecNode::Unsupported(CodecInput::Path(path)),
-        CodecInput::Record(fields) => CodecNode::Object(CodecFields::RuntimeRecord(fields.iter())),
         CodecInput::Runtime(value) => match value {
             Value::Null => CodecNode::Null,
             Value::Bool(value) => CodecNode::Bool(*value),
@@ -166,7 +164,11 @@ fn project<'a>(value: CodecInput<'a>) -> CodecNode<'a> {
 }
 
 pub(super) fn encode_runtime(value: &Value, pretty: bool, span: Span) -> Result<String, RuntimeError> {
-    encode_tree(CodecInput::Runtime(value), pretty, span)
+    if pretty {
+        encode_tree(CodecInput::Runtime(value), true, span)
+    } else {
+        crate::modules::codec::encode_text(Format::Json, &super::borrowed_codec_value(Format::Json, value, span), span)
+    }
 }
 
 pub(super) fn encode_lowered(value: &LoweredValue, pretty: bool, span: Span) -> Result<String, RuntimeError> {
@@ -301,13 +303,9 @@ fn incompatible(value: CodecInput<'_>, format: Format) -> String {
         CodecInput::Lowered(value) => ValueView::Lowered(value),
         CodecInput::Key(key) => ValueView::Key(key),
         CodecInput::Path(path) => ValueView::Path(&path.bytes),
-        CodecInput::Record(_) | CodecInput::Integer(_) | CodecInput::EmptyObject | CodecInput::LoweredMap(_) => unreachable!("synthetic codec nodes are representable"),
+        CodecInput::Integer(_) | CodecInput::EmptyObject | CodecInput::LoweredMap(_) => unreachable!("synthetic codec nodes are representable"),
     };
     unsupported_type(view.type_name(), format)
-}
-
-pub(super) fn borrowed_record<'a>(format: Format, record: &'a crate::runtime::value::RecordMap, span: Span) -> impl Serialize + 'a {
-    BorrowedValue { value: CodecInput::Record(record), format, pretty: false, span }
 }
 
 pub(super) fn borrowed_runtime<'a>(format: Format, value: &'a Value, span: Span) -> impl Serialize + 'a {

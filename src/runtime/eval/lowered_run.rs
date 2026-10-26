@@ -9,7 +9,7 @@ use crate::map_key::MapKey;
 use crate::modules::{
     RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module,
     diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
-    crypto as crypto_module, group as group_module, hash as hash_module, ini as ini_module, json as json_module,
+    crypto as crypto_module, group as group_module, hash as hash_module, json as json_module,
     linux as linux_module, mime as mime_module, net as net_module, patch as patch_module,
     process as process_module, regex as regex_module, shlex, system, tui, unix as unix_module,
     user as user_module,
@@ -73,7 +73,6 @@ mod module_net;
 mod module_process;
 #[cfg(feature = "native-tests")]
 mod module_test;
-mod module_text;
 mod module_unix;
 mod module_utils;
 pub(super) use module_utils::UtilsCacheKey;
@@ -1372,13 +1371,6 @@ fn initialized_prefix_to_arc(bytes: &[std::mem::MaybeUninit<u8>], initialized: u
     let initialized =
         unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<u8>(), initialized) };
     initialized.into()
-}
-
-fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<String, RuntimeError> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
-    String::from_utf8(bytes)
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))
 }
 
 #[cfg(feature = "native-tests")]
@@ -5734,35 +5726,6 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            callable; RuntimeOp::IniDecode if values.len() == 1 => {
-                let text = lowered_str_arg_owned(values.pop(), "", "ini.decode", span)?;
-                lowered_runtime_result(ini_module::decode(&text, span), span)?
-            }
-            callable; RuntimeOp::IniRead if values.len() == 1 => {
-                let path = lowered_path_arg(
-                    values.pop().expect("checked value length"),
-                    "ini.read",
-                    span,
-                )?;
-                match read_host_path_string(&self.host_path(&path), "ini-read", span) {
-                    Ok(text) => lowered_runtime_result(ini_module::decode(&text, span), span)?,
-                    Err(error) => lowered_result_err_value(error),
-                }
-            }
-            callable; RuntimeOp::IniEncode if values.len() == 1 => {
-                let value = values.pop().expect("checked value length").into_value();
-                let Value::Record(record) = value else {
-                    return Err(
-                        RuntimeError::new("type-error", "ini.encode expected Record")
-                            .with_span(span),
-                    );
-                };
-                lowered_runtime_result(
-                    ini_module::encode(&record, span).map(|text| Value::Str(text.into())),
-                    span,
-                )?
-            }
-            callable; RuntimeOp::IniWrite if values.len() == 2 || values.len() == 3 => return self.eval_lowered_ini_write_values(values, span),
             callable; RuntimeOp::IoStdinRead if values.len() == 1 => {
                 let count = lowered_int_arg(values.pop(), "io.stdin_read", span)?;
                 let result: Result<LoweredValue, RuntimeError> = (|| {
@@ -6178,7 +6141,7 @@ impl Evaluator {
                 lowered_result_ok(LoweredValue::Path(path))
             }
             callable; RuntimeOp::EnvPathEntries if values.len() == 1 => return self.eval_lowered_env_path_entries_values(values, span),
-            callable; RuntimeOp::CodecDecode | RuntimeOp::CodecDecodeBytes | RuntimeOp::CodecEncode | RuntimeOp::CodecEncodeBytes | RuntimeOp::CodecRead | RuntimeOp::CodecWrite | RuntimeOp::CodecFormats | RuntimeOp::YamlDecode | RuntimeOp::YamlEncode | RuntimeOp::YamlRead | RuntimeOp::YamlWrite | RuntimeOp::TomlDecode | RuntimeOp::TomlEncode | RuntimeOp::TomlRead | RuntimeOp::TomlWrite => return self.eval_lowered_codec_values(op, values, span),
+            callable; RuntimeOp::IniDecode | RuntimeOp::IniEncode | RuntimeOp::IniRead | RuntimeOp::IniWrite | RuntimeOp::CodecDecode | RuntimeOp::CodecDecodeBytes | RuntimeOp::CodecEncode | RuntimeOp::CodecEncodeBytes | RuntimeOp::CodecRead | RuntimeOp::CodecWrite | RuntimeOp::CodecFormats | RuntimeOp::YamlDecode | RuntimeOp::YamlEncode | RuntimeOp::YamlRead | RuntimeOp::YamlWrite | RuntimeOp::TomlDecode | RuntimeOp::TomlEncode | RuntimeOp::TomlRead | RuntimeOp::TomlWrite => return self.eval_lowered_codec_values(op, values, span),
             callable; RuntimeOp::JsonDecode if values.len() == 1 => {
                 let Some(text) = lowered_str_value(&values[0]) else {
                     return Err(

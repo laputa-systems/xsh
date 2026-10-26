@@ -390,10 +390,15 @@ pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: 
 
 pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<Value, RuntimeError> {
     use std::io::Read;
-    let file = std::fs::File::open(path).map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+    let host_error = |error: std::io::Error| {
+        let mut failure = RuntimeError::host("fs-read", &error).with_span(span);
+        failure.message = format!("{}: {}", path.display(), failure.message);
+        failure
+    };
+    let file = std::fs::File::open(path).map_err(host_error)?;
     let mut bytes = Vec::new();
     file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes)
-        .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+        .map_err(host_error)?;
     decode_bytes(format, &bytes, span).map_err(|mut error| {
         error.payload.insert("input_path".into(), Value::Path(input_path.clone()));
         error

@@ -46,8 +46,6 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: cli_module(),
             },
             ModuleEntry { name: "codec", sig: codec_module() },
-            ModuleEntry { name: "yaml", sig: text_codec_module([RuntimeOp::YamlDecode, RuntimeOp::YamlEncode, RuntimeOp::YamlRead, RuntimeOp::YamlWrite]) },
-            ModuleEntry { name: "toml", sig: text_codec_module([RuntimeOp::TomlDecode, RuntimeOp::TomlEncode, RuntimeOp::TomlRead, RuntimeOp::TomlWrite]) },
             ModuleEntry {
                 name: "compression",
                 sig: compression_module(),
@@ -165,6 +163,7 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 name: "time",
                 sig: time_module(),
             },
+            ModuleEntry { name: "toml", sig: text_codec_module([RuntimeOp::TomlDecode, RuntimeOp::TomlEncode, RuntimeOp::TomlRead, RuntimeOp::TomlWrite]) },
             ModuleEntry {
                 name: "tui",
                 sig: tui_module(),
@@ -181,6 +180,7 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 name: "utils",
                 sig: utils_module(),
             },
+            ModuleEntry { name: "yaml", sig: text_codec_module([RuntimeOp::YamlDecode, RuntimeOp::YamlEncode, RuntimeOp::YamlRead, RuntimeOp::YamlWrite]) },
         ],
         value_methods(),
     )
@@ -5236,10 +5236,10 @@ fn text_codec_module(ops: [RuntimeOp; 4]) -> ModuleSig {
 }
 
 fn codec_module() -> ModuleSig {
-    let capability = Type::Record(btree_map([
-        ("identifier".into(), Type::Str), ("text".into(), Type::Bool),
-        ("binary".into(), Type::Bool), ("single".into(), Type::Bool),
-        ("sequence".into(), Type::Bool), ("lexical_typing".into(), Type::Bool),
+    let capability = Type::Record(btree_map(vec![
+        ("identifier", Type::Str), ("text", Type::Bool),
+        ("binary", Type::Bool), ("single", Type::Bool),
+        ("sequence", Type::Bool), ("lexical_typing", Type::Bool),
     ]));
     module_sig(vec![
         ("decode", sig(vec![param("format", Type::Str), param("text", Type::Str)], codec_result(Type::Any), true, RuntimeOp::CodecDecode)),

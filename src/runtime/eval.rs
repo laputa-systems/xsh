@@ -77,14 +77,6 @@ pub(crate) mod route_witness;
 mod json;
 use type_view::{ValueView, value_matches_static_type};
 
-pub(crate) fn borrowed_codec_record<'a>(
-    format: crate::modules::codec::Format,
-    record: &'a crate::runtime::value::RecordMap,
-    span: Span,
-) -> impl deser::Serialize + 'a {
-    json::borrowed_record(format, record, span)
-}
-
 pub(crate) fn borrowed_codec_value<'a>(
     format: crate::modules::codec::Format,
     value: &'a Value,

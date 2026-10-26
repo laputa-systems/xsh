@@ -27,6 +27,10 @@ impl Evaluator {
             RuntimeOp::TomlEncode => (Some(Format::Toml), Operation::Encode),
             RuntimeOp::TomlRead => (Some(Format::Toml), Operation::Read),
             RuntimeOp::TomlWrite => (Some(Format::Toml), Operation::Write),
+            RuntimeOp::IniDecode => (Some(Format::Ini), Operation::Decode),
+            RuntimeOp::IniEncode => (Some(Format::Ini), Operation::Encode),
+            RuntimeOp::IniRead => (Some(Format::Ini), Operation::Read),
+            RuntimeOp::IniWrite => (Some(Format::Ini), Operation::Write),
             _ => unreachable!("checked codec operation"),
         };
         let format = match fixed {
@@ -67,11 +71,15 @@ impl Evaluator {
                 lowered_runtime_result(codec::read(format, &self.host_path(&path), &path, span), span)?
             }
             Operation::Write => {
-                let overwrite = lowered_bool_arg_or(values.get(2).cloned(), false, "codec.write", span)?;
+                let overwrite = lowered_bool_arg_or(values.get(2).cloned(), op == RuntimeOp::IniWrite, "codec.write", span)?;
                 let path = lowered_path_arg(values.remove(0), "codec.write", span)?;
                 let value = super::super::json::borrowed_lowered(format, &values[0], span);
                 match codec::encode_bytes(format, &value, false, span) {
-                    Ok(bytes) => lowered_unit_result(if overwrite { fs::write_path(self.host_path(&path), &bytes, span) } else { fs::create_path(self.host_path(&path), &bytes, span) }),
+                    Ok(bytes) => lowered_unit_result(if overwrite { fs::write_path(self.host_path(&path), &bytes, span) } else { fs::create_path(self.host_path(&path), &bytes, span).map_err(|error| {
+                        if op == RuntimeOp::IniWrite && error.errno() == Some(i64::from(libc::EEXIST)) {
+                            RuntimeError::new("ini-write", "destination exists").with_span(span)
+                        } else { error }
+                    }) }),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
