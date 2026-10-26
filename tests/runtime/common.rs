@@ -89,51 +89,30 @@ fn workspace_product_prebuild_command(target_dir: &Path, profile_dir: &Path) -> 
     )
 }
 
-pub(crate) type JsonValue = miniserde::json::Value;
+pub(crate) type JsonValue = xsh::host::json::Value;
 
 pub(crate) fn json_parse(text: &str) -> JsonValue {
-    miniserde::json::from_str(text).expect("parse JSON")
+    deser_json::from_str(text).expect("parse JSON")
 }
 
 pub(crate) fn json_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
-    match value {
-        JsonValue::Object(fields) => fields.get(key).unwrap_or_else(|| panic!("missing {key}")),
-        _ => panic!("expected JSON object"),
-    }
+    value.get(key).unwrap_or_else(|| panic!("missing JSON field {key}"))
 }
 
-pub(crate) fn json_array(value: &JsonValue) -> &miniserde::json::Array {
-    match value {
-        JsonValue::Array(items) => items,
-        _ => panic!("expected JSON array"),
-    }
+pub(crate) fn json_array(value: &JsonValue) -> &[xsh::host::json::Value] {
+    value.as_seq().expect("expected JSON array")
 }
 
 pub(crate) fn json_str(value: &JsonValue) -> &str {
-    match value {
-        JsonValue::String(value) => value,
-        _ => panic!("expected JSON string"),
-    }
+    value.as_str().expect("expected JSON string")
 }
 
 pub(crate) fn json_u64(value: &JsonValue) -> u64 {
-    match value {
-        JsonValue::Number(miniserde::json::Number::U64(value)) => *value,
-        JsonValue::Number(miniserde::json::Number::I64(value)) => u64::try_from(*value).unwrap(),
-        JsonValue::Number(miniserde::json::Number::F64(value))
-            if *value >= 0.0 && value.fract() == 0.0 =>
-        {
-            *value as u64
-        }
-        _ => panic!("expected JSON u64"),
-    }
+    value.as_u64().expect("expected JSON u64")
 }
 
 pub(crate) fn json_bool(value: &JsonValue) -> bool {
-    match value {
-        JsonValue::Bool(value) => *value,
-        _ => panic!("expected JSON bool"),
-    }
+    value.as_bool().expect("expected JSON bool")
 }
 
 pub(crate) fn run_cancelable_temp_script<const N: usize>(

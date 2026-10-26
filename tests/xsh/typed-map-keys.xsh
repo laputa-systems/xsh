@@ -110,11 +110,11 @@ test test_typed_map_json_rejects_non_string_keys {
   let data: Any = {[b"a"]: 1}
   let path_keys: Any = {[p"a"]: 1}
   let duration: Any = {[3ms]: 1}
-  test.error_kind(json.encode(number), "json-compatible")
-  test.error_kind(json.encode(flag), "json-compatible")
-  test.error_kind(json.encode(data), "json-compatible")
-  test.error_kind(json.encode(path_keys), "json-compatible")
-  test.error_kind(json.encode(duration), "json-compatible")
+  test.error_kind(json.encode(number), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode(flag), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode(data), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode(path_keys), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode(duration), "CodecError.UnsupportedValue")
   let encoded = {[f"{key}"]: value for {key, value} in {[1]: 2}}
   assert json.encode(encoded)? == "{\"1\":2}"
 }

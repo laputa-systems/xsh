@@ -10,7 +10,7 @@ test test_system_report_sensors_json_reference_uses_raw_subfeature_names {
   assert parsed[1].subfeature == "temp2_input"
   assert parsed[3].chip == "nvme"
   assert parsed[3].subfeature == "temp1_alarm"
-  test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "json")
+  test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "CodecError.Syntax")
 }
 
 test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_readings_partial {

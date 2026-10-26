@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
-#[derive(miniserde::Deserialize)]
+#[derive(deser::Deserialize)]
 struct RouteWitnessArtifact {
     version: u64,
     test_id: String,
@@ -14,7 +14,7 @@ struct RouteWitnessArtifact {
     records: Vec<RouteWitnessRecord>,
 }
 
-#[derive(miniserde::Deserialize)]
+#[derive(deser::Deserialize)]
 struct RouteWitnessRecord {
     tag_name: String,
     tag_ordinal: u32,
@@ -50,7 +50,7 @@ fn assert_route_witness(
     assert_eq!(files.len(), 1, "expected one child witness artifact");
     let text = fs::read_to_string(&files[0]).expect("read route-witness artifact");
     let artifact: RouteWitnessArtifact =
-        miniserde::json::from_str(&text).expect("parse route-witness artifact");
+        deser_json::from_str(&text).expect("parse route-witness artifact");
     assert_eq!(artifact.version, 1);
     assert_eq!(artifact.test_id, test_id);
     assert_eq!(artifact.source_hash, sha256_hex(source));
@@ -196,32 +196,26 @@ fn test_exact_sets_validate_the_same_inventory_for_listing_and_execution() {
     }
 }
 
-fn native_event_field<'a>(event: &'a miniserde::json::Value, name: &str) -> &'a miniserde::json::Value {
-    let miniserde::json::Value::Object(fields) = event else { panic!("event is not an object") };
-    fields.get(name).unwrap_or_else(|| panic!("event is missing {name}"))
+fn native_event_field<'a>(event: &'a xsh::host::json::Value, name: &str) -> &'a xsh::host::json::Value {
+    event.get(name).unwrap_or_else(|| panic!("event is missing {name}"))
 }
 
-fn native_event_text(value: &miniserde::json::Value) -> &str {
-    let miniserde::json::Value::String(text) = value else { panic!("event field is not a string") };
-    text
+fn native_event_text(value: &xsh::host::json::Value) -> &str {
+    value.as_str().expect("event field is not a string")
 }
 
-fn native_event_number(value: &miniserde::json::Value) -> u64 {
-    match value {
-        miniserde::json::Value::Number(miniserde::json::Number::U64(number)) => *number,
-        miniserde::json::Value::Number(miniserde::json::Number::I64(number)) => u64::try_from(*number).unwrap(),
-        _ => panic!("event field is not an unsigned integer"),
-    }
+fn native_event_number(value: &xsh::host::json::Value) -> u64 {
+    value.as_u64().expect("event field is not an unsigned integer")
 }
 
-fn reconciled_native_events(path: &Path, status: u64) -> (std::collections::BTreeMap<String, String>, miniserde::json::Value) {
+fn reconciled_native_events(path: &Path, status: u64) -> (std::collections::BTreeMap<String, String>, xsh::host::json::Value) {
     let text = fs::read_to_string(path).unwrap();
     assert!(text.ends_with('\n'), "the event stream must end at a complete record");
-    let events = text.lines().map(|line| miniserde::json::from_str::<miniserde::json::Value>(line).unwrap()).collect::<Vec<_>>();
+    let events = text.lines().map(|line| deser_json::from_str::<xsh::host::json::Value>(line).unwrap()).collect::<Vec<_>>();
     let first = events.first().unwrap();
     assert_eq!(native_event_text(native_event_field(first, "event")), "run_started");
     let run_id = native_event_text(native_event_field(first, "run_id"));
-    let miniserde::json::Value::Array(selected) = native_event_field(first, "selected") else { panic!("run selection is not frozen") };
+    let Some(selected) = (native_event_field(first, "selected")).as_seq() else { panic!("run selection is not frozen") };
     let selected = selected.iter().map(|id| native_event_text(id).to_owned()).collect::<std::collections::BTreeSet<_>>();
     let mut active = std::collections::BTreeSet::new();
     let mut outcomes = std::collections::BTreeMap::new();

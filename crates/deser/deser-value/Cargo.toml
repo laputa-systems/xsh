@@ -1,0 +1,31 @@
+[package]
+name = "deser-value"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "A dynamic value type for deser"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization", "value", "dynamic"]
+categories = ["encoding", "data-structures"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser-value"
+autotests = false
+
+[dependencies]
+deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
+indexmap = { version = "2.9", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
+deser-cbor = { version = "0.10.1", path = "../deser-cbor" }
+deser-json = { version = "0.10.1", path = "../deser-json" }
+deser-location = { version = "0.10.1", path = "../deser-location" }
+deser-path = { version = "0.10.1", path = "../deser-path" }
+deser-toml = { version = "0.10.1", path = "../deser-toml" }
+deser-yaml = { version = "0.10.1", path = "../deser-yaml" }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

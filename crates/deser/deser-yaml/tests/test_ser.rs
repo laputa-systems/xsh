@@ -1,0 +1,1040 @@
+use std::collections::BTreeMap;
+
+use deser::adapters::{BytesFallback, IntSeq};
+use deser::ext::Datetime;
+use deser::hints::{Compact, Expanded, Layout};
+use deser::ser::{Layer, Next};
+use deser::{BytesFormat, Deserialize, Serialize};
+use deser_encoding::Hex;
+use deser_yaml::style::{DoubleQuoted, Folded, Literal, Plain, ScalarStyle, SingleQuoted};
+use deser_yaml::{
+    DeserializerConfig, FlowPolicy, Indent, MultilineStyle, NullStyle, QuoteStyle,
+    SerializerConfig, Tagged, Version, from_str, to_string,
+};
+
+use crate::common::Value;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct Service {
+    image: String,
+    ports: Vec<u16>,
+    command: Option<String>,
+    labels: BTreeMap<String, String>,
+    origin: Point,
+    points: Vec<Point>,
+    volumes: Vec<String>,
+}
+
+fn service() -> Service {
+    Service {
+        image: "nginx".into(),
+        ports: vec![80, 443],
+        command: None,
+        labels: BTreeMap::from([("env".into(), "prod".into()), ("tier".into(), "web".into())]),
+        origin: Point { x: 1, y: 2 },
+        points: vec![Point { x: 1, y: 2 }, Point { x: 3, y: 4 }],
+        volumes: vec![],
+    }
+}
+
+#[test]
+fn test_block_layout() {
+    let yaml = to_string(&service()).unwrap();
+    assert_eq!(
+        yaml,
+        "\
+image: nginx
+ports:
+  - 80
+  - 443
+command: null
+labels:
+  env: prod
+  tier: web
+origin:
+  x: 1
+  'y': 2
+points:
+  - x: 1
+    'y': 2
+  - x: 3
+    'y': 4
+volumes: []
+"
+    );
+    assert_eq!(from_str::<Service>(&yaml).unwrap(), service());
+}
+
+#[test]
+fn test_indentless_sequences() {
+    const CONFIG: SerializerConfig = SerializerConfig::builder()
+        .indent_sequences(false)
+        .indent(Indent::Spaces(4))
+        .compat(Version::V1_2)
+        .build();
+    let yaml = CONFIG.to_string(&service()).unwrap();
+    assert_eq!(
+        yaml,
+        "\
+image: nginx
+ports:
+- 80
+- 443
+command: null
+labels:
+    env: prod
+    tier: web
+origin:
+    x: 1
+    y: 2
+points:
+- x: 1
+  y: 2
+- x: 3
+  y: 4
+volumes: []
+"
+    );
+    assert_eq!(from_str::<Service>(&yaml).unwrap(), service());
+}
+
+#[test]
+fn test_single_line() {
+    const LINE: SerializerConfig = SerializerConfig::builder()
+        .indent(Indent::None)
+        .compat(Version::V1_2)
+        .build();
+    let yaml = LINE.to_string(&service()).unwrap();
+    assert_eq!(
+        yaml,
+        "{image: nginx, ports: [80, 443], command: null, labels: {env: prod, tier: web}, \
+         origin: {x: 1, y: 2}, points: [{x: 1, y: 2}, {x: 3, y: 4}], volumes: []}\n"
+    );
+    assert_eq!(from_str::<Service>(&yaml).unwrap(), service());
+
+    // scalar documents and strings with line breaks stay on the line
+    assert_eq!(LINE.to_string(&"a\nb").unwrap(), "\"a\\nb\"\n");
+    assert_eq!(LINE.to_string(&vec!["a\nb"]).unwrap(), "[\"a\\nb\"]\n");
+    assert_eq!(LINE.to_string(&"x").unwrap(), "x\n");
+    assert_eq!(LINE.to_string(&Vec::<u32>::new()).unwrap(), "[]\n");
+
+    // the flow policy and expanded hints have no effect, bytes are not
+    // wrapped
+    #[derive(Serialize)]
+    struct Hinted {
+        #[deser(as = Expanded)]
+        items: Vec<u32>,
+        data: Vec<u8>,
+    }
+    let value = Hinted {
+        items: vec![1, 2],
+        data: vec![0; 100],
+    };
+    let yaml = LINE
+        .into_builder()
+        .flow(FlowPolicy::LeafIfFits(8))
+        .build()
+        .to_string(&value)
+        .unwrap();
+    assert_eq!(yaml.lines().count(), 1, "{}", yaml);
+    assert!(yaml.starts_with("{items: [1, 2], data: !!binary AAAA"));
+
+    // tags and keys that are collections
+    let value = Value::Map(vec![
+        (
+            Value::Seq(vec![1i64.into()]),
+            Value::Tagged("!point".into(), Box::new(Value::Map(vec![]))),
+        ),
+        ("k".into(), Value::Null),
+    ]);
+    let yaml = LINE
+        .into_builder()
+        .null_style(NullStyle::Empty)
+        .build()
+        .to_string(&value)
+        .unwrap();
+    assert_eq!(yaml, "{? [1]: !point {}, k: null}\n");
+    assert_eq!(from_str::<Value>(&yaml).unwrap(), value);
+}
+
+#[test]
+fn test_nested_collections() {
+    let value = vec![vec![vec![1, 2], vec![]], vec![vec![3]]];
+    assert_eq!(
+        to_string(&value).unwrap(),
+        "- - - 1\n    - 2\n  - []\n- - - 3\n"
+    );
+    let value = vec![BTreeMap::from([("a", vec![1])]), BTreeMap::new()];
+    assert_eq!(to_string(&value).unwrap(), "- a:\n    - 1\n- {}\n");
+    assert_eq!(to_string(&Vec::<u32>::new()).unwrap(), "[]\n");
+    assert_eq!(to_string(&BTreeMap::<u32, u32>::new()).unwrap(), "{}\n");
+}
+
+#[test]
+fn test_keys() {
+    let long = "x".repeat(1100);
+    let value = Value::Map(vec![
+        (Value::Int(1), "int".into()),
+        (Value::Bool(true), "bool".into()),
+        (Value::Null, "null".into()),
+        ("a: b".into(), "quoted".into()),
+        ("line\nbreak".into(), "multi".into()),
+        (Value::Seq(vec![1i64.into(), 2i64.into()]), "seq".into()),
+        (Value::Map(vec![]), "empty".into()),
+        (long.as_str().into(), "long".into()),
+    ]);
+    let yaml = to_string(&value).unwrap();
+    assert_eq!(
+        yaml,
+        format!(
+            "1: int\ntrue: bool\nnull: 'null'\n'a: b': quoted\n\"line\\nbreak\": multi\n\
+             ? - 1\n  - 2\n: seq\n? {{}}\n: empty\n? {}\n: long\n",
+            long
+        )
+    );
+    assert_eq!(from_str::<Value>(&yaml).unwrap(), value);
+}
+
+#[test]
+fn test_quoting() {
+    let strings = [
+        "plain", "yes", "true", "1.5", "0777", "a: b", "", " x", "it's", "tab\t",
+    ];
+    assert_eq!(
+        to_string(&strings).unwrap(),
+        "- plain\n- 'yes'\n- 'true'\n- '1.5'\n- '0777'\n- 'a: b'\n- ''\n- ' x'\n- it's\n- \"tab\\t\"\n"
+    );
+    const V1_2: SerializerConfig = SerializerConfig::builder().compat(Version::V1_2).build();
+    assert_eq!(
+        V1_2.to_string(&["yes", "1_000", "0777"]).unwrap(),
+        "- yes\n- 1_000\n- '0777'\n"
+    );
+    const DOUBLE: SerializerConfig = SerializerConfig::builder()
+        .quote_style(QuoteStyle::Double)
+        .build();
+    assert_eq!(
+        DOUBLE.to_string(&["plain", "yes"]).unwrap(),
+        "- plain\n- \"yes\"\n"
+    );
+    const ALL: SerializerConfig = SerializerConfig::builder().quote_all(true).build();
+    assert_eq!(
+        ALL.to_string(&["plain", "a\nb"]).unwrap(),
+        "- 'plain'\n- \"a\\nb\"\n"
+    );
+    assert_eq!(to_string(&'x').unwrap(), "x\n");
+    assert_eq!(to_string(&"\u{7}\u{2028}").unwrap(), "\"\\a\\L\"\n");
+}
+
+#[test]
+fn test_block_scalars() {
+    assert_eq!(to_string(&"a\nb\n").unwrap(), "|\n  a\n  b\n");
+    assert_eq!(to_string(&"a\nb").unwrap(), "|-\n  a\n  b\n");
+    assert_eq!(to_string(&"a\n\n").unwrap(), "|+\n  a\n\n");
+    assert_eq!(to_string(&"\n").unwrap(), "|+\n\n");
+    // leading spaces need an indentation indicator
+    assert_eq!(to_string(&"  a\nb").unwrap(), "|2-\n    a\n  b\n");
+    assert_eq!(
+        to_string(&BTreeMap::from([("k", "  a\nb\n")])).unwrap(),
+        "k: |2\n    a\n  b\n"
+    );
+    assert_eq!(to_string(&vec!["  a\nb"]).unwrap(), "- |2-\n    a\n  b\n");
+    // carriage returns cannot be in block scalars
+    assert_eq!(to_string(&"a\r\nb").unwrap(), "\"a\\r\\nb\"\n");
+    const QUOTED: SerializerConfig = SerializerConfig::builder()
+        .multiline(MultilineStyle::Quoted)
+        .build();
+    assert_eq!(QUOTED.to_string(&"a\nb").unwrap(), "\"a\\nb\"\n");
+
+    // everything reads back
+    for value in [
+        "a\nb",
+        "a\n\n\n",
+        "\n\n",
+        " \n",
+        "  a\n b\n",
+        "a\n  \n",
+        "#a\n- b\n",
+        "a\n---\n",
+    ] {
+        for config in [
+            SerializerConfig::new(),
+            SerializerConfig::builder()
+                .indent(Indent::Spaces(4))
+                .build(),
+            SerializerConfig::builder()
+                .indent_sequences(false)
+                .indent(Indent::Spaces(1))
+                .build(),
+            SerializerConfig::builder().indent(Indent::None).build(),
+        ] {
+            for doc in [
+                Value::from(value),
+                Value::Seq(vec![value.into(), "x".into()]),
+                Value::Map(vec![("k".into(), value.into()), ("z".into(), "x".into())]),
+                Value::Seq(vec![Value::Map(vec![("k".into(), value.into())])]),
+            ] {
+                let yaml = config.to_string(&doc).unwrap();
+                assert_eq!(
+                    from_str::<Value>(&yaml).unwrap(),
+                    doc,
+                    "{:?}\n{}",
+                    value,
+                    yaml
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_null_styles() {
+    let value = (None::<u32>, BTreeMap::from([("a", None::<u32>)]));
+    assert_eq!(to_string(&value).unwrap(), "- null\n- a: null\n");
+    const TILDE: SerializerConfig = SerializerConfig::builder()
+        .null_style(NullStyle::Tilde)
+        .build();
+    assert_eq!(TILDE.to_string(&value).unwrap(), "- ~\n- a: ~\n");
+    const EMPTY: SerializerConfig = SerializerConfig::builder()
+        .null_style(NullStyle::Empty)
+        .build();
+    assert_eq!(EMPTY.to_string(&value).unwrap(), "-\n- a:\n");
+    assert_eq!(EMPTY.to_string(&()).unwrap(), "null\n");
+    let parsed: (Option<u32>, BTreeMap<String, Option<u32>>) =
+        from_str(&EMPTY.to_string(&value).unwrap()).unwrap();
+    assert_eq!(parsed, (None, BTreeMap::from([("a".into(), None)])));
+}
+
+#[test]
+fn test_numbers() {
+    let value = (
+        1u64,
+        -1i64,
+        1.5f64,
+        1e20,
+        f64::INFINITY,
+        u128::MAX,
+        i128::MIN,
+    );
+    let yaml = to_string(&value).unwrap();
+    assert_eq!(
+        yaml,
+        format!(
+            "- 1\n- -1\n- 1.5\n- 1.0e+20\n- .inf\n- {}\n- {}\n",
+            u128::MAX,
+            i128::MIN
+        )
+    );
+    assert_eq!(
+        from_str::<(u64, i64, f64, f64, f64, u128, i128)>(&yaml).unwrap(),
+        value
+    );
+    // floats read back exactly with both versions
+    let mut state = 0x2545f4914f6cdd1du64;
+    for _ in 0..1000 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let value = f64::from_bits(state);
+        let yaml = to_string(&value).unwrap();
+        for version in [Version::V1_1, Version::V1_2] {
+            let parsed: f64 = DeserializerConfig::builder()
+                .version(version)
+                .build()
+                .from_str(&yaml)
+                .unwrap();
+            assert!(parsed == value || value.is_nan(), "{} {:?}", yaml, version);
+        }
+    }
+    // f32 is written with the shortest text for its precision
+    assert_eq!(to_string(&0.1f32).unwrap(), "0.1\n");
+    assert_eq!(
+        to_string(&f64::from(0.1f32)).unwrap(),
+        "0.10000000149011612\n"
+    );
+    assert_eq!(
+        to_string(&vec![3.4028235e38f32, 1e-45, f32::INFINITY, f32::NAN]).unwrap(),
+        "- 3.4028235e+38\n- 1.0e-45\n- .inf\n- .nan\n"
+    );
+    assert_eq!(from_str::<f32>("0.1").unwrap(), 0.1f32);
+    // f32 values read back as the same value in YAML 1.1 and 1.2
+    let mut state = 0x2545_f491u32;
+    for _ in 0..10_000 {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        let value = f32::from_bits(state);
+        let yaml = to_string(&value).unwrap();
+        for version in [Version::V1_1, Version::V1_2] {
+            let parsed: f32 = DeserializerConfig::builder()
+                .version(version)
+                .build()
+                .from_str(&yaml)
+                .unwrap();
+            assert!(
+                parsed.to_bits() == value.to_bits() || value.is_nan(),
+                "{} {:?}",
+                yaml,
+                version
+            );
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct Blob {
+    data: Vec<u8>,
+    #[deser(as = BytesFallback<Hex>)]
+    digest: Vec<u8>,
+    #[deser(as = BytesFallback<IntSeq>)]
+    legacy: Vec<u8>,
+}
+
+#[test]
+fn test_bytes() {
+    let blob = Blob {
+        data: vec![1, 255],
+        digest: vec![2, 3],
+        legacy: vec![4],
+    };
+    // native bytes by default, also for fallbacks
+    let yaml = to_string(&blob).unwrap();
+    assert_eq!(
+        yaml,
+        "data: !!binary Af8=\ndigest: !!binary AgM=\nlegacy: !!binary BA==\n"
+    );
+    assert_eq!(from_str::<Blob>(&yaml).unwrap(), blob);
+    assert_eq!(to_string(&Vec::<u8>::new()).unwrap(), "!!binary \"\"\n");
+    assert_eq!(from_str::<Vec<u8>>("!!binary \"\"").unwrap(), b"");
+    // long values are wrapped
+    let long = (0..=255u8).collect::<Vec<_>>();
+    let yaml = to_string(&long).unwrap();
+    assert!(yaml.starts_with("!!binary |\n  AAECAwQF"), "{}", yaml);
+    assert!(yaml.lines().all(|line| line.len() <= 78), "{}", yaml);
+    assert_eq!(from_str::<Vec<u8>>(&yaml).unwrap(), long);
+
+    // without native bytes the fallbacks and the configured format apply
+    const TEXT: SerializerConfig = SerializerConfig::builder().binary(false).build();
+    let hex = deser::Context::with(BytesFormat::encoded::<Hex>());
+    let yaml = TEXT
+        .to_string_with(&blob, |driver| driver.set_context(hex.clone()))
+        .unwrap();
+    assert_eq!(yaml, "data: 01ff\ndigest: '0203'\nlegacy:\n  - 4\n");
+    assert_eq!(
+        deser_yaml::Deserializer::from_str(&yaml)
+            .deserialize_with::<Blob, _>(|driver| driver.set_context(hex.clone()))
+            .unwrap(),
+        blob
+    );
+    let seq = deser::Context::with(BytesFormat::SEQ);
+    assert_eq!(
+        TEXT.to_string_with(&vec![1u8, 2], |driver| driver.set_context(seq.clone()))
+            .unwrap(),
+        "- 1\n- 2\n"
+    );
+}
+
+/// An extension value that falls back to bytes.
+#[derive(Debug, Clone, PartialEq)]
+struct BytesExt(Vec<u8>);
+
+impl deser::ext::Extension for BytesExt {
+    fn name(&self) -> &str {
+        "blob"
+    }
+
+    fn fallback(&self) -> deser::Atom<'_> {
+        deser::Atom::Bytes(self.0.as_slice().into())
+    }
+}
+
+impl Serialize for BytesExt {
+    fn serialize<'a>(
+        value: &'a Self,
+        _state: &mut deser::State,
+    ) -> Result<deser::ser::Emit<'a>, deser::Error> {
+        Ok(deser::ser::Emit::Atom(deser::Atom::Ext(
+            deser::ext::ExtValue::borrowed(value),
+        )))
+    }
+}
+
+#[test]
+fn test_ext_bytes() {
+    // extension values are written as their fallback, long bytes are
+    // wrapped like bytes
+    let long = (0..=255u8).collect::<Vec<_>>();
+    let yaml = to_string(&BytesExt(long.clone())).unwrap();
+    assert_eq!(yaml, to_string(&long).unwrap());
+    assert_eq!(from_str::<Vec<u8>>(&yaml).unwrap(), long);
+    let yaml = to_string(&BTreeMap::from([("a", BytesExt(long.clone()))])).unwrap();
+    assert!(yaml.starts_with("a: !!binary |\n  AAECAwQF"), "{}", yaml);
+    assert_eq!(
+        to_string(&BytesExt(vec![1, 255])).unwrap(),
+        "!!binary Af8=\n"
+    );
+}
+
+#[test]
+fn test_tags() {
+    let value = vec![
+        Tagged::new("!color", Value::from("red")),
+        Tagged::new("!point", Value::Map(vec![("x".into(), 1i64.into())])),
+        Tagged::new("!empty", Value::Seq(vec![])),
+        Tagged::new(
+            "tag:yaml.org,2002:set",
+            Value::Map(vec![("a".into(), Value::Null)]),
+        ),
+        Tagged::new("tag:example.com,2000:thing", Value::from("x")),
+        Tagged::untagged(Value::from("plain")),
+    ];
+    let yaml = to_string(&value).unwrap();
+    assert_eq!(
+        yaml,
+        "\
+- !color red
+- !point
+  x: 1
+- !empty []
+- !!set
+  a: null
+- !<tag:example.com,2000:thing> x
+- plain
+"
+    );
+    let parsed: Vec<Tagged<Value>> = from_str(&yaml).unwrap();
+    assert_eq!(parsed, value);
+
+    // tags (and flow collections) survive a recording
+    let input = "a: !foo {x: 1}\nb: !bar [1, !baz 2]\n";
+    let recording: deser::de::Recording = from_str(input).unwrap();
+    assert_eq!(
+        to_string(&recording).unwrap(),
+        // the custom tag makes the scalar a string, it's quoted
+        "a: !foo {x: 1}\nb: !bar [1, !baz '2']\n"
+    );
+}
+
+#[test]
+fn test_datetimes() {
+    let date: Datetime = "2001-12-14".parse().unwrap();
+    let datetime: Datetime = "2001-12-14T21:59:43.1-05:00".parse().unwrap();
+    let local: Datetime = "2001-12-14T21:59:43".parse().unwrap();
+    let value = (date, datetime, local);
+    let yaml = to_string(&value).unwrap();
+    assert_eq!(
+        yaml,
+        "- 2001-12-14\n- 2001-12-14T21:59:43.1-05:00\n- '2001-12-14T21:59:43'\n"
+    );
+    assert_eq!(
+        from_str::<(Datetime, Datetime, Datetime)>(&yaml).unwrap(),
+        value
+    );
+    const TAGGED: SerializerConfig = SerializerConfig::builder().timestamp_tag(true).build();
+    assert_eq!(TAGGED.to_string(&date).unwrap(), "!!timestamp 2001-12-14\n");
+    assert_eq!(
+        from_str::<Datetime>("!!timestamp 2001-12-14").unwrap(),
+        date
+    );
+}
+
+#[test]
+fn test_documents() {
+    let mut serializer = deser_yaml::Serializer::new();
+    serializer.serialize(&"a\n\n").unwrap();
+    serializer.serialize(&vec![1]).unwrap();
+    serializer.serialize(&()).unwrap();
+    let yaml = serializer.finish();
+    assert_eq!(yaml, "|+\n  a\n\n---\n- 1\n---\nnull\n");
+    let docs = deser_yaml::Deserializer::from_str(&yaml)
+        .iter::<Value>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        docs,
+        [
+            Value::from("a\n\n"),
+            Value::Seq(vec![1i64.into()]),
+            Value::Null
+        ]
+    );
+
+    const START: SerializerConfig = SerializerConfig::builder().document_start(true).build();
+    assert_eq!(START.to_string(&1).unwrap(), "---\n1\n");
+    const DIRECTIVE: SerializerConfig = SerializerConfig::builder().version_directive(true).build();
+    assert_eq!(DIRECTIVE.to_string(&1).unwrap(), "%YAML 1.2\n---\n1\n");
+
+    // directives of later documents follow the end of the previous one
+    let mut serializer = deser_yaml::Serializer::with_config(DIRECTIVE);
+    serializer.serialize(&"a").unwrap();
+    serializer.serialize(&"b").unwrap();
+    let yaml = serializer.finish();
+    assert_eq!(yaml, "%YAML 1.2\n---\na\n...\n%YAML 1.2\n---\nb\n");
+    let docs = deser_yaml::Deserializer::from_str(&yaml)
+        .iter::<String>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(docs, ["a", "b"]);
+}
+
+/// Strings built from pieces that have a meaning in YAML must read back as
+/// the same string as value, key and sequence item with YAML 1.1 and 1.2
+/// readers.
+#[test]
+fn test_quoting_fuzz() {
+    let pieces = [
+        "",
+        "a",
+        " ",
+        "-",
+        "?",
+        ":",
+        ",",
+        "[",
+        "]",
+        "{",
+        "}",
+        "#",
+        "&",
+        "*",
+        "!",
+        "|",
+        ">",
+        "'",
+        "\"",
+        "%",
+        "@",
+        "`",
+        "\t",
+        "\n",
+        "\r",
+        "\\",
+        ": ",
+        " #",
+        "---",
+        "...",
+        "<<",
+        "=",
+        "~",
+        "null",
+        "Null",
+        "true",
+        "yes",
+        "No",
+        "on",
+        "OFF",
+        "y",
+        "n",
+        "0",
+        "1",
+        "-1",
+        "+1",
+        "0x1F",
+        "0o17",
+        "0b10",
+        "017",
+        "1_0",
+        "1:30",
+        "1.5",
+        ".5",
+        "1e3",
+        "1.0e+3",
+        ".inf",
+        "-.Inf",
+        ".NaN",
+        "2001-12-14",
+        "2001-12-14 21:59:43",
+        "\u{85}",
+        "\u{a0}",
+        "\u{2028}",
+        "\u{feff}",
+        "\u{1}",
+        "\u{7f}",
+        "é",
+        "😀",
+    ];
+    let mut strings = Vec::new();
+    for a in pieces {
+        for b in ["", "a", " ", ":", "#", "\n", "1"] {
+            strings.push(format!("{}{}", a, b));
+            strings.push(format!("{}{}", b, a));
+        }
+    }
+    let configs = [
+        SerializerConfig::new(),
+        SerializerConfig::builder().compat(Version::V1_2).build(),
+        SerializerConfig::builder()
+            .quote_style(QuoteStyle::Double)
+            .build(),
+        SerializerConfig::builder()
+            .multiline(MultilineStyle::Quoted)
+            .build(),
+        SerializerConfig::builder()
+            .flow(FlowPolicy::LeafIfFits(200))
+            .fold_width(Some(2))
+            .build(),
+    ];
+    let styles = [
+        None,
+        Some(ScalarStyle::Plain),
+        Some(ScalarStyle::SingleQuoted),
+        Some(ScalarStyle::DoubleQuoted),
+        Some(ScalarStyle::Literal),
+        Some(ScalarStyle::Folded),
+    ];
+    for (config, style) in configs
+        .iter()
+        .flat_map(|config| styles.iter().map(move |style| (config, *style)))
+    {
+        for s in &strings {
+            let doc = Value::Seq(vec![
+                Value::from(s.as_str()),
+                Value::Map(vec![(Value::from(s.as_str()), Value::from(s.as_str()))]),
+            ]);
+            let yaml = config
+                .to_string_with(&doc, |driver| {
+                    if let Some(style) = style {
+                        driver.push_layer(ForceStyle(style));
+                    }
+                })
+                .unwrap();
+            let versions: &[Version] = if config.to_string(&"yes").unwrap() == "yes\n" {
+                &[Version::V1_2]
+            } else {
+                &[Version::V1_1, Version::V1_2]
+            };
+            for &version in versions {
+                let parsed = DeserializerConfig::builder()
+                    .version(version)
+                    .merge_keys(false)
+                    .build()
+                    .from_str::<Value>(&yaml);
+                assert_eq!(
+                    parsed.as_ref().ok(),
+                    Some(&doc),
+                    "{:?} {:?}\n{}",
+                    s,
+                    version,
+                    yaml
+                );
+            }
+        }
+    }
+}
+
+/// Requests a style for all strings.
+struct ForceStyle(ScalarStyle);
+
+impl Layer for ForceStyle {
+    fn event(&mut self, event: deser::Event<'_>, next: &mut Next<'_>) -> Result<(), deser::Error> {
+        self.0.set(next.state_mut());
+        next.emit(event)
+    }
+}
+
+#[test]
+fn test_layout_hints() {
+    #[derive(Serialize)]
+    struct Config {
+        #[deser(as = Compact)]
+        point: Point,
+        #[deser(as = Compact)]
+        ports: Vec<u16>,
+        #[deser(as = Compact)]
+        matrix: Vec<Vec<u16>>,
+        #[deser(as = Expanded)]
+        tags: Vec<String>,
+        #[deser(as = Compact)]
+        empty: Vec<u16>,
+        other: Vec<u16>,
+    }
+
+    let config = Config {
+        point: Point { x: 1, y: 2 },
+        ports: vec![80, 443],
+        matrix: vec![vec![1, 2], vec![]],
+        tags: vec!["a".into(), "b, c".into()],
+        empty: vec![],
+        other: vec![3],
+    };
+    const V1_2: SerializerConfig = SerializerConfig::builder().compat(Version::V1_2).build();
+    let yaml = V1_2.to_string(&config).unwrap();
+    assert_eq!(
+        yaml,
+        "\
+point: {x: 1, y: 2}
+ports: [80, 443]
+matrix: [[1, 2], []]
+tags:
+  - a
+  - b, c
+empty: []
+other:
+  - 3
+"
+    );
+
+    // the leaf policy writes collections of scalars in flow style if they fit
+    const LEAF: SerializerConfig = SerializerConfig::builder()
+        .compat(Version::V1_2)
+        .flow(FlowPolicy::LeafIfFits(20))
+        .build();
+    let yaml = LEAF.to_string(&config).unwrap();
+    assert_eq!(
+        yaml,
+        "\
+point: {x: 1, y: 2}
+ports: [80, 443]
+matrix: [[1, 2], []]
+tags:
+  - a
+  - b, c
+empty: []
+other: [3]
+"
+    );
+    let value = BTreeMap::from([
+        ("short", vec!["a", "b"]),
+        ("long", vec!["aaaaaaaaaa", "bbbbbbbbbb"]),
+        ("quoted", vec!["a,b", "c"]),
+    ]);
+    assert_eq!(
+        LEAF.to_string(&value).unwrap(),
+        "long:\n  - aaaaaaaaaa\n  - bbbbbbbbbb\nquoted: ['a,b', c]\nshort: [a, b]\n"
+    );
+
+    // keys, tags, nulls and multi-line strings in flow collections
+    let value = Value::Tagged(
+        "!t".into(),
+        Box::new(Value::Map(vec![
+            (Value::Seq(vec![1i64.into()]), Value::Null),
+            ("k".into(), "a\nb".into()),
+            (
+                Value::Null,
+                Value::Tagged("!u".into(), Box::new("x".into())),
+            ),
+        ])),
+    );
+    const EMPTY: SerializerConfig = SerializerConfig::builder()
+        .null_style(NullStyle::Empty)
+        .flow(FlowPolicy::LeafIfFits(80))
+        .build();
+    let yaml = to_string_compact(&EMPTY, &value);
+    assert_eq!(yaml, "!t {? [1]: null, k: \"a\\nb\", null: !u x}\n");
+    assert_eq!(from_str::<Value>(&yaml).unwrap(), value);
+
+    // layers can set the layout by path, here for the root
+    struct CompactRoot;
+    impl Layer for CompactRoot {
+        fn event(
+            &mut self,
+            event: deser::Event<'_>,
+            next: &mut Next<'_>,
+        ) -> Result<(), deser::Error> {
+            // the start event of the root is at depth 1
+            if next.state().depth() == 1
+                && matches!(event, deser::Event::MapStart(_) | deser::Event::SeqStart(_))
+            {
+                Layout::Compact.set(next.state_mut());
+            }
+            next.emit(event)
+        }
+    }
+    let yaml = SerializerConfig::new()
+        .to_string_with(&service(), |driver| driver.push_layer(CompactRoot))
+        .unwrap();
+    assert!(
+        yaml.starts_with("{image: nginx, ports: [80, 443], "),
+        "{}",
+        yaml
+    );
+    assert_eq!(from_str::<Service>(&yaml).unwrap(), service());
+}
+
+/// Serializes with the root compact.
+fn to_string_compact(config: &SerializerConfig, value: &Value) -> String {
+    struct CompactRoot;
+    impl Layer for CompactRoot {
+        fn event(
+            &mut self,
+            event: deser::Event<'_>,
+            next: &mut Next<'_>,
+        ) -> Result<(), deser::Error> {
+            // the start event of the root is at depth 1
+            if next.state().depth() == 1
+                && matches!(event, deser::Event::MapStart(_) | deser::Event::SeqStart(_))
+            {
+                Layout::Compact.set(next.state_mut());
+            }
+            next.emit(event)
+        }
+    }
+    config
+        .to_string_with(value, |driver| driver.push_layer(CompactRoot))
+        .unwrap()
+}
+
+#[test]
+fn test_scalar_styles() {
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct Strings {
+        #[deser(as = Plain)]
+        plain: String,
+        #[deser(as = Plain)]
+        not_plain: String,
+        #[deser(as = SingleQuoted)]
+        single: String,
+        #[deser(as = SingleQuoted)]
+        not_single: String,
+        #[deser(as = DoubleQuoted)]
+        double: String,
+        #[deser(as = Literal)]
+        literal: String,
+        #[deser(as = Literal)]
+        not_literal: String,
+        #[deser(as = Folded)]
+        folded: String,
+        #[deser(as = Folded)]
+        not_folded: String,
+        #[deser(as = Vec<DoubleQuoted>)]
+        list: Vec<String>,
+    }
+
+    let value = Strings {
+        plain: "a".into(),
+        not_plain: "yes".into(),
+        single: "a".into(),
+        not_single: "a\tb".into(),
+        double: "a".into(),
+        literal: "a b".into(),
+        not_literal: "a\rb".into(),
+        folded: "one two three four five six seven eight nine ten eleven twelve".into(),
+        not_folded: " leading\nspace".into(),
+        list: vec!["a".into(), "b".into()],
+    };
+    const WIDTH: SerializerConfig = SerializerConfig::builder().fold_width(Some(30)).build();
+    let yaml = WIDTH.to_string(&value).unwrap();
+    assert_eq!(
+        yaml,
+        "\
+plain: a
+not_plain: 'yes'
+single: 'a'
+not_single: \"a\\tb\"
+double: \"a\"
+literal: |-
+  a b
+not_literal: \"a\\rb\"
+folded: >-
+  one two three four five six
+  seven eight nine ten eleven
+  twelve
+not_folded: |2-
+   leading
+  space
+list:
+  - \"a\"
+  - \"b\"
+"
+    );
+    assert_eq!(from_str::<Strings>(&yaml).unwrap(), value);
+}
+
+#[test]
+fn test_folding() {
+    const FOLD: SerializerConfig = SerializerConfig::builder().fold_width(Some(20)).build();
+    let long = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod";
+    let yaml = FOLD.to_string(&BTreeMap::from([("text", long)])).unwrap();
+    assert_eq!(
+        yaml,
+        "text: >-\n  Lorem ipsum dolor\n  sit amet,\n  consectetur\n  adipiscing elit, sed\n  do eiusmod\n"
+    );
+    assert_eq!(
+        from_str::<BTreeMap<String, String>>(&yaml).unwrap()["text"],
+        long
+    );
+    // strings without spaces to fold at are not folded
+    let word = "x".repeat(50);
+    assert_eq!(FOLD.to_string(&word).unwrap(), format!("{}\n", word));
+    // multi-line strings with the hint keep their line breaks
+    for value in [
+        "a b c d e f g h i j k l m n o p q r s t u v w x y z\nsecond line\n\nthird\n",
+        "a  b\n\n\nc",
+        "trailing\n\n",
+        "x",
+    ] {
+        let yaml = SerializerConfig::builder()
+            .fold_width(Some(10))
+            .build()
+            .to_string_with(&value, |driver| {
+                driver.push_layer(ForceStyle(ScalarStyle::Folded))
+            })
+            .unwrap();
+        assert!(yaml.starts_with('>'), "{}", yaml);
+        assert_eq!(from_str::<String>(&yaml).unwrap(), value, "{}", yaml);
+    }
+}
+
+#[test]
+fn test_plain_scalars_round_trip() {
+    use deser::de::Recording;
+    use deser_yaml::{DeserializerConfig, SerializerConfig, Version};
+
+    let round_trip = |input: &str, config: SerializerConfig| {
+        let recording: Recording = deser_yaml::from_str(input).unwrap();
+        config.to_string(&recording).unwrap()
+    };
+
+    // plain scalars keep their text if all readers read the same value
+    let input = "a: 1.10\nb: 0x1F\nc: ~\nd: Null\ne: TRUE\nf: -.INF\ng: .nan\nh: +12\n0x10: key\n";
+    assert_eq!(round_trip(input, SerializerConfig::new()), input);
+
+    // text that older readers read differently is written as value
+    assert_eq!(
+        round_trip("a: 0o17\nb: 1e3\n", SerializerConfig::new()),
+        "a: 15\nb: 1000.0\n"
+    );
+    let v1_2 = SerializerConfig::builder().compat(Version::V1_2).build();
+    assert_eq!(round_trip("a: 0o17\nb: 1e3\n", v1_2), "a: 0o17\nb: 1e3\n");
+
+    // YAML 1.1 values that are strings in YAML 1.2 are written as value
+    let recording: Recording = DeserializerConfig::builder()
+        .version(Version::V1_1)
+        .build()
+        .from_str("a: yes\nb: 0777\nc: 1:30\nd: 1_000\ne: 0x1F\n")
+        .unwrap();
+    assert_eq!(
+        deser_yaml::to_string(&recording).unwrap(),
+        "a: true\nb: 511\nc: 90\nd: 1000\ne: 0x1F\n"
+    );
+
+    // empty values are null
+    assert_eq!(
+        round_trip("a:\nb: [1, ]\n", SerializerConfig::new()),
+        "a: null\nb: [1]\n"
+    );
+}
+
+#[test]
+fn test_tagged_recordings() {
+    use deser::de::Recording;
+
+    // the tag of a wrapper is written in front of a recorded value (which
+    // keeps its flow style)
+    let recording: Recording = from_str("{a: 1}").unwrap();
+    assert_eq!(
+        to_string(&Tagged::new("!x", recording)).unwrap(),
+        "!x {a: 1}\n"
+    );
+
+    // a captured tag is not kept by the value as well
+    let tagged: Tagged<Recording> = from_str("!color [1]").unwrap();
+    assert_eq!(tagged.tag.as_deref(), Some("!color"));
+    assert_eq!(to_string(&tagged).unwrap(), "!color [1]\n");
+    assert_eq!(to_string(&tagged.value).unwrap(), "[1]\n");
+}

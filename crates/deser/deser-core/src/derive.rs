@@ -1,0 +1,1125 @@
+//! Support for automatic serializer and deserializer deriving.
+//!
+//! When the `derive` feature is enabled basic automatic
+//! deriving of [`Serialize`](crate::Serialize) and
+//! [`Deserialize`](crate::Deserialize) is provided.  This feature is modelled
+//! after [`serde`](https://serde.rs/) so if you are coming from there you
+//! should find many of the functionality to be similar.
+//!
+//! # Example
+//!
+//! ```
+//! use deser::{Serialize, Deserialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct User {
+//!     id: u64,
+//!     username: String,
+//!     kind: UserKind,
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(rename_all = "UPPERCASE")]
+//! pub enum UserKind {
+//!     User,
+//!     Admin,
+//!     Bot,
+//! }
+//! ```
+//!
+//! # Supported Types
+//!
+//! The following types can be derived:
+//!
+//! * Structs with named fields (`struct Point { x: i32, y: i32 }`) are maps
+//!   with the names of the fields as keys.
+//! * Newtype structs (`struct Meters(f64)`) are the value of their field.
+//! * Tuple structs (`struct Pair(u32, String)`) are sequences of their
+//!   fields.  Up to 12 fields are supported (not counting skipped ones).
+//! * Unit structs (`struct Marker;`) are null.
+//! * Enums, see [enums](#enums).
+//!
+//! Unions can only be derived with a [container
+//! adapter](#container-adapters).
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Pair(u32, String);
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Marker;
+//! ```
+//!
+//! The fields of newtype and tuple structs support the attributes of
+//! [unnamed fields](#unnamed-field-attributes).  Of the container attributes
+//! newtype, tuple and unit structs support `rename`, the
+//! adapters, the bounds and the crate path.
+//!
+//! # Borrowing
+//!
+//! Structs and enums can borrow from the data they are
+//! deserialized from.  The derive implements `Deserialize<'de>` with `'de`
+//! outliving all lifetimes of the type.  References (`&str` and `&[u8]`)
+//! always borrow, `Cow` borrows with the
+//! [`Borrowed`](crate::adapters::Borrowed) adapter:
+//!
+//! ```
+//! use std::borrow::Cow;
+//! use deser::Deserialize;
+//! use deser::adapters::Borrowed;
+//!
+//! #[derive(Deserialize)]
+//! pub struct Message<'a> {
+//!     id: &'a str,
+//!     #[deser(as = Borrowed)]
+//!     text: Cow<'a, str>,
+//! }
+//! ```
+//!
+//! Data can only be borrowed if the data format passes it on borrowed.  If
+//! the data is not borrowed (for instance because a string had escape
+//! sequences) references fail to deserialize while `Cow` holds owned data.
+//! Values that are recorded and replayed (for instance the fields of
+//! internally tagged enums that come before the tag and the content of
+//! untagged enums) are borrowed as well.  The lifetime `'de` is reserved
+//! for the derive.
+//!
+//! # Customization
+//!
+//! The automatically derived features can be customized via attributes:
+//!
+//! ## Struct Attributes
+//!
+//! The following attributes can be added to structs:
+//!
+//! * `#[deser(rename = "...")]`: renames the type name hint for this struct.
+//! * `#[deser(rename_all = "...")]`: renames all fields at once to a
+//!   specific name style.  The possible values are `"lowercase"`, `"UPPERCASE"`,
+//!   `"PascalCase"`, `"camelCase"`, `"snake_case"`, `"SCREAMING_SNAKE_CASE"`,
+//!   `"kebab-case"`, and `"SCREAMING-KEBAB-CASE"`.
+//! * `#[deser(alias_all = "...")]`: adds an alias in a name style to all
+//!   fields.  It takes the same styles as `rename_all`, is applied to the
+//!   names of the fields in Rust (independent of renames) and can be given
+//!   more than once.
+//! * `#[deser(default)]`: Instructs the deserializer to fill in all missing fields from [`Default`].
+//!   Default will be lazily invoked if any of the fields is not filled in.
+//! * `#[deser(default = expr)]`: like `default` but fills in from the given
+//!   expression instead, for instance `#[deser(default = Config::new())]`.
+//!   See [default expressions](#default-expressions).
+//! * `#[deser(deny_unknown_fields)]`: rejects keys that neither a field nor
+//!   a flattened field takes.  By default they are ignored, unless the
+//!   [`UnknownFields`](crate::de::UnknownFields) policy of the
+//!   deserialization says otherwise.  See [unknown fields](#unknown-fields).
+//! * `#[deser(expecting = "...")]`: what is expected in errors, for
+//!   instance `unexpected bool, expected a point` instead of the name of
+//!   the type.  It takes the same values as `rename`.  It's supported on
+//!   structs with named fields, unit structs and enums.
+//! * `#[deser(transparent)]`: serializes and deserializes the struct like
+//!   its only field that is not skipped (like a newtype struct).  The other
+//!   fields have to be skipped, the field can have an adapter.  Structs
+//!   with unnamed fields are like this without the attribute (see
+//!   [unnamed fields](#unnamed-field-attributes)), for them it only checks
+//!   that one field is not skipped.
+//! * `#[deser(skip_serializing_optionals)]`: skips all fields whose value
+//!   is currently not set.  This uses
+//!   [`Serialize::is_optional`](crate::ser::Serialize::is_optional) to
+//!   check the value: `None`, `()`, `PhantomData` and an unset `OnceLock`
+//!   are optional (and wrappers like `Box` of them).
+//! * `#[deser(as = Adapter)]`, `#[deser(serialize_as = Adapter)]` and
+//!   `#[deser(deserialize_as = Adapter)]`: serializes and deserializes the
+//!   struct with an adapter instead of its fields.  See [container
+//!   adapters](#container-adapters).
+//! * `#[deser(bound(...))]`, `#[deser(serialize_bound(...))]` and
+//!   `#[deser(deserialize_bound(...))]`: see [bounds](#bounds).
+//! * `#[deser(crate = path)]`: see [crate path](#crate-path).
+//!
+//! ## Enums
+//!
+//! Enums can have unit variants, newtype variants (`A(T)`), tuple variants
+//! (`A(T, U)`) and struct variants (`A { x: T }`).  The content of a unit
+//! variant is null, of a newtype variant the inner value, of a tuple variant a
+//! sequence and of a struct variant a map.  How the variant is identified is
+//! controlled by the representation, which follows serde:
+//!
+//! * externally tagged (the default): unit variants are strings (`"A"`), all
+//!   other variants are maps with a single key: `{"A": content}`.
+//! * internally tagged (`#[deser(tag = "type")]`): `{"type": "A", ...fields}`.
+//!   Supports unit, struct and newtype variants (the inner value must be a
+//!   struct or map, or a unit struct which is the tag alone).  Newtype
+//!   variants of `()` (`A(())`) are unit variants.
+//! * adjacently tagged (`#[deser(tag = "t", content = "c")]`):
+//!   `{"t": "A", "c": content}`.
+//! * untagged (`#[deser(untagged)]`): just the content.  The variants are
+//!   tried in order and the first one that accepts the value wins.
+//!
+//! The tag does not need to come first in the tagged representations and
+//! untagged enums need to look at the value multiple times.  In these cases
+//! values are recorded and replayed (see [`Recording`](crate::de::Recording)).
+//! Format specific information such as map key handling, extension values,
+//! source locations and paths is retained.
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = "type", rename_all = "snake_case")]
+//! pub enum Shape {
+//!     Circle { radius: f64 },
+//!     Rect { width: f64, height: f64 },
+//!     Empty,
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(untagged)]
+//! pub enum NumberOrText<T> {
+//!     Number(T),
+//!     Text(String),
+//! }
+//! ```
+//!
+//! ### Tags
+//!
+//! The names of variants are their tags.  Besides strings they can be
+//! integers or booleans, which are then written as such:
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = "version")]
+//! pub enum Message {
+//!     // {"version": 1, "text": "..."}
+//!     #[deser(rename = 1)]
+//!     V1 { text: String },
+//!     #[deser(rename = 2)]
+//!     V2 { text: String, lang: String },
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub enum Level {
+//!     // 0
+//!     #[deser(rename = 0)]
+//!     Off,
+//!     #[deser(rename = 1, alias = "low")]
+//!     Low,
+//! }
+//! ```
+//!
+//! Tags are compared by type: the string `"1"` does not match a variant
+//! named `1`.  Text of unknown type (the keys of JSON objects, the values of
+//! query strings) matches both, so `version=1` in a query string selects
+//! `Message::V1`.  Integers are compared by value, independent of their
+//! width.
+//!
+//! With `#[deser(repr)]` the variants are named by their discriminants.
+//! The discriminants have to be integer literals (or not given):
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(repr)]
+//! #[repr(u8)]
+//! pub enum Priority {
+//!     // 1
+//!     Low = 1,
+//!     // 2
+//!     Normal,
+//!     // 10
+//!     High = 10,
+//! }
+//! ```
+//!
+//! ## Enum Attributes
+//!
+//! * `#[deser(rename = "...")]`: renames the type name hint for this enum.
+//! * `#[deser(expecting = "...")]`: what is expected in errors (and the
+//!   name of the enum in errors about unknown variants), like on structs.
+//! * `#[deser(rename_all = "...")]`: renames all variants at once to a
+//!   specific name style.  The possible values are `"lowercase"`, `"UPPERCASE"`,
+//!   `"PascalCase"`, `"camelCase"`, `"snake_case"`, `"SCREAMING_SNAKE_CASE"`,
+//!   `"kebab-case"`, and `"SCREAMING-KEBAB-CASE"`.
+//! * `#[deser(alias_all = "...")]`: adds an alias in a name style to all
+//!   variants, like on structs.
+//! * `#[deser(rename_all_fields = "...")]`: renames the fields of all
+//!   struct variants to a name style (like `rename_all` on structs).
+//! * `#[deser(repr)]`: names the variants by their discriminants (see
+//!   [tags](#tags)).  This cannot be combined with `rename_all`, `alias_all`
+//!   and `rename` on variants.
+//! * `#[deser(tag = "...")]`: makes the enum internally tagged with the given
+//!   tag field.
+//! * `#[deser(tag = "...", content = "...")]`: makes the enum adjacently
+//!   tagged with the given tag and content fields.
+//! * `#[deser(tag_alias = "...")]` and `#[deser(content_alias = "...")]`:
+//!   accepts other keys for the tag and the content when deserializing.  They
+//!   can be given more than once.  The tag is an error if it's given more
+//!   than once (under any of its keys).
+//! * `#[deser(untagged)]`: makes the enum untagged.
+//! * `#[deser(deny_unknown_fields)]`: rejects unknown keys in struct variants
+//!   (and the unit variants of internally tagged enums) and keys other than
+//!   the tag and the content of adjacently tagged enums.  See [unknown
+//!   fields](#unknown-fields).
+//! * `#[deser(skip_serializing_optionals)]`: skips optional values that are not
+//!   set in struct variants when serializing.
+//! * `#[deser(as = Adapter)]`, `#[deser(serialize_as = Adapter)]` and
+//!   `#[deser(deserialize_as = Adapter)]`: serializes and deserializes the
+//!   enum with an adapter instead of its variants.  See [container
+//!   adapters](#container-adapters).
+//! * `#[deser(bound(...))]`, `#[deser(serialize_bound(...))]` and
+//!   `#[deser(deserialize_bound(...))]`: see [bounds](#bounds).
+//! * `#[deser(crate = path)]`: see [crate path](#crate-path).
+//!
+//! ## Struct Field Attributes
+//!
+//! The following attributes can be added to fields:
+//!
+//! * `#[deser(rename = "...")]`: renames the field.
+//! * `#[deser(default)]`: fills in the field default value from [`Default`].
+//! * `#[deser(default = expr)]`: like `default` but fills in from the given
+//!   expression instead, for instance `#[deser(default = 42)]`.  See
+//!   [default expressions](#default-expressions).
+//! * `#[deser(skip_serializing_if = path)]`: invokes the function at the given
+//!   path with a reference to the value to check if it should be skipped
+//!   during serialization, for instance
+//!   `#[deser(skip_serializing_if = Option::is_none)]`.
+//! * `#[deser(skip)]`: the field is neither serialized nor deserialized.
+//!   When deserializing, its value is the `default` of the field, or the
+//!   one of the container default, or [`Default`].  The key of the field is
+//!   an unknown key.  The type of the field does not need to be
+//!   serializable.
+//! * `#[deser(skip_serializing)]` and `#[deser(skip_deserializing)]`: skip
+//!   the field in one direction only.
+//! * `#[deser(required)]`: the field has to be given even if its type has a
+//!   value for missing fields, for instance `None` for `Option`.
+//! * `#[deser(alias = "...")]`: provides an alias for the field name for deserialization.  This is ignored
+//!   for serialization.
+//! * `#[deser(flatten)]`: when added to a nested struct field causes that field to be flattened into the
+//!   parent struct.  Note that flattening only works with string keys.
+//!   This feature is enabled by [`value_for_key`](crate::de::Sink::value_for_key).
+//!   Internally tagged enums can be flattened too.  Until their tag was seen
+//!   they take all keys that the struct and the flattened fields before them
+//!   do not take, so they should come after other flattened fields.
+//!   Maps (and `deser_value::Value`) take all keys that the struct and the
+//!   flattened fields before them do not take, the keys are parsed into the
+//!   key type like the keys of JSON objects.  A flattened
+//!   [`Recording`](crate::de::Recording) records them as a map.  When serializing, the keys of
+//!   the map become fields.  A flattened `Option` is `None` if the value did
+//!   not take any key (unlike serde, errors in the value are not turned into
+//!   `None`), when serializing `None` has no fields.
+//! * `#[deser(as = Adapter)]`: serializes and deserializes the field with an
+//!   adapter instead of the field type's own implementation.  `_` in the
+//!   adapter stands for the type's own implementation.  See
+//!   [adapters](#adapters).
+//! * `#[deser(serialize_as = Adapter)]` and `#[deser(deserialize_as = Adapter)]`:
+//!   like `as` but only for serialization or deserialization, the other
+//!   direction uses the field type's own implementation.  Both can be used
+//!   together to use different adapters, but not together with `as`.
+//!
+//! ## Unnamed Field Attributes
+//!
+//! The fields of newtype and tuple structs and of newtype and tuple
+//! variants support these attributes:
+//!
+//! * `#[deser(as = Adapter)]`, `#[deser(serialize_as = Adapter)]` and
+//!   `#[deser(deserialize_as = Adapter)]`: see [adapters](#adapters).
+//! * `#[deser(skip)]`, `#[deser(skip_serializing)]` and
+//!   `#[deser(skip_deserializing)]`: the field is not serialized or
+//!   deserialized (or both).  When deserializing, its value is
+//!   [`Default`] or the one given with `default`.
+//! * `#[deser(default = expr)]`: the value of a field that is skipped when
+//!   deserializing.  See [default expressions](#default-expressions).
+//! * `#[deser(tag)]`: receives the tag of [other variants](#other-variants).
+//!
+//! Skipped fields are not part of the value: if one field remains, the
+//! value is the value of that field (like for newtype structs and newtype
+//! variants), if no field remains the struct is null and the variant a unit
+//! variant.  This is useful for markers:
+//!
+//! ```
+//! use std::marker::PhantomData;
+//! use deser::{Deserialize, Serialize};
+//!
+//! // serialized as the float
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Length<Unit>(f64, #[deser(skip)] PhantomData<Unit>);
+//! ```
+//!
+//! ## Enum Variant Attributes
+//!
+//! The following attributes can be added to enum variants:
+//!
+//! * `#[deser(rename = "...")]`: renames the enum variant.  Variants can
+//!   also be named by integers and booleans (`#[deser(rename = 1)]`,
+//!   `#[deser(rename = true)]`), see [tags](#tags).
+//! * `#[deser(rename_all = "...")]`: renames the fields of a struct variant
+//!   to a name style.  This takes precedence over `rename_all_fields` of
+//!   the enum.
+//! * `#[deser(alias = "...")]`: provides an alias for the variant name for deserialization.  This is ignored
+//!   for serialization.  Like `rename` it takes strings, integers and
+//!   booleans.
+//! * `#[deser(other)]`: marks a variant as catch-all for unknown tags during
+//!   deserialization (not supported for untagged enums).  See
+//!   [other variants](#other-variants).
+//! * `#[deser(default)]`: marks the variant that is used if the tag is missing.
+//!   This is only supported for internally and adjacently tagged enums.  The
+//!   variant can also be marked as `other`.
+//! * `#[deser(untagged)]`: the variant of a tagged enum is represented by
+//!   its content alone, like the variants of untagged enums.  When
+//!   deserializing, the untagged variants are tried in order if the tagged
+//!   representation fails (for instance because the tag is unknown or
+//!   missing).  If none matches, the error of the tagged representation is
+//!   reported.  The value is recorded for this (like for untagged enums).
+//! * `#[deser(deny_unknown_fields)]`: rejects unknown keys in a struct
+//!   variant (or a unit variant of an internally tagged enum), like the
+//!   attribute on the enum does for all variants.
+//! * `#[deser(skip)]`: the variant is neither serialized nor deserialized.
+//!   Serializing it is an error and its name is an unknown variant when
+//!   deserializing.  The types of its fields do not need to be serializable
+//!   or deserializable.
+//! * `#[deser(skip_serializing)]` and `#[deser(skip_deserializing)]`: skip
+//!   the variant in one direction only.
+//! * `#[deser(as = Adapter)]`, `#[deser(serialize_as = Adapter)]` and
+//!   `#[deser(deserialize_as = Adapter)]`: serializes and deserializes the
+//!   content of the variant with an adapter.  See [variant
+//!   adapters](#variant-adapters).
+//! * `#[deser(bound(...))]`, `#[deser(serialize_bound(...))]` and
+//!   `#[deser(deserialize_bound(...))]`: replaces the bounds inferred from
+//!   the fields of the variant, see [bounds](#bounds).
+//!
+//! The fields of struct variants support the same attributes as struct
+//! fields, including `flatten`:
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Common {
+//!     id: u64,
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = "type")]
+//! pub enum Event {
+//!     // {"type": "Click", "id": 1, "x": 10}
+//!     Click {
+//!         #[deser(flatten)]
+//!         common: Common,
+//!         x: u32,
+//!     },
+//! }
+//! ```
+//!
+//! ## Adapters
+//!
+//! Adapters customize how a field is serialized and deserialized (see
+//! [`adapters`](crate::adapters)).  They compose with containers: to use an
+//! adapter for the values of an optional map, the adapter is wrapped in the
+//! same containers:
+//!
+//! ```
+//! use std::collections::BTreeMap;
+//! use std::net::IpAddr;
+//! use deser::{Deserialize, Serialize};
+//! use deser::adapters::DisplayFromStr;
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Hosts {
+//!     #[deser(as = DisplayFromStr)]
+//!     primary: IpAddr,
+//!     #[deser(as = Option<BTreeMap<_, DisplayFromStr>>)]
+//!     named: Option<BTreeMap<String, IpAddr>>,
+//! }
+//! ```
+//!
+//! Missing values are handled by the adapter, `Option<U>` makes missing
+//! fields `None` like `Option<T>` does.  Type parameters that only appear in
+//! fields with adapters do not need to implement [`Serialize`](crate::Serialize)
+//! or [`Deserialize`](crate::Deserialize), instead the adapter needs to
+//! support the field type.
+//!
+//! `serialize_as` and `deserialize_as` use an adapter for one direction only,
+//! for instance to read values in a legacy format which are written in the
+//! regular one.  Nothing checks that the two directions agree: values that
+//! are written with one representation and read with another might not
+//! round trip.
+//!
+//! ### Variant Adapters
+//!
+//! Adapters on variants serialize and deserialize the content of the
+//! variant, the tag is written as usual.  The adapter receives the fields
+//! of the variant (in the order they are declared, for tuple and struct
+//! variants alike):
+//!
+//! * `()` if the variant has no fields.  Unlike other unit variants, the
+//!   variant then has content, for instance `{"Variant": content}` for
+//!   externally tagged enums.
+//! * the value of the field if it has one field (like `as` on the field).
+//! * a tuple of the fields if it has more than one field.  When serializing
+//!   the tuple holds references to the fields (`(&A, &B)`) and when
+//!   deserializing the values (`(A, B)`).
+//!
+//! Fields that are skipped in a direction are not given to the adapter in
+//! that direction.  When deserializing they are filled in with their
+//! `default` (or [`Default`]).  The field that receives the tag of [other
+//! variants](#other-variants) is not part of the content either.
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//! use deser::adapters::{DisplayFromStr, FromInto};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Coords {
+//!     x: f64,
+//!     y: f64,
+//! }
+//!
+//! impl From<(&f64, &f64)> for Coords {
+//!     fn from((x, y): (&f64, &f64)) -> Coords {
+//!         Coords { x: *x, y: *y }
+//!     }
+//! }
+//!
+//! impl From<Coords> for (f64, f64) {
+//!     fn from(value: Coords) -> (f64, f64) {
+//!         (value.x, value.y)
+//!     }
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = "type")]
+//! pub enum Shape {
+//!     // {"type": "Point", "x": 1.0, "y": 2.0}
+//!     #[deser(as = FromInto<Coords>)]
+//!     Point(f64, f64),
+//!     // {"type": "Circle", "x": 1.0, "y": 2.0, "radius": 3.0}
+//!     Circle { x: f64, y: f64, radius: f64 },
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub enum Port {
+//!     // {"Tcp": "80"}
+//!     #[deser(as = DisplayFromStr)]
+//!     Tcp(u16),
+//! }
+//! ```
+//!
+//! The attributes of the variant and its fields that only affect the
+//! directions which use the adapter have no effect and are rejected (for
+//! instance `rename` on fields or `deny_unknown_fields` on the variant).
+//! The skips, the bounds and the tag field are fine.
+//!
+//! ## Container Adapters
+//!
+//! Adapters can also be placed on structs, enums and unions.  The derived
+//! implementations then forward to the adapter and the fields and variants
+//! are not used at all.  This works for all shapes of types (including tuple
+//! structs and unit structs) and neither the fields nor the type parameters
+//! need to be serializable, only the adapter has to support the type:
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//! use deser::adapters::TryFromInto;
+//!
+//! #[derive(Clone, Serialize, Deserialize)]
+//! #[deser(as = TryFromInto<String>)]
+//! pub struct Email {
+//!     user: String,
+//!     domain: String,
+//! }
+//!
+//! impl TryFrom<String> for Email {
+//!     type Error = &'static str;
+//!
+//!     fn try_from(value: String) -> Result<Email, Self::Error> {
+//!         match value.split_once('@') {
+//!             Some((user, domain)) => {
+//!                 Ok(Email { user: user.into(), domain: domain.into() })
+//!             }
+//!             None => Err("missing @"),
+//!         }
+//!     }
+//! }
+//!
+//! impl From<Email> for String {
+//!     fn from(value: Email) -> String {
+//!         format!("{}@{}", value.user, value.domain)
+//!     }
+//! }
+//! ```
+//!
+//! `serialize_as` and `deserialize_as` forward only one direction, the other
+//! one is derived as usual.  A common use is to convert values when they are
+//! read while writing them with the derived implementation:
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//! use deser::adapters::TryFromInto;
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(deserialize_as = TryFromInto<RawPorts>)]
+//! pub struct Ports {
+//!     min: u16,
+//!     max: u16,
+//! }
+//!
+//! #[derive(Deserialize)]
+//! struct RawPorts {
+//!     min: u16,
+//!     max: u16,
+//! }
+//!
+//! impl TryFrom<RawPorts> for Ports {
+//!     type Error = &'static str;
+//!
+//!     fn try_from(value: RawPorts) -> Result<Ports, Self::Error> {
+//!         if value.min > value.max {
+//!             return Err("min is larger than max");
+//!         }
+//!         Ok(Ports { min: value.min, max: value.max })
+//!     }
+//! }
+//! ```
+//!
+//! ### Wrapping the Derived Implementation
+//!
+//! Adapters that wrap another adapter can wrap the derived implementation of
+//! the type: `_` stands for it (the [`Derived`](crate::adapters::Derived)
+//! adapter).  The type is derived as usual (all attributes apply) and the
+//! adapter decides what happens with it, for instance to use the default for
+//! values that cannot be deserialized or to check values once they are
+//! complete (see `Check` in `deser-validate`):
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//! use deser::adapters::DefaultOnError;
+//!
+//! #[derive(Default, Serialize, Deserialize)]
+//! #[deser(as = DefaultOnError<_>, rename_all = "camelCase")]
+//! pub struct Theme {
+//!     accent_color: String,
+//!     dark_mode: bool,
+//! }
+//! ```
+//!
+//! Updates (see [`Deserialize::deserialize_update`](crate::Deserialize::deserialize_update))
+//! go through the adapter as well, the derived implementation updates the
+//! value in place.
+//!
+//! Some things to be aware of:
+//!
+//! * Attributes that only affect the directions which forward to the adapter
+//!   would have no effect and are rejected.  With `as` this is every attribute
+//!   on fields and variants and all attributes on the container except for
+//!   `rename` (which renames the type in its description), the bounds and the
+//!   crate path.  With `deserialize_as` for instance `alias` and `default`
+//!   are rejected but `rename` and `skip_serializing_if` are fine.
+//! * The adapter cannot use the implementation of the type itself as that
+//!   implementation forwards to the adapter: `Same` and the type are
+//!   rejected as adapter and as its direct type arguments (as in
+//!   `FromInto<Self>`).  `_` is the derived implementation there, which
+//!   does not forward to the adapter.  Adapters with a default for the inner adapter such
+//!   as a plain [`DefaultOnError`](crate::adapters::DefaultOnError) use
+//!   `Same` implicitly which is not detected.  The type can be used indirectly,
+//!   for instance a tree can be `FromInto<Vec<Tree>>`.
+//! * Missing values and optional values are handled by the adapter, as for
+//!   fields with adapters.
+//! * Values can be flattened if the adapter serializes them as a struct or
+//!   map, for instance with `TryFromInto<RawStruct>`.
+//! * Adapters are `'static` which means that type parameters used in the
+//!   adapter need to be `'static` and adapters cannot convert from borrowed
+//!   data.  For types with type parameters the derive requires the adapter
+//!   to support the type.  For recursive types this cannot be proven by the
+//!   compiler, custom [bounds](#bounds) are needed there.
+//!
+//! Serde's container attributes map to adapters like this:
+//!
+//! | serde | deser |
+//! |---|---|
+//! | `#[serde(from = "U")]` | `#[deser(deserialize_as = FromInto<U>)]` |
+//! | `#[serde(try_from = "U")]` | `#[deser(deserialize_as = TryFromInto<U>)]` |
+//! | `#[serde(into = "U")]` | `#[deser(serialize_as = FromInto<U>)]` |
+//! | `#[serde(from = "U", into = "U")]` | `#[deser(as = FromInto<U>)]` |
+//! | `#[serde(transparent)]` | `#[deser(transparent)]` (not needed for newtype structs) |
+//!
+//! The field and variant attributes `serialize_with` and `deserialize_with`
+//! correspond to `serialize_as` and `deserialize_as` with an adapter.
+//!
+//! ## Other Variants
+//!
+//! The variant marked with `#[deser(other)]` receives all tags that do not
+//! belong to a known variant.  This includes tags that are not strings.  The
+//! variant can capture the tag in a field marked with `#[deser(tag)]`, the
+//! tag field can be of any type that can be deserialized from the tag and it
+//! can use an adapter.  All other fields make up the content of the variant
+//! which follows the regular rules: a single remaining unnamed field is a
+//! newtype, multiple are a tuple and named fields are a struct.  If there are
+//! no remaining fields, the content is ignored.
+//!
+//! When serialized, the value of the tag field is used as tag which means
+//! that such values round trip.  To capture content without interpreting it,
+//! [`Recording`](crate::de::Recording) can be used:
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//! use deser::de::Recording;
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(rename_all = "snake_case")]
+//! pub enum Kind {
+//!     Bash,
+//!     Zsh,
+//!     #[deser(other)]
+//!     Other(#[deser(tag)] String),
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = "type", rename_all = "snake_case")]
+//! pub enum Event {
+//!     Click { x: u32, y: u32 },
+//!     #[deser(other)]
+//!     Unknown(#[deser(tag)] String, Recording),
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = "type", rename_all = "snake_case")]
+//! pub enum Bind {
+//!     // used if the type is missing
+//!     #[deser(default)]
+//!     Http { address: String },
+//!     Tls { address: String, cert: String },
+//! }
+//! ```
+//!
+//! Only unknown and missing tags go to the other and default variants: known
+//! tags with invalid content are errors.  Variants with content that are
+//! represented by their tag alone (for instance a string for an externally
+//! tagged enum) receive null as content.
+//!
+//! ## Names
+//!
+//! `rename`, `alias`, `tag`, `content` and their aliases take string
+//! literals or expressions that are strings at compile time: paths to
+//! constants and macro invocations such as `concat!(...)`.  This is useful
+//! for names that are shared with other code:
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! mod keys {
+//!     pub const ID: &str = "@id";
+//!     pub const TYPE: &str = "@type";
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(rename = concat!(module_path!(), "::Node"))]
+//! pub struct Node {
+//!     #[deser(rename = keys::ID)]
+//!     id: String,
+//!     #[deser(rename = concat!("x-", "parent"))]
+//!     parent: Option<String>,
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(tag = keys::TYPE, tag_alias = "type")]
+//! pub enum Resource {
+//!     Node(Node),
+//! }
+//! ```
+//!
+//! Names that are expressions are not checked for duplicates by the
+//! derive.
+//!
+//! `rename` and `rename_all` can be given for serialization and
+//! deserialization separately, either of which can be left out (the name
+//! of the other direction is not changed then):
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
+//! pub struct Settings {
+//!     // written as `maxItems`, read as `max-items`
+//!     max_items: u32,
+//!     // written as `on`, read as `is-enabled`
+//!     #[deser(rename(serialize = "on"))]
+//!     is_enabled: bool,
+//! }
+//! ```
+//!
+//! ## Validation
+//!
+//! Validation is provided by [`deser-validate`](https://docs.rs/deser-validate)
+//! with adapters: `Check<V>` validates a field with the validator `V` and
+//! on a type `Check<V, _>` validates the whole value once the derived
+//! implementation (`_`, see [container adapters](#container-adapters))
+//! deserialized it.  Errors point at the start of the value:
+//!
+//! ```ignore
+//! use deser::Deserialize;
+//! use deser_validate::{Check, validator};
+//!
+//! validator!(NonZero(port: &u16) => *port != 0, "port must not be zero");
+//! validator!(
+//!     Ordered(ports: &Ports) => ports.min <= ports.max,
+//!     "min is larger than max"
+//! );
+//!
+//! #[derive(Deserialize)]
+//! #[deser(deserialize_as = Check<Ordered, _>)]
+//! pub struct Ports {
+//!     #[deser(as = Check<NonZero>)]
+//!     min: u16,
+//!     max: u16,
+//! }
+//! ```
+//!
+//! ## Updating Values
+//!
+//! Derived structs can update an existing value in place (see
+//! [`Deserialize::deserialize_update`](crate::Deserialize::deserialize_update)):
+//! the fields that are given are updated, all others keep their values.
+//! Fields are updated the same way which means that nested structs are
+//! merged, `Option`s which are set and `Box`es update their value (null
+//! clears options) and maps (`HashMap`, `BTreeMap` and the maps of
+//! `deser-value`) are merged: the entries that are given are inserted,
+//! replacing the values of keys that exist (the values are not merged).  All other values (sequences, enums)
+//! are replaced.  This is useful to layer configuration files:
+//!
+//! ```
+//! use deser::Deserialize;
+//! use deser::de::Deserializer;
+//!
+//! #[derive(Deserialize)]
+//! pub struct Config {
+//!     server: Server,
+//!     debug: bool,
+//! }
+//!
+//! #[derive(Deserialize)]
+//! pub struct Server {
+//!     host: String,
+//!     port: u16,
+//! }
+//!
+//! let mut config = Config {
+//!     server: Server { host: "localhost".into(), port: 80 },
+//!     debug: false,
+//! };
+//! deser_json::Deserializer::from_str(r#"{"server": {"port": 8080}}"#)
+//!     .update(&mut config)
+//!     .unwrap();
+//! assert_eq!(config.server.host, "localhost");
+//! assert_eq!(config.server.port, 8080);
+//! ```
+//!
+//! Updates are done with [`Deserializer::update`](crate::de::Deserializer::update).
+//! Some things to be aware of:
+//!
+//! * Fields with adapters are updated by the adapter (see
+//!   [`Deserialize::deserialize_update`](crate::Deserialize::deserialize_update)),
+//!   most adapters replace the value.  Types with adapters forward updates
+//!   to the adapter too.
+//! * Flattened fields are updated with the keys they take, flattened fields
+//!   that take no key keep their values.
+//! * If the update fails, the value might be partially updated.
+//!
+//! ## Unknown Fields
+//!
+//! Keys of a struct that no field takes are ignored by default.  They can be
+//! rejected for a type with `#[deser(deny_unknown_fields)]` or for all types
+//! of a deserialization with the [`UnknownFields`](crate::de::UnknownFields)
+//! policy in the context, which can also collect them (for instance to warn
+//! about typos in config files).  Errors point to the key and carry the path
+//! if [`deser-path`](https://docs.rs/deser-path) is used.
+//!
+//! Keys are only unknown if no flattened field takes them either: only the
+//! struct the key is given to decides, the attribute on flattened types has
+//! no effect.  This means that `deny_unknown_fields` works with flattened
+//! structs and internally tagged enums, a flattened map takes all keys.
+//! The tag of internally tagged enums is never an unknown key, untagged
+//! enums with `deny_unknown_fields` do not match maps with keys that a
+//! variant does not know.
+//!
+//! ```
+//! use deser::Deserialize;
+//!
+//! #[derive(Debug, Deserialize)]
+//! #[deser(deny_unknown_fields)]
+//! pub struct Server {
+//!     host: String,
+//!     #[deser(flatten)]
+//!     kind: Kind,
+//! }
+//!
+//! #[derive(Debug, Deserialize)]
+//! #[deser(tag = "type", rename_all = "lowercase")]
+//! pub enum Kind {
+//!     Http { port: u16 },
+//!     Unix { path: String },
+//! }
+//!
+//! let input = r#"{"host": "a", "type": "http", "port": 80, "path": "/"}"#;
+//! let err = deser_json::from_str::<Server>(input).unwrap_err();
+//! assert_eq!(err.message(), "unknown field `path`");
+//! ```
+//!
+//! ## Bounds
+//!
+//! By default the derive requires every type parameter to implement the
+//! derived trait (`T: Serialize` or `T: Deserialize`).  Type parameters
+//! which only appear in fields with adapters instead need to be `Sync` for
+//! `Serialize` and `Send` for `Deserialize` (serializables are `Sync` and
+//! deserializables are `Send`).  Types with [container adapters](#container-adapters)
+//! instead require the adapter to support the type and the type to be
+//! `Sync` or `Send`.  This is wrong when a type parameter is not serialized
+//! itself, for instance when only an associated type is.  The bounds can
+//! be replaced with a list of where predicates:
+//!
+//! * `#[deser(bound(...))]` replaces the bounds for both derives.
+//! * `#[deser(serialize_bound(...))]` and `#[deser(deserialize_bound(...))]`
+//!   replace them for one derive and take precedence over `bound`.
+//!
+//! The predicates are added to the where clause of the type.  `bound()`
+//! removes the inferred bounds entirely.
+//!
+//! The same attributes can be placed on fields, in which case they only
+//! replace the bounds inferred from the field (a type parameter which also
+//! appears in other fields is still bounded because of them), and on
+//! variants, in which case they replace the bounds inferred from the fields
+//! of the variant (fields of the variant with bounds of their own keep
+//! them).  The bounds of fields and variants are added to the bounds of the
+//! container.  As with other attributes, `Self`
+//! is not supported.  In deserialize bounds the lifetime of the data is
+//! available as `'de`.  As `bound` also applies to `Serialize` where there
+//! is no such lifetime, use
+//! [`DeserializeOwned`](crate::de::DeserializeOwned) there.
+//!
+//! ```
+//! use deser::{Deserialize, Serialize};
+//!
+//! pub trait Kind {
+//!     type Value;
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! #[deser(
+//!     serialize_bound(K::Value: Serialize),
+//!     deserialize_bound(K::Value: Deserialize<'de>),
+//! )]
+//! pub struct Holder<K: Kind> {
+//!     value: K::Value,
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub enum Message<K: Kind, T> {
+//!     // `T` is bounded because of this variant
+//!     Plain(T),
+//!     #[deser(
+//!         serialize_bound(K::Value: Serialize),
+//!         deserialize_bound(K::Value: Deserialize<'de>),
+//!     )]
+//!     Value { value: K::Value },
+//! }
+//! ```
+//!
+//! ## Crate Path
+//!
+//! The generated code refers to the deser crate as `deser`.  If it is
+//! available under a different name, because it was renamed in `Cargo.toml`
+//! or is re-exported by another crate, the path can be set with
+//! `#[deser(crate = path)]`:
+//!
+//! ```
+//! # mod framework { pub mod serialization { pub use deser::*; } }
+//! #[derive(framework::serialization::Serialize)]
+//! #[deser(crate = framework::serialization)]
+//! pub struct User {
+//!     name: String,
+//! }
+//! ```
+//!
+//! ## Default Expressions
+//!
+//! `default = expr` takes an expression which is evaluated every time a
+//! default is needed, and only then.  On a field it has to produce a value of
+//! the field's type, on a container a value of the container type.
+//!
+//! * String literals are converted with [`Into`], so `default = "localhost"`
+//!   works for `String` fields and all other types that implement
+//!   `From<&str>`.
+//! * Functions need to be called: `default = make_default()`, not
+//!   `default = make_default`.
+//! * Closures and blocks are not supported, move such logic into a function.
+//! * `Self` is not supported in default expressions and `skip_serializing_if`
+//!   paths as the generated code does not live in an `impl` block of the
+//!   type.  Use the name of the type instead.
+//!
+//! ```
+//! use deser::Deserialize;
+//!
+//! fn default_tags() -> Vec<String> {
+//!     vec!["default".into()]
+//! }
+//!
+//! #[derive(Deserialize)]
+//! pub struct Config {
+//!     #[deser(default = "localhost")]
+//!     host: String,
+//!     #[deser(default = 8080)]
+//!     port: u16,
+//!     #[deser(default = default_tags())]
+//!     tags: Vec<String>,
+//! }
+//! ```
+//!
+//! # Open Enums
+//!
+//! With the `open-enums` feature (off by default) a trait can be an open
+//! enum: an enum whose variants are the types that implement the trait,
+//! which can be in any crate.  The trait objects (`Box<dyn Trait>` and
+//! `Arc<dyn Trait>`) are serialized and deserialized like the enums of the
+//! derive, with the name of the type as tag.  This is useful for plugins
+//! and configuration where the set of types is not known to the crate that
+//! defines the trait.
+//!
+//! The trait is marked with [`#[deser::open_enum]`](../attr.open_enum.html) and
+//! every implementation with [`#[deser::variant]`](../attr.variant.html).
+//! Serializing needs nothing else, the variants know their names.  To
+//! deserialize, the variants are registered in an
+//! [`OpenEnums`][open-enums-registry] registry which is given to the
+//! deserialization in the [`Context`](crate::Context), typically the one
+//! of the configuration of the format (for instance
+//! `deser_json::DeserializerConfig::builder().context(context)`):
+//!
+//! ```
+//! use deser::{Context, Deserialize, Error, OpenEnums, Serialize};
+//!
+//! #[deser::open_enum(tag = "type", rename_all = "snake_case")]
+//! pub trait Step: Send + Sync {
+//!     fn run(&self, input: &str) -> String;
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Replace {
+//!     from: String,
+//!     to: String,
+//! }
+//!
+//! // `{"type": "replace", "from": "a", "to": "b"}`
+//! #[deser::variant]
+//! impl Step for Replace {
+//!     fn run(&self, input: &str) -> String {
+//!         input.replace(&self.from, &self.to)
+//!     }
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Uppercase;
+//!
+//! // `{"type": "upper"}`
+//! #[deser::variant(rename = "upper", alias = "uppercase")]
+//! impl Step for Uppercase {
+//!     fn run(&self, input: &str) -> String {
+//!         input.to_uppercase()
+//!     }
+//! }
+//!
+//! #[derive(Serialize, Deserialize)]
+//! pub struct Pipeline {
+//!     steps: Vec<Box<dyn Step>>,
+//! }
+//!
+//! // crates with variants usually provide a function like this
+//! pub fn register(variants: &mut OpenEnums) -> Result<(), Error> {
+//!     variants
+//!         .register::<dyn Step, Replace>()?
+//!         .register::<dyn Step, Uppercase>()?;
+//!     Ok(())
+//! }
+//!
+//! let mut variants = OpenEnums::new();
+//! register(&mut variants).unwrap();
+//! let context = Context::with(variants);
+//!
+//! // the configuration is created once and reads all pipelines
+//! let config = deser_json::DeserializerConfig::builder()
+//!     .context(context)
+//!     .build();
+//! let pipeline: Pipeline = config
+//!     .from_str(r#"{"steps": [{"type": "upper"}, {"type": "replace", "from": "I", "to": "O"}]}"#)
+//!     .unwrap();
+//! let output = pipeline.steps.iter().fold("hi".to_string(), |s, step| step.run(&s));
+//! assert_eq!(output, "HO");
+//! ```
+//!
+//! The representation is configured on the trait like the one of enums:
+//! without `tag` open enums are externally tagged, with `tag` internally
+//! tagged, with `tag` and `content` adjacently tagged and with `untagged`
+//! untagged.  The variants are serialized like newtype variants with the
+//! type as content, so the types of internally tagged open enums need to be
+//! structs or maps (or unit structs, which are the tag alone).  The
+//! variants of untagged open enums are tried in the order they are
+//! registered, the first one that accepts the value is used.
+//!
+//! Only the variants that are registered are deserialized, which also
+//! limits what untrusted input can create.  Deserializing an open enum
+//! without registry in the context is an error.  The names of the variants
+//! (including their aliases) are unique: registering a variant with the
+//! name of another one fails (except for untagged open enums, where the
+//! names are only used in descriptions).  Both are errors with the kind
+//! [`ErrorKind::Configuration`](crate::ErrorKind::Configuration).
+//!
+//! The variants are named after their type (the last segment of its path),
+//! in the style of `rename_all`.  Types with generic arguments need a name
+//! (`rename`).
+//!
+//! ## Open Enum Attributes
+//!
+//! These are given to `#[deser::open_enum(...)]`:
+//!
+//! | Attribute | Description |
+//! |---|---|
+//! | `tag = "..."` | Internally tagged with the tag in this key, see [enums](#enums). |
+//! | `content = "..."` | Adjacently tagged with the content in this key (requires `tag`). |
+//! | `tag_alias = "..."`, `content_alias = "..."` | Other keys of the tag or content which are accepted when deserializing. |
+//! | `untagged` | Untagged, the variants are tried in the order they are registered (cannot be combined with `tag`). |
+//! | `rename_all = "..."` | Names the variants in this style (the names of the types are in `PascalCase`). |
+//! | `alias_all = "..."` | Accepts the names of the variants in this style as well. |
+//! | `deny_unknown_fields` | Rejects keys besides the tag and the content (adjacently tagged open enums only, the variants deny their unknown fields themselves). |
+//! | `rename = "..."` | The name of the open enum in errors and descriptions (the name of the trait by default). |
+//! | `crate = path` | The path to deser, see [crate path](#crate-path). |
+//!
+//! ## Variant Attributes
+//!
+//! These are given to `#[deser::variant(...)]`:
+//!
+//! | Attribute | Description |
+//! |---|---|
+//! | `rename = ...` | The name of the variant, a string or an integer or boolean (see [tags](#tags)). |
+//! | `alias = ...` | Another name of the variant which is accepted when deserializing. |
+//! | `crate = path` | The path to deser, see [crate path](#crate-path). |
+//!
+//! ## Rules and Limitations
+//!
+//! * The trait needs `Send` and `Sync` as supertraits (values are `Send`
+//!   and `Sync`), it cannot have generic parameters and it needs to be dyn
+//!   compatible.
+//! * Every implementation of the trait needs `#[deser::variant]`, the
+//!   attribute implements a hidden method of the trait which is missing
+//!   otherwise.  Implementations cannot be generic, the
+//!   types need to implement [`Serialize`](crate::Serialize) and
+//!   [`Deserialize`](crate::Deserialize) without borrowing (they are
+//!   `'static`).
+//! * Unknown tags are errors, there is no catch-all or default variant yet.
+//!
+#![cfg_attr(
+    feature = "open-enums",
+    doc = "[open-enums-registry]: crate::OpenEnums"
+)]
+#![cfg_attr(
+    not(feature = "open-enums"),
+    doc = "[open-enums-registry]: https://docs.rs/deser/latest/deser/struct.OpenEnums.html"
+)]

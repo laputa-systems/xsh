@@ -1,0 +1,338 @@
+use alloc::boxed::Box;
+use core::mem::ManuallyDrop;
+use core::ops::{Deref, DerefMut};
+use core::ptr::NonNull;
+
+use crate::State;
+use crate::arena::ArenaBox;
+use crate::de::{Deserialize, DeserializeDriver, Sink, SinkHandle};
+use crate::error::{Error, ErrorKind};
+
+struct NonuniqueBox<T: ?Sized> {
+    ptr: NonNull<T>,
+}
+
+// SAFETY: the box owns its value like a `Box<T>`.
+unsafe impl<T: ?Sized + Send> Send for NonuniqueBox<T> {}
+
+impl<T> NonuniqueBox<T> {
+    pub(crate) fn new(value: T) -> Self {
+        NonuniqueBox::from(Box::new(value))
+    }
+}
+
+impl<T: ?Sized> From<Box<T>> for NonuniqueBox<T> {
+    fn from(boxed: Box<T>) -> Self {
+        let ptr = Box::into_raw(boxed);
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        NonuniqueBox { ptr }
+    }
+}
+
+impl<T: ?Sized> Deref for NonuniqueBox<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<T: ?Sized> DerefMut for NonuniqueBox<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.ptr.as_mut() }
+    }
+}
+
+impl<T: ?Sized> Drop for NonuniqueBox<T> {
+    fn drop(&mut self) {
+        let ptr = self.ptr.as_ptr();
+        let _ = unsafe { Box::from_raw(ptr) };
+    }
+}
+
+/// Creates a reference with an unbounded lifetime.
+unsafe fn unbounded<'x, X>(ptr: *mut X) -> &'x mut X {
+    unsafe { &mut *ptr }
+}
+
+/// Utility to bundle a sink with a slot.
+///
+/// There are situations where one wants to deserialize into a slot that
+/// does not exist yet (for instance the value inside a wrapper, which is
+/// only built once the value is complete) and hold the slot together with
+/// the sink that borrows it.  Rust's lifetimes make this impossible so this
+/// abstraction is provided to allow this.  The slot and the sink are
+/// allocated in the arena of the state, the value is taken out with
+/// [`take`](Self::take).
+///
+/// # Example
+///
+/// This example demonstrates the use of an [`OwnedSink`] to implement
+/// [`Deserialize`] for a newtype wrapper.  For simplicity's sake only
+/// atoms have been implemented here.
+///
+/// ```rust
+/// use deser::{Atom, Error};
+/// use deser::de::{OwnedSink, SinkHandle, Sink, Deserialize};
+/// use deser::State;
+///
+/// struct AtomWrapper<T>(T);
+///
+/// impl<'de, T: Deserialize<'de>> Deserialize<'de> for AtomWrapper<T> {
+///     fn deserialize_into<'out>(
+///         out: &'out mut Option<Self>,
+///         state: &mut State,
+///     ) -> SinkHandle<'out, 'de> {
+///         SinkHandle::arena(
+///             WrapperSink { out, sink: OwnedSink::deserialize(state) },
+///             state,
+///         )
+///     }
+/// }
+///
+/// struct WrapperSink<'a, 'de, T> {
+///     out: &'a mut Option<AtomWrapper<T>>,
+///     sink: OwnedSink<'de, T>,
+/// }
+///
+/// impl<'a, 'de, T: Deserialize<'de>> Sink<'de> for WrapperSink<'a, 'de, T> {
+///     fn atom(
+///         &mut self,
+///         atom: Atom,
+///         state: &mut State,
+///     ) -> Result<(), Error> {
+///         self.sink.get_mut().atom(atom, state)
+///     }
+///     fn finish(&mut self, state: &mut State) -> Result<(), Error> {
+///         self.sink.get_mut().finish(state)?;
+///         *self.out = self.sink.take().map(AtomWrapper);
+///         Ok(())
+///     }
+/// }
+/// ```
+pub struct OwnedSink<'de, T> {
+    // The sink borrows from the storage (in the arena, like the sink).  The
+    // sink is always dropped before the storage is accessed (in `take`) or
+    // dropped.  The lifetime of the
+    // borrow is erased (to `'de` as the handle cannot outlive that).
+    storage: ArenaBox<Option<T>>,
+    sink: ManuallyDrop<SinkHandle<'de, 'de>>,
+}
+
+impl<'de, T: Deserialize<'de>> OwnedSink<'de, T> {
+    /// Creates a new owned sink for a given type.
+    ///
+    /// This begins the deserialization with [`Deserialize::deserialize_into`]
+    /// into a slot contained within the owned sink.  To extract the final
+    /// value use [`take`](Self::take).
+    ///
+    /// The sink is allocated in the arena of the state (see
+    /// [`SinkHandle::arena`]).  If the owned sink outlives the
+    /// deserialization, the chunk of the arena it's in is freed when it's
+    /// dropped.
+    pub fn deserialize(state: &mut State) -> OwnedSink<'de, T> {
+        OwnedSink::with(T::deserialize_into, state)
+    }
+}
+
+impl<'de, T: Send> OwnedSink<'de, T> {
+    /// Creates a new owned sink that deserializes with an adapter.
+    ///
+    /// This is like [`deserialize`](Self::deserialize) but begins the
+    /// deserialization with
+    /// [`Deserialize::deserialize_into`] of the adapter `A`.
+    pub fn deserialize_as<A: Deserialize<'de, T>>(state: &mut State) -> OwnedSink<'de, T> {
+        OwnedSink::with(A::deserialize_into, state)
+    }
+}
+
+impl<'de, T> OwnedSink<'de, T> {
+    /// Creates an owned sink whose slot starts out with a value.
+    pub(crate) fn with_slot(
+        slot: Option<T>,
+        make: for<'x> fn(&'x mut Option<T>, &mut State) -> SinkHandle<'x, 'de>,
+        state: &mut State,
+    ) -> OwnedSink<'de, T> {
+        let storage = ArenaBox::new(slot, &mut state.arena);
+        // SAFETY: like in `with`
+        let sink = unsafe {
+            let slot = unbounded(storage.ptr().as_ptr());
+            core::mem::transmute::<SinkHandle<'_, 'de>, SinkHandle<'de, 'de>>(make(slot, state))
+        };
+        OwnedSink {
+            storage,
+            sink: ManuallyDrop::new(sink),
+        }
+    }
+
+    /// Creates an owned sink without a value that ignores everything.
+    pub(crate) fn null(state: &mut State) -> OwnedSink<'de, T> {
+        OwnedSink::with(|_, _| SinkHandle::null(), state)
+    }
+
+    pub(crate) fn with(
+        make: for<'x> fn(&'x mut Option<T>, &mut State) -> SinkHandle<'x, 'de>,
+        state: &mut State,
+    ) -> OwnedSink<'de, T> {
+        let storage = ArenaBox::new(None, &mut state.arena);
+        // SAFETY: the storage is in the arena and not moved.  The sink is
+        // dropped before the storage is accessed again or freed.
+        let sink = unsafe {
+            let slot = unbounded(storage.ptr().as_ptr());
+            core::mem::transmute::<SinkHandle<'_, 'de>, SinkHandle<'de, 'de>>(make(slot, state))
+        };
+        OwnedSink {
+            storage,
+            sink: ManuallyDrop::new(sink),
+        }
+    }
+
+    /// Creates an owned sink that updates a value.
+    ///
+    /// The value is moved into the owned sink and updated with
+    /// `update` (like [`Deserialize::deserialize_update`]).  It can be taken
+    /// out again with [`take`](Self::take), also if the update failed.
+    pub(crate) fn update(
+        value: T,
+        update: for<'x> fn(&'x mut T, &mut State) -> SinkHandle<'x, 'de>,
+        state: &mut State,
+    ) -> OwnedSink<'de, T> {
+        let storage = ArenaBox::new(Some(value), &mut state.arena);
+        // SAFETY: like in `with`, the storage is in the arena and not
+        // moved.  The value in it is not replaced while the sink exists, the
+        // sink is dropped before the storage is accessed again or freed.
+        let sink = unsafe {
+            let slot = unbounded(storage.ptr().as_ptr());
+            let value = slot.as_mut().unwrap_unchecked();
+            core::mem::transmute::<SinkHandle<'_, 'de>, SinkHandle<'de, 'de>>(update(value, state))
+        };
+        OwnedSink {
+            storage,
+            sink: ManuallyDrop::new(sink),
+        }
+    }
+
+    /// Returns a reference to the sink.
+    pub fn get(&self) -> &(dyn Sink<'de> + '_) {
+        &*self.sink
+    }
+
+    /// Returns a mutable reference to the sink.
+    pub fn get_mut(&mut self) -> &mut (dyn Sink<'de> + '_) {
+        &mut *self.sink
+    }
+
+    /// Takes the value produced by the sink.
+    ///
+    /// This finishes the use of the sink.  After calling this method the
+    /// sink will drop all values it receives.
+    pub fn take(&mut self) -> Option<T> {
+        // the sink borrows from the storage, so it needs to go first.
+        *self.sink = SinkHandle::null();
+        self.storage.get_mut().take()
+    }
+}
+
+impl<'de, T> Drop for OwnedSink<'de, T> {
+    fn drop(&mut self) {
+        // SAFETY: the sink is never used again and dropped before the
+        // storage it borrows from.
+        unsafe {
+            ManuallyDrop::drop(&mut self.sink);
+        }
+    }
+}
+
+/// A [`DeserializeDriver`] which owns the value it deserializes.
+///
+/// A [`DeserializeDriver`] borrows the slot of the value it deserializes,
+/// which means that it cannot be held together with the slot, for instance
+/// in a struct that deserializes a value from input which arrives over
+/// time.  This bundles a driver with its slot.  The driver is lent out with
+/// [`with`](Self::with) and the value is taken with
+/// [`finish`](Self::finish):
+///
+/// ```
+/// use deser::de::OwnedDriver;
+/// use deser::Event;
+///
+/// let mut driver = OwnedDriver::<Vec<u32>>::new();
+/// driver.with(|driver| driver.emit(Event::seq_start())).unwrap();
+/// // ... later, when more input arrived
+/// driver.with(|driver| {
+///     driver.emit(1u64)?;
+///     driver.emit(Event::SeqEnd)
+/// }).unwrap();
+/// assert_eq!(driver.finish().unwrap(), [1]);
+/// ```
+pub struct OwnedDriver<'de, T> {
+    // The driver borrows from the storage.  It's dropped before the
+    // storage is accessed (in `finish`) or dropped.  The lifetime of the
+    // borrow is erased (to `'de` as the driver cannot outlive that).
+    driver: ManuallyDrop<DeserializeDriver<'de, 'de>>,
+    storage: NonuniqueBox<Option<T>>,
+}
+
+impl<'de, T: Deserialize<'de>> OwnedDriver<'de, T> {
+    /// Creates a driver for a value.
+    pub fn new() -> OwnedDriver<'de, T> {
+        let storage = NonuniqueBox::new(None);
+        // SAFETY: the storage is heap allocated and not moved.  The driver
+        // is dropped before the storage is accessed again or freed.
+        let driver = unsafe {
+            let slot = &mut *storage.ptr.as_ptr();
+            core::mem::transmute::<DeserializeDriver<'_, 'de>, DeserializeDriver<'de, 'de>>(
+                DeserializeDriver::new(slot),
+            )
+        };
+        OwnedDriver {
+            driver: ManuallyDrop::new(driver),
+            storage,
+        }
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Default for OwnedDriver<'de, T> {
+    fn default() -> OwnedDriver<'de, T> {
+        OwnedDriver::new()
+    }
+}
+
+impl<'de, T> OwnedDriver<'de, T> {
+    /// Invokes a function with the driver.
+    ///
+    /// The function has to accept a driver of any lifetime which ensures
+    /// that it cannot keep the driver or replace it.
+    pub fn with<R, F>(&mut self, f: F) -> R
+    where
+        F: for<'a> FnOnce(&mut DeserializeDriver<'a, 'de>) -> R,
+    {
+        f(&mut self.driver)
+    }
+
+    /// Finishes the deserialization and returns the value.
+    ///
+    /// Fails with [`ErrorKind::EndOfFile`] if the value is incomplete.
+    pub fn finish(self) -> Result<T, Error> {
+        let mut this = ManuallyDrop::new(self);
+        // SAFETY: the driver is dropped before the storage it borrows from
+        // is accessed.  The storage is moved out of the forgotten value
+        // exactly once.
+        let mut storage = unsafe {
+            ManuallyDrop::drop(&mut this.driver);
+            core::ptr::read(&this.storage)
+        };
+        storage
+            .take()
+            .ok_or_else(|| Error::new(ErrorKind::EndOfFile, "unexpected end of input"))
+    }
+}
+
+impl<'de, T> Drop for OwnedDriver<'de, T> {
+    fn drop(&mut self) {
+        // SAFETY: the driver is never used again and dropped before the
+        // storage it borrows from.
+        unsafe {
+            ManuallyDrop::drop(&mut self.driver);
+        }
+    }
+}

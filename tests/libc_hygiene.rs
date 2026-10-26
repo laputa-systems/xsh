@@ -4,7 +4,7 @@
 //!
 //! This is intentionally generic — to reuse it in another repo, copy this file
 //! into `tests/` and edit the CONFIGURATION block below (the two crate names,
-//! the skip list, and the `RENAMES`/`ALLOW` tables). It needs `miniserde`,
+//! the skip list, and the `RENAMES`/`ALLOW` tables). It uses the host JSON facade,
 //! `syn` (features `full`, `visit`), and `walkdir` as dev-dependencies, and it
 //! assumes the audited crate's sources live under `$CARGO_MANIFEST_DIR/src`.
 //!
@@ -28,7 +28,7 @@
 //! call from a same-named type/constant (handle via `ALLOW`); it sees `pub fn`s
 //! regardless of `#[cfg]`, so a function gated off your target still counts; and
 //! it only knows the `TO_CRATE` version that `cargo metadata` resolved.
-use miniserde::json::Value as JsonValue;
+use xsh::host::json::Value as JsonValue;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command as Cmd;
@@ -115,7 +115,7 @@ fn to_crate_src_dir() -> PathBuf {
 
     let text = String::from_utf8(output.stdout).expect("cargo metadata is not UTF-8");
     let json: JsonValue =
-        miniserde::json::from_str(&text).expect("cargo metadata is not valid JSON");
+        deser_json::from_str(&text).expect("cargo metadata is not valid JSON");
     let packages = json_array(json_field(&json, "packages"));
     let target = packages
         .iter()
@@ -130,24 +130,15 @@ fn to_crate_src_dir() -> PathBuf {
 }
 
 fn json_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
-    match value {
-        JsonValue::Object(fields) => fields.get(key).unwrap_or_else(|| panic!("missing {key}")),
-        _ => panic!("expected JSON object"),
-    }
+    value.get(key).unwrap_or_else(|| panic!("missing JSON field {key}"))
 }
 
-fn json_array(value: &JsonValue) -> &miniserde::json::Array {
-    match value {
-        JsonValue::Array(items) => items,
-        _ => panic!("expected JSON array"),
-    }
+fn json_array(value: &JsonValue) -> &[xsh::host::json::Value] {
+    value.as_seq().expect("expected JSON array")
 }
 
 fn json_str(value: &JsonValue) -> &str {
-    match value {
-        JsonValue::String(value) => value,
-        _ => panic!("expected JSON string"),
-    }
+    value.as_str().expect("expected JSON string")
 }
 
 // Collect every libc symbol named by a `#[doc(alias = ...)]` attribute. Handles

@@ -15,6 +15,7 @@ pub mod execution;
 pub mod frontend_stats;
 #[path = "runtime/eval/modules/host.rs"]
 mod host_impl;
+mod host_json;
 pub mod host {
     //! Narrow reusable host adapters; XSH standard-module implementations stay internal.
 
@@ -32,11 +33,7 @@ pub mod host {
     }
 
     pub mod json {
-        pub use crate::modules::json::{
-            compact_raw_json, parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_bool,
-            raw_json_as_str, raw_json_as_u64, raw_json_bool, raw_json_f64, raw_json_get,
-            raw_json_i64, raw_json_object, raw_json_string, raw_json_u64, raw_json_usize,
-        };
+        pub use crate::host_json::{Value, parse, encode, encode_pretty};
     }
 }
 pub mod ir;

@@ -1,0 +1,227 @@
+//! Parse and serialize JSON compatible with deser.
+//!
+//! This library is very bare bones at this point and not at all optimized.  It is
+//! based on microserde.
+//!
+//! ```rust
+//! let vec: Vec<u64> = deser_json::from_str("[1, 2, 3, 4]").unwrap();
+//! let json = deser_json::to_string(&vec).unwrap();
+//! assert_eq!(json, "[1,2,3,4]");
+//! ```
+//!
+//! Besides strings, JSON can also be parsed from byte slices with
+//! [`from_slice`].  In that case the input is validated as UTF-8 while it is
+//! parsed rather than upfront:
+//!
+//! ```rust
+//! let vec: Vec<String> = deser_json::from_slice(b"[\"a\", \"b\"]").unwrap();
+//! assert_eq!(vec, ["a", "b"]);
+//! assert!(deser_json::from_slice::<String>(b"\"\xff\"").is_err());
+//! ```
+//!
+//! Integers that do not fit into 64 bits as well as the well-known
+//! [`BigInt`](deser_core::ext::BigInt), [`Decimal`](deser_core::ext::Decimal) and
+//! [`Number`](deser_core::ext::Number) types are written as JSON numbers.  Other
+//! well-known types (such as date-times and UUIDs) are written as strings.
+//! JSON has no bytes, they are written as base64 strings by default and
+//! types that expect bytes accept strings and arrays of integers (see
+//! [bytes](deser_core::adapters#bytes), the format can be configured in the
+//! [`Context`](deser_core::Context) with a [`BytesFormat`](deser_core::BytesFormat)).  Floats
+//! are written with the shortest text that reads back as the same value of
+//! their precision (`0.1f32` as `0.1`, not `0.10000000149011612`), floats
+//! that are infinite or NaN as `null`.
+//!
+//! When parsing, floats whose text cannot be recovered from their value as
+//! `f64` (like `0.10` or `1e5`) and integers that do not fit into 128 bits
+//! are passed on as [`Number`](deser_core::ext::Number) which carries the text of
+//! the number and its value as `f64`.  Types like `f64` get the value, types
+//! which deserialize decimal numbers exactly (like
+//! [`Decimal`](deser_core::ext::Decimal)) use the text.  See
+//! [`DeserializerConfig::set_exact_numbers`].
+//!
+//! Strings without escape sequences are borrowed from the input, so types
+//! can borrow them:
+//!
+//! ```rust
+//! #[derive(deser::Deserialize)]
+//! struct User<'a> {
+//!     name: &'a str,
+//! }
+//!
+//! let user: User = deser_json::from_str(r#"{"name": "Peter"}"#).unwrap();
+//! assert_eq!(user.name, "Peter");
+//! ```
+//!
+//! # Raw Values
+//!
+//! [`RawJson`] holds the JSON text of a value.  The JSON of values that are
+//! deserialized from JSON is kept as it is: it's validated but not
+//! deserialized, which is faster, and written out again unchanged.  With
+//! the [`Borrowed`](deser_core::adapters::Borrowed) adapter the text is
+//! borrowed from the input:
+//!
+//! ```rust
+//! use std::collections::BTreeMap;
+//! use deser::adapters::Borrowed;
+//! use deser_json::RawJson;
+//!
+//! #[derive(deser::Deserialize, deser::Serialize)]
+//! struct Envelope<'a> {
+//!     kind: String,
+//!     #[deser(as = Borrowed)]
+//!     payload: RawJson<'a>,
+//! }
+//!
+//! let input = r#"{"kind": "point", "payload": {"x": 1.50, "y": 2}}"#;
+//! let envelope: Envelope = deser_json::from_str(input).unwrap();
+//! assert_eq!(envelope.payload.get(), r#"{"x": 1.50, "y": 2}"#);
+//!
+//! // deserialized later, once it's known what it is
+//! let point: BTreeMap<String, f64> = envelope.payload.deserialize().unwrap();
+//! assert_eq!(point["x"], 1.5);
+//!
+//! // and written out again unchanged
+//! assert_eq!(
+//!     deser_json::to_string(&envelope).unwrap(),
+//!     r#"{"kind":"point","payload":{"x": 1.50, "y": 2}}"#
+//! );
+//! ```
+//!
+//! The text is only kept for values in places where the type is known
+//! before the value starts: fields of derived structs, standard containers,
+//! `Option` and `Box`.  Everywhere else (like the fields of untagged enums)
+//! and for values of other formats (including the other JSON dialects) the
+//! value is encoded as JSON.  Other formats serialize the value a
+//! [`RawJson`] holds.  See [`Raw`](deser_core::ext::Raw) for more
+//! information.
+//!
+//! # Pretty Printing
+//!
+//! By default the output is compact.  [`SerializerConfig::set_pretty`] indents
+//! it and writes spaces after separators:
+//!
+//! ```rust
+//! use deser_json::{Indent, SerializerConfig};
+//!
+//! const PRETTY: SerializerConfig =
+//!     SerializerConfig::builder().pretty(Indent::Spaces(2)).build();
+//! let json = PRETTY.to_string(&vec![vec![1, 2]]).unwrap();
+//! assert_eq!(json, "[\n  [\n    1,\n    2\n  ]\n]");
+//! ```
+//!
+//! Indentation and spaces can also be configured on their own with
+//! [`SerializerConfig::set_indent`] and [`SerializerConfig::set_compact`].  Maps
+//! and sequences with the [`Layout::Compact`](deser_core::hints::Layout) hint
+//! are written on a single line in indented output, short ones that only
+//! contain scalars can be too (see [`SerializerConfig::set_inline`]).
+//!
+//! # JSON Lines
+//!
+//! By default only whitespace may follow a value.  What may follow is
+//! controlled by [`DeserializerConfig::set_trailing`] (see [`Trailing`]).  With
+//! [`Trailing::Newline`] a [`Deserializer`] reads
+//! [JSON Lines](https://jsonlines.org/) (also known as NDJSON) one by one:
+//!
+//! ```rust
+//! use deser_json::{Deserializer, DeserializerConfig, Trailing};
+//!
+//! let config = DeserializerConfig::builder().trailing(Trailing::Newline).build();
+//! let mut de = Deserializer::from_str_with_config("[1, 2]\n[3]\n", config);
+//! let lines = de.iter::<Vec<u32>>().collect::<Result<Vec<_>, _>>().unwrap();
+//! assert_eq!(lines, [vec![1, 2], vec![3]]);
+//! ```
+//!
+//! Errors only discard their line, so the remaining lines can still be
+//! read.  [`Trailing::Stop`] stops after the value without looking at what
+//! follows.  JSON Lines are written with a [`Serializer`] and
+//! [`SerializerConfig::set_trailing`]:
+//!
+//! ```rust
+//! use deser_json::{Serializer, SerializerConfig, Trailing};
+//!
+//! const LINES: SerializerConfig =
+//!     SerializerConfig::builder().trailing(Trailing::Newline).build();
+//! let mut serializer = Serializer::with_config(LINES);
+//! for value in [vec![1, 2], vec![3]] {
+//!     serializer.serialize(&value).unwrap();
+//! }
+//! assert_eq!(serializer.finish(), "[1,2]\n[3]\n");
+//! ```
+//!
+//! # Streams
+//!
+//! Values are read from a [`Read`](std::io::Read) with [`from_reader`]
+//! and written to a [`Write`](std::io::Write) with [`to_writer`].  To read
+//! or write more than one value (for instance JSON Lines from a socket) the
+//! configurations create readers and writers of
+//! [`deser::io`](deser_core::io) ([`DeserializerConfig::reader`] and
+//! [`SerializerConfig::writer`]).  How values are separated depends on the
+//! `trailing` setting of the configurations (see [`Trailing`]).  The reader
+//! only buffers until a value is complete:
+//!
+//! ```rust
+//! # #[cfg(feature = "io")] {
+//! use std::collections::BTreeMap;
+//! use deser_json::{DeserializerConfig, SerializerConfig, Trailing};
+//!
+//! const READ_LINES: DeserializerConfig =
+//!     DeserializerConfig::builder().trailing(Trailing::Newline).build();
+//! const WRITE_LINES: SerializerConfig =
+//!     SerializerConfig::builder().trailing(Trailing::Newline).build();
+//!
+//! let input = &b"{\"id\": 1}\n{\"id\": 2}\n"[..];
+//! let mut reader = READ_LINES.reader(input);
+//! let mut writer = WRITE_LINES.writer(Vec::new());
+//! while let Some(value) = reader.read::<BTreeMap<String, u32>>().unwrap() {
+//!     writer.write(&value).unwrap();
+//! }
+//! assert_eq!(writer.into_inner(), b"{\"id\":1}\n{\"id\":2}\n");
+//! # }
+//! ```
+//!
+//! The stream serializer ([`Serializer`]) and the stream deserializer
+//! ([`StreamDeserializer`]) do not do IO themselves (see
+//! [`deser::stream`](deser_core::stream)), they also work with other kinds
+//! of IO (for instance async runtimes with `deser-tokio`) and without the
+//! standard library.
+//!
+//! # Features
+//!
+//! * `io` (enabled by default): reading and writing streams of the
+//!   standard library, see [streams](#streams).  Requires `std`.
+//! * `speedups` (enabled by default): uses
+//!   [`simdutf8`](https://docs.rs/simdutf8) to validate UTF-8 when parsing
+//!   byte slices.
+//! * `std` (enabled by default): uses the standard library.  Without it
+//!   this crate only needs `alloc` (see [`no_std`](https://docs.rs/deser/latest/deser/#no_std)).
+#![doc(html_logo_url = "https://raw.githubusercontent.com/mitsuhiko/deser/main/artwork/logo.svg")]
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
+
+extern crate alloc;
+
+// These are generated from `deser-template-json`.
+mod buf;
+mod copy;
+mod de;
+mod escape;
+mod parser;
+mod pretty;
+mod raw;
+mod scan;
+mod ser;
+mod stream;
+mod trailing;
+
+pub use self::de::{
+    Deserializer, DeserializerConfig, DeserializerConfigBuilder, Iter, from_slice, from_str,
+};
+pub use self::raw::{Json, RawJson};
+#[cfg(feature = "io")]
+pub use self::ser::to_writer;
+pub use self::ser::{
+    Indent, InlinePolicy, Serializer, SerializerConfig, SerializerConfigBuilder, to_string,
+};
+pub use self::stream::StreamDeserializer;
+#[cfg(feature = "io")]
+pub use self::stream::from_reader;
+pub use self::trailing::Trailing;

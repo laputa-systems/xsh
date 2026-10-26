@@ -230,7 +230,7 @@ impl<'a> JsonParser<'a> {
             match byte {
                 b'"' => {
                     self.index += 1;
-                    return miniserde::json::from_str(&self.input[start..self.index])
+                    return deser_json::from_str(&self.input[start..self.index])
                         .map_err(|_| "invalid JSON string".to_string());
                 }
                 b'\\' => {
@@ -400,7 +400,7 @@ fn parse_hex_bytes(text: &str) -> Result<Vec<u8>, String> {
 }
 
 fn json_string(text: &str, output: &mut String) {
-    output.push_str(&miniserde::json::to_string(text));
+    output.push_str(&deser_json::to_string(text).expect("host JSON scalar must be encodable"));
 }
 
 fn encode_source_document(document: &SourceDocument) -> String {

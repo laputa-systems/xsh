@@ -1,117 +1,17 @@
 use super::type_view::ValueView;
 use super::{LoweredValue, Value};
 use crate::map_key::{MapKey, MapKeyRef};
-use crate::modules::json as json_module;
 use crate::runtime::value::{RecordIter, RuntimeError};
 use crate::source::Span;
 use crate::symbol::Name;
-use miniserde::json::{Array, Object, Value as TreeValue};
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::borrow::Cow;
+use deser::{Atom, Error, ErrorKind, Serialize, State};
+use deser::ser::{Emit, SeqEmitter, SerializeHandle, StructEmitter};
 use std::sync::Arc;
 
 const NON_FINITE_FLOAT_MESSAGE: &str = "non-finite Float values are not JSON-compatible";
 const NON_STRING_KEY_MESSAGE: &str = "JSON objects require Str map keys";
-
-trait JsonSink {
-    fn null(&mut self);
-    fn boolean(&mut self, value: bool);
-    fn integer(&mut self, value: i64);
-    fn float(&mut self, value: f64);
-    fn string(&mut self, value: &str);
-    fn begin_array(&mut self);
-    fn array_item(&mut self);
-    fn end_array(&mut self);
-    fn begin_object(&mut self);
-    fn object_field(&mut self, key: &str);
-    fn end_object(&mut self);
-}
-
-enum TreeContainer {
-    Array(Array),
-    Object(Object, Option<String>),
-}
-
-#[derive(Default)]
-struct TreeSink {
-    containers: Vec<TreeContainer>,
-    root: Option<TreeValue>,
-}
-
-impl TreeSink {
-    fn push(&mut self, value: TreeValue) {
-        match self.containers.last_mut() {
-            Some(TreeContainer::Array(items)) => items.push(value),
-            Some(TreeContainer::Object(fields, key)) => {
-                fields.insert(key.take().expect("JSON object field has a key"), value);
-            }
-            None => assert!(self.root.replace(value).is_none()),
-        }
-    }
-
-    fn finish(self) -> TreeValue {
-        self.root.expect("JSON traversal writes a root value")
-    }
-}
-
-impl JsonSink for TreeSink {
-    fn null(&mut self) { self.push(TreeValue::Null); }
-    fn boolean(&mut self, value: bool) { self.push(json_module::raw_json_bool(value)); }
-    fn integer(&mut self, value: i64) { self.push(json_module::raw_json_i64(value)); }
-    fn float(&mut self, value: f64) { self.push(json_module::raw_json_f64(value)); }
-    fn string(&mut self, value: &str) { self.push(json_module::raw_json_string(value)); }
-    fn begin_array(&mut self) { self.containers.push(TreeContainer::Array(Array::new())); }
-    fn array_item(&mut self) {}
-    fn end_array(&mut self) {
-        let Some(TreeContainer::Array(items)) = self.containers.pop() else { unreachable!("JSON array closes its own container"); };
-        self.push(json_module::raw_json_array(items));
-    }
-    fn begin_object(&mut self) { self.containers.push(TreeContainer::Object(Object::new(), None)); }
-    fn object_field(&mut self, key: &str) {
-        let Some(TreeContainer::Object(_, next)) = self.containers.last_mut() else { unreachable!("JSON object field belongs to an object"); };
-        *next = Some(key.to_owned());
-    }
-    fn end_object(&mut self) {
-        let Some(TreeContainer::Object(fields, None)) = self.containers.pop() else { unreachable!("JSON object closes after its last field"); };
-        self.push(TreeValue::Object(fields));
-    }
-}
-
-#[derive(Default)]
-struct TextContainer(bool);
-
-#[derive(Default)]
-struct TextSink {
-    output: String,
-    containers: Vec<TextContainer>,
-}
-
-impl JsonSink for TextSink {
-    fn null(&mut self) { self.output.push_str("null"); }
-    fn boolean(&mut self, value: bool) { self.output.push_str(if value { "true" } else { "false" }); }
-    fn integer(&mut self, value: i64) { let _ = write!(self.output, "{value}"); }
-    fn float(&mut self, value: f64) { self.output.push_str(&miniserde::json::to_string(&value)); }
-    fn string(&mut self, value: &str) { super::lowered_run::lowered_write_json_str(value, &mut self.output); }
-    fn begin_array(&mut self) { self.output.push('['); self.containers.push(TextContainer(true)); }
-    fn array_item(&mut self) { self.separator(); }
-    fn end_array(&mut self) { self.containers.pop().expect("JSON array container"); self.output.push(']'); }
-    fn begin_object(&mut self) { self.output.push('{'); self.containers.push(TextContainer(true)); }
-    fn object_field(&mut self, key: &str) {
-        self.separator();
-        super::lowered_run::lowered_write_json_str(key, &mut self.output);
-        self.output.push(':');
-    }
-    fn end_object(&mut self) { self.containers.pop().expect("JSON object container"); self.output.push('}'); }
-}
-
-impl TextSink {
-    fn separator(&mut self) {
-        let Some(TextContainer(first)) = self.containers.last_mut() else { unreachable!("JSON child belongs to a container"); };
-        if *first { *first = false; } else { self.output.push(','); }
-    }
-
-    fn finish(self) -> String { self.output }
-}
 
 #[derive(Clone, Copy)]
 enum JsonInput<'a> {
@@ -119,6 +19,9 @@ enum JsonInput<'a> {
     Lowered(&'a LoweredValue),
     Key(MapKeyRef<'a>),
     Path(&'a crate::runtime::value::PathValue),
+    Integer(i64),
+    EmptyObject,
+    LoweredMap(&'a BTreeMap<MapKey, LoweredValue>),
 }
 
 enum JsonNode<'a> {
@@ -172,6 +75,7 @@ enum JsonFieldKey<'a> {
 }
 
 enum JsonFields<'a> {
+    Empty,
     RuntimeMap(std::collections::btree_map::Iter<'a, MapKey, Value>),
     LoweredMap(std::collections::btree_map::Iter<'a, MapKey, LoweredValue>),
     RuntimeRecord(RecordIter<'a>),
@@ -184,6 +88,7 @@ impl<'a> Iterator for JsonFields<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
+            Self::Empty => None,
             Self::RuntimeMap(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Map(key.as_ref()), JsonInput::Runtime(value))),
             Self::LoweredMap(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Map(key.as_ref()), JsonInput::Lowered(value))),
             Self::RuntimeRecord(fields) => fields.next().map(|(key, value)| (JsonFieldKey::Str(key), JsonInput::Runtime(value))),
@@ -202,6 +107,9 @@ struct JsonStats<'a> {
 
 fn project<'a>(value: JsonInput<'a>) -> JsonNode<'a> {
     match value {
+        JsonInput::LoweredMap(value) => JsonNode::Map(JsonMap::Lowered(value)),
+        JsonInput::Integer(value) => JsonNode::Int(value),
+        JsonInput::EmptyObject => JsonNode::Object(JsonFields::Empty),
         JsonInput::Key(key) => JsonNode::Key(key),
         JsonInput::Path(path) => JsonNode::Unsupported(JsonInput::Path(path)),
         JsonInput::Runtime(value) => match value {
@@ -255,13 +163,7 @@ pub(super) fn encode_runtime(value: &Value, pretty: bool, span: Span) -> Result<
 }
 
 pub(super) fn encode_lowered(value: &LoweredValue, pretty: bool, span: Span) -> Result<String, RuntimeError> {
-    if pretty {
-        encode_tree(JsonInput::Lowered(value), true, span)
-    } else {
-        let mut sink = TextSink::default();
-        write_json(JsonInput::Lowered(value), false, &mut sink, span)?;
-        Ok(sink.finish())
-    }
+    encode_tree(JsonInput::Lowered(value), pretty, span)
 }
 
 pub(super) fn encode_lowered_for_write(value: &LoweredValue, pretty: bool, span: Span) -> Result<String, RuntimeError> {
@@ -283,94 +185,96 @@ pub(super) fn encode_lowered_lines_for_write(values: &LoweredValue, span: Span) 
 }
 
 fn encode_tree(value: JsonInput<'_>, pretty: bool, span: Span) -> Result<String, RuntimeError> {
-    let mut sink = TreeSink::default();
-    write_json(value, pretty, &mut sink, span)?;
-    let value = sink.finish();
-    Ok(if pretty { json_module::pretty_raw_json(&value) } else { json_module::compact_raw_json(&value) })
+    let mut config = deser_json::SerializerConfig::new();
+    if pretty { config.set_pretty(deser_json::Indent::Spaces(2)); }
+    let mut output = crate::modules::codec::Output::new();
+    let result = config.writer(&mut output).write_with(&BorrowedValue { value, pretty, span }, |driver| {
+        driver.push_layer(crate::modules::codec::EncodeLimits::default());
+    });
+    let output = output.finish(result)
+        .map_err(|error| crate::modules::codec::runtime_error(error, "json", span))?;
+    Ok(output)
 }
 
-fn write_json(value: JsonInput<'_>, pretty: bool, sink: &mut impl JsonSink, span: Span) -> Result<(), RuntimeError> {
-    match project(value) {
-        JsonNode::Null => sink.null(),
-        JsonNode::Bool(value) => sink.boolean(value),
-        JsonNode::Int(value) => sink.integer(value),
-        JsonNode::Float(value) if value.is_finite() => sink.float(value),
-        JsonNode::Float(_) => return Err(json_error(NON_FINITE_FLOAT_MESSAGE, span)),
-        JsonNode::Str(value) | JsonNode::Wire(value) => sink.string(value),
-        JsonNode::MissingWireVariant => return Err(json_error("wire enum variant is absent from its declared mapping", span)),
-        JsonNode::Sequence(items) => return write_sequence(items, pretty, sink, span),
-        JsonNode::Map(fields) => {
-            if !pretty && !fields.all_string_keys() { return Err(json_error(NON_STRING_KEY_MESSAGE, span)); }
-            return write_fields(fields.fields(), pretty, sink, span);
-        }
-        JsonNode::Object(fields) => return write_fields(fields, pretty, sink, span),
-        JsonNode::Stats(stats) => return write_stats(stats, pretty, sink, span),
-        JsonNode::Key(key) => return write_key(key, sink, span),
-        JsonNode::Unsupported(value) => return Err(incompatible(value, span)),
-    }
-    Ok(())
+struct BorrowedValue<'a> {
+    value: JsonInput<'a>,
+    pretty: bool,
+    span: Span,
 }
 
-fn write_sequence(items: JsonSequence<'_>, pretty: bool, sink: &mut impl JsonSink, span: Span) -> Result<(), RuntimeError> {
-    sink.begin_array();
-    match items {
-        JsonSequence::Paths(paths) => for path in paths { sink.array_item(); write_json(JsonInput::Path(path), pretty, sink, span)?; },
-        JsonSequence::Runtime(items) => for item in items { sink.array_item(); write_json(JsonInput::Runtime(item), pretty, sink, span)?; },
-        JsonSequence::Lowered(items) => for item in items { sink.array_item(); write_json(JsonInput::Lowered(item), pretty, sink, span)?; },
-        JsonSequence::Set(items) => for item in items { sink.array_item(); write_json(JsonInput::Key(item.as_ref()), pretty, sink, span)?; },
-    }
-    sink.end_array();
-    Ok(())
+fn rejected(message: impl Into<Cow<'static, str>>) -> Error {
+    Error::new(ErrorKind::UnsupportedType, message)
 }
 
-fn write_fields(fields: JsonFields<'_>, pretty: bool, sink: &mut impl JsonSink, span: Span) -> Result<(), RuntimeError> {
-    sink.begin_object();
-    for (key, value) in fields {
-        let key = match key {
-            JsonFieldKey::Map(MapKeyRef::Str(key)) | JsonFieldKey::Str(key) => key,
-            JsonFieldKey::Name(name) => {
-                name.with_str(|key| sink.object_field(key));
-                write_json(value, pretty, sink, span)?;
-                continue;
+impl Serialize for BorrowedValue<'_> {
+    fn serialize<'a>(value: &'a Self, state: &mut State) -> Result<Emit<'a>, Error> {
+        if state.depth() > 128 { return Err(Error::new(ErrorKind::LimitExceeded, "codec nesting exceeds 128")); }
+        Ok(match project(value.value) {
+            JsonNode::Null => Emit::Atom(Atom::Null),
+            JsonNode::Bool(v) => Emit::Atom(Atom::Bool(v)),
+            JsonNode::Int(v) => Emit::Atom(Atom::I64(v)),
+            JsonNode::Float(v) if v.is_finite() => Emit::Atom(Atom::F64(v)),
+            JsonNode::Float(_) => return Err(rejected(NON_FINITE_FLOAT_MESSAGE)),
+            JsonNode::Str(v) | JsonNode::Wire(v) => {
+                if v.len() > 16 * 1024 * 1024 { return Err(Error::new(ErrorKind::LimitExceeded, "codec string exceeds 16 MiB")); }
+                Emit::Atom(Atom::Str(v.into()))
             }
-            JsonFieldKey::Map(_) => return Err(json_error(NON_STRING_KEY_MESSAGE, span)),
+            JsonNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
+            JsonNode::Sequence(items) => Emit::seq(Items { items, pretty: value.pretty, span: value.span }, state),
+            JsonNode::Map(fields) => {
+                if !value.pretty && !fields.all_string_keys() { return Err(rejected(NON_STRING_KEY_MESSAGE)); }
+                Emit::structure(Fields { fields: fields.fields(), pretty: value.pretty, span: value.span }, state)
+            }
+            JsonNode::Object(fields) => Emit::structure(Fields { fields, pretty: value.pretty, span: value.span }, state),
+            JsonNode::Stats(stats) => Emit::structure(StatsFields { stats, index: 0, pretty: value.pretty, span: value.span }, state),
+            JsonNode::Key(MapKeyRef::Str(v)) => Emit::Atom(Atom::Str(v.into())),
+            JsonNode::Key(MapKeyRef::Int(v)) => Emit::Atom(Atom::I64(v)),
+            JsonNode::Key(MapKeyRef::Bool(v)) => Emit::Atom(Atom::Bool(v)),
+            JsonNode::Key(key) => return Err(rejected(incompatible(JsonInput::Key(key), value.span).message)),
+            JsonNode::Unsupported(v) => return Err(rejected(incompatible(v, value.span).message)),
+        })
+    }
+}
+
+struct Items<'a> { items: JsonSequence<'a>, pretty: bool, span: Span }
+impl SeqEmitter for Items<'_> {
+    fn next(&mut self, state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
+        let value = match &mut self.items {
+            JsonSequence::Paths(items) => items.next().map(JsonInput::Path),
+            JsonSequence::Runtime(items) => items.next().map(JsonInput::Runtime),
+            JsonSequence::Lowered(items) => items.next().map(JsonInput::Lowered),
+            JsonSequence::Set(items) => items.next().map(|v| JsonInput::Key(v.as_ref())),
         };
-        sink.object_field(key);
-        write_json(value, pretty, sink, span)?;
+        Ok(value.map(|value| SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span }, state)))
     }
-    sink.end_object();
-    Ok(())
 }
 
-fn write_stats(stats: JsonStats<'_>, pretty: bool, sink: &mut impl JsonSink, span: Span) -> Result<(), RuntimeError> {
-    sink.begin_object();
-    sink.object_field("blanks");
-    sink.integer(stats.blanks);
-    sink.object_field("blobs");
-    if let Some(blobs) = stats.blobs {
-        let fields = JsonMap::Lowered(blobs);
-        if !pretty && !fields.all_string_keys() { return Err(json_error(NON_STRING_KEY_MESSAGE, span)); }
-        write_fields(fields.fields(), pretty, sink, span)?;
-    } else {
-        sink.begin_object();
-        sink.end_object();
+struct Fields<'a> { fields: JsonFields<'a>, pretty: bool, span: Span }
+impl StructEmitter for Fields<'_> {
+    fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
+        let Some((key, value)) = self.fields.next() else { return Ok(None); };
+        let key = match key {
+            JsonFieldKey::Str(key) | JsonFieldKey::Map(MapKeyRef::Str(key)) => Cow::Borrowed(key),
+            JsonFieldKey::Name(name) => Cow::Owned(name.to_string()),
+            JsonFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
+        };
+        Ok(Some((key, SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span }, state))))
     }
-    sink.object_field("code");
-    sink.integer(stats.code);
-    sink.object_field("comments");
-    sink.integer(stats.comments);
-    sink.end_object();
-    Ok(())
 }
 
-fn write_key(key: MapKeyRef<'_>, sink: &mut impl JsonSink, span: Span) -> Result<(), RuntimeError> {
-    match key {
-        MapKeyRef::Str(value) => sink.string(value),
-        MapKeyRef::Int(value) => sink.integer(value),
-        MapKeyRef::Bool(value) => sink.boolean(value),
-        _ => return Err(incompatible(JsonInput::Key(key), span)),
+struct StatsFields<'a> { stats: JsonStats<'a>, index: usize, pretty: bool, span: Span }
+impl StructEmitter for StatsFields<'_> {
+    fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
+        let (key, value) = match self.index {
+            0 => ("blanks", JsonInput::Integer(self.stats.blanks)),
+            1 => ("blobs", self.stats.blobs.map_or(JsonInput::EmptyObject, |v| JsonInput::LoweredMap(v))),
+            2 => ("code", JsonInput::Integer(self.stats.code)),
+            3 => ("comments", JsonInput::Integer(self.stats.comments)),
+            _ => return Ok(None),
+        };
+        self.index += 1;
+        Ok(Some((Cow::Borrowed(key), SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span }, state))))
     }
-    Ok(())
 }
 
 fn incompatible(value: JsonInput<'_>, span: Span) -> RuntimeError {
@@ -379,12 +283,9 @@ fn incompatible(value: JsonInput<'_>, span: Span) -> RuntimeError {
         JsonInput::Lowered(value) => ValueView::Lowered(value),
         JsonInput::Key(key) => ValueView::Key(key),
         JsonInput::Path(path) => ValueView::Path(&path.bytes),
+        JsonInput::Integer(_) | JsonInput::EmptyObject | JsonInput::LoweredMap(_) => unreachable!("synthetic JSON nodes are representable"),
     };
     RuntimeError::new("json-compatible", format!("{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly", view.type_name())).with_span(span)
-}
-
-fn json_error(message: &str, span: Span) -> RuntimeError {
-    RuntimeError::new("json-compatible", message).with_span(span)
 }
 
 #[cfg(test)]
@@ -403,6 +304,19 @@ mod tests {
 
     fn span() -> Span {
         Span::new(SourceId::new(0), 0, 1)
+    }
+
+    #[test]
+    fn nested_runtime_and_lowered_values_share_the_borrowed_encoder() {
+        let input = r#"{"z":[null,true,-9223372036854775808,0.125,"\u0000"],"a":{"empty":[]}}"#;
+        let runtime = crate::modules::codec::decode_json(input, span()).unwrap();
+        let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&runtime).unwrap();
+        for pretty in [false, true] {
+            let encoded = encode_runtime(&runtime, pretty, span()).unwrap();
+            assert_eq!(encoded, encode_lowered(&lowered, pretty, span()).unwrap());
+            assert_eq!(crate::modules::codec::decode_json(&encoded, span()).unwrap(), runtime);
+        }
+        assert_eq!(encode_runtime(&runtime, false, span()).unwrap(), r#"{"a":{"empty":[]},"z":[null,true,-9223372036854775808,0.125,"\u0000"]}"#);
     }
 
     #[test]

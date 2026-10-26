@@ -142,13 +142,13 @@ impl RunCompletion {
         }
     }
 
-    fn reason(&self) -> miniserde::json::Value {
+    fn reason(&self) -> xsh::host::json::Value {
         let (kind, detail) = match self {
             Self::CoverageFailure(error) => ("coverage_failure", error.as_str()),
             Self::CleanupFailure(error) => ("cleanup_failure", error.as_str()),
             Self::RunnerFailure(error) => ("runner_failure", error.as_str()),
             Self::Cancelled => ("cancellation", "native test run interrupted"),
-            _ => return miniserde::json::Value::Null,
+            _ => return xsh::host::json::Value::null(),
         };
         json_fields([("kind", json_string(kind)), ("detail", json_string(detail))])
     }
@@ -173,12 +173,16 @@ struct TestRunLedger {
     finished: bool,
 }
 
-fn json_string(value: impl Into<String>) -> miniserde::json::Value { miniserde::json::Value::String(value.into()) }
-fn json_number(value: u64) -> miniserde::json::Value { miniserde::json::Value::Number(miniserde::json::Number::U64(value)) }
-fn json_fields(fields: impl IntoIterator<Item = (&'static str, miniserde::json::Value)>) -> miniserde::json::Value {
-    miniserde::json::Value::Object(fields.into_iter().map(|(key, value)| (key.to_owned(), value)).collect())
+fn json_string(value: impl Into<String>) -> xsh::host::json::Value {
+    xsh::host::json::Value::from(value.into())
 }
-fn duration_ns(duration: Duration) -> Result<miniserde::json::Value, String> {
+fn json_number(value: u64) -> xsh::host::json::Value {
+    xsh::host::json::Value::from(value)
+}
+fn json_fields(fields: impl IntoIterator<Item = (&'static str, xsh::host::json::Value)>) -> xsh::host::json::Value {
+    fields.into_iter().collect()
+}
+fn duration_ns(duration: Duration) -> Result<xsh::host::json::Value, String> {
     u64::try_from(duration.as_nanos()).map(json_number).map_err(|_| "test duration exceeds the schema-1 nanosecond range".to_owned())
 }
 
@@ -193,13 +197,13 @@ impl TestRunLedger {
                 .map_err(|error| format!("cannot create test events {}: {error}", path.display()))?),
             None => EventOutput::Disabled,
         };
-        let selected = cases.keys().cloned().map(json_string).collect();
+        let selected = cases.keys().cloned().map(json_string).collect::<xsh::host::json::Value>();
         let mut ledger = Self { run_id: run_id.to_owned(), cases, output, finished: false };
-        ledger.emit("run_started", [("selected", miniserde::json::Value::Array(selected))])?;
+        ledger.emit("run_started", [("selected", selected)])?;
         Ok(ledger)
     }
 
-    fn emit(&mut self, event: &'static str, fields: impl IntoIterator<Item = (&'static str, miniserde::json::Value)>) -> Result<(), String> {
+    fn emit(&mut self, event: &'static str, fields: impl IntoIterator<Item = (&'static str, xsh::host::json::Value)>) -> Result<(), String> {
         let mut record = BTreeMap::from([
             ("schema".to_owned(), json_number(1)),
             ("run_id".to_owned(), json_string(&self.run_id)),
@@ -210,7 +214,7 @@ impl TestRunLedger {
             EventOutput::Disabled => Ok(()),
             EventOutput::Failed(message) => Err(message.clone()),
             EventOutput::Open(file) => {
-                let line = miniserde::json::to_string(&miniserde::json::Value::Object(record.into_iter().collect()));
+                let line = xsh::host::json::encode(&record.into_iter().collect())?;
                 if let Err(error) = file.write_all(line.as_bytes()).and_then(|()| file.write_all(b"\n")).and_then(|()| file.flush()) {
                     let message = format!("cannot write test events: {error}");
                     self.output = EventOutput::Failed(message.clone());
@@ -240,7 +244,7 @@ impl TestRunLedger {
         self.finish_case(id, terminal, outcome.duration, outcome.kind.reason())
     }
 
-    fn finish_case(&mut self, id: &str, terminal: TestTerminal, duration: Duration, reason: miniserde::json::Value) -> Result<(), String> {
+    fn finish_case(&mut self, id: &str, terminal: TestTerminal, duration: Duration, reason: xsh::host::json::Value) -> Result<(), String> {
         if self.finished { return Err("test finished after the final summary".into()); }
         let state = self.cases.get_mut(id).ok_or_else(|| format!("unselected test finished: {id}"))?;
         if !matches!(state, CaseLifecycle::Running) && !(matches!(state, CaseLifecycle::Pending) && terminal == TestTerminal::NotExecuted) {
@@ -1760,9 +1764,9 @@ fn run_native_test_in_directory(
 }
 
 impl TestOutcomeKind {
-    fn reason(&self) -> miniserde::json::Value {
+    fn reason(&self) -> xsh::host::json::Value {
         match self {
-            Self::Passed => miniserde::json::Value::Null,
+            Self::Passed => xsh::host::json::Value::null(),
             Self::Failed(detail) => json_fields([("kind", json_string("test_failure")), ("detail", json_string(detail))]),
             Self::Skipped(detail) => json_fields([("kind", json_string("test_skip")), ("detail", json_string(detail))]),
             Self::Cancelled(detail) => json_fields([("kind", json_string("cancellation")), ("detail", json_string(detail))]),
@@ -2351,7 +2355,7 @@ mod tests {
             super::TestTerminal::Cancelled, super::TestTerminal::NotExecuted] {
             let mut ledger = super::TestRunLedger::new("contradictory-summary", ["case".to_owned()], None).unwrap();
             if terminal != super::TestTerminal::NotExecuted { ledger.start("case").unwrap(); }
-            ledger.finish_case("case", terminal, Duration::ZERO, miniserde::json::Value::Null).unwrap();
+            ledger.finish_case("case", terminal, Duration::ZERO, xsh::host::json::Value::null()).unwrap();
             assert!(ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).is_err(), "{terminal:?}");
             let completion = match terminal {
                 super::TestTerminal::Failed | super::TestTerminal::TimedOut => super::RunCompletion::CaseFailure,
@@ -2362,7 +2366,7 @@ mod tests {
         }
         let mut ledger = super::TestRunLedger::new("legacy-skip", ["case".to_owned()], None).unwrap();
         ledger.start("case").unwrap();
-        ledger.finish_case("case", super::TestTerminal::Skipped, Duration::ZERO, miniserde::json::Value::Null).unwrap();
+        ledger.finish_case("case", super::TestTerminal::Skipped, Duration::ZERO, xsh::host::json::Value::null()).unwrap();
         assert!(ledger.final_summary(super::RunCompletion::CaseFailure, Duration::ZERO).is_err());
         ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).unwrap();
     }
@@ -2373,7 +2377,7 @@ mod tests {
         assert_eq!(coverage.status(), 1);
         let mut ledger = super::TestRunLedger::new("coverage-only", ["case".to_owned()], None).unwrap();
         ledger.start("case").unwrap();
-        ledger.finish_case("case", super::TestTerminal::Passed, Duration::ZERO, miniserde::json::Value::Null).unwrap();
+        ledger.finish_case("case", super::TestTerminal::Passed, Duration::ZERO, xsh::host::json::Value::null()).unwrap();
         ledger.final_summary(coverage, Duration::ZERO).unwrap();
         assert!(matches!(super::RunCompletion::select(true, Some("cleanup"), None, Some("coverage"), true, true), super::RunCompletion::Cancelled));
         assert!(matches!(super::RunCompletion::select(false, None, None, None, true, true), super::RunCompletion::CaseFailure));

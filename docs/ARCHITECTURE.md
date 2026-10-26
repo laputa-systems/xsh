@@ -1400,3 +1400,17 @@ depth does not become native stack depth.
 
 Before adding a host integration, name its owner, checkpoint behavior, cleanup
 responsibility, signal interaction, result shape, and trace evidence.
+
+
+## Structured data boundary
+
+The vendored Deser packages under `crates/deser` own codec syntax and emission.
+Language decoding constructs runtime values directly; borrowed views emit runtime
+and lowered values without creating a second dynamic tree. The codec boundary
+owns representation checks, duplicate rejection and fixed resource budgets.
+
+Rust tooling uses `xsh::host::json::{Value, parse, encode, encode_pretty}`.
+`Value` is the Deser host DOM and retains the full u64 domain; parsing and both
+renderers return `Result`. Callers use its normal constructors and accessors.
+This DOM is for host documents and does not represent language values. Locale
+and witness structures use Deser derives for their Rust-owned schemas.

@@ -1,6 +1,7 @@
 pub(crate) mod archive;
 pub(crate) mod bytes;
 pub(crate) mod cli;
+pub(crate) mod codec;
 pub(crate) mod compression;
 pub(crate) mod cpu;
 pub(crate) mod crypto;

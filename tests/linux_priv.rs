@@ -16,15 +16,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use miniserde::json::{Number as JsonNumber, Value as JsonValue};
+use xsh::host::json::Value as JsonValue;
 
 fn report_json(bytes: &[u8]) -> JsonValue {
-    miniserde::json::from_str(std::str::from_utf8(bytes).expect("collector emits UTF-8 JSON"))
+    deser_json::from_str(std::str::from_utf8(bytes).expect("collector emits UTF-8 JSON"))
         .expect("collector emits one JSON report")
 }
 
 fn report_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
-    let JsonValue::Object(object) = value else {
+    let Some(object) = (value).as_map() else {
         panic!("report field parent is not an object: {key}");
     };
     object
@@ -33,25 +33,21 @@ fn report_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
 }
 
 fn report_array(value: &JsonValue) -> &[JsonValue] {
-    let JsonValue::Array(items) = value else {
+    let Some(items) = (value).as_seq() else {
         panic!("report field is not an array");
     };
     items
 }
 
 fn report_text(value: &JsonValue) -> &str {
-    let JsonValue::String(text) = value else {
+    let Some(text) = (value).as_str() else {
         panic!("report field is not text");
     };
     text
 }
 
 fn report_i64(value: &JsonValue) -> Option<i64> {
-    match value {
-        JsonValue::Number(JsonNumber::I64(number)) => Some(*number),
-        JsonValue::Number(JsonNumber::U64(number)) => i64::try_from(*number).ok(),
-        _ => None,
-    }
+    value.as_i64()
 }
 
 /// Returns true when running as root (i.e. under test-linux-priv).
@@ -774,7 +770,7 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
     );
     assert!(matches!(
         report_field(pid_max_value, "value"),
-        JsonValue::Null
+        JsonValue::null()
     ));
     let swappiness = sysctls
         .iter()

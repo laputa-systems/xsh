@@ -1,3 +1,4 @@
+use xsh::host::json::Value as JsonValue;
 use super::Evaluator;
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
@@ -195,23 +196,22 @@ pub(super) fn append_fake_log_with_bytes(
             .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     }
     let mut json_fields = Vec::with_capacity(fields.len() + byte_fields.len() + 1);
-    json_fields.push(("op".to_string(), crate::modules::json::raw_json_string(op)));
+    json_fields.push(("op".to_string(), JsonValue::from(op)));
     for (name, value) in fields {
         json_fields.push((
             (*name).to_string(),
-            crate::modules::json::raw_json_string(value.clone()),
+            JsonValue::from(value.clone()),
         ));
     }
     for (name, bytes) in byte_fields {
         json_fields.push((
             (*name).to_string(),
-            crate::modules::json::raw_json_array(
-                bytes.iter().map(|byte| crate::modules::json::raw_json_u64(u64::from(*byte))),
-            ),
+            (
+                bytes.iter().map(|byte| JsonValue::from(u64::from(*byte)))).into_iter().collect::<JsonValue>(),
         ));
     }
     let line =
-        crate::modules::json::compact_raw_json(&crate::modules::json::raw_json_object(json_fields));
+        xsh::host::json::encode(&(json_fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()).expect("host JSON document must be encodable");
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)

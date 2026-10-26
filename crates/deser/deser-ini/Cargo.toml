@@ -1,0 +1,41 @@
+[package]
+name = "deser-ini"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "INI files (and git's config files) for deser"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization", "ini", "config", "configparser"]
+categories = ["encoding", "parser-implementations", "config"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser-ini"
+# the vendored test corpus is only needed for development
+exclude = ["tests/data"]
+autotests = false
+
+[features]
+default = ["io", "speedups"]
+# reading and writing values from and to streams (with `deser::io`)
+io = ["deser-core/io"]
+# no speedups yet, the feature exists so that all formats have it
+speedups = []
+
+[dependencies]
+deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
+zmij = "1.0.23"
+
+[dev-dependencies]
+deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
+deser-json = { version = "0.10.1", path = "../deser-json" }
+deser-path = { version = "0.10.1", path = "../deser-path" }
+deser-value = { version = "0.10.1", path = "../deser-value" }
+
+[[test]]
+name = "corpus"
+harness = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

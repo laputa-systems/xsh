@@ -1,0 +1,25 @@
+[package]
+name = "deser-path"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Tracks the path of values (like servers[1].port) for errors of deser"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization", "path", "errors"]
+categories = ["encoding", "no-std"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser-path"
+autotests = false
+
+[dependencies]
+deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
+
+[dev-dependencies]
+deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
+deser-json = { path = "../deser-json" }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

@@ -39,9 +39,9 @@ use super::address::SockAddr;
 use super::{Args, ok, record};
 use crate::modules::RuntimeOp;
 use crate::modules::bytes::{base64_decode, base64_encode};
-use crate::modules::json::{parse_raw_json, raw_json_as_str, raw_json_as_u64, raw_json_get};
+
 use crate::runtime::value::{RuntimeError, Value};
-use miniserde::json::Value as JsonValue;
+use xsh::host::json::Value as JsonValue;
 use rustix::fs::{MemfdFlags, memfd_create};
 use rustix::fd::IntoRawFd;
 use std::collections::BTreeMap;
@@ -100,15 +100,15 @@ struct Entry {
 
 impl Entry {
     fn op(&self) -> &str {
-        raw_json_get(&self.value, "op").and_then(raw_json_as_str).unwrap_or("")
+        (&self.value).get("op").and_then(|value| value.as_str()).unwrap_or("")
     }
 
     fn uint(&self, key: &str) -> Option<u64> {
-        raw_json_get(&self.value, key).and_then(raw_json_as_u64)
+        (&self.value).get(key).and_then(|value| value.as_u64())
     }
 
     fn text(&self, key: &str) -> Option<&str> {
-        raw_json_get(&self.value, key).and_then(raw_json_as_str)
+        (&self.value).get(key).and_then(|value| value.as_str())
     }
 
     fn bytes(&self, key: &str) -> Option<Vec<u8>> {
@@ -130,12 +130,12 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
             continue;
         }
         let line = index + 1;
-        let value = parse_raw_json(text).map_err(|error| fault(path, line, error, args))?;
-        let JsonValue::Object(object) = &value else {
+        let value = xsh::host::json::parse(text).map_err(|error| fault(path, line, error, args))?;
+        let Some(object) = (&value).as_map() else {
             return Err(fault(path, line, "each line must be a JSON object", args));
         };
-        let op = raw_json_get(&value, "op")
-            .and_then(raw_json_as_str)
+        let op = (&value).get("op")
+            .and_then(|value| value.as_str())
             .ok_or_else(|| fault(path, line, "missing `op`", args))?;
         let allowed = match op {
             "genl_family" => FAMILY_KEYS,
@@ -144,25 +144,27 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
             other => return Err(fault(path, line, format!("unknown op `{other}`"), args)),
         };
         for (key, field) in object.iter() {
-            if !allowed.contains(&key.as_str()) {
+            let key = key.as_str().expect("JSON object keys are strings");
+            if !allowed.contains(&key) {
                 return Err(fault(path, line, format!("unknown field `{key}` for {op}"), args));
             }
             let binary = key == "payload";
-            if binary && !raw_json_as_str(field).is_some_and(|text| base64_decode(text).is_ok()) {
+            if binary && !(field).as_str().is_some_and(|text| base64_decode(text).is_ok()) {
                 return Err(fault(path, line, "`payload` must be base64 text", args));
             }
         }
-        if let Some(JsonValue::Array(replies)) = raw_json_get(&value, "replies") {
+        if let Some(replies) = value.get("replies").and_then(|value| value.as_seq()) {
             for reply in replies.iter() {
-                let JsonValue::Object(fields) = reply else {
+                let Some(fields) = (reply).as_map() else {
                     return Err(fault(path, line, "each reply must be a JSON object", args));
                 };
                 for (key, field) in fields.iter() {
-                    if !REPLY_KEYS.contains(&key.as_str()) {
+                    let key = key.as_str().expect("JSON object keys are strings");
+                    if !REPLY_KEYS.contains(&key) {
                         return Err(fault(path, line, format!("unknown reply field `{key}`"), args));
                     }
                     if key == "payload"
-                        && !raw_json_as_str(field).is_some_and(|text| base64_decode(text).is_ok())
+                        && !(field).as_str().is_some_and(|text| base64_decode(text).is_ok())
                     {
                         return Err(fault(path, line, "reply `payload` must be base64 text", args));
                     }
@@ -295,12 +297,12 @@ fn request(args: &Args<'_>, fd: i32, fixture: &Path, log: &mut Log<'_>) -> Resul
     }
     let reply_seq = if seq == 0 { 1 } else { seq };
     let mut messages = Vec::new();
-    if let Some(JsonValue::Array(replies)) = raw_json_get(&entry.value, "replies") {
+    if let Some(replies) = entry.value.get("replies").and_then(|value| value.as_seq()) {
         for reply in replies.iter() {
-            let field = |key: &str| raw_json_get(reply, key);
-            let number = |key: &str| field(key).and_then(raw_json_as_u64).unwrap_or(0) as i64;
+            let field = |key: &str| (reply).get(key);
+            let number = |key: &str| field(key).and_then(|value| value.as_u64()).unwrap_or(0) as i64;
             let data = field("payload")
-                .and_then(raw_json_as_str)
+                .and_then(|value| value.as_str())
                 .map(|text| base64_decode(text).unwrap_or_default())
                 .unwrap_or_default();
             messages.push(record([

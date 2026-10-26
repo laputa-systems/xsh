@@ -155,6 +155,7 @@ pub fn builtin_error_families() -> Vec<ErrorFamily> {
         process_error_family(),
         net_error_family(),
         assertion_error_family(),
+        codec_error_family(),
     ]
 }
 
@@ -413,3 +414,30 @@ mod tests {
         );
     }
 }
+
+pub fn codec_error_family() -> ErrorFamily {
+    ErrorFamily {
+        name: "CodecError",
+        fields: vec![
+            ErrorField { name: "message", ty: Type::Str },
+            ErrorField { name: "format", ty: Type::Str },
+            ErrorField { name: "input_path", ty: Type::Optional(Box::new(Type::Path)) },
+            ErrorField { name: "line", ty: Type::Optional(Box::new(Type::UInt)) },
+            ErrorField { name: "column", ty: Type::Optional(Box::new(Type::UInt)) },
+            ErrorField { name: "offset", ty: Type::Optional(Box::new(Type::UInt)) },
+            ErrorField { name: "value_path", ty: Type::Optional(Box::new(Type::Str)) },
+        ],
+        variants: CODEC_ERROR_VARIANTS,
+    }
+}
+
+pub const CODEC_ERROR_VARIANTS: &[ErrorVariant] = &[
+    ErrorVariant { name: "Syntax", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Encoding", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "UnsupportedFormat", facets: &[] },
+    ErrorVariant { name: "UnsupportedValue", facets: &[] },
+    ErrorVariant { name: "Overflow", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "DuplicateKey", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Limit", facets: &[ErrorFacet::CaptureLimit] },
+    ErrorVariant { name: "Options", facets: &[] },
+];

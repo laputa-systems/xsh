@@ -529,7 +529,7 @@ fn parse_ir_tags(args: &[String]) -> Result<Command, String> {
         let output = if parsed.flag("--json") {
             let values = tags
                 .iter()
-                .map(|tag| miniserde::json::to_string(*tag))
+                .map(|tag| deser_json::to_string(*tag).expect("host JSON scalar must be encodable"))
                 .collect::<Vec<_>>()
                 .join(",");
             format!("[{values}]\n")
@@ -663,8 +663,8 @@ fn lint_code_list(format: &str) -> Result<String, String> {
             .map(|code| {
                 format!(
                     "{{\"code\":{},\"summary\":{}}}\n",
-                    miniserde::json::to_string(code.name()),
-                    miniserde::json::to_string(code.summary())
+                    deser_json::to_string(code.name()).expect("host JSON scalar must be encodable"),
+                    deser_json::to_string(code.summary()).expect("host JSON scalar must be encodable")
                 )
             })
             .collect(),

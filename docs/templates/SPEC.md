@@ -5008,7 +5008,24 @@ relies on, and keep the rest of the program in typed values.
 
 `json.read` and `json.decode` return `Any`, because parsing proves only that
 the text was JSON. `.require(Package)?` is the trust boundary (5.3). Integers
-that fit decode as `Int` and other finite numbers as `Float`.
+that fit decode as `Int` and other finite numbers as `Float`. Integer tokens
+outside i64 fail with `CodecError.Overflow`; integral finite floating-point
+numbers normalize to `Int` when exactly representable. Duplicate object keys
+fail with `CodecError.DuplicateKey` rather than replacing an earlier field.
+
+JSON parsing and emission use the vendored Deser codec through direct XSH value
+sinks and borrowed runtime/lowered views. Failures use `CodecError`: `Syntax`,
+`Encoding`, `UnsupportedFormat`, `UnsupportedValue`, `Overflow`, `DuplicateKey`,
+`Limit` and `Options`. Each carries `message`, `format`, optional `input_path`,
+`line`, `column`, `offset` and `value_path`. Coordinates are absent when unknown;
+line/column are one-based and offsets are zero-based. Syntax/encoding, overflow
+and duplicate failures implement `InvalidData`; limits implement `CaptureLimit`.
+
+Supplied JSON input is limited to 64 MiB, scalar strings to 16 MiB, nesting to
+128 containers, each container to 1,000,000 entries, each value to 4,000,000
+events and encoded output to 128 MiB. Exceeding a bound returns `CodecError.Limit`.
+An unsupported value returns `CodecError.UnsupportedValue` before a JSON file
+write changes its destination.
 
 JSON-compatible values are `Null`, `Bool`, representable `Int`, finite
 `Float`, `Str`, lists and sets, `Str`-keyed maps and records of compatible values,

@@ -23,8 +23,8 @@ pub fn highlight_script(script: &str) -> CliOutput {
     for run in highlight(&source) {
         stdout.push_str(&format!(
             "{{\"kind\":{},\"text\":{}}}\n",
-            miniserde::json::to_string(run.kind.name()),
-            miniserde::json::to_string(&source[run.start..run.end])
+            deser_json::to_string(run.kind.name()).expect("host JSON scalar must be encodable"),
+            deser_json::to_string(&source[run.start..run.end]).expect("host JSON scalar must be encodable")
         ));
     }
     CliOutput {

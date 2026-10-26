@@ -1,0 +1,2 @@
+# Tests of the YAML test suite that are expected to fail.
+# Format: <id> [# reason].  Regenerate with DESER_YAML_BLESS=1.

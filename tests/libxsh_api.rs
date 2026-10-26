@@ -8,7 +8,6 @@ use xsh::frontend::load::entry_source_from_text;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::parser::Parser;
-use xsh::host::json::parse_raw_json;
 use xsh::process::ProcessStatus;
 use xsh::trace::model::{TraceEvent, TraceKind};
 
@@ -47,7 +46,7 @@ fn facade_exposes_frontend_execution_process_and_trace_contracts() {
             .is_empty()
     );
     assert_eq!(Name::INT.as_str().as_str(), "Int");
-    assert!(parse_raw_json("{}").is_ok());
+    assert!(xsh::host::json::parse("{}").is_ok());
     assert_eq!(
         ProcessStatus::exited(0).kind,
         xsh::process::ProcessStatusKind::Exit
@@ -82,6 +81,20 @@ fn facade_keeps_source_identity_explicit() {
     assert_eq!(span.source_id, source_id);
     assert_eq!(span.start(), 2);
     assert_eq!(span.end(), 5);
+}
+
+#[test]
+fn host_json_preserves_unsigned_endpoints_and_escaped_documents() {
+    use xsh::host::json::{Value, encode, encode_pretty, parse};
+
+    let text = "{\"count\":18446744073709551615,\"items\":[null,true,\"\\u0000☃\"]}";
+    let value = parse(text).expect("decode unsigned host document");
+    assert_eq!(value.get("count").and_then(|value| value.as_u64()), Some(u64::MAX));
+    assert_eq!(parse(&encode(&value).expect("encode host document")).unwrap(), value);
+    assert_eq!(parse(&encode_pretty(&value).expect("pretty host document")).unwrap(), value);
+    assert_eq!(encode(&Value::from(u64::MAX)).unwrap(), "18446744073709551615");
+    assert!(parse("{\"count\":1} trailing").is_err());
+    assert!(parse("\"\\ud800\"").is_err());
 }
 
 #[test]

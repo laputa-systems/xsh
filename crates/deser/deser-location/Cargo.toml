@@ -1,0 +1,20 @@
+[package]
+name = "deser-location"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Source location (line and column) tracking for deser"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization", "span", "location", "diagnostics"]
+categories = ["encoding"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser-location"
+
+[dependencies]
+deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
+
+[dev-dependencies]
+deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
+deser-json = { path = "../deser-json" }

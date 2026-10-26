@@ -1,0 +1,16 @@
+[package]
+name = "rustybench"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "MIT"
+repository = "https://github.com/joshuarli/rustybench"
+autobins = false
+
+[dependencies]
+lexopt = "0.3"
+regex-lite = "0.1"
+rustybench-macros = "=0.1.0"
+deser = { path = "../../crates/deser/deser", default-features = false, features = ["std", "derive"] }
+deser-json = { path = "../../crates/deser/deser-json" }

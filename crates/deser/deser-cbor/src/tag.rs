@@ -1,0 +1,272 @@
+//! Support for CBOR tags (see the crate documentation).
+use alloc::vec::Vec;
+use core::fmt;
+
+use alloc::borrow::Cow;
+
+use deser_core::State;
+use deser_core::de::{Deserialize, OwnedSink, Sink, SinkHandle};
+use deser_core::ser::{Describe, Emit, Serialize};
+use deser_core::{Atom, ContainerShape, Error};
+
+/// The tags of a data item, attached as event data to its first event.
+///
+/// The deserializer publishes the tags it read, the serializer writes the
+/// tags in front of the data item.  The tags are ordered from the outermost
+/// to the innermost tag.
+#[derive(Debug, Default)]
+pub(crate) struct Tags(pub(crate) Vec<u64>);
+
+// Event data is reset with `clone_from` which retains the memory of the
+// vector only if it's forwarded (derived clones do not do that).
+impl Clone for Tags {
+    fn clone(&self) -> Tags {
+        Tags(self.0.clone())
+    }
+
+    fn clone_from(&mut self, source: &Tags) {
+        self.0.clone_from(&source.0);
+    }
+}
+
+/// Takes the outermost tag of the current data item from the state.
+///
+/// This is intended to be called by sinks from within
+/// [`Sink::atom`], [`Sink::map`] or [`Sink::seq`].  Every call removes one
+/// tag, so calling this repeatedly returns the nested tags from the outside
+/// in.  Returns `None` if there are no (more) tags or the data format does
+/// not support tags.
+///
+/// ```
+/// use deser::State;
+///
+/// fn all_tags(state: &mut State) -> Vec<u64> {
+///     std::iter::from_fn(|| deser_cbor::take_tag(state)).collect()
+/// }
+/// ```
+pub fn take_tag(state: &mut State) -> Option<u64> {
+    if state.event::<Tags>().is_some_and(|tags| !tags.0.is_empty()) {
+        let tags = &mut state.event_mut::<Tags>().0;
+        let tag = tags.remove(0);
+        // without tags left they are detached so that values that capture
+        // event data do not keep an empty list which would replace the tags
+        // of a wrapper
+        if tags.is_empty() {
+            state.take_event::<Tags>();
+        }
+        Some(tag)
+    } else {
+        None
+    }
+}
+
+/// Registers a tag to be written in front of the next data item.
+///
+/// This is what [`Tagged`] uses internally.  It must be called from
+/// [`Serialize::serialize`] and applies to the value serialized from that
+/// call.  The tag is attached to the first event of the value (see
+/// [`State::event`]), serializers which do not support tags ignore it.
+pub fn push_tag(state: &mut State, tag: u64) {
+    state.event_mut::<Tags>().0.push(tag);
+}
+
+/// A value with an optional CBOR tag.
+///
+/// When serialized the tag is written in front of the value, when
+/// deserialized the tag (if there is one) is captured.  If the value has
+/// multiple tags, the outermost tag is captured and the inner tags are left
+/// for the value (so `Tagged<Tagged<T>>` captures two tags).
+///
+/// ```
+/// use deser_cbor::Tagged;
+///
+/// // 1(1363896240): an epoch based date/time
+/// let bytes = deser_cbor::to_vec(&Tagged::new(1, 1363896240u64)).unwrap();
+/// assert_eq!(bytes, [0xc1, 0x1a, 0x51, 0x4b, 0x67, 0xb0]);
+///
+/// let value: Tagged<u64> = deser_cbor::from_slice(&bytes).unwrap();
+/// assert_eq!(value.tag, Some(1));
+/// assert_eq!(value.value, 1363896240);
+/// ```
+///
+/// Other formats do not support tags.  When serializing to such formats the
+/// tag is dropped, when deserializing the tag is `None`.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Tagged<T> {
+    /// The tag of the value.
+    pub tag: Option<u64>,
+    /// The value.
+    pub value: T,
+}
+
+impl<T> Tagged<T> {
+    /// Creates a tagged value.
+    pub fn new(tag: u64, value: T) -> Tagged<T> {
+        Tagged {
+            tag: Some(tag),
+            value,
+        }
+    }
+
+    /// Creates a value without a tag.
+    pub fn untagged(value: T) -> Tagged<T> {
+        Tagged { tag: None, value }
+    }
+
+    /// Returns the inner value.
+    pub fn into_inner(self) -> T {
+        self.value
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for Tagged<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.tag {
+            Some(tag) => {
+                write!(f, "{}(", tag)?;
+                fmt::Debug::fmt(&self.value, f)?;
+                write!(f, ")")
+            }
+            None => fmt::Debug::fmt(&self.value, f),
+        }
+    }
+}
+
+impl<T: Serialize> Serialize for Tagged<T> {
+    fn serialize<'a>(this: &'a Self, state: &mut State) -> Result<Emit<'a>, Error> {
+        // the tag is added after the value attached its data (the tags of a
+        // recorded value, the tags of inner `Tagged`), in front of its tags
+        let emit = T::serialize(&this.value, state)?;
+        if let Some(tag) = this.tag {
+            state.event_mut::<Tags>().0.insert(0, tag);
+        }
+        Ok(emit)
+    }
+
+    fn finish(this: &Self, state: &mut State) -> Result<(), Error> {
+        T::finish(&this.value, state)
+    }
+
+    fn is_optional(this: &Self) -> bool {
+        T::is_optional(&this.value)
+    }
+
+    fn container_shape(this: &Self) -> ContainerShape {
+        T::container_shape(&this.value)
+    }
+
+    fn describe(this: &Self, d: &mut dyn Describe) {
+        T::describe(&this.value, d)
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Tagged<T> {
+    fn deserialize_into<'out>(
+        out: &'out mut Option<Self>,
+        state: &mut State,
+    ) -> SinkHandle<'out, 'de> {
+        SinkHandle::arena(
+            TaggedSink {
+                out,
+                slot: None,
+                compound: None,
+                tag: None,
+            },
+            state,
+        )
+    }
+
+    fn expecting() -> Cow<'static, str> {
+        T::expecting()
+    }
+
+    fn describe_type(d: &mut dyn Describe) {
+        T::describe_type(d)
+    }
+}
+
+struct TaggedSink<'a, 'de, T> {
+    out: &'a mut Option<Tagged<T>>,
+    // atoms are deserialized directly into this slot, maps and sequences
+    // need a sink that lives across calls
+    slot: Option<T>,
+    compound: Option<OwnedSink<'de, T>>,
+    tag: Option<u64>,
+}
+
+impl<'a, 'de, T: Deserialize<'de>> TaggedSink<'a, 'de, T> {
+    fn compound(&mut self, state: &mut State) -> &mut dyn Sink<'de> {
+        self.compound
+            .get_or_insert_with(|| OwnedSink::deserialize(state))
+            .get_mut()
+    }
+}
+
+impl<'a, 'de, T: Deserialize<'de>> Sink<'de> for TaggedSink<'a, 'de, T> {
+    fn atom(&mut self, atom: Atom, state: &mut State) -> Result<(), Error> {
+        self.tag = take_tag(state);
+        let mut sink = T::deserialize_into(&mut self.slot, state);
+        sink.atom(atom, state)?;
+        sink.finish(state)
+    }
+
+    fn borrowed_atom(&mut self, atom: Atom<'de>, state: &mut State) -> Result<(), Error> {
+        self.tag = take_tag(state);
+        let mut sink = T::deserialize_into(&mut self.slot, state);
+        sink.borrowed_atom(atom, state)?;
+        sink.finish(state)
+    }
+
+    fn map(&mut self, state: &mut State) -> Result<(), Error> {
+        self.tag = take_tag(state);
+        self.compound(state).map(state)
+    }
+
+    fn seq(&mut self, state: &mut State) -> Result<(), Error> {
+        self.tag = take_tag(state);
+        self.compound(state).seq(state)
+    }
+
+    fn next_key(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
+        self.compound(state).next_key(state)
+    }
+
+    fn next_value(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
+        self.compound(state).next_value(state)
+    }
+
+    fn value_for_key(
+        &mut self,
+        key: &str,
+        state: &mut State,
+    ) -> Result<Option<SinkHandle<'_, 'de>>, Error> {
+        self.compound(state).value_for_key(key, state)
+    }
+
+    fn recover(&mut self, err: Error, state: &mut State) -> Result<(), Error> {
+        match self.compound {
+            Some(ref mut compound) => compound.get_mut().recover(err, state),
+            None => Err(err),
+        }
+    }
+
+    fn finish(&mut self, state: &mut State) -> Result<(), Error> {
+        let value = match self.compound {
+            Some(ref mut compound) => {
+                compound.get_mut().finish(state)?;
+                compound.take()
+            }
+            None => self.slot.take(),
+        };
+        let tag = self.tag;
+        *self.out = value.map(|value| Tagged { tag, value });
+        Ok(())
+    }
+
+    fn expecting(&self) -> Cow<'_, str> {
+        if let Some(ref compound) = self.compound {
+            return compound.get().expecting();
+        }
+        T::expecting()
+    }
+}

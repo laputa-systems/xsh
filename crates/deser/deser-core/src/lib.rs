@@ -1,0 +1,188 @@
+//! The core of [deser](https://docs.rs/deser).
+//!
+//! This crate is an implementation detail of deser, use the
+//! [`deser`](https://docs.rs/deser) crate instead which re-exports
+//! everything in here together with the derive macros.  The crates of the
+//! data formats depend on this crate so that they can be compiled without
+//! waiting for the derive macros.
+#![doc(html_logo_url = "https://raw.githubusercontent.com/mitsuhiko/deser/main/artwork/logo.svg")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
+
+extern crate alloc;
+
+#[macro_use]
+mod macros;
+mod event;
+
+mod adapted;
+
+pub mod adapters;
+mod arena;
+pub mod de;
+mod error;
+pub mod ext;
+pub mod hints;
+#[cfg(feature = "io")]
+pub mod io;
+pub mod ser;
+pub mod stream;
+
+mod bytes_format;
+mod context;
+mod extensions;
+#[cfg(feature = "open-enums")]
+mod open_enum;
+mod position;
+mod source;
+mod state;
+mod std_impls;
+#[cfg(feature = "std")]
+mod std_only_impls;
+mod sync;
+mod text;
+mod unwind;
+
+pub use self::bytes_format::BytesFormat;
+pub use self::context::Context;
+pub use self::error::{Error, ErrorAttachment, ErrorCategory, ErrorContext, ErrorKind};
+pub use self::event::{Atom, Bytes, ContainerShape, Event, Implicit, ImplicitValue, Order};
+pub use self::extensions::EventData;
+#[cfg(feature = "open-enums")]
+pub use self::open_enum::{OpenEnum, OpenEnums, OpenVariant};
+pub use self::position::Position;
+pub use self::source::{Source, TrackLocations};
+pub use self::state::State;
+pub use self::text::Text;
+
+// common re-exports
+
+#[doc(no_inline)]
+pub use self::{de::Deserialize, ser::Serialize, stream::Streamed};
+
+#[cfg(feature = "derive")]
+pub mod derive;
+
+// # API Conventions
+//
+// The crates of deser follow these rules (and so should new APIs):
+//
+// * Values are changed with setters, `set_x(&mut self, value)` (a
+//   `const fn` where possible), and read with getters named after the
+//   value (`x(&self)`).  Types have no methods that take `self` and return
+//   a changed copy (`fn x(self, value) -> Self` or `with_x`), only
+//   conversions (`into_x`) and combinators that create something else
+//   (like `SinkHandle::ignore_null`).
+// * Constructors are `new` and `with_x(...)` / `from_x(...)` associated
+//   functions (like `ContainerShape::with_len`, `Context::with` or
+//   `Error::with_offset`).
+// * Types that are configured in one expression or as constants (the
+//   configurations of the formats and `Limits`) have a separate builder
+//   type, `XBuilder`, created with `X::builder()` (or `x.into_builder()`).
+//   Its methods have the names of the setters without `set_` and
+//   `build()` returns the value.
+//
+// # Internal APIs
+//
+// The `#[doc(hidden)]` items (mostly methods named `__private_*`) are not
+// public API, even though other crates of deser use some of them.
+//
+// The rule: hidden methods may make things faster, they must not decide
+// how values are represented.  Types implemented by hand cannot implement
+// them, so they would behave differently from derived types.  What changes
+// the representation goes through public API that every type can
+// implement (like `Describe::unit_struct`, which decides if newtype
+// variants of internally tagged enums are the tag alone).  Bytes are a
+// closed exception and raw values and collections are the known
+// violations to resolve (see below).
+//
+// Every hidden method is marked with the group it belongs to:
+//
+// * Internal fast paths exist for performance (or code size) only.  A
+//   type or sink that does not implement them behaves the same, just
+//   slower: implementations must behave exactly like the default
+//   implementation.  Crates outside of deser-core may forward or override
+//   them (deser-value, deser-validate and deser-serde do) but must never
+//   depend on them for how values are deserialized or serialized.  Whether
+//   they become public API is not decided yet.
+// * The internal specialization of bytes lets `Vec<u8>`, `[u8; N]` and
+//   friends be deserialized from and serialized as bytes.  Only `u8` (and
+//   adapters forwarding to it) implements it.
+// * Internal protocols change behavior: raw values (see `ext::Raw`) and
+//   collections that collect the values of repeated keys.  What formats
+//   need is public (`State::declare_raw_format`, `State::take_raw_request`,
+//   `Error::is_raw_request`,
+//   `ContainerShape::with_multimap`, `DeserializeDriver::multimap_value`
+//   and `de::missing_multimap_value`), the side
+//   of the types (which types want raw values or collect, used by the
+//   derive and the containers of deser-core) is not.  These break the
+//   rule above: types implemented by hand cannot be raw values or
+//   collect.  They have to become public API (or be replaced by public
+//   API) before 1.0, new protocols must not be added.
+//
+// Everything the derive refers to is in `__derive` below.
+
+// Everything the code generated by the derive refers to.  Not public API.
+// Standard library items are re-exported so that the generated code does
+// not depend on what the names refer to where the derive is used.
+#[cfg(feature = "derive")]
+#[doc(hidden)]
+pub mod __derive {
+    pub use alloc::borrow::Cow;
+    pub use alloc::boxed::Box;
+    pub use alloc::string::String;
+    pub use alloc::vec::Vec;
+    pub use core::convert::Into;
+    pub use core::default::Default;
+    pub use core::marker::{PhantomData, Send, Sync};
+    pub use core::mem::replace;
+    pub use core::option::Option::{self, None, Some};
+    pub use core::primitive::{str, u8};
+    pub use core::result::Result::{Err, Ok};
+    pub use core::unreachable;
+    pub type Result<T> = core::result::Result<T, super::Error>;
+    pub type StrCow<'a> = Cow<'a, str>;
+
+    pub use crate::adapters::{DerivedDeserialize, DerivedSerialize};
+    pub use crate::de::atoms::{
+        atom_into, atom_into_handle, borrowed_atom_into, borrowed_atom_into_handle, field_update,
+        unit_struct,
+    };
+    pub use crate::de::enums::{
+        AdjacentlyTaggedSink, ArenaVariant, EnumKey, ExternallyTaggedSink, IgnoredContent,
+        IgnoredVariant, InternallyTaggedSink, OtherVariant, Tag, UnitEnum, UntaggedTry,
+        ValueVariant, VariantMaker, VariantNames, Variants, atom_sink, unit_enum_atom_into,
+        unit_enum_sink, untagged_atom, untagged_borrowed_atom, untagged_fallback, untagged_handle,
+    };
+    pub use crate::de::fields::{
+        Collect, FieldKeySink, FieldSlot, FieldValue, NextField, StructFields, StructFinish,
+        StructInfo, StructSink, StructUpdateSink, UpdateFields, collected_errors, missing_field,
+        new_missing_field_error, no_field_slot,
+    };
+    pub use crate::de::mapped::mapped;
+    pub use crate::de::recording::RecordBuf;
+    pub use crate::de::unknown::{unclaimed_keys, unknown_field};
+    pub use crate::de::update::UpdateTarget;
+    pub use crate::error::unknown_variant;
+    pub use crate::ser::begin::{
+        Begin, FIELDS_END, IndexedSeq, IndexedSeqEmitter, IndexedStruct, PlainSink, StructField,
+        describe_struct, emit_plain_field, serialize_indexed,
+    };
+    pub use crate::ser::enums::{
+        EntrySer, FieldSer, FieldsSer, FlatFieldsSer, SeqSer, TaggedContent, TaggedNewtype,
+        UnitName, UnitVariants, begin_unit, describe_unit, serialize_unit, skipped_variant,
+    };
+    pub use crate::ser::flatten::FlattenedStruct;
+
+    #[cfg(feature = "open-enums")]
+    pub use crate::de::DeserializeArc;
+    #[cfg(feature = "open-enums")]
+    pub use crate::open_enum::{
+        OpenEnumInfo, OpenRepr, VariantEntry, VariantValue,
+        container_shape as open_enum_container_shape, describe as open_enum_describe,
+        deserialize_arc as open_enum_deserialize_arc, deserialize_box as open_enum_deserialize_box,
+        serialize as open_enum_serialize,
+    };
+    #[cfg(feature = "open-enums")]
+    pub use alloc::sync::Arc;
+}

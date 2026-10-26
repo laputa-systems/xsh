@@ -545,6 +545,6 @@ print json.encode(value)?
 """,
   )?
   assert !script.success, script.stderr
-  assert "json-compatible" in script.stderr, script.stderr
+  assert "CodecError.UnsupportedValue" in script.stderr, script.stderr
   assert "return-outside-function" not in script.stderr, script.stderr
 }

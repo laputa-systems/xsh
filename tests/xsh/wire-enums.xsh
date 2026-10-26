@@ -155,7 +155,7 @@ print json.encode(value)?
     let assertion_message = dynamic.stderr
     assert assertion_condition, assertion_message
   }
-  assert "json-compatible" in dynamic.stderr
+  assert "CodecError.UnsupportedValue" in dynamic.stderr
 }
 
 test test_wire_enum_map_values_and_missing_defaults { |ctx|

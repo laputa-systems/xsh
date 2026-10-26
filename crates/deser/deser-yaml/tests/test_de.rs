@@ -1,0 +1,1076 @@
+use std::collections::{BTreeMap, HashMap};
+
+use deser::{Deserialize, ErrorKind};
+use deser_yaml::{Deserializer, DeserializerConfig, Tagged, Version, from_slice, from_str};
+
+use crate::common;
+
+use common::Value;
+
+#[derive(Deserialize, Debug, PartialEq)]
+struct Config {
+    name: String,
+    port: u16,
+    debug: bool,
+    ratio: f64,
+    tags: Vec<String>,
+    owner: Option<String>,
+    limits: HashMap<String, u32>,
+}
+
+#[test]
+fn test_struct() {
+    let config: Config = from_str(
+        "
+# a comment
+name: web
+port: 8080
+debug: false
+ratio: 0.5
+tags:
+  - a
+  - 'b'
+  - \"c\"
+owner: ~
+limits: {cpu: 2, memory: 512}
+",
+    )
+    .unwrap();
+    assert_eq!(
+        config,
+        Config {
+            name: "web".into(),
+            port: 8080,
+            debug: false,
+            ratio: 0.5,
+            tags: vec!["a".into(), "b".into(), "c".into()],
+            owner: None,
+            limits: [("cpu".into(), 2), ("memory".into(), 512)].into(),
+        }
+    );
+}
+
+#[test]
+fn test_implicit_string_length_limit() {
+    use deser::{Context, de::Limits};
+
+    for input in [
+        "123456789",
+        "'123456789'",
+        "false",
+        "null",
+        ".inf",
+        "0000000000000000000000000000000000001",
+    ] {
+        let config = DeserializerConfig::builder()
+            .context(Context::with(Limits::builder().max_len(3).build()))
+            .build();
+        let err = config.from_str::<String>(input).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::LimitExceeded, "{input}");
+        assert_eq!(err.message(), "string or bytes too long", "{input}");
+        assert_eq!(
+            config
+                .from_slice::<String>(input.as_bytes())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::LimitExceeded
+        );
+        #[cfg(feature = "io")]
+        assert_eq!(
+            config
+                .from_reader::<String, _>(input.as_bytes())
+                .unwrap_err()
+                .kind(),
+            ErrorKind::LimitExceeded
+        );
+    }
+    let config = DeserializerConfig::builder()
+        .context(Context::with(Limits::builder().max_len(3).build()))
+        .build();
+    assert_eq!(config.from_str::<String>("123").unwrap(), "123");
+    assert_eq!(config.from_str::<u32>("123").unwrap(), 123);
+    assert_eq!(config.from_str::<String>("'123'").unwrap(), "123");
+}
+
+#[test]
+fn test_scalars() {
+    assert_eq!(from_str::<u64>("42").unwrap(), 42);
+    assert_eq!(from_str::<i64>("-42").unwrap(), -42);
+    assert_eq!(from_str::<u32>("0x2a").unwrap(), 42);
+    assert_eq!(from_str::<u32>("0o52").unwrap(), 42);
+    assert_eq!(from_str::<f64>("1e3").unwrap(), 1000.0);
+    assert_eq!(from_str::<f64>("-.inf").unwrap(), f64::NEG_INFINITY);
+    assert!(from_str::<f64>(".nan").unwrap().is_nan());
+    assert!(from_str::<bool>("True").unwrap());
+    assert_eq!(from_str::<Option<u32>>("null").unwrap(), None);
+    assert_eq!(from_str::<String>("hello world").unwrap(), "hello world");
+    assert_eq!(from_str::<String>("'42'").unwrap(), "42");
+    assert_eq!(
+        from_str::<String>("\"a\\tb\\u00e4\"").unwrap(),
+        "a\tb\u{e4}"
+    );
+    assert_eq!(from_str::<String>("|\n  a\n  b\n").unwrap(), "a\nb\n");
+    assert_eq!(from_str::<String>(">-\n  a\n  b\n").unwrap(), "a b");
+    // a plain scalar that looks like a number is a number for everybody who
+    // accepts numbers and its text for strings
+    assert_eq!(from_str::<String>("42").unwrap(), "42");
+}
+
+#[test]
+fn test_plain_scalars_as_strings() {
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct S {
+        v: String,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct O {
+        v: Option<String>,
+    }
+
+    // plain scalars that are not strings are their text for strings
+    for (input, text) in [
+        ("1.10", "1.10"),
+        ("1e3", "1e3"),
+        ("0x1F", "0x1F"),
+        ("0o17", "0o17"),
+        ("true", "true"),
+        ("True", "True"),
+        (".inf", ".inf"),
+        ("~", "~"),
+        ("null", "null"),
+        ("", ""),
+    ] {
+        let doc = format!("v: {}", input);
+        assert_eq!(from_str::<S>(&doc).unwrap().v, text, "{}", input);
+    }
+
+    // null is `None` for optionals, other values are their text
+    assert_eq!(from_str::<O>("v: ~").unwrap().v, None);
+    assert_eq!(from_str::<O>("v: null").unwrap().v, None);
+    assert_eq!(from_str::<O>("v:").unwrap().v, None);
+    assert_eq!(from_str::<O>("v: 1.10").unwrap().v.as_deref(), Some("1.10"));
+    assert_eq!(
+        from_str::<O>("v: false").unwrap().v.as_deref(),
+        Some("false")
+    );
+
+    // the empty document is null and empty text
+    assert_eq!(from_str::<String>("").unwrap(), "");
+    assert_eq!(from_str::<Option<u32>>("").unwrap(), None);
+
+    // other types still get the value
+    assert_eq!(from_str::<u32>("0x1F").unwrap(), 31);
+    assert_eq!(from_str::<f64>("1.10").unwrap(), 1.1);
+    assert!(from_str::<()>("~").is_ok());
+    assert_eq!(from_str::<char>("1").unwrap(), '1');
+
+    // explicit types are strict: quoted scalars are strings and tagged
+    // scalars are values
+    assert!(from_str::<u32>("'42'").is_err());
+    let err = from_str::<String>("!!int 42").unwrap_err();
+    assert_eq!(
+        err.message(),
+        "unexpected unsigned integer, expected string"
+    );
+
+    // the text does not give other types a second chance
+    let err = from_str::<bool>("1").unwrap_err();
+    assert_eq!(err.message(), "unexpected unsigned integer, expected bool");
+    let err = from_str::<u8>("300").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::OutOfRange);
+    let err = from_str::<u32>("1.5").unwrap_err();
+    assert_eq!(err.message(), "unexpected float, expected u32");
+
+    // YAML 1.1 has other booleans and numbers
+    let config = DeserializerConfig::builder().version(Version::V1_1).build();
+    assert!(config.from_str::<bool>("yes").unwrap());
+    assert_eq!(config.from_str::<String>("yes").unwrap(), "yes");
+    assert_eq!(config.from_str::<u32>("1:30").unwrap(), 90);
+    assert_eq!(config.from_str::<String>("1:30").unwrap(), "1:30");
+    assert_eq!(from_str::<String>("yes").unwrap(), "yes");
+}
+
+#[test]
+fn test_plain_scalar_keys() {
+    // keys of maps and struct fields take the text too
+    let map: BTreeMap<String, String> = from_str(
+        "200: ok
+404: missing
+true: yes",
+    )
+    .unwrap();
+    assert_eq!(
+        map,
+        BTreeMap::from([
+            ("200".into(), "ok".into()),
+            ("404".into(), "missing".into()),
+            ("true".into(), "yes".into()),
+        ])
+    );
+    let map: BTreeMap<u16, String> = from_str(
+        "200: ok
+0x194: missing",
+    )
+    .unwrap();
+    assert_eq!(
+        map,
+        BTreeMap::from([(200, "ok".into()), (404, "missing".into())])
+    );
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct Workflow {
+        on: String,
+        #[deser(rename = "1")]
+        one: u32,
+        #[deser(rename = "null")]
+        nothing: bool,
+    }
+    let config = DeserializerConfig::builder().version(Version::V1_1).build();
+    let workflow: Workflow = config
+        .from_str(
+            "on: push
+1: 2
+null: true",
+        )
+        .unwrap();
+    assert_eq!(
+        workflow,
+        Workflow {
+            on: "push".into(),
+            one: 2,
+            nothing: true,
+        }
+    );
+
+    // an integer and a string with the same text are the same key
+    let err = from_str::<BTreeMap<String, u32>>(
+        "1: 1
+'1': 2",
+    )
+    .unwrap_err();
+    assert_eq!(err.message(), "duplicate key in map");
+}
+
+#[test]
+fn test_plain_scalar_enums() {
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[deser(rename_all = "lowercase")]
+    enum Answer {
+        Yes,
+        No,
+        #[deser(rename = "1")]
+        One,
+    }
+
+    let config = DeserializerConfig::builder().version(Version::V1_1).build();
+    assert_eq!(config.from_str::<Answer>("yes").unwrap(), Answer::Yes);
+    assert_eq!(config.from_str::<Answer>("no").unwrap(), Answer::No);
+    assert_eq!(from_str::<Answer>("1").unwrap(), Answer::One);
+
+    // integer tags come first
+    #[derive(Deserialize, Debug, PartialEq)]
+    enum Level {
+        #[deser(rename = 1)]
+        Low,
+        #[deser(rename = "1.0")]
+        Text,
+    }
+    assert_eq!(from_str::<Level>("1").unwrap(), Level::Low);
+    assert_eq!(from_str::<Level>("1.0").unwrap(), Level::Text);
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[deser(untagged)]
+    enum Release {
+        Number(u32),
+        Text(String),
+    }
+    assert_eq!(from_str::<Release>("42").unwrap(), Release::Number(42));
+    assert_eq!(
+        from_str::<Release>("1.10").unwrap(),
+        Release::Text("1.10".into())
+    );
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[deser(tag = "kind")]
+    enum Shape {
+        #[deser(rename = "1")]
+        Circle { radius: String },
+    }
+    assert_eq!(
+        from_str::<Shape>(
+            "radius: 1.50
+kind: 1"
+        )
+        .unwrap(),
+        Shape::Circle {
+            radius: "1.50".into()
+        }
+    );
+}
+
+#[test]
+fn test_plain_scalars_borrowed() {
+    use std::borrow::Cow;
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct Borrowed<'a> {
+        a: &'a str,
+        #[deser(as = deser::adapters::Borrowed)]
+        b: Cow<'a, str>,
+    }
+    let input = String::from(
+        "a: 1.10
+b: 0x1F",
+    );
+    let value: Borrowed = from_str(&input).unwrap();
+    assert_eq!(value.a, "1.10");
+    assert!(matches!(value.b, Cow::Borrowed("0x1F")));
+}
+
+#[test]
+fn test_plain_scalars_recorded() {
+    use deser::de::Recording;
+
+    // buffered values keep the text
+    let recording: Recording = from_str("[1.10, 0x1F, ~]").unwrap();
+    let mut out = None::<(String, String, String)>;
+    {
+        let mut driver_out = None::<()>;
+        let mut driver = deser::de::DeserializeDriver::new(&mut driver_out);
+        recording
+            .replay(
+                <(String, String, String)>::deserialize_into(&mut out, driver.state_mut()),
+                driver.state_mut(),
+            )
+            .unwrap();
+    }
+    assert_eq!(out.unwrap(), ("1.10".into(), "0x1F".into(), "~".into()));
+
+    // and they are written as they were (the sequence stays a flow
+    // sequence too)
+    assert_eq!(
+        deser_yaml::to_string(&recording).unwrap(),
+        "[1.10, 0x1F, ~]\n"
+    );
+}
+
+#[test]
+fn test_wide_integers() {
+    assert_eq!(
+        from_str::<u128>("340282366920938463463374607431768211455").unwrap(),
+        u128::MAX
+    );
+    assert_eq!(
+        from_str::<i128>("-170141183460469231731687303715884105728").unwrap(),
+        i128::MIN
+    );
+}
+
+#[test]
+fn test_explicit_tags() {
+    assert_eq!(from_str::<String>("!!str 42").unwrap(), "42");
+    assert_eq!(from_str::<u32>("!!int '42'").unwrap(), 42);
+    assert_eq!(from_str::<f64>("!!float 42").unwrap(), 42.0);
+    assert_eq!(from_str::<String>("! 42").unwrap(), "42");
+    assert_eq!(
+        from_str::<Value>("!!binary aGVsbG8=").unwrap(),
+        Value::Bytes(b"hello".to_vec())
+    );
+    let err = from_str::<Value>("!!int abc").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: invalid !!int value at line 1 column 1"
+    );
+    assert!(from_str::<Value>("!!map [1]").is_err());
+    assert!(from_str::<Value>("!!str [1]").is_err());
+    assert_eq!(from_str::<Vec<u32>>("!!seq [1]").unwrap(), [1]);
+}
+
+#[test]
+fn test_timestamps() {
+    use deser::ext::{Datetime, Timestamp};
+
+    let value: Datetime = from_str("!!timestamp 2001-12-14 21:59:43.10 -5").unwrap();
+    assert_eq!(value.to_string(), "2001-12-14T21:59:43.1-05:00");
+    let value: Timestamp = from_str("!!timestamp 2001-12-15T02:59:43.1Z").unwrap();
+    assert_eq!(value.to_string(), "2001-12-15T02:59:43.1Z");
+    // timestamps without time zone are in UTC
+    let value: Datetime = from_str("!!timestamp 2001-12-15 2:59:43").unwrap();
+    assert_eq!(value.to_string(), "2001-12-15T02:59:43Z");
+    let value: Datetime = from_str("!!timestamp 2002-12-14").unwrap();
+    assert_eq!(value.to_string(), "2002-12-14");
+    // other consumers get strings
+    let value: String = from_str("!!timestamp 2001-12-14t21:59:43.10-05:00").unwrap();
+    assert_eq!(value, "2001-12-14T21:59:43.1-05:00");
+    // plain scalars are not timestamps
+    let value: String = from_str("2001-12-14").unwrap();
+    assert_eq!(value, "2001-12-14");
+    assert!(from_str::<Value>("!!timestamp yesterday").is_err());
+}
+
+#[test]
+fn test_custom_tags() {
+    let value: Vec<Tagged<String>> = from_str("[!color red, blue, !!str green]").unwrap();
+    assert_eq!(
+        value,
+        [
+            Tagged::new("!color", "red".to_string()),
+            Tagged::untagged("blue".to_string()),
+            Tagged::untagged("green".to_string()),
+        ]
+    );
+
+    // tags on collections, handles are resolved
+    let value: Tagged<BTreeMap<String, u32>> =
+        from_str("%TAG !e! tag:example.com,2000:\n--- !e!point {x: 1, y: 2}").unwrap();
+    assert_eq!(value.tag.as_deref(), Some("tag:example.com,2000:point"));
+    assert_eq!(value.value, [("x".into(), 1), ("y".into(), 2)].into());
+
+    // unknown tags are transparent for types that do not care
+    assert_eq!(from_str::<String>("!Ref name").unwrap(), "name");
+    assert_eq!(from_str::<Vec<u32>>("!!set [1, 2]").unwrap(), [1, 2]);
+    assert_eq!(
+        from_str::<Value>("!!set {a, b}").unwrap(),
+        Value::Tagged(
+            "tag:yaml.org,2002:set".into(),
+            Box::new(map! { "a" => (), "b" => () })
+        )
+    );
+}
+
+#[test]
+fn test_complex_keys() {
+    let value: Value = from_str("? [a, b]\n: c\n1: d\n{x: y}: e\n").unwrap();
+    assert_eq!(
+        value,
+        Value::Map(vec![
+            (seq!["a", "b"], "c".into()),
+            (Value::Int(1), "d".into()),
+            (map! { "x" => "y" }, "e".into()),
+        ])
+    );
+    let value: BTreeMap<u32, String> = from_str("1: a\n2: b").unwrap();
+    assert_eq!(value, [(1, "a".into()), (2, "b".into())].into());
+}
+
+#[test]
+fn test_enums() {
+    #[derive(Deserialize, Debug, PartialEq)]
+    enum Shape {
+        Empty,
+        Circle(f64),
+        Rect { w: u32, h: u32 },
+    }
+    let shapes: Vec<Shape> = from_str("- Empty\n- Circle: 1.5\n- Rect: {w: 1, h: 2}\n").unwrap();
+    assert_eq!(
+        shapes,
+        [Shape::Empty, Shape::Circle(1.5), Shape::Rect { w: 1, h: 2 }]
+    );
+}
+
+#[test]
+fn test_aliases() {
+    let value: Value = from_str(
+        "
+base: &base {a: 1, b: [x, y]}
+copy: *base
+scalar: &s hello
+again: *s
+",
+    )
+    .unwrap();
+    let base = map! { "a" => 1, "b" => seq!["x", "y"] };
+    assert_eq!(
+        value,
+        map! { "base" => base.clone(), "copy" => base, "scalar" => "hello", "again" => "hello" }
+    );
+
+    // aliases within anchored nodes
+    let value: Value = from_str("- &a 1\n- &b [*a, *a]\n- *b\n").unwrap();
+    assert_eq!(value, seq![1, seq![1, 1], seq![1, 1]]);
+
+    // redefined anchors: an alias refers to the definition before it
+    let value: Value = from_str("- &a 1\n- &b [*a]\n- &a 2\n- *b\n- *a\n").unwrap();
+    assert_eq!(value, seq![1, seq![1], 2, seq![1], 2]);
+
+    // aliases do not reach into other documents
+    let mut de = Deserializer::from_str("--- &a 1\n--- *a\n");
+    assert_eq!(de.deserialize::<u32>().unwrap(), 1);
+    assert_eq!(
+        de.deserialize::<u32>().unwrap_err().to_string(),
+        "Syntax: unknown anchor `a` at line 2 column 5"
+    );
+
+    let err = from_str::<Value>("&a [*a]").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: recursive alias at line 1 column 5"
+    );
+}
+
+#[test]
+fn test_anchor_rebinding_in_open_collections() {
+    for (input, expected) in [
+        ("&a [&a hello, *a]", seq!["hello", "hello"]),
+        (
+            "first: &a [&a hello]\nsecond: *a\n",
+            map! { "first" => seq!["hello"], "second" => "hello" },
+        ),
+        (
+            "[&a [&a [hello], *a], *a]",
+            seq![seq![seq!["hello"], seq!["hello"]], seq!["hello"]],
+        ),
+        (
+            "[&a [hello], &a [&a world], *a]",
+            seq![seq!["hello"], seq!["world"], "world"],
+        ),
+        (
+            "first: &a {inner: &a {x: hello}, again: *a}\nsecond: *a\n",
+            map! { "first" => map! { "inner" => map! { "x" => "hello" }, "again" => map! { "x" => "hello" } }, "second" => map! { "x" => "hello" } },
+        ),
+        // Aliases already recorded in another anchor keep their old target.
+        (
+            "[&a hello, &b [*a], &a [&a world], *b, *a]",
+            seq![
+                "hello",
+                seq!["hello"],
+                seq!["world"],
+                seq!["hello"],
+                "world"
+            ],
+        ),
+    ] {
+        assert_eq!(from_str::<Value>(input).unwrap(), expected, "{input}");
+        assert_eq!(
+            from_slice::<Value>(input.as_bytes()).unwrap(),
+            expected,
+            "{input}"
+        );
+        #[cfg(feature = "io")]
+        assert_eq!(
+            deser_yaml::from_reader::<Value, _>(input.as_bytes()).unwrap(),
+            expected,
+            "{input}"
+        );
+    }
+
+    // Only the most recent definition matters for detecting recursion.
+    for input in ["&a [&a [*a]]", "&a [&b [*a]]", "[&a hello, &a [*a]]"] {
+        let err = from_str::<Value>(input).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Syntax, "{input}");
+        assert_eq!(err.message(), "recursive alias", "{input}");
+    }
+}
+
+#[test]
+fn test_alias_limit() {
+    // the "billion laughs" attack
+    let mut input = String::from("a: &a [lol, lol, lol, lol, lol, lol, lol, lol, lol]\n");
+    for (prev, name) in ["a", "b", "c", "d", "e", "f", "g", "h"]
+        .iter()
+        .zip(["b", "c", "d", "e", "f", "g", "h", "i"])
+    {
+        input.push_str(&format!(
+            "{}: &{} [*{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}]\n",
+            name,
+            name,
+            p = prev
+        ));
+    }
+    let err = from_str::<Value>(&input).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "LimitExceeded: aliases expand to too many events"
+    );
+
+    let input = "a: &a [1, 2]\nb: [*a, *a]";
+    let mut de = Deserializer::from_str_with_config(
+        input,
+        DeserializerConfig::builder().alias_limit(8).build(),
+    );
+    assert_eq!(
+        de.deserialize::<Value>().unwrap(),
+        map! { "a" => seq![1, 2], "b" => seq![seq![1, 2], seq![1, 2]] }
+    );
+    let mut de = Deserializer::from_str_with_config(
+        input,
+        DeserializerConfig::builder().alias_limit(7).build(),
+    );
+    assert!(de.deserialize::<Value>().is_err());
+}
+
+#[test]
+fn test_max_depth() {
+    let parse = |max_depth| {
+        Deserializer::from_str("[[[[1]]]]").deserialize_with::<Value, _>(|driver| {
+            driver.set_context(deser::Context::with(
+                deser::de::Limits::builder().max_depth(max_depth).build(),
+            ))
+        })
+    };
+    assert!(parse(4).is_ok());
+    let err = parse(3).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "LimitExceeded: recursion limit exceeded at line 1 column 4"
+    );
+
+    // nesting does not use the stack
+    #[derive(Deserialize)]
+    struct Node {
+        name: String,
+        child: Option<Box<Node>>,
+    }
+    let depth = 50_000;
+    let input = "{name: x, child: ".repeat(depth) + "null" + &"}".repeat(depth);
+    let mut node: Node = from_str(&input).unwrap();
+    let mut count = 0;
+    // avoid a recursive drop
+    while let Some(child) = node.child.take() {
+        assert_eq!(node.name, "x");
+        node = *child;
+        count += 1;
+    }
+    assert_eq!(count, depth - 1);
+
+    // ignored values are not held in memory
+    #[derive(Deserialize)]
+    struct Simple {
+        a: u32,
+    }
+    let input = format!(
+        "a: 42
+ignored: {}{}",
+        "[".repeat(depth),
+        "]".repeat(depth)
+    );
+    assert_eq!(from_str::<Simple>(&input).unwrap().a, 42);
+}
+
+#[test]
+fn test_documents() {
+    let mut de = Deserializer::from_str("--- 1\n---\n- 2\n...\n--- 3\n");
+    assert!(!de.is_end());
+    assert_eq!(de.deserialize::<Value>().unwrap(), Value::Int(1));
+    assert_eq!(de.deserialize::<Value>().unwrap(), seq![2]);
+    assert_eq!(de.deserialize::<Value>().unwrap(), Value::Int(3));
+    assert!(de.is_end());
+    de.end().unwrap();
+    let err = de.deserialize::<Value>().unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::EndOfFile);
+
+    let docs: Vec<u32> = Deserializer::from_str("1\n--- 2\n--- 3\n")
+        .iter()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(docs, [1, 2, 3]);
+
+    // an empty document is null
+    let docs: Vec<Option<u32>> = Deserializer::from_str("---\n--- 1\n")
+        .iter()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(docs, [None, Some(1)]);
+
+    // from_str expects at most one document
+    let err = from_str::<u32>("--- 1\n--- 2\n").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: expected a single document, found more"
+    );
+}
+
+#[test]
+fn test_empty_stream() {
+    // a stream without documents is null
+    assert_eq!(from_str::<Option<u32>>("").unwrap(), None);
+    assert_eq!(from_str::<Option<u32>>("# just a comment\n").unwrap(), None);
+    assert_eq!(from_str::<()>("").unwrap(), ());
+    assert!(from_str::<u32>("").is_err());
+    assert!(Deserializer::from_str("# nothing").is_end());
+    assert_eq!(Deserializer::from_str("").iter::<Value>().count(), 0);
+}
+
+#[test]
+fn test_error_recovery() {
+    // a document that fails to deserialize is skipped
+    let mut de = Deserializer::from_str("--- [1, 2]\n--- abc\n--- 3\n");
+    assert!(de.deserialize::<u32>().is_err());
+    assert!(de.deserialize::<u32>().is_err());
+    assert_eq!(de.deserialize::<u32>().unwrap(), 3);
+    assert!(de.is_end());
+
+    // syntax errors end the stream
+    let mut de = Deserializer::from_str("--- 1\n--- [\n--- 3\n");
+    assert_eq!(de.deserialize::<u32>().unwrap(), 1);
+    let err = de.deserialize::<Value>().unwrap_err();
+    assert!(err.to_string().contains("syntax error"), "{}", err);
+    assert!(de.deserialize::<Value>().is_err());
+
+    // the iterator stops at the first error
+    let rv: Vec<_> = Deserializer::from_str("--- 1\n--- x\n--- 3\n")
+        .iter::<u32>()
+        .collect();
+    assert_eq!(rv.len(), 2);
+    assert!(rv[1].is_err());
+}
+
+#[test]
+fn test_syntax_errors() {
+    let err = from_str::<Value>("a: b: c").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: syntax error: mapping values are not allowed in this context at line 1 column 5"
+    );
+    let err = from_str::<Value>("[1, 2").unwrap_err();
+    assert!(err.to_string().contains("syntax error"), "{}", err);
+    let mut de = Deserializer::from_str("- a\nb");
+    assert!(!de.is_end());
+    assert!(de.deserialize::<Value>().is_err());
+}
+
+#[test]
+fn test_versions() {
+    let input = "[yes, No, on, 0777, 0o777, 1_000, 1:30, 0b101, 3e3]";
+    let value: Value = Deserializer::from_str(input).deserialize().unwrap();
+    assert_eq!(
+        value,
+        seq![
+            "yes", "No", "on", 777, 511, "1_000", "1:30", "0b101", 3000.0
+        ]
+    );
+    let value: Value = DeserializerConfig::builder()
+        .version(Version::V1_1)
+        .build()
+        .from_str(input)
+        .unwrap();
+    assert_eq!(
+        value,
+        seq![true, false, true, 511, "0o777", 1000, 90, 5, "3e3"]
+    );
+
+    // the directive overrides the configured version
+    let mut de = Deserializer::from_str_with_config(
+        "%YAML 1.1\n--- yes\n...\n%YAML 1.2\n--- yes\n--- yes\n",
+        DeserializerConfig::builder().version(Version::V1_1).build(),
+    );
+    assert_eq!(
+        de.config().clone(),
+        DeserializerConfig::builder().version(Version::V1_1).build()
+    );
+    assert_eq!(de.deserialize::<Value>().unwrap(), Value::Bool(true));
+    assert_eq!(de.deserialize::<Value>().unwrap(), "yes".into());
+    assert_eq!(de.deserialize::<Value>().unwrap(), Value::Bool(true));
+}
+
+#[test]
+fn test_from_slice() {
+    assert_eq!(from_slice::<Vec<u32>>(b"[1, 2]").unwrap(), [1, 2]);
+    let err = from_slice::<Value>(b"a: \xff").unwrap_err();
+    assert_eq!(err.to_string(), "Syntax: invalid UTF-8 at offset 3");
+    // a byte order mark is skipped
+    assert_eq!(from_slice::<u32>(b"\xef\xbb\xbf42").unwrap(), 42);
+}
+
+#[test]
+fn test_borrowed_strings() {
+    use deser::State;
+    use deser::de::{DeserializeDriver, Sink, SinkHandle};
+    use deser::{Atom, Error};
+
+    // records whether strings are borrowed from the input
+    struct Borrowed(Vec<bool>);
+
+    impl<'de> Sink<'de> for Borrowed {
+        fn atom(&mut self, atom: Atom, _state: &mut State) -> Result<(), Error> {
+            if let Atom::Str(s) = atom {
+                self.0.push(s.is_borrowed());
+            }
+            Ok(())
+        }
+
+        fn seq(&mut self, _state: &mut State) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn next_value(&mut self, _state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
+            Ok(SinkHandle::to(self))
+        }
+    }
+
+    let mut sink = Borrowed(Vec::new());
+    {
+        let mut driver = DeserializeDriver::from_fn(|_| SinkHandle::to(&mut sink));
+        Deserializer::from_str(
+            "[plain words, 'quoted', \"double\", 'it''s', \"esc\\n\", multi\n line]",
+        )
+        .drive(&mut driver)
+        .unwrap();
+    }
+    assert_eq!(sink.0, [true, true, true, false, false, false]);
+}
+
+#[test]
+fn test_merge_keys() {
+    // the example from the YAML 1.1 merge key specification: all maps are
+    // the same
+    let input = "
+- &CENTER { x: 1, y: 2 }
+- &LEFT { x: 0, y: 2 }
+- &BIG { r: 10 }
+- &SMALL { r: 1 }
+
+# Explicit keys
+- x: 1
+  y: 2
+  r: 10
+  label: center/big
+
+# Merge one map
+- << : *CENTER
+  r: 10
+  label: center/big
+
+# Merge multiple maps
+- << : [ *CENTER, *BIG ]
+  label: center/big
+
+# Override
+- << : [ *BIG, *LEFT, *SMALL ]
+  x: 1
+  label: center/big
+";
+    let value: Vec<BTreeMap<String, Value>> = from_str(input).unwrap();
+    let expected: BTreeMap<String, Value> = [
+        ("x".into(), Value::Int(1)),
+        ("y".into(), Value::Int(2)),
+        ("r".into(), Value::Int(10)),
+        ("label".into(), "center/big".into()),
+    ]
+    .into();
+    for map in &value[4..] {
+        assert_eq!(map, &expected);
+    }
+}
+
+#[test]
+fn test_merge_key_semantics() {
+    // merged entries come after the entries of the map, keys of the map win
+    // even if they come after the merge key
+    let value: Value = from_str("- &a {x: 1, y: 2}\n- {x: 0, <<: *a, z: 3, y: 0}\n").unwrap();
+    assert_eq!(
+        value,
+        seq![
+            map! { "x" => 1, "y" => 2 },
+            map! { "x" => 0, "z" => 3, "y" => 0 },
+        ]
+    );
+
+    // inline mappings, keys are compared by value
+    let value: Value = from_str("<<: {1: a, b: c, '2': d}\n0x1: x\n2: y\n").unwrap();
+    assert_eq!(
+        value,
+        Value::Map(vec![
+            (Value::Int(1), "x".into()),
+            (Value::Int(2), "y".into()),
+            ("b".into(), "c".into()),
+            ("2".into(), "d".into()),
+        ])
+    );
+
+    // merges are applied recursively, earlier sources win
+    let value: Value = from_str(
+        "
+- &a {a: 1, x: a}
+- &b {<<: *a, b: 2, x: b}
+- &c {c: 3, x: c}
+- {<<: [*b, *c]}
+- {<<: [*c, *b]}
+",
+    )
+    .unwrap();
+    let Value::Seq(items) = value else { panic!() };
+    assert_eq!(items[1], map! { "b" => 2, "x" => "b", "a" => 1 });
+    assert_eq!(items[3], map! { "b" => 2, "x" => "b", "a" => 1, "c" => 3 });
+    assert_eq!(items[4], map! { "c" => 3, "x" => "c", "b" => 2, "a" => 1 });
+
+    // an alias to a map with merge keys is merged as well
+    let value: Value = from_str("a: &a {<<: {x: 1}, y: 2}\nb: *a\n").unwrap();
+    assert_eq!(
+        value,
+        map! { "a" => map! { "y" => 2, "x" => 1 }, "b" => map! { "y" => 2, "x" => 1 } }
+    );
+
+    // nested maps with merge keys inside of merged maps
+    let value: Value = from_str("a: &a {n: {<<: {x: 1}}}\nb: {<<: *a}\n").unwrap();
+    assert_eq!(
+        value,
+        map! { "a" => map! { "n" => map! { "x" => 1 } }, "b" => map! { "n" => map! { "x" => 1 } } }
+    );
+
+    // anchors within merged inline maps can be used later
+    let value: Value = from_str("a: {<<: &m {x: 1}}\nb: *m\n").unwrap();
+    assert_eq!(
+        value,
+        map! { "a" => map! { "x" => 1 }, "b" => map! { "x" => 1 } }
+    );
+}
+
+#[test]
+fn test_merge_keys_disabled_or_quoted() {
+    let value: Value = from_str("'<<': 1\n\"<<\": 2\n").unwrap();
+    assert_eq!(value, map! { "<<" => 1, "<<" => 2 });
+    let value: Value = DeserializerConfig::builder()
+        .merge_keys(false)
+        .build()
+        .from_str("<<: {x: 1}")
+        .unwrap();
+    assert_eq!(value, map! { "<<" => map! { "x" => 1 } });
+    // `<<` as a value or in a sequence is a string
+    let value: Value = from_str("a: <<\nb: [<<]").unwrap();
+    assert_eq!(value, map! { "a" => "<<", "b" => seq!["<<"] });
+}
+
+#[test]
+fn test_merge_key_errors() {
+    let err = from_str::<Value>("<<: 1").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: the value of a merge key must be a mapping or a sequence of mappings at line 1 column 5"
+    );
+    let err = from_str::<Value>("<<: [{a: 1}, [1]]").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: merge keys can only merge mappings or sequences of mappings at line 1 column 14"
+    );
+    let err = from_str::<Value>("- &a 1\n- <<: *a").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Syntax: merge keys can only merge mappings or sequences of mappings at line 1 column 3"
+    );
+
+    // merges count towards the alias limit
+    let mut input = String::from("a0: &a0 {x: 1, y: 2}\n");
+    for i in 1..30 {
+        input.push_str(&format!(
+            "a{i}: &a{i} {{<<: [*a{p}, *a{p}]}}\n",
+            i = i,
+            p = i - 1
+        ));
+    }
+    let err = from_str::<Value>(&input).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "LimitExceeded: aliases expand to too many events"
+    );
+}
+
+#[test]
+fn test_borrowing() {
+    #[derive(Deserialize, Debug)]
+    struct Doc<'a> {
+        name: &'a str,
+        quoted: &'a str,
+        list: Vec<&'a str>,
+    }
+
+    let input = "name: demo\nquoted: 'text'\nlist: [a, b]\n";
+    let doc: Doc = from_str(input).unwrap();
+    assert_eq!(doc.name, "demo");
+    assert_eq!(doc.quoted, "text");
+    assert_eq!(doc.list, ["a", "b"]);
+    assert!(input.as_bytes().as_ptr_range().contains(&doc.name.as_ptr()));
+
+    // scalars that are unescaped or folded cannot be borrowed
+    let err = from_str::<&str>("\"a\\tb\"").unwrap_err();
+    assert!(err.to_string().contains("expected a borrowed string"));
+    assert_eq!(from_str::<String>("\"a\\tb\"").unwrap(), "a\tb");
+}
+
+#[test]
+fn test_error_locations() {
+    #[derive(Deserialize, Debug)]
+    #[allow(dead_code)]
+    struct Server {
+        host: String,
+        port: u16,
+    }
+
+    let err = from_str::<Vec<Server>>("- host: a\n  port: 1\n- host: b\n  port: x\n").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "InvalidType: unexpected string, expected u16 at line 4 column 9"
+    );
+
+    // values produced by aliases report the anchored node
+    let err = from_str::<Vec<u32>>("- &a x\n- 1\n- *a\n").unwrap_err();
+    assert_eq!((err.line(), err.column()), (Some(1), Some(3)));
+
+    // the limits of the configuration are enforced by a layer
+    use deser::de::Limits;
+    let err = Deserializer::from_str("a: [1, 2, 3]")
+        .deserialize_with::<Value, _>(|driver| {
+            driver.set_context(deser::Context::with(Limits::builder().max_items(2).build()))
+        })
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "LimitExceeded: too many items at line 1 column 11"
+    );
+}
+
+#[test]
+fn test_plain_scalars() {
+    // plain scalars are slices of the input unless lines are folded
+    let value: BTreeMap<String, String> =
+        from_str("a: äöü x  y\nb: äöü\n  ÿ z\n\n  ž  w\nc: x:y,[z]\nd: -x#y #z\ne: a\n  # b\n")
+            .unwrap();
+    assert_eq!(value["a"], "äöü x  y");
+    assert_eq!(value["b"], "äöü ÿ z\nž  w");
+    assert_eq!(value["c"], "x:y,[z]");
+    assert_eq!(value["d"], "-x#y");
+    assert_eq!(value["e"], "a");
+
+    let value: Vec<String> = from_str("[äöü x, a:b, c\n  d]").unwrap();
+    assert_eq!(value, ["äöü x", "a:b", "c d"]);
+
+    // columns count characters
+    let err = from_str::<BTreeMap<String, String>>("k: äöü: x").unwrap_err();
+    assert_eq!((err.line(), err.column()), (Some(1), Some(7)));
+    let err = from_str::<Vec<String>>("[äöü x]]").unwrap_err();
+    assert_eq!((err.line(), err.column()), (Some(1), Some(8)));
+}
+
+#[test]
+fn test_quoted_scalars() {
+    // quoted scalars are slices of the input unless they have escapes or
+    // line breaks
+    let value: BTreeMap<String, String> = from_str(concat!(
+        "a: 'äöü x  y'\n",
+        "b: 'it''s  ä'\n",
+        "c: \"x\\ty\\u00e4 z\"\n",
+        "d: \"äöü  \n  ÿ z\n\n  ž  w\"\n",
+        "e: 'a  \n  b'\n",
+        "f: \"a\\\n   b  c\"\n",
+        "g: \"a \\\n\n  b\"\n",
+        "h: \"\\\\ \\\" '\"\n",
+        "i: '\\ \" \"'\n",
+    ))
+    .unwrap();
+    assert_eq!(value["a"], "äöü x  y");
+    assert_eq!(value["b"], "it's  ä");
+    assert_eq!(value["c"], "x\tyä z");
+    assert_eq!(value["d"], "äöü ÿ z\nž  w");
+    assert_eq!(value["e"], "a b");
+    assert_eq!(value["f"], "ab  c");
+    assert_eq!(value["g"], "a \nb");
+    assert_eq!(value["h"], "\\ \" '");
+    assert_eq!(value["i"], "\\ \" \"");
+
+    // columns count characters
+    let err = from_str::<BTreeMap<String, String>>("k: 'äöü' x").unwrap_err();
+    assert_eq!((err.line(), err.column()), (Some(1), Some(10)));
+    let err = from_str::<BTreeMap<String, String>>("k: \"ä\\q\"").unwrap_err();
+    assert_eq!((err.line(), err.column()), (Some(1), Some(6)));
+}

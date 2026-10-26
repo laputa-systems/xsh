@@ -23,10 +23,10 @@ use super::transport::{
     NvmeRequest, NvmeResponse, SgRequest, SgResponse, Transfer, hex,
 };
 use crate::modules::bytes::base64_decode;
-use crate::modules::json::{parse_raw_json, raw_json_as_str, raw_json_as_u64, raw_json_get};
+
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
-use miniserde::json::Value as JsonValue;
+use xsh::host::json::Value as JsonValue;
 use std::io;
 use std::path::Path;
 
@@ -48,29 +48,29 @@ struct Entry {
 
 impl Entry {
     fn op(&self) -> &str {
-        raw_json_get(&self.value, "op").and_then(raw_json_as_str).unwrap_or("")
+        (&self.value).get("op").and_then(|value| value.as_str()).unwrap_or("")
     }
 
     fn uint(&self, key: &str, default: u64) -> u64 {
-        raw_json_get(&self.value, key).and_then(raw_json_as_u64).unwrap_or(default)
+        (&self.value).get(key).and_then(|value| value.as_u64()).unwrap_or(default)
     }
 
     fn bytes(&self, key: &str) -> Vec<u8> {
-        raw_json_get(&self.value, key)
-            .and_then(raw_json_as_str)
+        (&self.value).get(key)
+            .and_then(|value| value.as_str())
             .map(|text| base64_decode(text).unwrap_or_default())
             .unwrap_or_default()
     }
 
     fn errno(&self) -> Option<i32> {
-        raw_json_get(&self.value, "errno")
-            .and_then(raw_json_as_u64)
+        (&self.value).get("errno")
+            .and_then(|value| value.as_u64())
             .map(|errno| errno as i32)
     }
 
     fn matches_transfer(&self, transfer: Transfer<'_>) -> bool {
-        let direction = raw_json_get(&self.value, "direction")
-            .and_then(raw_json_as_str)
+        let direction = (&self.value).get("direction")
+            .and_then(|value| value.as_str())
             .unwrap_or("none");
         if direction != transfer.direction() {
             return false;
@@ -103,12 +103,12 @@ fn load(path: &Path, span: Span) -> Result<Vec<Entry>, RuntimeError> {
             continue;
         }
         let line = index + 1;
-        let value = parse_raw_json(text).map_err(|error| fault(path, line, error, span))?;
-        let JsonValue::Object(object) = &value else {
+        let value = xsh::host::json::parse(text).map_err(|error| fault(path, line, error, span))?;
+        let Some(object) = (&value).as_map() else {
             return Err(fault(path, line, "each line must be a JSON object", span));
         };
-        let op = raw_json_get(&value, "op")
-            .and_then(raw_json_as_str)
+        let op = (&value).get("op")
+            .and_then(|value| value.as_str())
             .ok_or_else(|| fault(path, line, "missing `op`", span))?;
         let allowed = match op {
             "sg_io" => SG_KEYS,
@@ -117,12 +117,13 @@ fn load(path: &Path, span: Span) -> Result<Vec<Entry>, RuntimeError> {
             other => return Err(fault(path, line, format!("unknown op `{other}`"), span)),
         };
         for (key, field) in object.iter() {
-            if !allowed.contains(&key.as_str()) {
+            let key = key.as_str().expect("JSON object keys are strings");
+            if !allowed.contains(&key) {
                 return Err(fault(path, line, format!("unknown field `{key}` for {op}"), span));
             }
-            let binary = matches!(key.as_str(), "cdb" | "data_out" | "sense" | "data");
+            let binary = matches!(key, "cdb" | "data_out" | "sense" | "data");
             if binary
-                && !raw_json_as_str(field).is_some_and(|text| base64_decode(text).is_ok())
+                && !(field).as_str().is_some_and(|text| base64_decode(text).is_ok())
             {
                 return Err(fault(path, line, format!("`{key}` must be base64 text"), span));
             }

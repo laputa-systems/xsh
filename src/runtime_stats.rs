@@ -348,8 +348,7 @@ mod tests {
 
     #[test]
     fn phase_report_runs_once_and_preserves_allocation_json_fields() {
-        use crate::modules::json::{compact_raw_json, parse_raw_json, raw_json_as_u64, raw_json_get};
-        use miniserde::json::Value as JsonValue;
+
 
         let root = tempfile::tempdir().expect("create phase report fixture");
         let script = root.path().join("once.xsh");
@@ -369,23 +368,22 @@ print "once"
         assert_eq!(measured.output.stdout, b"once\n");
         assert!(measured.output.stderr.is_empty());
         assert_eq!(std::fs::read_to_string(root.path().join("counter")).expect("read execution counter"), "1");
-        let allocation = parse_raw_json(&measured.to_json()).expect("allocation JSON");
-        let JsonValue::Object(mut report) = parse_raw_json(&report).expect("phase JSON") else {
-            panic!("phase report must be an object");
-        };
-        let phases = report.remove("wall_time_ns").expect("phase report adds wall times");
-        let cpu = report.remove("cpu_time_ns").expect("phase report adds CPU times");
-        assert_eq!(compact_raw_json(&JsonValue::Object(report)), compact_raw_json(&allocation));
-        assert!(raw_json_get(&allocation, "wall_time_ns").is_none());
-        assert!(raw_json_get(&allocation, "cpu_time_ns").is_none());
-        assert!(raw_json_get(&phases, "preparation_inclusive").and_then(raw_json_as_u64).is_some());
-        assert!(raw_json_get(&phases, "execution_finish_exclusive").and_then(raw_json_as_u64).is_some());
-        assert!(matches!(raw_json_get(&phases, "diagnostic_finish_exclusive"), Some(JsonValue::Null)));
-        assert!(matches!(raw_json_get(&cpu, "clock"), Some(JsonValue::String(clock)) if clock == "process_cpu"));
+        let allocation = xsh::host::json::parse(&measured.to_json()).expect("allocation JSON");
+        let mut report = xsh::host::json::parse(&report).expect("phase JSON");
+        let report_fields = report.as_map_mut().expect("phase report must be an object");
+        let phases = report_fields.remove("wall_time_ns").expect("phase report adds wall times");
+        let cpu = report_fields.remove("cpu_time_ns").expect("phase report adds CPU times");
+        assert_eq!(xsh::host::json::encode(&report).expect("host JSON document must be encodable"), xsh::host::json::encode(&allocation).expect("host JSON document must be encodable"));
+        assert!((&allocation).get("wall_time_ns").is_none());
+        assert!((&allocation).get("cpu_time_ns").is_none());
+        assert!((&phases).get("preparation_inclusive").and_then(|value| value.as_u64()).is_some());
+        assert!((&phases).get("execution_finish_exclusive").and_then(|value| value.as_u64()).is_some());
+        assert!(phases.get("diagnostic_finish_exclusive").is_some_and(|value| value.is_null()));
+        assert!(cpu.get("clock").and_then(|value| value.as_str()) == Some("process_cpu"));
         for key in ["preparation_inclusive", "project_parse_load_exclusive", "check_solve_fact_build_exclusive", "declaration_publication_exclusive", "lower_verify_install_exclusive", "preparation_other_exclusive", "execution_finish_exclusive"] {
-            assert!(raw_json_get(&cpu, key).and_then(raw_json_as_u64).is_some(), "{key}");
+            assert!((&cpu).get(key).and_then(|value| value.as_u64()).is_some(), "{key}");
         }
-        assert!(matches!(raw_json_get(&cpu, "diagnostic_finish_exclusive"), Some(JsonValue::Null)));
+        assert!(cpu.get("diagnostic_finish_exclusive").is_some_and(|value| value.is_null()));
     }
 
     #[test]

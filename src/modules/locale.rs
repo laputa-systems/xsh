@@ -14,7 +14,7 @@ fn validate_name(name: &str, span: Span) -> Result<(), RuntimeError> {
 }
 
 #[cfg(any(target_env = "musl", test))]
-#[derive(miniserde::Deserialize)]
+#[derive(deser::Deserialize)]
 struct Metadata {
     decimal_point: Vec<u8>,
     thousands_separator: Vec<u8>,
@@ -22,7 +22,7 @@ struct Metadata {
 }
 
 #[cfg(any(target_env = "musl", test))]
-#[derive(miniserde::Deserialize)]
+#[derive(deser::Deserialize)]
 struct Projection {
     locales: BTreeMap<String, Metadata>,
     aliases: BTreeMap<String, String>,
@@ -33,7 +33,7 @@ struct Projection {
 #[cfg(any(target_env = "musl", test))]
 fn projection() -> &'static Projection {
     static DATA: OnceLock<Projection> = OnceLock::new();
-    DATA.get_or_init(|| miniserde::json::from_str(include_str!("locale/data.json"))
+    DATA.get_or_init(|| deser_json::from_str(include_str!("locale/data.json"))
         .expect("embedded locale metadata must be valid"))
 }
 

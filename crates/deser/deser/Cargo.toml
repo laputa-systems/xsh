@@ -1,0 +1,48 @@
+[package]
+name = "deser"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "An experimental serialization and deserialization library for Rust"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization", "serde", "derive", "no_std"]
+categories = ["encoding", "no-std"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser"
+autotests = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std", "io"]
+# the standard library, without it deser only needs `alloc` (see the
+# documentation of the crate)
+std = ["deser-core/std"]
+derive = ["deser-core/derive", "dep:deser-derive"]
+# open enums: traits whose implementations (in any crate) are the variants
+# of their trait objects (`#[deser::open_enum]` and `#[deser::variant]`)
+open-enums = ["derive", "deser-core/open-enums", "deser-derive/open-enums"]
+# reading and writing values from and to streams (`deser::io`)
+io = ["std", "deser-core/io"]
+# types of these crates serialize as well-known extension types
+jiff = ["deser-core/jiff"]
+# collections and byte buffers of these crates serialize like the standard
+# containers
+
+[dependencies]
+# everything but the derive macros is in deser-core.  The formats depend on
+# it directly so that they compile in parallel with the derive macros.
+deser-core = { version = "0.10.1", path = "../deser-core", default-features = false }
+deser-derive = { version = "0.10.1", path = "../deser-derive", optional = true }
+
+[dev-dependencies]
+deser = { path = ".", features = ["derive"] }
+jiff = { version = "0.2.14", default-features = false, features = ["std"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

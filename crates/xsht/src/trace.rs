@@ -3,15 +3,12 @@
 use super::table::{
     TableAlign, TextTableColumn, render_text_table, table_width, terminal_table_width_for_stderr,
 };
-use miniserde::json::Value as JsonValue;
+use xsh::host::json::Value as JsonValue;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use xsh::frontend::source::{SourceMap, Span};
-use xsh::host::json::{
-    raw_json_array, raw_json_bool, raw_json_f64, raw_json_i64, raw_json_object, raw_json_string,
-    raw_json_u64, raw_json_usize,
-};
+
 pub use xsh::trace::model::TracebackRenderer;
 use xsh::trace::model::{
     TraceArg, TraceEnv, TraceError, TraceErrorDetail, TraceEvent, TraceKind, TracePayload,
@@ -173,11 +170,11 @@ impl SyscallSummary {
 
         let mut windows: Vec<OpWindow> = Vec::new();
         for line in trace_jsonl.lines() {
-            let Ok(value) = xsh::host::json::parse_raw_json(line) else {
+            let Ok(value) = xsh::host::json::parse(line) else {
                 continue;
             };
-            let kind_value = xsh::host::json::raw_json_get(&value, "kind");
-            let kind = match kind_value.and_then(xsh::host::json::raw_json_as_str) {
+            let kind_value = (&value).get("kind");
+            let kind = match kind_value.and_then(|value| value.as_str()) {
                 Some(kind)
                     if matches!(
                         kind,
@@ -196,25 +193,25 @@ impl SyscallSummary {
                 }
                 _ => continue,
             };
-            let start_us = match xsh::host::json::raw_json_get(&value, "start_time_us")
-                .and_then(xsh::host::json::raw_json_as_u64)
+            let start_us = match (&value).get("start_time_us")
+                .and_then(|value| value.as_u64())
             {
                 Some(v) if v > 0 => v,
                 _ => continue,
             };
-            let duration_us = match xsh::host::json::raw_json_get(&value, "duration_us")
-                .and_then(xsh::host::json::raw_json_as_u64)
+            let duration_us = match (&value).get("duration_us")
+                .and_then(|value| value.as_u64())
             {
                 Some(v) => v,
                 _ => continue,
             };
-            let name = xsh::host::json::raw_json_get(&value, "name")
-                .and_then(xsh::host::json::raw_json_as_str)
+            let name = (&value).get("name")
+                .and_then(|value| value.as_str())
                 .or_else(|| {
-                    xsh::host::json::raw_json_get(&value, "payload")
-                        .and_then(|payload| xsh::host::json::raw_json_get(payload, "target"))
-                        .and_then(|target| xsh::host::json::raw_json_get(target, "display"))
-                        .and_then(xsh::host::json::raw_json_as_str)
+                    (&value).get("payload")
+                        .and_then(|payload| (payload).get("target"))
+                        .and_then(|target| (target).get("display"))
+                        .and_then(|value| value.as_str())
                 })
                 .unwrap_or("?")
                 .to_string();
@@ -420,7 +417,7 @@ impl SyscallSummaryRenderer {
 
     pub fn render_jsonl(&self, summary: &SyscallSummary) -> String {
         let dto = SyscallSummaryJson::from_summary(summary, self.top);
-        let mut output = xsh::host::json::compact_raw_json(&syscall_summary_json_value(dto));
+        let mut output = xsh::host::json::encode(&syscall_summary_json_value(dto)).expect("host JSON document must be encodable");
         output.push('\n');
         output
     }
@@ -945,9 +942,9 @@ impl TraceJsonlRenderer {
 
     fn render_event(&self, event: &TraceEvent, sources: &SourceMap, output: &mut String) {
         let dto = TraceEventJson::from_event(event, sources);
-        output.push_str(&xsh::host::json::compact_raw_json(&trace_event_json_value(
+        output.push_str(&xsh::host::json::encode(&trace_event_json_value(
             dto,
-        )));
+        )).expect("host JSON document must be encodable"));
     }
 }
 
@@ -967,21 +964,21 @@ impl CoverageTraceRenderer {
     pub fn render_events(&self, events: &[TraceEvent], sources: &SourceMap) -> String {
         let mut output = String::new();
         for file in sources.files() {
-            let value = raw_json_object([
-                ("kind".to_string(), raw_json_string("source.file")),
-                ("file".to_string(), raw_json_string(file.name())),
-                ("line_count".to_string(), raw_json_usize(file.line_count())),
-            ]);
-            output.push_str(&xsh::host::json::compact_raw_json(&value));
+            let value = ([
+                ("kind".to_string(), JsonValue::from("source.file")),
+                ("file".to_string(), JsonValue::from(file.name())),
+                ("line_count".to_string(), JsonValue::from(file.line_count())),
+            ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+            output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
             output.push('\n');
         }
         for event in events {
-            let mut fields = vec![("kind".to_string(), raw_json_string(event.kind.as_str()))];
+            let mut fields = vec![("kind".to_string(), JsonValue::from(event.kind.as_str()))];
             if let Some(api_id) = &event.api_id {
-                fields.push(("api_id".to_string(), raw_json_string(api_id)));
+                fields.push(("api_id".to_string(), JsonValue::from(api_id)));
             }
             if let Some(name) = &event.name {
-                fields.push(("name".to_string(), raw_json_string(name)));
+                fields.push(("name".to_string(), JsonValue::from(name)));
             }
             if let Some(span) = event.source_span {
                 append_coverage_span(&mut fields, "source_span", span, sources);
@@ -989,8 +986,8 @@ impl CoverageTraceRenderer {
             if let Some(span) = event.definition_span {
                 append_coverage_span(&mut fields, "definition_span", span, sources);
             }
-            let value = raw_json_object(fields);
-            output.push_str(&xsh::host::json::compact_raw_json(&value));
+            let value = (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+            output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
             output.push('\n');
         }
         output
@@ -1011,13 +1008,13 @@ fn append_coverage_span(
     };
     fields.push((
         key.to_string(),
-        raw_json_object([
-            ("file".to_string(), raw_json_string(start.file)),
-            ("start_line".to_string(), raw_json_usize(start.line)),
-            ("end_line".to_string(), raw_json_usize(end.line)),
-            ("start_offset".to_string(), raw_json_usize(span.start())),
-            ("end_offset".to_string(), raw_json_usize(span.end())),
-        ]),
+        ([
+            ("file".to_string(), JsonValue::from(start.file)),
+            ("start_line".to_string(), JsonValue::from(start.line)),
+            ("end_line".to_string(), JsonValue::from(end.line)),
+            ("start_offset".to_string(), JsonValue::from(span.start())),
+            ("end_offset".to_string(), JsonValue::from(span.end())),
+        ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
     ));
 }
 
@@ -1068,7 +1065,7 @@ impl TraceSummaryRenderer {
     pub fn render_jsonl(&self, events: &[TraceEvent], sources: &SourceMap) -> String {
         let summary = TraceSummary::from_events(events);
         let dto = TraceSummaryJson::from_summary(&summary, sources);
-        let mut output = xsh::host::json::compact_raw_json(&trace_summary_json_value(dto));
+        let mut output = xsh::host::json::encode(&trace_summary_json_value(dto)).expect("host JSON document must be encodable");
         output.push('\n');
         output
     }
@@ -1746,14 +1743,14 @@ impl SyscallCountRowJson {
 }
 
 fn trace_event_json_value(data: TraceEventJson) -> JsonValue {
-    raw_json_object([
-        ("event_id".to_string(), raw_json_u64(data.event_id)),
+    ([
+        ("event_id".to_string(), JsonValue::from(data.event_id)),
         (
             "parent_event_id".to_string(),
             option_u64_json_value(data.parent_event_id),
         ),
-        ("depth".to_string(), raw_json_u64(u64::from(data.depth))),
-        ("kind".to_string(), raw_json_string(data.kind)),
+        ("depth".to_string(), JsonValue::from(u64::from(data.depth))),
+        ("kind".to_string(), JsonValue::from(data.kind)),
         (
             "source_span".to_string(),
             option_json_value(data.source_span.map(trace_span_json_value)),
@@ -1776,25 +1773,25 @@ fn trace_event_json_value(data: TraceEventJson) -> JsonValue {
             "payload".to_string(),
             trace_payload_json_value(data.payload),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_span_json_value(data: TraceSpanJson) -> JsonValue {
-    raw_json_object([
-        ("file".to_string(), raw_json_string(data.file)),
+    ([
+        ("file".to_string(), JsonValue::from(data.file)),
         (
             "start_offset".to_string(),
-            raw_json_usize(data.start_offset),
+            JsonValue::from(data.start_offset),
         ),
-        ("end_offset".to_string(), raw_json_usize(data.end_offset)),
-        ("start_line".to_string(), raw_json_usize(data.start_line)),
+        ("end_offset".to_string(), JsonValue::from(data.end_offset)),
+        ("start_line".to_string(), JsonValue::from(data.start_line)),
         (
             "start_column".to_string(),
-            raw_json_usize(data.start_column),
+            JsonValue::from(data.start_column),
         ),
-        ("end_line".to_string(), raw_json_usize(data.end_line)),
-        ("end_column".to_string(), raw_json_usize(data.end_column)),
-    ])
+        ("end_line".to_string(), JsonValue::from(data.end_line)),
+        ("end_column".to_string(), JsonValue::from(data.end_column)),
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
@@ -1847,13 +1844,13 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
                 ("argv".to_string(), trace_args_json_value(argv)),
                 ("cwd".to_string(), trace_arg_json_value(cwd)),
                 ("env".to_string(), trace_env_json_value(env)),
-                ("detached".to_string(), raw_json_bool(detached)),
+                ("detached".to_string(), JsonValue::from(detached)),
             ],
         ),
         TracePayloadJson::SpawnReady { handle_id, pid } => typed_payload_json_value(
             "spawn.ready",
             vec![
-                ("handle_id".to_string(), raw_json_u64(handle_id)),
+                ("handle_id".to_string(), JsonValue::from(handle_id)),
                 ("pid".to_string(), option_u32_json_value(pid)),
             ],
         ),
@@ -1861,7 +1858,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
             "wait.start",
             vec![(
                 "handle_ids".to_string(),
-                raw_json_array(handle_ids.into_iter().map(raw_json_u64)),
+                (handle_ids.into_iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
             )],
         ),
         TracePayloadJson::WaitEnd {
@@ -1893,10 +1890,10 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "spawn.cancel",
             vec![
-                ("handle_id".to_string(), raw_json_u64(handle_id)),
+                ("handle_id".to_string(), JsonValue::from(handle_id)),
                 ("pid".to_string(), option_u32_json_value(pid)),
-                ("signal".to_string(), raw_json_string(signal)),
-                ("kill_after_ms".to_string(), raw_json_u64(kill_after_ms)),
+                ("signal".to_string(), JsonValue::from(signal)),
+                ("kill_after_ms".to_string(), JsonValue::from(kill_after_ms)),
                 (
                     "error".to_string(),
                     option_json_value(error.map(trace_error_json_value)),
@@ -1918,14 +1915,14 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "net.job",
             vec![
-                ("job_id".to_string(), raw_json_u64(job_id)),
+                ("job_id".to_string(), JsonValue::from(job_id)),
                 (
                     "reserved_response_bytes".to_string(),
-                    raw_json_u64(reserved_response_bytes),
+                    JsonValue::from(reserved_response_bytes),
                 ),
                 (
                     "completed_response_bytes".to_string(),
-                    raw_json_usize(completed_response_bytes),
+                    JsonValue::from(completed_response_bytes),
                 ),
                 (
                     "accepted_at_us".to_string(),
@@ -1950,7 +1947,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
                 ("status".to_string(), option_i64_json_value(status)),
                 (
                     "terminal_error_kind".to_string(),
-                    option_json_value(terminal_error_kind.as_ref().map(raw_json_string)),
+                    option_json_value(terminal_error_kind.as_ref().map(JsonValue::from)),
                 ),
                 (
                     "error".to_string(),
@@ -1980,7 +1977,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "pipeline.segment.start",
             vec![
-                ("index".to_string(), raw_json_usize(index)),
+                ("index".to_string(), JsonValue::from(index)),
                 ("target".to_string(), trace_arg_json_value(target)),
                 ("argv".to_string(), trace_args_json_value(argv)),
                 ("cwd".to_string(), trace_arg_json_value(cwd)),
@@ -1995,7 +1992,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "pipeline.segment.end",
             vec![
-                ("index".to_string(), raw_json_usize(index)),
+                ("index".to_string(), JsonValue::from(index)),
                 ("pid".to_string(), option_u32_json_value(pid)),
                 (
                     "status".to_string(),
@@ -2015,7 +2012,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "redirection",
             vec![
-                ("op".to_string(), raw_json_string(op)),
+                ("op".to_string(), JsonValue::from(op)),
                 (
                     "target".to_string(),
                     option_json_value(target.map(trace_arg_json_value)),
@@ -2034,7 +2031,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "stream.stage",
             vec![
-                ("stage".to_string(), raw_json_string(stage)),
+                ("stage".to_string(), JsonValue::from(stage)),
                 (
                     "item_count".to_string(),
                     option_usize_json_value(item_count),
@@ -2052,8 +2049,8 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "stream.item",
             vec![
-                ("stage".to_string(), raw_json_string(stage)),
-                ("item_index".to_string(), raw_json_usize(item_index)),
+                ("stage".to_string(), JsonValue::from(stage)),
+                ("item_index".to_string(), JsonValue::from(item_index)),
                 (
                     "error".to_string(),
                     option_json_value(error.map(trace_error_json_value)),
@@ -2067,8 +2064,8 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "parallel.job",
             vec![
-                ("stage".to_string(), raw_json_string(stage)),
-                ("item_index".to_string(), raw_json_usize(item_index)),
+                ("stage".to_string(), JsonValue::from(stage)),
+                ("item_index".to_string(), JsonValue::from(item_index)),
                 (
                     "error".to_string(),
                     option_json_value(error.map(trace_error_json_value)),
@@ -2085,15 +2082,15 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "retry.attempt",
             vec![
-                ("attempt".to_string(), raw_json_usize(attempt)),
-                ("max_attempts".to_string(), raw_json_usize(max_attempts)),
+                ("attempt".to_string(), JsonValue::from(attempt)),
+                ("max_attempts".to_string(), JsonValue::from(max_attempts)),
                 (
                     "selected".to_string(),
-                    option_json_value(selected.map(raw_json_bool)),
+                    option_json_value(selected.map(JsonValue::from)),
                 ),
                 (
                     "stop_reason".to_string(),
-                    option_json_value(stop_reason.map(raw_json_string)),
+                    option_json_value(stop_reason.map(JsonValue::from)),
                 ),
                 (
                     "next_delay_ms".to_string(),
@@ -2125,14 +2122,14 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
         } => typed_payload_json_value(
             "signal",
             vec![
-                ("signal_name".to_string(), raw_json_string(signal_name)),
+                ("signal_name".to_string(), JsonValue::from(signal_name)),
                 (
                     "signal_number".to_string(),
-                    raw_json_i64(i64::from(signal_number)),
+                    JsonValue::from(i64::from(signal_number)),
                 ),
-                ("phase".to_string(), raw_json_string(phase)),
-                ("matching_hook".to_string(), raw_json_bool(matching_hook)),
-                ("forwarded".to_string(), raw_json_bool(forwarded)),
+                ("phase".to_string(), JsonValue::from(phase)),
+                ("matching_hook".to_string(), JsonValue::from(matching_hook)),
+                ("forwarded".to_string(), JsonValue::from(forwarded)),
                 (
                     "pre_cancel_ms".to_string(),
                     option_u64_json_value(pre_cancel_ms),
@@ -2152,7 +2149,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
             ],
         ),
         TracePayloadJson::ResultPropagate { error_kind, error } => {
-            let mut fields = vec![("error_kind".to_string(), raw_json_string(error_kind))];
+            let mut fields = vec![("error_kind".to_string(), JsonValue::from(error_kind))];
             if let Some(error) = error {
                 fields.push(("error".into(), trace_error_json_value(error)));
             }
@@ -2167,55 +2164,55 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
 
 fn typed_payload_json_value(ty: &'static str, fields: Vec<(String, JsonValue)>) -> JsonValue {
     let mut entries = Vec::with_capacity(fields.len() + 1);
-    entries.push(("type".to_string(), raw_json_string(ty)));
+    entries.push(("type".to_string(), JsonValue::from(ty)));
     entries.extend(fields);
-    raw_json_object(entries)
+    (entries).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_arg_json_value(data: TraceArgJson) -> JsonValue {
-    raw_json_object([
-        ("hex".to_string(), raw_json_string(data.hex)),
-        ("display".to_string(), raw_json_string(data.display)),
-    ])
+    ([
+        ("hex".to_string(), JsonValue::from(data.hex)),
+        ("display".to_string(), JsonValue::from(data.display)),
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_args_json_value(args: Vec<TraceArgJson>) -> JsonValue {
-    raw_json_array(args.into_iter().map(trace_arg_json_value))
+    (args.into_iter().map(trace_arg_json_value)).into_iter().collect::<JsonValue>()
 }
 
 fn trace_env_json_value(env: Vec<TraceEnvJson>) -> JsonValue {
-    raw_json_array(env.into_iter().map(|item| {
-        raw_json_object([
+    (env.into_iter().map(|item| {
+        ([
             ("name".to_string(), trace_arg_json_value(item.name)),
             ("value".to_string(), trace_arg_json_value(item.value)),
-        ])
-    }))
+        ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+    })).into_iter().collect::<JsonValue>()
 }
 
 fn trace_status_json_value(data: TraceStatusJson) -> JsonValue {
-    raw_json_object([
-        ("success".to_string(), raw_json_bool(data.success)),
-        ("kind".to_string(), raw_json_string(data.kind)),
+    ([
+        ("success".to_string(), JsonValue::from(data.success)),
+        ("kind".to_string(), JsonValue::from(data.kind)),
         ("code".to_string(), option_i32_json_value(data.code)),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_error_json_value(data: TraceErrorJson) -> JsonValue {
     let mut fields = vec![
-        ("kind".to_string(), raw_json_string(data.kind)),
-        ("message".to_string(), raw_json_string(data.message)),
+        ("kind".to_string(), JsonValue::from(data.kind)),
+        ("message".to_string(), JsonValue::from(data.message)),
     ];
     if let Some(detail) = data.detail {
         fields.push(("detail".into(), detail));
     }
     if !data.causes.is_empty() || data.causes_truncated {
-        fields.push(("causes".into(), raw_json_array(data.causes)));
+        fields.push(("causes".into(), (data.causes).into_iter().collect::<JsonValue>()));
         fields.push((
             "causes_truncated".into(),
-            raw_json_bool(data.causes_truncated),
+            JsonValue::from(data.causes_truncated),
         ));
     }
-    raw_json_object(fields)
+    (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_error_span_json(span: Option<Span>, sources: &SourceMap) -> Option<TraceSpanJson> {
@@ -2230,14 +2227,14 @@ fn trace_error_span_json(span: Option<Span>, sources: &SourceMap) -> Option<Trac
 }
 
 fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap) -> JsonValue {
-    raw_json_object([
-        ("family".into(), raw_json_string(&detail.family)),
-        ("variant".into(), raw_json_string(&detail.variant)),
-        ("kind".into(), raw_json_string(&detail.kind)),
-        ("message".into(), raw_json_string(&detail.message)),
+    ([
+        ("family".into(), JsonValue::from(&detail.family)),
+        ("variant".into(), JsonValue::from(&detail.variant)),
+        ("kind".into(), JsonValue::from(&detail.kind)),
+        ("message".into(), JsonValue::from(&detail.message)),
         (
             "facets".into(),
-            raw_json_array(detail.facets.iter().map(raw_json_string)),
+            (detail.facets.iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
         ),
         (
             "span".into(),
@@ -2247,12 +2244,12 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
         ),
         (
             "contexts".into(),
-            raw_json_array(detail.contexts.iter().map(|context| {
-                raw_json_object([
-                    ("kind".into(), raw_json_string(&context.kind)),
+            (detail.contexts.iter().map(|context| {
+                ([
+                    ("kind".into(), JsonValue::from(&context.kind)),
                     (
                         "message".into(),
-                        option_json_value(context.message.as_ref().map(raw_json_string)),
+                        option_json_value(context.message.as_ref().map(JsonValue::from)),
                     ),
                     (
                         "span".into(),
@@ -2260,8 +2257,8 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
                             trace_error_span_json(context.span, sources).map(trace_span_json_value),
                         ),
                     ),
-                ])
-            })),
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+            })).into_iter().collect::<JsonValue>(),
         ),
         (
             "status".into(),
@@ -2273,16 +2270,16 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
                     .map(trace_status_json_value),
             ),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn trace_summary_json_value(data: TraceSummaryJson) -> JsonValue {
-    raw_json_object([
-        ("type".to_string(), raw_json_string(data.ty)),
-        ("event_count".to_string(), raw_json_usize(data.event_count)),
+    ([
+        ("type".to_string(), JsonValue::from(data.ty)),
+        ("event_count".to_string(), JsonValue::from(data.event_count)),
         (
             "timed_event_count".to_string(),
-            raw_json_usize(data.timed_event_count),
+            JsonValue::from(data.timed_event_count),
         ),
         (
             "script_duration_us".to_string(),
@@ -2290,171 +2287,167 @@ fn trace_summary_json_value(data: TraceSummaryJson) -> JsonValue {
         ),
         (
             "function_calls".to_string(),
-            raw_json_array(data.function_calls.into_iter().map(summary_row_json_value)),
+            (data.function_calls.into_iter().map(summary_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
         (
             "hot_commands".to_string(),
-            raw_json_array(data.hot_commands.into_iter().map(summary_row_json_value)),
+            (data.hot_commands.into_iter().map(summary_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn summary_row_json_value(data: SummaryRowJson) -> JsonValue {
-    raw_json_object([
-        ("kind".to_string(), raw_json_string(data.kind)),
-        ("name".to_string(), raw_json_string(data.name)),
-        ("count".to_string(), raw_json_u64(data.count)),
-        ("total_us".to_string(), raw_json_u64(data.total_us)),
-        ("avg_us".to_string(), raw_json_f64(data.avg_us)),
-        ("p50_us".to_string(), raw_json_u64(data.p50_us)),
-        ("p75_us".to_string(), raw_json_u64(data.p75_us)),
-        ("p90_us".to_string(), raw_json_u64(data.p90_us)),
-        ("p99_us".to_string(), raw_json_u64(data.p99_us)),
-        ("max_us".to_string(), raw_json_u64(data.max_us)),
+    ([
+        ("kind".to_string(), JsonValue::from(data.kind)),
+        ("name".to_string(), JsonValue::from(data.name)),
+        ("count".to_string(), JsonValue::from(data.count)),
+        ("total_us".to_string(), JsonValue::from(data.total_us)),
+        ("avg_us".to_string(), JsonValue::from(data.avg_us)),
+        ("p50_us".to_string(), JsonValue::from(data.p50_us)),
+        ("p75_us".to_string(), JsonValue::from(data.p75_us)),
+        ("p90_us".to_string(), JsonValue::from(data.p90_us)),
+        ("p99_us".to_string(), JsonValue::from(data.p99_us)),
+        ("max_us".to_string(), JsonValue::from(data.max_us)),
         (
             "slowest_span".to_string(),
             option_json_value(data.slowest_span.map(trace_span_json_value)),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_summary_json_value(data: SyscallSummaryJson) -> JsonValue {
     let mut fields = vec![
-        ("type".to_string(), raw_json_string(data.ty)),
+        ("type".to_string(), JsonValue::from(data.ty)),
         (
             "syscall_count".to_string(),
-            raw_json_u64(data.syscall_count),
+            JsonValue::from(data.syscall_count),
         ),
         (
             "syscall_seconds".to_string(),
-            raw_json_f64(data.syscall_seconds),
+            JsonValue::from(data.syscall_seconds),
         ),
         (
             "top_syscalls_by_count".to_string(),
-            raw_json_array(
+            (
                 data.top_syscalls_by_count
                     .into_iter()
-                    .map(syscall_summary_row_json_value),
-            ),
+                    .map(syscall_summary_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
         (
             "per_program_top_syscalls".to_string(),
-            raw_json_array(
+            (
                 data.per_program_top_syscalls
                     .into_iter()
-                    .map(syscall_program_summary_json_value),
-            ),
+                    .map(syscall_program_summary_json_value)).into_iter().collect::<JsonValue>(),
         ),
         (
             "per_process_top_syscalls".to_string(),
-            raw_json_array(
+            (
                 data.per_process_top_syscalls
                     .into_iter()
-                    .map(syscall_process_summary_json_value),
-            ),
+                    .map(syscall_process_summary_json_value)).into_iter().collect::<JsonValue>(),
         ),
     ];
     if let Some(wall_seconds) = data.wall_seconds {
-        fields.insert(3, ("wall_seconds".to_string(), raw_json_f64(wall_seconds)));
+        fields.insert(3, ("wall_seconds".to_string(), JsonValue::from(wall_seconds)));
     }
     if !data.per_operation_syscalls.is_empty() {
         fields.push((
             "per_operation_syscalls".to_string(),
-            raw_json_array(
+            (
                 data.per_operation_syscalls
                     .into_iter()
-                    .map(syscall_operation_summary_json_value),
-            ),
+                    .map(syscall_operation_summary_json_value)).into_iter().collect::<JsonValue>(),
         ));
     }
-    raw_json_object(fields)
+    (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_operation_summary_json_value(data: SyscallOperationSummaryJson) -> JsonValue {
-    raw_json_object([
-        ("kind".to_string(), raw_json_string(data.kind)),
-        ("name".to_string(), raw_json_string(data.name)),
+    ([
+        ("kind".to_string(), JsonValue::from(data.kind)),
+        ("name".to_string(), JsonValue::from(data.name)),
         (
             "syscall_count".to_string(),
-            raw_json_u64(data.syscall_count),
+            JsonValue::from(data.syscall_count),
         ),
-        ("seconds".to_string(), raw_json_f64(data.seconds)),
+        ("seconds".to_string(), JsonValue::from(data.seconds)),
         (
             "syscalls".to_string(),
-            raw_json_array(data.syscalls.into_iter().map(syscall_count_row_json_value)),
+            (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_summary_row_json_value(data: SyscallSummaryRowJson) -> JsonValue {
-    raw_json_object([
-        ("syscall".to_string(), raw_json_string(data.syscall)),
-        ("calls".to_string(), raw_json_u64(data.calls)),
-        ("errors".to_string(), raw_json_u64(data.errors)),
-        ("seconds".to_string(), raw_json_f64(data.seconds)),
+    ([
+        ("syscall".to_string(), JsonValue::from(data.syscall)),
+        ("calls".to_string(), JsonValue::from(data.calls)),
+        ("errors".to_string(), JsonValue::from(data.errors)),
+        ("seconds".to_string(), JsonValue::from(data.seconds)),
         (
             "usecs_per_call".to_string(),
-            raw_json_u64(data.usecs_per_call),
+            JsonValue::from(data.usecs_per_call),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_program_summary_json_value(data: SyscallProgramSummaryJson) -> JsonValue {
-    raw_json_object([
-        ("program".to_string(), raw_json_string(data.program)),
-        ("calls".to_string(), raw_json_u64(data.calls)),
+    ([
+        ("program".to_string(), JsonValue::from(data.program)),
+        ("calls".to_string(), JsonValue::from(data.calls)),
         (
             "syscalls".to_string(),
-            raw_json_array(data.syscalls.into_iter().map(syscall_count_row_json_value)),
+            (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_process_summary_json_value(data: SyscallProcessSummaryJson) -> JsonValue {
-    raw_json_object([
-        ("pid".to_string(), raw_json_u64(u64::from(data.pid))),
-        ("program".to_string(), raw_json_string(data.program)),
-        ("calls".to_string(), raw_json_u64(data.calls)),
+    ([
+        ("pid".to_string(), JsonValue::from(u64::from(data.pid))),
+        ("program".to_string(), JsonValue::from(data.program)),
+        ("calls".to_string(), JsonValue::from(data.calls)),
         (
             "syscalls".to_string(),
-            raw_json_array(data.syscalls.into_iter().map(syscall_count_row_json_value)),
+            (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn syscall_count_row_json_value(data: SyscallCountRowJson) -> JsonValue {
-    raw_json_object([
-        ("syscall".to_string(), raw_json_string(data.syscall)),
-        ("calls".to_string(), raw_json_u64(data.calls)),
-    ])
+    ([
+        ("syscall".to_string(), JsonValue::from(data.syscall)),
+        ("calls".to_string(), JsonValue::from(data.calls)),
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn option_json_value(value: Option<JsonValue>) -> JsonValue {
-    value.unwrap_or(JsonValue::Null)
+    value.unwrap_or(JsonValue::null())
 }
 
 fn option_string_json_value(value: Option<String>) -> JsonValue {
-    option_json_value(value.map(raw_json_string))
+    option_json_value(value.map(JsonValue::from))
 }
 
 fn option_u64_json_value(value: Option<u64>) -> JsonValue {
-    option_json_value(value.map(raw_json_u64))
+    option_json_value(value.map(JsonValue::from))
 }
 
 fn option_u32_json_value(value: Option<u32>) -> JsonValue {
-    option_json_value(value.map(|value| raw_json_u64(u64::from(value))))
+    option_json_value(value.map(|value| JsonValue::from(u64::from(value))))
 }
 
 fn option_usize_json_value(value: Option<usize>) -> JsonValue {
-    option_json_value(value.map(raw_json_usize))
+    option_json_value(value.map(JsonValue::from))
 }
 
 fn option_i32_json_value(value: Option<i32>) -> JsonValue {
-    option_json_value(value.map(|value| raw_json_i64(i64::from(value))))
+    option_json_value(value.map(|value| JsonValue::from(i64::from(value))))
 }
 
 fn option_i64_json_value(value: Option<i64>) -> JsonValue {
-    option_json_value(value.map(raw_json_i64))
+    option_json_value(value.map(JsonValue::from))
 }
 
 fn args_json(args: &[TraceArg]) -> Vec<TraceArgJson> {
@@ -3155,43 +3148,25 @@ mod tests {
             .collect()
     }
 
-    fn json_field<'a>(value: &'a miniserde::json::Value, key: &str) -> &'a miniserde::json::Value {
-        match value {
-            miniserde::json::Value::Object(fields) => fields.get(key).unwrap(),
-            _ => panic!("expected object"),
-        }
-    }
+    fn json_field<'a>(value: &'a xsh::host::json::Value, key: &str) -> &'a xsh::host::json::Value {
+    value.get(key).unwrap_or_else(|| panic!("missing JSON field {key}"))
+}
 
-    fn json_index(value: &miniserde::json::Value, index: usize) -> &miniserde::json::Value {
-        match value {
-            miniserde::json::Value::Array(items) => &items[index],
-            _ => panic!("expected array"),
-        }
-    }
+    fn json_index(value: &xsh::host::json::Value, index: usize) -> &xsh::host::json::Value {
+    &value.as_seq().expect("expected JSON array")[index]
+}
 
-    fn json_array(value: &miniserde::json::Value) -> &miniserde::json::Array {
-        match value {
-            miniserde::json::Value::Array(items) => items,
-            _ => panic!("expected array"),
-        }
-    }
+    fn json_array(value: &xsh::host::json::Value) -> &[xsh::host::json::Value] {
+    value.as_seq().expect("expected JSON array")
+}
 
-    fn json_str(value: &miniserde::json::Value) -> &str {
-        match value {
-            miniserde::json::Value::String(value) => value,
-            _ => panic!("expected string"),
-        }
-    }
+    fn json_str(value: &xsh::host::json::Value) -> &str {
+    value.as_str().expect("expected JSON string")
+}
 
-    fn json_u64(value: &miniserde::json::Value) -> u64 {
-        match value {
-            miniserde::json::Value::Number(miniserde::json::Number::U64(value)) => *value,
-            miniserde::json::Value::Number(miniserde::json::Number::I64(value)) => {
-                u64::try_from(*value).unwrap()
-            }
-            _ => panic!("expected u64"),
-        }
-    }
+    fn json_u64(value: &xsh::host::json::Value) -> u64 {
+    value.as_u64().expect("expected JSON u64")
+}
 
     #[test]
     fn renders_nested_trace_as_stable_text() {
@@ -3222,7 +3197,7 @@ mod tests {
         let values = rendered
             .lines()
             .map(|line| {
-                miniserde::json::from_str::<miniserde::json::Value>(line).expect("parse trace JSON")
+                deser_json::from_str::<xsh::host::json::Value>(line).expect("parse trace JSON")
             })
             .collect::<Vec<_>>();
         let run_start = values
@@ -3260,7 +3235,7 @@ mod tests {
         let values = rendered
             .lines()
             .map(|line| {
-                miniserde::json::from_str::<miniserde::json::Value>(line)
+                deser_json::from_str::<xsh::host::json::Value>(line)
                     .expect("parse coverage JSON")
             })
             .collect::<Vec<_>>();
@@ -3337,8 +3312,8 @@ mod tests {
     fn renders_syscall_summary_jsonl() {
         let summary = SyscallSummary::from_records(&synthetic_syscalls());
         let rendered = SyscallSummaryRenderer::new(1).render_jsonl(&summary);
-        let value: miniserde::json::Value =
-            miniserde::json::from_str(rendered.trim()).expect("parse syscall summary JSON");
+        let value: xsh::host::json::Value =
+            deser_json::from_str(rendered.trim()).expect("parse syscall summary JSON");
 
         assert_eq!(json_str(json_field(&value, "type")), "syscall.summary");
         assert_eq!(json_u64(json_field(&value, "syscall_count")), 5);

@@ -1,0 +1,60 @@
+# deser-json
+
+[JSON](https://www.json.org/) support for
+[deser](https://github.com/mitsuhiko/deser).  Use it to read and write JSON
+for any type that implements deser's `Serialize` and `Deserialize`.
+
+```rust
+use deser::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Event<'a> {
+    // borrowed from the input, no allocation
+    kind: &'a str,
+    id: u128,
+    payload: Vec<u8>,
+}
+
+let json = r#"{
+    "kind": "upload",
+    "id": 340282366920938463463374607431768211455,
+    "payload": "aGVsbG8="
+}"#;
+let event: Event = deser_json::from_str(json).unwrap();
+assert_eq!(event.kind, "upload");
+assert_eq!(event.id, u128::MAX);
+assert_eq!(event.payload, b"hello");
+
+assert_eq!(
+    deser_json::to_string(&event).unwrap(),
+    concat!(
+        r#"{"kind":"upload","#,
+        r#""id":340282366920938463463374607431768211455,"#,
+        r#""payload":"aGVsbG8="}"#,
+    )
+);
+```
+
+Why use it:
+
+* **Few dependencies:** only `deser`, `zmij` and `itoa` (for number
+  formatting) and `simdutf8` (for faster UTF-8 validation, the `speedups` feature).
+* **Borrowing:** strings without escapes are passed on borrowed so types
+  can hold `&str` pointing into the input.
+* **Numbers without loss:** 128 bit integers are written and read as
+  numbers, and with `DeserializerConfig::set_exact_numbers` decimals such as
+  `0.10` keep their exact text for types like `rust_decimal::Decimal`.
+* **Bytes:** `Vec<u8>` is base64 by default and can be configured in the
+  context or per field (hex, arrays of integers, ...).
+* **Unlimited nesting:** a million nested arrays do not overflow the stack.
+* **JSON Lines:** a `Deserializer` can read one value per line and
+  recovers from errors in individual lines, a `Serializer` writes them.
+* **Streams:** `from_reader` and `to_writer` work with `std::io`, and the
+  configurations read and write streams of values (JSON Lines or
+  concatenated JSON) with `deser::io` or async runtimes (`deser-tokio`).
+  Values are parsed while their input arrives, so only incomplete tokens
+  are buffered, and written while they are serialized.
+* **Source locations:** errors carry line and column and with
+  `deser::TrackLocations` in the context values can be wrapped in
+  [`deser_location::Spanned`](https://docs.rs/deser-location) to learn
+  where they came from.

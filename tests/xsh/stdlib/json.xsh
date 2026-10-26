@@ -62,23 +62,23 @@ test test_json_borrowed_encoding_keeps_scalars_sets_and_failures { |ctx|
   assert set_path.read_text()? == "[\"a\",\"z\"]"
 
   let non_finite = 0.0 / 0.0
-  test.error_kind(json.encode(non_finite), "json-compatible")
+  test.error_kind(json.encode(non_finite), "CodecError.UnsupportedValue")
   let path_value: Any = p"src"
-  test.error_kind(json.encode(path_value), "json-compatible")
+  test.error_kind(json.encode(path_value), "CodecError.UnsupportedValue")
 
   let destination = fp"{root}/unchanged.json"
   destination.write("preserved")
-  test.error_kind(json.write(destination, non_finite), "json-compatible")
-  test.error_kind(json.write(destination, path_value), "json-compatible")
-  test.error_kind(json.write_lines(destination, [1, path_value]), "json-compatible")
+  test.error_kind(json.write(destination, non_finite), "CodecError.UnsupportedValue")
+  test.error_kind(json.write(destination, path_value), "CodecError.UnsupportedValue")
+  test.error_kind(json.write_lines(destination, [1, path_value]), "CodecError.UnsupportedValue")
   assert destination.read_text()? == "preserved"
 
   fp"{root}/entry".write("file")
   let entry = fs.children(root)? |> first()?
   let opaque_entry: Any = entry
-  test.error_kind(json.encode(opaque_entry), "json-compatible")
-  test.error_kind(json.encode(opaque_entry, pretty: true), "json-compatible")
-  test.error_kind(json.write(destination, opaque_entry), "json-compatible")
+  test.error_kind(json.encode(opaque_entry), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode(opaque_entry, pretty: true), "CodecError.UnsupportedValue")
+  test.error_kind(json.write(destination, opaque_entry), "CodecError.UnsupportedValue")
   assert destination.read_text()? == "preserved"
 }
 
@@ -131,7 +131,7 @@ test test_json_read_write_lines_and_paths { |ctx|
   let lines_path = fp"{root}/lines.jsonl"
   json.write_lines(lines_path, [{a: 1}, {a: 2}])
   assert lines_path.read_text()?.count_lines() == 2
-  test.error_kind(json.decode("{"), "json")
+  test.error_kind(json.decode("{"), "CodecError.Syntax")
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")
 }
 
@@ -145,7 +145,7 @@ b"""
   assert json.get(decoded, ["snow"])? == "☃"
   assert json.get(decoded, ["music"])? == "𝄞"
   assert json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
-  test.error_kind(json.decode("9223372036854775808"), "json")
+  test.error_kind(json.decode("9223372036854775808"), "CodecError.Overflow")
   assert json_label(json.decode("1")?)? == "int 1.0"
   assert json_label(json.decode("1.25")?)? == "float 1.25"
   assert json_label(json.decode("\"x\"")?)? == "str x"
@@ -163,10 +163,10 @@ b"""
   assert json.get(rows[0], ["b"])? == 2
   assert json.get(rows[1], ["a"])? == 1
   assert encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
-  test.error_kind(json.decode("not json"), "json")
+  test.error_kind(json.decode("not json"), "CodecError.Syntax")
   let data = {path: p"src"}
   let path_value: Any = data["path"]
-  test.error_kind(json.encode(path_value), "json-compatible")
+  test.error_kind(json.encode(path_value), "CodecError.UnsupportedValue")
 }
 
 pure json_label(value: Any) -> Result[Str] {
@@ -201,9 +201,9 @@ let _encoded = json.encode(value) ?
 
   assert output.status == 3
   assert "kind=result.propagate" in output.stderr
-  assert "json-compatible" in output.stderr
+  assert "CodecError.UnsupportedValue" in output.stderr
   assert "Path is not JSON-compatible" in output.stderr
-  assert "err: json-compatible: Path is not JSON-compatible" in output.stderr, output.stderr
+  assert "err: CodecError.UnsupportedValue: Path is not JSON-compatible" in output.stderr, output.stderr
 }
 
 # Reads the message out of a rejected `json.*` path entry.
@@ -369,11 +369,11 @@ test test_json_set_updates_the_named_position {
   # The value and the replacement must both be JSON-encodable, checked before
   # anything is updated.
   let path_value: Any = p"src"
-  test.error_kind(json.set(value, ["added"], path_value), "json-compatible")
-  test.error_kind(json.set(path_value, ["added"], 1), "json-compatible")
+  test.error_kind(json.set(value, ["added"], path_value), "CodecError.UnsupportedValue")
+  test.error_kind(json.set(path_value, ["added"], 1), "CodecError.UnsupportedValue")
   let holder: Any = {where: p"src"}
-  test.error_kind(json.set(holder, ["where"], 1), "json-compatible")
-  test.error_kind(json.set(value, [-1], path_value), "json-compatible")
+  test.error_kind(json.set(holder, ["where"], 1), "CodecError.UnsupportedValue")
+  test.error_kind(json.set(value, [-1], path_value), "CodecError.UnsupportedValue")
 }
 
 test test_json_remove_drops_the_named_position {
@@ -469,9 +469,9 @@ b""",
   # An item that cannot be encoded fails the whole composition, whichever item
   # it is; the message and the empty output are checked in the trace test.
   let path_value: Any = p"src"
-  test.error_kind(json.encode_lines([path_value]), "json-compatible")
-  test.error_kind(json.encode_lines([1, path_value]), "json-compatible")
-  test.error_kind(json.encode_lines([path_value, 1]), "json-compatible")
+  test.error_kind(json.encode_lines([path_value]), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode_lines([1, path_value]), "CodecError.UnsupportedValue")
+  test.error_kind(json.encode_lines([path_value, 1]), "CodecError.UnsupportedValue")
 }
 
 test test_json_path_rejects_a_non_list_path { |ctx|
@@ -517,7 +517,7 @@ let _lines = json.encode_lines(items) ?
   )?
   assert lines.status == 3
   assert lines.stdout == ""
-  assert "json-compatible" in lines.stderr
+  assert "CodecError.UnsupportedValue" in lines.stderr
   assert "Path is not JSON-compatible" in lines.stderr
 }
 
@@ -544,4 +544,53 @@ test test_json_set_keeps_path_segments_and_runtime_validation {
   let input = {rows: [{name: "first"}]}
   assert json.encode(json.set(input, ["rows", 0, "name"], "second")?)? == "{\"rows\":[{\"name\":\"second\"}]}"
   test.error_kind(json.set(input, ["rows", 1.5], "second"), "json-path")
+}
+
+
+test test_json_codec_rejects_duplicates_and_preserves_numeric_boundaries {
+  assert json.decode("-9223372036854775808")?.require(Int)? == -9223372036854775807 - 1
+  assert json.decode("9223372036854775807")?.require(Int)? == 9223372036854775807
+  assert json.decode("-0.0")?.require(Int)? == 0
+  assert json.decode("1e2")?.require(Int)? == 100
+  assert json.decode("1.0000000000000000000001")?.require(Int)? == 1
+  test.error_kind(json.decode("-9223372036854775809"), "CodecError.Overflow")
+  test.error_kind(json.decode("1e999"), "CodecError.Overflow")
+  test.error_kind(json.decode("18446744073709551616"), "CodecError.Overflow")
+  test.error_kind(json.decode(r"""{"x":1,"x":2}"""), "CodecError.DuplicateKey")
+  test.error_kind(json.decode(r"""{"outer":{"x":1,"x":2}}"""), "CodecError.DuplicateKey")
+  test.error_kind(json.decode("[] false"), "CodecError.Syntax")
+  match json.decode("{") {
+    Err(CodecError.Syntax {format: format, input_path: input_path, value_path: value_path, ..}) => {
+      assert format == "json"
+      assert input_path == null
+      assert value_path == null
+    }
+    else => return test.fail("expected CodecError")
+  }
+}
+
+test test_json_read_reports_encoding_and_input_path { |ctx|
+  let root = test.temp_dir(ctx, name: "json-encoding")?
+  let invalid = fp"{root}/invalid.json"
+  invalid.write(b"\xff")
+  match json.read(invalid) {
+    Err(CodecError.Encoding {format: format, input_path: input_path, offset: offset, ..}) => {
+      assert format == "json"
+      assert input_path == invalid
+      assert offset == 0
+    }
+    else => return test.fail("expected CodecError.Encoding")
+  }
+  invalid.write("{")
+  match json.read(invalid) {
+    Err(CodecError.Syntax {input_path: input_path, ..}) => assert input_path == invalid
+    else => return test.fail("expected CodecError.Syntax")
+  }
+}
+
+
+test test_json_paths_reject_non_string_map_keys {
+  let value: Any = {[1]: 2}
+  test.error_kind(json.get(value, ["1"]), "json-path")
+  test.error_kind(json.remove(value, ["1"]), "json-path")
 }

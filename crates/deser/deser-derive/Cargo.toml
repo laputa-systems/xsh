@@ -1,0 +1,29 @@
+[package]
+name = "deser-derive"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Derive macros for the Serialize and Deserialize traits of deser"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization", "derive"]
+categories = ["encoding", "development-tools::procedural-macro-helpers"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser"
+
+[lib]
+proc-macro = true
+# the derive is tested through deser
+test = false
+doctest = false
+
+[features]
+# the attribute macros of open enums (`#[deser::open_enum]` and
+# `#[deser::variant]`), which parse items with syn
+open-enums = ["syn/full"]
+
+[dependencies]
+proc-macro2 = "1.0.91"
+quote = "1.0.35"
+syn = "3.0.6"

@@ -1373,46 +1373,6 @@ fn initialized_prefix_to_arc(bytes: &[std::mem::MaybeUninit<u8>], initialized: u
     initialized.into()
 }
 
-pub(super) fn lowered_write_json_str(value: &str, output: &mut String) {
-    output.push('"');
-    let bytes = value.as_bytes();
-    let mut start = 0usize;
-    for (index, &byte) in bytes.iter().enumerate() {
-        let escaped = match byte {
-            b'\x08' => Some("\\b"),
-            b'\t' => Some("\\t"),
-            b'\n' => Some("\\n"),
-            b'\x0c' => Some("\\f"),
-            b'\r' => Some("\\r"),
-            b'"' => Some("\\\""),
-            b'\\' => Some("\\\\"),
-            0x00..=0x1f => {
-                if start < index {
-                    output.push_str(&value[start..index]);
-                }
-                const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
-                output.push_str("\\u00");
-                output.push(HEX_DIGITS[(byte >> 4) as usize] as char);
-                output.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
-                start = index + 1;
-                continue;
-            }
-            _ => None,
-        };
-        if let Some(escaped) = escaped {
-            if start < index {
-                output.push_str(&value[start..index]);
-            }
-            output.push_str(escaped);
-            start = index + 1;
-        }
-    }
-    if start != bytes.len() {
-        output.push_str(&value[start..]);
-    }
-    output.push('"');
-}
-
 fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<String, RuntimeError> {
     let bytes = std::fs::read(path)
         .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
@@ -6278,11 +6238,8 @@ impl Evaluator {
                         RuntimeError::new("type-error", "json.read expected Path").with_span(span)
                     );
                 };
-                match read_host_path_string(&self.host_path(path), "json-read", span) {
-                    Ok(text) => match json_module::parse_json(&text, span) {
-                        Ok(value) => lowered_runtime_value(Value::ok(value), span)?,
-                        Err(error) => lowered_result_err_value(error),
-                    },
+                match json_module::read_json(&self.host_path(path), path, span) {
+                    Ok(value) => lowered_runtime_value(Value::ok(value), span)?,
                     Err(error) => lowered_result_err_value(error),
                 }
             }

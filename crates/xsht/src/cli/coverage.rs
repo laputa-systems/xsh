@@ -1,4 +1,4 @@
-use miniserde::json::Value as JsonValue;
+use xsh::host::json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,10 +9,7 @@ use xsh::frontend::syntax::arena::{
     ArenaProgram, ArenaStmtKind, ArenaSugar, ArenaSugarOperand, BlockId, ExprId, FunctionDefId,
     StmtId,
 };
-use xsh::host::json::{
-    parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_str, raw_json_as_u64,
-    raw_json_get, raw_json_object, raw_json_string, raw_json_u64, raw_json_usize,
-};
+
 
 #[derive(Clone, Debug, Default)]
 pub struct CoverageCollector {
@@ -113,10 +110,10 @@ impl CoverageCollector {
             if line.trim().is_empty() {
                 continue;
             }
-            let value = parse_raw_json(line)
+            let value = xsh::host::json::parse(line)
                 .map_err(|err| format!("failed to parse trace JSONL line {}: {err}", index + 1))?;
-            let kind = raw_json_get(&value, "kind")
-                .and_then(raw_json_as_str)
+            let kind = (&value).get("kind")
+                .and_then(|value| value.as_str())
                 .unwrap_or("");
             if kind == "source.file" {
                 self.ingest_source_file(&value);
@@ -127,23 +124,23 @@ impl CoverageCollector {
                     || kind.ends_with(".start")
                     || kind.ends_with(".enter")
                     || kind == "cwd.enter")
-                && let Some(api_id) = raw_json_get(&value, "api_id").and_then(raw_json_as_str)
+                && let Some(api_id) = (&value).get("api_id").and_then(|value| value.as_str())
             {
                 self.api_hits.entry(api_id.to_string()).or_default().tests += 1;
             }
-            if let Some(span) = raw_json_get(&value, "source_span") {
+            if let Some(span) = (&value).get("source_span") {
                 self.ingest_source_span(
                     kind,
-                    raw_json_get(&value, "name").and_then(raw_json_as_str),
+                    (&value).get("name").and_then(|value| value.as_str()),
                     span,
-                    raw_json_get(&value, "definition_span").is_none(),
+                    (&value).get("definition_span").is_none(),
                 );
             }
             if (kind == "proc.enter" || kind == "pure.enter")
-                && let Some(span) = raw_json_get(&value, "definition_span")
+                && let Some(span) = (&value).get("definition_span")
             {
                 self.ingest_proc_definition(
-                    raw_json_get(&value, "name").and_then(raw_json_as_str),
+                    (&value).get("name").and_then(|value| value.as_str()),
                     span,
                 );
             }
@@ -178,17 +175,17 @@ impl CoverageCollector {
         let mut fields = vec![
             (
                 "source_coverage".to_string(),
-                raw_json_array(source_files.iter().cloned().map(source_file_json)),
+                (source_files.iter().cloned().map(source_file_json)).into_iter().collect::<JsonValue>(),
             ),
             (
                 "source_scope".to_string(),
-                raw_json_object([
-                    ("files".to_string(), raw_json_usize(source_files.len())),
+                ([
+                    ("files".to_string(), JsonValue::from(source_files.len())),
                     (
                         "observed_files".to_string(),
-                        raw_json_usize(self.observed_source_files.len()),
+                        JsonValue::from(self.observed_source_files.len()),
                     ),
-                ]),
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ),
         ];
         if self.include_api {
@@ -196,21 +193,21 @@ impl CoverageCollector {
                 ("api_hits".to_string(), self.api_hits_json()),
                 (
                     "standard_apis".to_string(),
-                    raw_json_array(standard_api_ids().into_iter().map(raw_json_string)),
+                    (standard_api_ids().into_iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
                 ),
-                ("totals".to_string(), raw_json_array(self.api_totals_json())),
+                ("totals".to_string(), (self.api_totals_json()).into_iter().collect::<JsonValue>()),
                 (
                     "uncovered".to_string(),
-                    raw_json_array(self.uncovered_apis().into_iter().map(raw_json_string)),
+                    (self.uncovered_apis().into_iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
                 ),
                 (
                     "covered".to_string(),
-                    raw_json_array(self.covered_apis_json()),
+                    (self.covered_apis_json()).into_iter().collect::<JsonValue>(),
                 ),
             ]);
         }
-        let value = raw_json_object(fields);
-        let text = pretty_raw_json(&value);
+        let value = (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+        let text = xsh::host::json::encode_pretty(&value).expect("host JSON document must be encodable");
         if let Some(parent) = Path::new(path).parent()
             && !parent.as_os_str().is_empty()
         {
@@ -226,7 +223,7 @@ impl CoverageCollector {
     }
 
     fn ingest_source_file(&mut self, value: &JsonValue) {
-        let Some(file) = raw_json_get(value, "file").and_then(raw_json_as_str) else {
+        let Some(file) = (value).get("file").and_then(|value| value.as_str()) else {
             return;
         };
         if self.include_source_file(file) {
@@ -243,20 +240,20 @@ impl CoverageCollector {
         span: &JsonValue,
         count_proc: bool,
     ) {
-        let Some(file) = raw_json_get(span, "file").and_then(raw_json_as_str) else {
+        let Some(file) = (span).get("file").and_then(|value| value.as_str()) else {
             return;
         };
         if !self.include_source_file(file) {
             return;
         }
-        let Some(start_line) = raw_json_get(span, "start_line")
-            .and_then(raw_json_as_u64)
+        let Some(start_line) = (span).get("start_line")
+            .and_then(|value| value.as_u64())
             .and_then(|line| usize::try_from(line).ok())
         else {
             return;
         };
-        let end_line = raw_json_get(span, "end_line")
-            .and_then(raw_json_as_u64)
+        let end_line = (span).get("end_line")
+            .and_then(|value| value.as_u64())
             .and_then(|line| usize::try_from(line).ok())
             .unwrap_or(start_line);
         let entry = self
@@ -280,14 +277,14 @@ impl CoverageCollector {
     }
 
     fn ingest_proc_definition(&mut self, name: Option<&str>, span: &JsonValue) {
-        let Some(file) = raw_json_get(span, "file").and_then(raw_json_as_str) else {
+        let Some(file) = (span).get("file").and_then(|value| value.as_str()) else {
             return;
         };
         if !self.include_source_file(file) {
             return;
         }
-        let Some(start_line) = raw_json_get(span, "start_line")
-            .and_then(raw_json_as_u64)
+        let Some(start_line) = (span).get("start_line")
+            .and_then(|value| value.as_u64())
             .and_then(|line| usize::try_from(line).ok())
         else {
             return;
@@ -462,23 +459,23 @@ impl CoverageCollector {
     }
 
     fn api_hits_json(&self) -> JsonValue {
-        raw_json_object(self.api_hits.iter().map(|(api_id, hits)| {
+        (self.api_hits.iter().map(|(api_id, hits)| {
             (
                 api_id.clone(),
-                raw_json_object([("tests".to_string(), raw_json_u64(hits.tests))]),
+                ([("tests".to_string(), JsonValue::from(hits.tests))]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             )
-        }))
+        })).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
     }
 
     fn api_totals_json(&self) -> Vec<JsonValue> {
         self.api_totals()
             .into_iter()
             .map(|(group, covered, total)| {
-                raw_json_object([
-                    ("group".to_string(), raw_json_string(group)),
-                    ("covered".to_string(), raw_json_usize(covered)),
-                    ("total".to_string(), raw_json_usize(total)),
-                ])
+                ([
+                    ("group".to_string(), JsonValue::from(group)),
+                    ("covered".to_string(), JsonValue::from(covered)),
+                    ("total".to_string(), JsonValue::from(total)),
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
             })
             .collect()
     }
@@ -532,11 +529,11 @@ impl CoverageCollector {
             .filter_map(|(api_id, hits)| {
                 let total = hits.tests;
                 (total > 0).then(|| {
-                    raw_json_object([
-                        ("api_id".to_string(), raw_json_string(api_id)),
-                        ("tests".to_string(), raw_json_u64(hits.tests)),
-                        ("total".to_string(), raw_json_u64(total)),
-                    ])
+                    ([
+                        ("api_id".to_string(), JsonValue::from(api_id)),
+                        ("tests".to_string(), JsonValue::from(hits.tests)),
+                        ("total".to_string(), JsonValue::from(total)),
+                    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
                 })
             })
             .collect()
@@ -544,22 +541,22 @@ impl CoverageCollector {
 }
 
 fn source_file_json(file: SourceFileCoverage) -> JsonValue {
-    raw_json_object([
-        ("file".to_string(), raw_json_string(file.file)),
+    ([
+        ("file".to_string(), JsonValue::from(file.file)),
         (
             "executable_lines".to_string(),
-            raw_json_usize(file.executable_lines),
+            JsonValue::from(file.executable_lines),
         ),
         (
             "covered_lines".to_string(),
-            raw_json_usize(file.covered_lines),
+            JsonValue::from(file.covered_lines),
         ),
-        ("total_procs".to_string(), raw_json_usize(file.total_procs)),
+        ("total_procs".to_string(), JsonValue::from(file.total_procs)),
         (
             "covered_procs".to_string(),
-            raw_json_usize(file.covered_procs),
+            JsonValue::from(file.covered_procs),
         ),
-    ])
+    ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
 fn absolute_path(path: &Path) -> PathBuf {

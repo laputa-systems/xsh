@@ -132,7 +132,7 @@ pub fn test_name(path: &str) -> String {
 }
 
 fn parse_catalog(text: &str) -> Result<ExampleCatalog, String> {
-    let value = xsh::host::json::parse_raw_json(text)?;
+    let value = xsh::host::json::parse(text)?;
     let examples = json_array_field(&value, "examples")?
         .iter()
         .map(parse_case)
@@ -140,7 +140,7 @@ fn parse_catalog(text: &str) -> Result<ExampleCatalog, String> {
     Ok(ExampleCatalog { examples })
 }
 
-fn parse_case(value: &miniserde::json::Value) -> Result<ExampleCase, String> {
+fn parse_case(value: &xsh::host::json::Value) -> Result<ExampleCase, String> {
     let expected_status = json_u64_field(value, "expected_status")?;
     let expected_status = i32::try_from(expected_status)
         .map_err(|_| "example expected_status does not fit i32".to_string())?;
@@ -156,7 +156,7 @@ fn parse_case(value: &miniserde::json::Value) -> Result<ExampleCase, String> {
     })
 }
 
-fn parse_output_policy(value: &miniserde::json::Value) -> Result<OutputPolicy, String> {
+fn parse_output_policy(value: &xsh::host::json::Value) -> Result<OutputPolicy, String> {
     match json_string_field(value, "kind")? {
         "exact" => Ok(OutputPolicy::Exact(
             json_string_field(value, "value")?.to_string(),
@@ -171,56 +171,54 @@ fn parse_output_policy(value: &miniserde::json::Value) -> Result<OutputPolicy, S
 }
 
 fn json_field<'a>(
-    value: &'a miniserde::json::Value,
+    value: &'a xsh::host::json::Value,
     key: &str,
-) -> Result<&'a miniserde::json::Value, String> {
-    xsh::host::json::raw_json_get(value, key).ok_or_else(|| format!("missing field '{key}'"))
+) -> Result<&'a xsh::host::json::Value, String> {
+    (value).get(key).ok_or_else(|| format!("missing field '{key}'"))
 }
 
-fn json_string_field<'a>(value: &'a miniserde::json::Value, key: &str) -> Result<&'a str, String> {
+fn json_string_field<'a>(value: &'a xsh::host::json::Value, key: &str) -> Result<&'a str, String> {
     let value = json_field(value, key)?;
-    xsh::host::json::raw_json_as_str(value).ok_or_else(|| format!("field '{key}' must be a string"))
+    (value).as_str().ok_or_else(|| format!("field '{key}' must be a string"))
 }
 
-fn json_u64_field(value: &miniserde::json::Value, key: &str) -> Result<u64, String> {
+fn json_u64_field(value: &xsh::host::json::Value, key: &str) -> Result<u64, String> {
     let value = json_field(value, key)?;
-    xsh::host::json::raw_json_as_u64(value)
+    (value).as_u64()
         .ok_or_else(|| format!("field '{key}' must be a non-negative integer"))
 }
 
 fn json_array_field<'a>(
-    value: &'a miniserde::json::Value,
+    value: &'a xsh::host::json::Value,
     key: &str,
-) -> Result<&'a miniserde::json::Array, String> {
-    match json_field(value, key)? {
-        miniserde::json::Value::Array(items) => Ok(items),
-        _ => Err(format!("field '{key}' must be an array")),
-    }
+) -> Result<&'a [xsh::host::json::Value], String> {
+    json_field(value, key)?.as_seq().map(|items| items.as_slice())
+        .ok_or_else(|| format!("field '{key}' must be an array"))
 }
 
 fn json_optional_bool_field(
-    value: &miniserde::json::Value,
+    value: &xsh::host::json::Value,
     key: &str,
 ) -> Result<Option<bool>, String> {
-    let Some(value) = xsh::host::json::raw_json_get(value, key) else {
+    let Some(value) = (value).get(key) else {
         return Ok(None);
     };
-    xsh::host::json::raw_json_as_bool(value)
+    (value).as_bool()
         .map(Some)
         .ok_or_else(|| format!("field '{key}' must be a boolean"))
 }
 
 fn json_optional_string_list_field(
-    value: &miniserde::json::Value,
+    value: &xsh::host::json::Value,
     key: &str,
 ) -> Result<Option<Vec<String>>, String> {
-    let Some(miniserde::json::Value::Array(items)) = xsh::host::json::raw_json_get(value, key)
+    let Some(items) = value.get(key).and_then(|value| value.as_seq())
     else {
         return Ok(None);
     };
     let mut values = Vec::with_capacity(items.len());
     for item in items {
-        let Some(value) = xsh::host::json::raw_json_as_str(item) else {
+        let Some(value) = (item).as_str() else {
             return Err(format!("field '{key}' must contain only strings"));
         };
         values.push(value.to_string());

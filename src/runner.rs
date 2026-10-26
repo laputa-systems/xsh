@@ -1,3 +1,4 @@
+use xsh::host::json::Value as JsonValue;
 use crate::diagnostic::{DiagnosticRenderer, Severity};
 use crate::execution::script::{RunOptions, ScriptOutput, XSH_COVERAGE_TRACE_DIR};
 use crate::loader::{
@@ -710,40 +711,40 @@ pub(crate) fn write_nested_coverage_trace(
 fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> String {
     let mut output = String::new();
     for file in sources.files() {
-        let value = crate::modules::json::raw_json_object([
+        let value = ([
             (
                 "kind".to_string(),
-                crate::modules::json::raw_json_string("source.file"),
+                JsonValue::from("source.file"),
             ),
             (
                 "file".to_string(),
-                crate::modules::json::raw_json_string(file.name()),
+                JsonValue::from(file.name()),
             ),
             (
                 "line_count".to_string(),
-                crate::modules::json::raw_json_usize(file.line_count()),
+                JsonValue::from(file.line_count()),
             ),
-        ]);
-        output.push_str(&crate::modules::json::compact_raw_json(&value));
+        ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+        output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
         output.push('\n');
     }
     for event in events {
         let mut fields = vec![(
             "kind".to_string(),
-            crate::modules::json::raw_json_string(event.kind.as_str()),
+            JsonValue::from(event.kind.as_str()),
         )];
 
         if let Some(api_id) = &event.api_id {
             fields.push((
                 "api_id".to_string(),
-                crate::modules::json::raw_json_string(api_id),
+                JsonValue::from(api_id),
             ));
         }
 
         if let Some(name) = &event.name {
             fields.push((
                 "name".to_string(),
-                crate::modules::json::raw_json_string(name),
+                JsonValue::from(name),
             ));
         }
 
@@ -755,28 +756,28 @@ fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> St
         {
             fields.push((
                 "source_span".to_string(),
-                crate::modules::json::raw_json_object([
+                ([
                     (
                         "file".to_string(),
-                        crate::modules::json::raw_json_string(start.file),
+                        JsonValue::from(start.file),
                     ),
                     (
                         "start_line".to_string(),
-                        crate::modules::json::raw_json_usize(start.line),
+                        JsonValue::from(start.line),
                     ),
                     (
                         "end_line".to_string(),
-                        crate::modules::json::raw_json_usize(end.line),
+                        JsonValue::from(end.line),
                     ),
                     (
                         "start_offset".to_string(),
-                        crate::modules::json::raw_json_usize(span.start()),
+                        JsonValue::from(span.start()),
                     ),
                     (
                         "end_offset".to_string(),
-                        crate::modules::json::raw_json_usize(span.end()),
+                        JsonValue::from(span.end()),
                     ),
-                ]),
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ));
         }
 
@@ -788,33 +789,33 @@ fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> St
         {
             fields.push((
                 "definition_span".to_string(),
-                crate::modules::json::raw_json_object([
+                ([
                     (
                         "file".to_string(),
-                        crate::modules::json::raw_json_string(start.file),
+                        JsonValue::from(start.file),
                     ),
                     (
                         "start_line".to_string(),
-                        crate::modules::json::raw_json_usize(start.line),
+                        JsonValue::from(start.line),
                     ),
                     (
                         "end_line".to_string(),
-                        crate::modules::json::raw_json_usize(end.line),
+                        JsonValue::from(end.line),
                     ),
                     (
                         "start_offset".to_string(),
-                        crate::modules::json::raw_json_usize(span.start()),
+                        JsonValue::from(span.start()),
                     ),
                     (
                         "end_offset".to_string(),
-                        crate::modules::json::raw_json_usize(span.end()),
+                        JsonValue::from(span.end()),
                     ),
-                ]),
+                ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ));
         }
 
-        let value = crate::modules::json::raw_json_object(fields);
-        output.push_str(&crate::modules::json::compact_raw_json(&value));
+        let value = (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>();
+        output.push_str(&xsh::host::json::encode(&value).expect("host JSON document must be encodable"));
         output.push('\n');
     }
     output

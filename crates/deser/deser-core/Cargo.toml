@@ -1,0 +1,47 @@
+[package]
+name = "deser-core"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+version = "0.10.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Core traits and types of deser, use the deser crate instead"
+repository = "https://github.com/mitsuhiko/deser"
+keywords = ["serialization", "deserialization"]
+categories = ["encoding", "no-std"]
+readme = "README.md"
+license = "Apache-2.0"
+documentation = "https://docs.rs/deser"
+
+[package.metadata.docs.rs]
+all-features = true
+# the pages forward to the documentation of deser (see the file)
+rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "docs-redirect.html"]
+
+[features]
+default = ["std", "io"]
+# the standard library.  Without it deser needs `alloc`, the types of the
+# standard library that are not in `alloc` (like `HashMap` and `Path`) are
+# not supported and there is no cache for the sinks.
+std = [
+  "jiff?/std",
+]
+# the support code of derived implementations (the derive macros are in
+# deser-derive and re-exported by deser)
+derive = []
+# reading and writing values from and to streams (`deser::io`)
+io = ["std"]
+# the support code of open enums (`#[deser::open_enum]`)
+open-enums = ["derive"]
+
+[dependencies]
+# types of these crates serialize as well-known extension types
+jiff = { version = "0.2.14", optional = true, default-features = false, features = ["alloc"] }
+# collections and byte buffers of these crates serialize like the standard
+# containers
+
+[dev-dependencies]
+# the examples in the documentation use deser (with derive)
+deser = { path = "../deser", features = ["derive", "open-enums"] }
+# the examples of user facing features deserialize JSON (without std so that
+# the no-default-features builds of the tests stay without std)
+deser-json = { path = "../deser-json", default-features = false }

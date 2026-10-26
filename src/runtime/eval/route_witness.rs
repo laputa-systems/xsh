@@ -335,8 +335,8 @@ impl ChildCapture {
     pub(crate) fn write_records(&self, records: &[RouteWitnessRecord]) -> std::io::Result<()> {
         let mut payload = format!(
             "{{\"version\":{ARTIFACT_VERSION},\"test_id\":{},\"source_hash\":{},\"records\":[",
-            miniserde::json::to_string(&self.test_id),
-            miniserde::json::to_string(&self.source_hash),
+            deser_json::to_string(&self.test_id).expect("host JSON scalar must be encodable"),
+            deser_json::to_string(&self.source_hash).expect("host JSON scalar must be encodable"),
         );
         for (index, record) in records.iter().enumerate() {
             if index > 0 {
@@ -344,10 +344,10 @@ impl ChildCapture {
             }
             payload.push_str(&format!(
                 "{{\"tag_name\":{},\"tag_ordinal\":{},\"route\":{},\"mode\":{}}}",
-                miniserde::json::to_string(record.tag.name),
+                deser_json::to_string(record.tag.name).expect("host JSON scalar must be encodable"),
                 record.tag.ordinal,
-                miniserde::json::to_string(record.route.name()),
-                miniserde::json::to_string(record.mode.name()),
+                deser_json::to_string(record.route.name()).expect("host JSON scalar must be encodable"),
+                deser_json::to_string(record.mode.name()).expect("host JSON scalar must be encodable"),
             ));
         }
         payload.push_str("]}\n");
@@ -495,7 +495,7 @@ pub(crate) fn validate_artifact(
     source: &[u8],
     forced: bool,
 ) -> Result<(), String> {
-    #[derive(miniserde::Deserialize)]
+    #[derive(deser::Deserialize)]
     struct Artifact {
         version: u64,
         test_id: String,
@@ -503,7 +503,7 @@ pub(crate) fn validate_artifact(
         records: Vec<Record>,
     }
 
-    #[derive(miniserde::Deserialize)]
+    #[derive(deser::Deserialize)]
     struct Record {
         tag_name: String,
         tag_ordinal: u32,
@@ -514,29 +514,23 @@ pub(crate) fn validate_artifact(
     let path = output_dir.join(ARTIFACT_FILE);
     let text = fs::read_to_string(&path)
         .map_err(|error| format!("failed to read route-witness artifact: {error}"))?;
-    let raw: miniserde::json::Value = miniserde::json::from_str(&text)
+    let raw: xsh::host::json::Value = deser_json::from_str(&text)
         .map_err(|_| "route-witness artifact has invalid JSON schema".to_string())?;
-    let has_fields = |value: &miniserde::json::Value, fields: &[&str]| match value {
-        miniserde::json::Value::Object(object) => {
+    let has_fields = |value: &xsh::host::json::Value, fields: &[&str]| {
+        value.as_map().is_some_and(|object| {
             object.len() == fields.len() && fields.iter().all(|field| object.contains_key(*field))
-        }
-        _ => false,
+        })
     };
-    let records_have_fields = match &raw {
-        miniserde::json::Value::Object(object) => match object.get("records") {
-            Some(miniserde::json::Value::Array(records)) => records.iter().all(|record| {
-                has_fields(record, &["tag_name", "tag_ordinal", "route", "mode"])
-            }),
-            _ => false,
-        },
-        _ => false,
-    };
+    let records_have_fields = raw.get("records").and_then(|value| value.as_seq())
+        .is_some_and(|records| records.iter().all(|record| {
+            has_fields(record, &["tag_name", "tag_ordinal", "route", "mode"])
+        }));
     if !has_fields(&raw, &["version", "test_id", "source_hash", "records"])
         || !records_have_fields
     {
         return Err("route-witness artifact has an unexpected object shape".to_string());
     }
-    let artifact: Artifact = miniserde::json::from_str(&text)
+    let artifact: Artifact = deser_json::from_str(&text)
         .map_err(|_| "route-witness artifact has invalid JSON schema".to_string())?;
     if artifact.version != ARTIFACT_VERSION {
         return Err("route-witness artifact version is unsupported".to_string());
@@ -883,8 +877,8 @@ mod tests {
             &path,
             format!(
                 "{{\"version\":1,\"test_id\":{},\"source_hash\":{},\"records\":[{}]}}\n",
-                miniserde::json::to_string(test_id),
-                miniserde::json::to_string(&source_sha256(source)),
+                deser_json::to_string(test_id).expect("host JSON scalar must be encodable"),
+                deser_json::to_string(&source_sha256(source)).expect("host JSON scalar must be encodable"),
                 records,
             ),
         )
