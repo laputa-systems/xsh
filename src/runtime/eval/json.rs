@@ -185,12 +185,10 @@ pub(super) fn encode_lowered_lines_for_write(values: &LoweredValue, span: Span) 
         LoweredValue::SharedList(items) => items.as_slice(),
         other => return Err(RuntimeError::new("type-error", format!("expected List, found {}", ValueView::Lowered(other).type_name())).with_span(span)),
     };
-    let mut output = String::new();
-    for item in items {
-        output.push_str(&encode_lowered(item, false, span)?);
-        output.push('\n');
-    }
-    Ok(output)
+    let output = crate::modules::codec::sequence::encode_all(
+        Format::Json, items.iter().map(|value| borrowed_lowered(Format::Json, value, span)), span,
+    )?;
+    Ok(String::from_utf8(output).expect("JSON sequence serializer UTF-8"))
 }
 
 fn encode_tree(value: CodecInput<'_>, pretty: bool, span: Span) -> Result<String, RuntimeError> {
@@ -353,6 +351,48 @@ mod tests {
 
     fn span() -> Span {
         Span::new(SourceId::new(0), 0, 1)
+    }
+
+    #[test]
+    fn json_lines_embedded_and_write_encoders_preserve_result_semantics() {
+        use crate::runtime::value::{PathValue, ResultValue};
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _scope = symbols.enter();
+        for (items, expected) in [
+            (vec![], ""),
+            (vec![Value::Int(1), Value::Str("two\n\"".into()), Value::Null, Value::Bool(true)], "1\n\"two\\n\\\"\"\nnull\ntrue\n"),
+        ] {
+            let values = Value::List(items);
+            let encoded = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", &[values.clone()]).unwrap();
+            assert_eq!(encoded, Value::ok(Value::Str(expected.into())));
+            let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&values).unwrap();
+            assert_eq!(encode_lowered_lines_for_write(&lowered, span()).unwrap(), expected);
+        }
+        let path = Value::Path(PathValue::from_text("src").unwrap());
+        for items in [vec![path.clone(), Value::Int(1)], vec![Value::Int(1), path]] {
+            let values = Value::List(items);
+            let result = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", &[values.clone()]).unwrap();
+            let Value::Result(ResultValue::Err(error)) = result else { panic!("whole JSON Lines encoding must fail") };
+            let Value::Error(error) = *error else { panic!("JSON Lines codec error") };
+            assert_eq!(error.variant, "UnsupportedValue");
+            let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&values).unwrap();
+            assert_eq!(encode_lowered_lines_for_write(&lowered, span()).unwrap_err().variant, "UnsupportedValue");
+        }
+        let result = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", &[Value::Int(1)]).unwrap();
+        let Value::Result(ResultValue::Err(error)) = result else { panic!("JSON Lines list type error") };
+        let Value::Error(error) = *error else { panic!("JSON Lines list error") };
+        assert_eq!(error.family, "JsonError");
+        assert_eq!(error.variant, "Lines");
+        assert_eq!(error.payload.get("message"), Some(&Value::Str("expected List, found Int".into())));
+        assert_eq!(encode_lowered_lines_for_write(&LoweredValue::Int(1), span()).unwrap_err().kind, "type-error");
+    }
+
+    #[test]
+    fn json_lines_write_encoding_enforces_the_whole_output_limit() {
+        let item = LoweredValue::Str("x".repeat(crate::modules::codec::OUTPUT_LIMIT / 8 - 3).into());
+        let values = LoweredValue::List(vec![item; 9]);
+        let result = encode_lowered_lines_for_write(&values, span());
+        assert!(matches!(result, Err(error) if error.family == "CodecError" && error.variant == "Limit"));
     }
 
     #[test]

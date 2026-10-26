@@ -5042,6 +5042,9 @@ of its elements in key order, so a `Set[Str]` is a sorted array.
 values of `T`; an array that repeats an element fails with `schema`, because
 a validation boundary does not drop data. `json.encode_lines` and
 `json.write_lines` emit one compact value per line, each followed by a newline.
+Both apply the codec sequence limits of 1,000,000 items and 128 MiB of total
+encoded output. They build the complete output before returning or writing;
+an encoding failure produces no partial text and leaves the destination intact.
 
 Not every temporary value needs a schema. A record literal is already typed:
 

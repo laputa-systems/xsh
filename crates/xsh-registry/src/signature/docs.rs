@@ -329,7 +329,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("json", "write_lines") => Some((
             "Writes one JSON document per output line.",
-            "Use this only for line-oriented interchange; each input value must be JSON-compatible.",
+            "Each value must be JSON-compatible. At most 1,000,000 items and 128 MiB of total output are accepted; encoding completes before the destination is overwritten.",
             &["json", "lines"],
         )),
         ("archive", "tar_create") => Some((
@@ -1033,7 +1033,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("json", "encode_lines") => Some((
             "Serializes a list of values as newline-delimited JSON.",
-            "Each line is an independent JSON document and every value must be JSON-compatible.",
+            "Each value must be JSON-compatible. At most 1,000,000 items and 128 MiB of total output are accepted; an encoding failure returns no partial text.",
             &["json", "encoding", "lines"],
         )),
         ("json", "get") => Some((
