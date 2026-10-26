@@ -829,7 +829,7 @@ pure count_markdown(text: Bytes) -> Scan {
   var shell = zero_stats()
   var tsx = zero_stats()
   var typescript = zero_stats()
-  var toml = zero_stats()
+  var toml_stats = zero_stats()
 
   for line in text.lines() {
     let trimmed = line.trim()
@@ -898,7 +898,7 @@ pure count_markdown(text: Bytes) -> Scan {
           }
           LangToml => {
             let scan = count_hash_language(body)
-            toml = add_stats(toml, scan.stats)
+            toml_stats = add_stats(toml_stats, scan.stats)
             deep = add_stats(deep, scan.deep)
           }
           else => {}
@@ -990,7 +990,7 @@ pure count_markdown(text: Bytes) -> Scan {
       }
       LangToml => {
         let scan = count_hash_language(body)
-        toml = add_stats(toml, scan.stats)
+        toml_stats = add_stats(toml_stats, scan.stats)
         deep = add_stats(deep, scan.deep)
       }
       else => {}
@@ -1006,7 +1006,7 @@ pure count_markdown(text: Bytes) -> Scan {
   blobs = set_blob(blobs, language_label(LangPython), python)
   blobs = set_blob(blobs, language_label(LangRust), rust)
   blobs = set_blob(blobs, language_label(LangShell), shell)
-  blobs = set_blob(blobs, language_label(LangToml), toml)
+  blobs = set_blob(blobs, language_label(LangToml), toml_stats)
   blobs = set_blob(blobs, language_label(LangTsx), tsx)
   blobs = set_blob(blobs, language_label(LangTypeScript), typescript)
   let stats = {blanks, code: 0, comments, blobs: map.empty()}

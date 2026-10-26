@@ -617,7 +617,7 @@ proc expand_directories(names: List[Str], format: Str, decode: Bool, custom: Str
 # order. Frames concatenate, so each input is encoded on its own and the results
 # are joined. The reference tool asks before doing this, which a script cannot
 # answer, so -f stands in for the confirmation. Returns the exit status.
-proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool, level: Int, force: Bool, keep: Bool, show_errors: Bool, show_warnings: Bool) [fs, io, error, process, env] -> Int {
+proc write_concatenated(names: List[Str], output: Str, compression_format: Str, decode: Bool, level: Int, force: Bool, keep: Bool, show_errors: Bool, show_warnings: Bool) [fs, io, error, process, env] -> Int {
   if show_warnings {
     gnu.error(f"WARNING: all input files will be processed and concatenated into a single output file: {output}")
     gnu.error("The concatenated output CANNOT regenerate original file names nor directory structure.")
@@ -651,7 +651,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       }
       source = fp"{name}"
     }
-    match compression.transform(source, part, codec, decode:, level:, test: false, metadata: false, overwrite: true, pass_through: false) {
+    match compression.transform(source, part, compression_format, decode:, level:, test: false, metadata: false, overwrite: true, pass_through: false) {
       Ok(_) => {
         joined += [part.read_bytes()?]
         if name != "-" { consumed += [name] }
@@ -880,11 +880,11 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
   }
   # xz also reads .lzma content, so a decoding xz applet lets the codec pick
   # between the two from the stream itself; every other applet names its format.
-  let codec = if decode and format == "xz" and auto_format { "xz,lzma" } else { format }
+  let compression_format = if decode and format == "xz" and auto_format { "xz,lzma" } else { format }
   var fixed = null
   if let target = output_file {
     if names.len() > 1 and ! testing {
-      exit write_concatenated(names, target, codec, decode, level, force, keep, show_errors, show_warnings)
+      exit write_concatenated(names, target, compression_format, decode, level, force, keep, show_errors, show_warnings)
     }
     fixed = fp"{target}"
   }
@@ -957,7 +957,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       continue
     }
     let passing_through = (force or pass_through) and decode and to_stdout and ! testing
-    match compression.transform(source, destination, codec, decode:, level:, test: testing, metadata:, overwrite: force, pass_through: passing_through) {
+    match compression.transform(source, destination, compression_format, decode:, level:, test: testing, metadata:, overwrite: force, pass_through: passing_through) {
       Ok(_) => {
         if destination != null and source != null and ! keep {
           if let Err(failure) = fp"{name}".remove(missing_ok: false) {
