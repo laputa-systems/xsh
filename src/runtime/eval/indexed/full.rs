@@ -37199,7 +37199,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprStrByteLen
             ExprStrByteAt
             ExprStrPredicate
-            ExprCodecSchema
             ExprRequire
             ExprCheckedValue
             ExprRunCapture
@@ -37246,6 +37245,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprDynamicCall
             ExprSelfCall
             ExprTypedCall
+            ExprCodecSchema
             ExprProcCallResult
             StmtLet
             StmtGuard
@@ -37292,20 +37292,20 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
         let dead_ordinals = [50, 64, 95, 97, 98, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 153);
-        let existing_ordinals = (0usize..158)
-            .filter(|ordinal| !dead_ordinals.contains(ordinal))
-            .collect::<Vec<_>>();
-        let expected_ordinals = existing_ordinals[..21]
-            .iter()
-            .copied()
-            .chain([158])
-            .chain(existing_ordinals[21..].iter().copied())
-            .collect::<Vec<_>>();
-        for ((tag, name), ordinal) in schema::INSTRUCTION_TAGS.iter().zip(names).zip(expected_ordinals) {
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 154);
+        assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
+        let mut existing_ordinals = (0usize..158)
+            .filter(|ordinal| !dead_ordinals.contains(ordinal));
+        for (tag, name) in schema::INSTRUCTION_TAGS.iter().zip(names) {
+            let ordinal = match name {
+                "ExprUInt" => 158,
+                "ExprCodecSchema" => 159,
+                _ => existing_ordinals.next().expect("existing tag has an ordinal"),
+            };
             assert_eq!(*tag as usize, ordinal);
             assert_eq!(tag.name(), name);
         }
+        assert!(existing_ordinals.next().is_none());
         assert!(!schema::INSTRUCTION_TAGS.iter().any(|tag| dead_ordinals.contains(&(*tag as usize))));
         assert_eq!(*schema::INSTRUCTION_TAGS.last().unwrap() as usize, 157);
         fn previous_effects(tags: &[FullTag]) -> u32 {
@@ -37337,7 +37337,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                         | FullTag::ExprSelfCall
                         | FullTag::ExprDirectPureCall
                         | FullTag::ExprExternalCall => EFFECT_TRACE,
-                        FullTag::ExprModuleCall => EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::ExprModuleCall | FullTag::ExprCodecSchema => EFFECT_HOST | EFFECT_TRACE,
                         FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
                         FullTag::ExprFsFiles
                         | FullTag::ExprFsWalk

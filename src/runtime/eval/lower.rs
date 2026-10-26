@@ -10025,6 +10025,7 @@ mod compact_expr_kind_tests {
             (33, "wait"),
             (34, "builder_call"),
             (35, "try"),
+            (52, "codec-schema"),
             (36, "require"),
             (37, "loop"),
             (38, "retry"),
@@ -10041,7 +10042,6 @@ mod compact_expr_kind_tests {
             (49, "set_comp"),
             (50, "collect"),
             (51, "resource_scope"),
-            (52, "codec-schema"),
         ];
 
         assert_eq!(COMPACT_EXPR_KIND_COUNT, 53);

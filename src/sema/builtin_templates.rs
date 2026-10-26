@@ -660,11 +660,12 @@ mod tests {
             argument_slots: std::sync::Arc::from([2, 0]), argument_checks: std::sync::Arc::from([None, None, None]),
         };
         let receiver = SchemeType::Ground(Type::FsRoot);
-        let path = SchemeType::Ground(Type::Path);
+        let path = SchemeType::Ground(Type::rel_path());
         let ordered = SchemeType::Ground(Type::Bool);
         let arguments = [Some(&path), None, Some(&ordered)];
         let result = registered_call_result(&plan, Some(&receiver), &arguments, &|_| false).unwrap();
         assert!(verify_registered_call(&plan, Some(&receiver), &arguments, &result, &|_| false));
+        assert!(!verify_registered_call(&plan, Some(&receiver), &[Some(&SchemeType::Ground(Type::Path)), None, Some(&ordered)], &result, &|_| false));
         assert!(!verify_registered_call(&plan, Some(&SchemeType::Ground(Type::Str)), &arguments, &result, &|_| false));
         assert!(!verify_registered_call(&plan, Some(&receiver), &[None, None, Some(&ordered)], &result, &|_| false));
         let mut duplicate = plan.clone();
