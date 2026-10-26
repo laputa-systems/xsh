@@ -58,8 +58,9 @@ and cold authority checks are unchanged. The latest Full run passes integration
 eight core compatibility cases because `e78cd5afa` rejects a valid inferred
 iteration receiver. `bc267943b` narrows that diagnostic to propagation from an
 authenticated Err constructor. Its 37 focused debug checks preserve cold
-contracts and both execution routes. Pinned compatibility and fuzz checks remain
-pending in an isolated checkout. Full's remaining owners and the isolated Linux
+contracts and both execution routes. The isolated pinned checkout also passes
+all eight compatibility regressions and all 1,000 diagnostic-mutation seeds.
+Full's remaining owners and the isolated Linux
 resource case are pending. Final qualification must cover the combined master.
 The owner separately authorized integrating the optional-module-call compiler
 repair; `cadc4468b` preserves checked result/effect contracts and its focused
