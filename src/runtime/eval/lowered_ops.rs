@@ -1240,11 +1240,12 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
 }
 
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
-    let mut record = BTreeMap::new();
+    let mut record = Vec::with_capacity(value.len());
     for (key, value) in value.owned_key_iter() {
-        record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
+        record.push((Name::intern(key.as_str()), lowered_value_from_runtime_any(value)?));
     }
-    Some(LoweredValue::Record(Arc::new(record)))
+    record.sort_unstable_by_key(|(key, _)| *key);
+    Some(LoweredValue::RecordVec(Arc::new(record)))
 }
 
 pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
@@ -3108,10 +3109,36 @@ mod slice_tests {
 
 #[cfg(test)]
 mod record_update_tests {
-    use super::{LoweredValue, lowered_record_update_batch};
+    use super::{LoweredValue, lowered_record_from_runtime, lowered_record_update_batch};
+    use crate::runtime::value::{RecordMap, RecordShape, Value};
     use crate::source::{SourceId, Span};
     use crate::symbol::Name;
     use std::sync::Arc;
+
+    #[test]
+    fn runtime_record_projection_preserves_compact_fields_and_value_semantics() {
+        let source_symbols = crate::symbol::SymbolOwner::new();
+        let record = source_symbols.with_current(|| {
+            let shape = RecordShape::new(vec![Arc::from("zeta"), Arc::from("alpha λ")]);
+            RecordMap::shaped(&shape, vec![Value::Int(7), Value::Str(Arc::from("original"))])
+        });
+        drop(source_symbols);
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let span = Span::new(SourceId::new(0), 0, 1);
+        let lowered = lowered_record_from_runtime(&record).unwrap();
+        assert_eq!(lowered.clone().into_value(), Value::Record(record.clone()));
+        let LoweredValue::RecordVec(fields) = &lowered else {
+            panic!("runtime records must retain compact field storage");
+        };
+        assert_eq!(fields.iter().map(|(name, _)| name.as_str().to_string()).collect::<Vec<_>>(), ["alpha λ", "zeta"]);
+        let original = lowered.clone();
+        let updated = lowered_record_update_batch(lowered, vec![(vec![Name::intern("alpha λ")], LoweredValue::Str(Arc::from("changed")), span)], span).unwrap();
+        assert_eq!(original.into_value(), Value::Record(record));
+        let Value::Record(updated) = updated.into_value() else { panic!("updated record"); };
+        assert_eq!(updated.get("alpha λ"), Some(&Value::Str(Arc::from("changed"))));
+        assert_eq!(updated.get("zeta"), Some(&Value::Int(7)));
+    }
 
     #[test]
     fn record_update_detaches_shared_ancestors_and_retains_untouched_storage() {
