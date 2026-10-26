@@ -1,7 +1,8 @@
 # Replace XSH serialization with a pruned, vendored Deser
 
-Status: executing 2026-10-26 on `master` under the owner's explicit launch,
-including repo-local commits and final manual verification. No push is authorized.
+Status: winding down 2026-10-26 on `master` at the owner's request.
+Start no new campaign work. Preserve unfinished verification and parked changes.
+Local commits are authorized; no push is authorized.
 
 Goal: use Deser for structured-data parsing and emission while XSH continues to
 own values, schemas, effects and resources. Vendor only the useful codec family;
