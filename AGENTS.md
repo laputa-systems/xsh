@@ -2,7 +2,9 @@
 
 XSH is a standalone scripting language, toolchain, and core command collection.
 Before editing, read the [tour](docs/user-tour.md), nearest code and tests, and
-the topic owner below.
+the topic owner below. For capability or architecture work, apply the
+[design principles](docs/DESIGN.md): keep the core/substrate small and make
+userspace growth remove machinery rather than duplicate its responsibilities.
 
 ## Commands and invariants
 
@@ -22,7 +24,7 @@ the topic owner below.
 | language, OS, streams, JSON, interactive behavior | [SPEC](docs/SPEC.md), [interactive SPEC](docs/SPEC-INTERACTIVE.md) |
 | API signatures and generated references | `xsht api`, [stdlib](docs/reference/stdlib.md), [CLI](docs/reference/cli.md), [grammar](docs/reference/grammar.md), [lints](docs/reference/lints.md) |
 | architecture, invariants, contribution and content tiers | [Architecture](docs/ARCHITECTURE.md) |
-| syntax rationale | [Design](docs/DESIGN.md) |
+| design principles and syntax rationale | [Design](docs/DESIGN.md) |
 | builds, test gates, profiles, platforms, generated docs | [Testing](docs/TESTING.md) |
 | tooling and configuration | [XSHT](docs/XSHT.md) |
 | formatter policy | [XSHT-FMT](docs/XSHT-FMT.md) |
