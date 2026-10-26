@@ -91,7 +91,7 @@ test test_codec_typed_value_operands_evaluate_left_to_right_once { |ctx|
 proc format() [io] -> Str { print "format"; return "ini" }
 proc text() [io] -> Str { print "input"; return "port=42" }
 let value = codec.decode_as(format: format(), text: text(), Port)?
-print value.port
+print $value.port
 """, status: 0)?
   assert result.stdout == "format\ninput\n42\n"
   let reordered = test.expect(ctx, "type Port = {port: Int}\nlet value = codec.decode_as(text: \"port=1\", format: \"ini\", Port)\n", status: 2)?
@@ -123,7 +123,7 @@ test test_codec_typed_maps_and_failure_locations { |ctx|
 test test_codec_typed_imported_aliases_keep_nominal_identity { |ctx|
   let root = test.temp_dir(ctx, name: "typed-codec-owner")?
   fp"{root}/model.xsh".write_atomic(r"""##! Typed lexical model.
-nominal type Identity = PortField[UInt]
+nominal type Identity = {port: UInt}
 ## Export the declaring identity through an alias.
 export type Service = Identity
 ## Read the admitted identity.
@@ -132,6 +132,7 @@ export pure port(service: Service) -> UInt { service.port }
   let output = test.expect(ctx, r"""use model as m
 nominal type Identity = {port: Str}
 let value = codec.decode_as("ini", "port=42", m.Service)?
+assert m.port(value) == 42
 print m.port(value)
 """, status: 0, args: [], env: {XSH_MODULE_PATH: root})?
   assert output.stdout == "42\n"
