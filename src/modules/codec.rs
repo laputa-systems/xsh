@@ -114,7 +114,6 @@ struct DecodeSink<'a> {
     value: Option<Value>,
     key: Option<MapKey>,
     slot: Option<Decoded>,
-    format: Format,
 }
 
 fn decoded_float(value: f64, format: Format) -> Result<Value, Error> {
@@ -149,27 +148,27 @@ impl DecodeSink<'_> {
 
 impl<'de> Deserialize<'de> for Decoded {
     fn deserialize_into<'out>(out: &'out mut Option<Self>, state: &mut State) -> SinkHandle<'out, 'de> {
-        let format = *state.get::<Format>().expect("codec decode format");
-        SinkHandle::arena(DecodeSink { out, value: None, key: None, slot: None, format }, state)
+        SinkHandle::arena(DecodeSink { out, value: None, key: None, slot: None }, state)
     }
 }
 
 impl<'de> Sink<'de> for DecodeSink<'_> {
-    fn atom(&mut self, atom: Atom, _: &mut State) -> Result<(), Error> {
+    fn atom(&mut self, atom: Atom, state: &mut State) -> Result<(), Error> {
+        let format = *state.get::<Format>().expect("codec decode format");
         let atom = match atom { Atom::Implicit(value) => value.value().to_atom(), other => other };
         self.value = Some(match atom {
             Atom::Null => Value::Null,
             Atom::Bool(v) => Value::Bool(v),
             Atom::I64(v) => Value::Int(v),
             Atom::U64(v) => Value::Int(i64::try_from(v).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?),
-            Atom::F64(v) => decoded_float(v, self.format)?,
-            Atom::F32(v) => decoded_float(f64::from(v), self.format)?,
+            Atom::F64(v) => decoded_float(v, format)?,
+            Atom::F32(v) => decoded_float(f64::from(v), format)?,
             Atom::Str(v) | Atom::Lexical(v) => Value::Str(v.as_ref().into()),
-            Atom::Bytes(v) if self.format.supports_bytes() => Value::Bytes(v.into_owned()),
+            Atom::Bytes(v) if format.supports_bytes() => Value::Bytes(v.into_owned()),
             Atom::Ext(v) => {
                 if let Some(number) = v.downcast_value_ref::<deser::ext::Number>() {
                     if number.is_integer() { return Err(Error::new(ErrorKind::OutOfRange, "integer exceeds i64")); }
-                    decoded_float(number.value(), self.format)?
+                    decoded_float(number.value(), format)?
                 } else if let Some(&integer) = v.downcast_ref::<i128>() {
                     Value::Int(i64::try_from(integer).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?)
                 } else if let Some(&integer) = v.downcast_ref::<u128>() {
@@ -181,13 +180,14 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
         Ok(())
     }
     fn seq(&mut self, _: &mut State) -> Result<(), Error> { self.value = Some(Value::List(Vec::new())); Ok(()) }
-    fn map(&mut self, _: &mut State) -> Result<(), Error> {
-        self.value = Some(if self.format.is_binary() { Value::Map(BTreeMap::new()) } else { Value::Record(RecordMap::new()) });
+    fn map(&mut self, state: &mut State) -> Result<(), Error> {
+        let format = *state.get::<Format>().expect("codec decode format");
+        self.value = Some(if format.is_binary() { Value::Map(BTreeMap::new()) } else { Value::Record(RecordMap::new()) });
         Ok(())
     }
     fn next_key(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
         self.flush()?;
-        Ok(SinkHandle::arena(KeySink { out: &mut self.key, format: self.format }, state))
+        Ok(SinkHandle::arena(KeySink { out: &mut self.key, format: *state.get::<Format>().expect("codec decode format") }, state))
     }
     fn next_value(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
         self.flush()?;
