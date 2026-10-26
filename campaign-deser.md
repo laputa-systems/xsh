@@ -7,8 +7,8 @@ Goal: use Deser for structured-data parsing and emission while XSH continues to
 own values, schemas, effects and resources. Vendor only the useful codec family;
 make one hard cutover and delete the replaced implementations.
 
-Current checkpoint: implementation through S3 is integrated; S4 tables and
-explicit typed lexical decoding are under isolated development. S5 sequences,
+Current checkpoint: implementation through S4 is integrated; CSV/TSV and
+explicit typed lexical decoding have focused native and cold proof. S5 sequences,
 final production cost acceptance, generated documentation and Full/Linux
 qualification remain. Native macOS qualification is externally blocked by the
 unavailable host. No campaign completion or S2/S3 global acceptance is claimed.
@@ -34,18 +34,35 @@ and one skip. The failure reproduces before Deser: an erased Record initializer
 with an empty-list member lacks contextual producer proof. `6d6be4da9` routes
 that exact record into existing writer/payload authentication; six focused tests
 pass with scalar, owner and writer defenses. Ordinary require is unchanged.
-The pinned native case has not yet been rerun with that correction.
+The formerly failing native case now passes under the pinned S4 tools.
 
-The isolated combined S4 libraries compile without warnings. Codec unit checks
-pass 16/16, borrowed encoders 5/5 and retained strict schema guards 3/3.
+The combined S4 implementation is integrated at `d68438993`. Libraries compile
+without warnings. Codec unit checks pass 16/16, borrowed encoders 5/5 and retained
+strict schema guards 3/3; typed cold and both-runtime-route tests pass 2/2.
 Patched upstream CSV passes 9 unit and 60 integration tests; PapaParse retains
 125 passes, 40 skips and 34 known failures. New duplicate-header, scanner-field
 and completed-record limit controls fail when their corresponding repairs are
-disabled. Typed cold/evaluator tests and native qualification remain pending.
-Batch both table and typed code into one S4 candidate before the optimized
-native build. Keep S3 and S4 provisional until their matching proof completes;
-no third feature cohort or optional tooling work starts. The remaining tooling
-partitions and final Full/Linux scope are preserved.
+disabled. The pinned tools pass typed native 9, table native 6, API native 67,
+API Rust 4, registry 18, signature 6, wire enums 11 and strict record policy 7.
+The table file case checks option ordering, no-clobber, failed-write preservation,
+overwrite, UTF-8 path context and filesystem effects. The strengthened imported
+nominal alias case passes. Native tooling now passes 162 with one existing skip.
+The API fixture records only the intended delta: one csv module, six functions
+and seven documented/queryable items.
+
+Steering checkpoint: 130 remaining tooling integration cases and all 11 lint
+invariance cases pass on the S4 tree. The exact desugar parity case selects 204
+files, completes original checks/tests, transforms them and compares diagnostics,
+then reaches transformed native tests before its 900-second deadline. That run
+is incomplete, not a pass. Defer its next attempt to the mandatory final Full
+owner lifecycle, which has no automatic cumulative deadline; do not replay this
+intermediate corpus before the feature set is complete. Preserve its exact
+before/after outcome comparison and all existing exclusions.
+Treat the integrated S2-S4 serialization work as one provisional validation
+cohort and S5 as the second. This changes batching only: no phase/global pass is
+claimed, no assertions are removed, and final Full/Linux, production cost and
+macOS qualification obligations remain. The next delivery is lazy sequences and
+parser/file hardening; no third feature cohort or optional tooling work starts.
 
 Deliverables:
 
