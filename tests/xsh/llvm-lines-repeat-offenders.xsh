@@ -67,7 +67,7 @@ test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals 
 """)
   let rejected = test.expect(ctx, source, status: 3, args: [input, "--sum", "--json"])?
   assert rejected.stdout == ""
-  assert "json" in rejected.stderr
+  assert "CodecError.Syntax:" in rejected.stderr
 
   input.write(
     llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", with: "true 100% 100% 10 100% 100% (TOTAL)"),

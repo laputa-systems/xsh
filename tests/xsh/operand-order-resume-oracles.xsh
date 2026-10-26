@@ -32,15 +32,15 @@ remove-missing
 test test_module_method_named_arguments_keep_written_order { |ctx|
   let output = test.expect(
     ctx,
-    r"""proc mark_path(label: Str, value: Path) [io] -> Path {
+    r"""proc mark_relpath(label: Str, value: RelPath) [io] -> RelPath {
   print $label
   return value
 }
 let root = fs.tempdir()?
 root.write(p"data", "payload")?
 root.symlink(
-  path: mark_path("module-path", p"link"),
-  target: mark_path("module-target", p"data"),
+  path: mark_relpath("module-path", p"link"),
+  target: mark_relpath("module-target", p"data"),
 )?
 assert root.readlink(p"link")? == p"data"
 """,
