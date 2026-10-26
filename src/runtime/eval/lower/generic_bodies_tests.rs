@@ -4935,7 +4935,10 @@ fn verify_pipeline_adapter_results(source: &str, markers: &[Value]) {
                 assert_eq!(values, Value::List(vec![Value::Int(1), Value::Bool(true), Value::Str(Arc::from("word"))]));
             }
             let invalid = evaluator.call_indexed_direct(key(&format!("entry_ignored_json_{entry}")), CallableKind::Pure, &[marker.clone(), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("JSON adapters validate the complete source before take(0)");
-            assert_eq!(invalid.kind, "json-lines");
+            assert_eq!(invalid.family, "CodecError");
+            assert_eq!(invalid.variant, "Syntax");
+            assert_eq!(invalid.payload.get("format"), Some(&Value::Str(Arc::from("json"))));
+            assert!(invalid.facets.iter().any(|facet| facet == "InvalidData"));
             assert!(!invalid.message.is_empty());
             let invalid = evaluator.call_indexed_direct(key(&format!("entry_chunks_{entry}")), CallableKind::Pure, &[marker.clone(), bytes(b"abc"), Value::Int(0)], span).unwrap().expect_err("a dynamic chunk size must be positive");
             assert_eq!(invalid.kind, "bytes-chunks");
@@ -5036,7 +5039,10 @@ proc observed() [] -> Str { events }
             assert!(output.is_err());
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdc")));
             let error = evaluator.call_indexed_direct(key("entry_parsed"), CallableKind::Proc, &[Value::Int(7), Value::Str(Arc::from("1\ninvalid"))], span).unwrap().expect_err("the adapter parses before take(0)");
-            assert_eq!(&*error.kind, "json-lines");
+            assert_eq!(error.family, "CodecError");
+            assert_eq!(error.variant, "Syntax");
+            assert_eq!(error.payload.get("format"), Some(&Value::Str(Arc::from("json"))));
+            assert!(error.facets.iter().any(|facet| facet == "InvalidData"));
             assert!(!error.message.is_empty());
             assert_eq!(evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("sdcsdcsd")));
         }

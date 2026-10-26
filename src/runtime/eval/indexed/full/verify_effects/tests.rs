@@ -3372,7 +3372,7 @@ assert read({selected: "kept", wrong: true}, [1]) == "kept"
     null_input.store.binary_ops[operation] = BinaryOp::Eq;
     assert!(matches!(function_view_decoder(&null_input.store, owner).expression_view(condition).unwrap(), schema::ExprView::Binary { op: BinaryOp::Eq, .. }));
     let error = FullVerifier::verify(&null_input).unwrap_err();
-    assert!(error.message.contains("contract"), "{error:?}");
+    assert_eq!(error.message, "checked optional field receiver has no non-null branch proof");
     let null_input = Arc::new(null_input);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*null_input.sources).clone());
