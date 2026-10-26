@@ -755,7 +755,11 @@ impl Checker {
         });
         let owns_record_scope = self.begin_record_constructor_scope(arena, id);
         let actual = self.check_expr_arena_inner(arena, source, id, expectation);
-        if owns_record_scope { self.finish_record_constructor_scope(arena, id); }
+        let actual = if owns_record_scope {
+            let actual = self.prepare_local_record_input(arena, id, expected, actual);
+            self.finish_record_constructor_scope(arena, id);
+            actual
+        } else { actual };
         let actual = self.name_typed_callable(arena, id, actual, expected);
         self.boundary.in_control_position = outer_control;
         let actual = self.propagate_condition_arena(arena, id, control, actual);

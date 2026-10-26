@@ -1389,12 +1389,31 @@ test noncompleting_map_sort_preserves_pipeline_demand {
         let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
             .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
             .unwrap();
-        for force_frames in [false, true] {
-            let result = prepared.eval_test("inferred_sort_keys_wait_for_the_body_result_context", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
-            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
-            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
-            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
-                || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        for test_name in [
+            "inferred_sort_keys_wait_for_the_body_result_context",
+            "inferred_sort_keys_preserve_nullable_siblings_of_any_fields",
+        ] {
+            for force_frames in [false, true] {
+                let result = prepared.eval_test(test_name, crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
+                    || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+            }
+        }
+    }
+
+    #[test]
+    fn inferred_record_append_preserves_dynamic_field_validation() {
+        for append in [
+            "rows += [{name: value, revision: null, rank: 1}]",
+            "for rank in [2, 1] { rows += [{name: value, revision: null, rank}] }",
+        ] {
+            let source = format!("type Row = {{name: Str, revision: Str?, rank: Int}}\npure sorted(value: Any) -> List[Row] {{ var rows = []; {append}; rows |> sort-by .rank }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckDynamicBoundary)), "{source}\n{:?}", checked.diagnostics);
         }
     }
 

@@ -33,9 +33,14 @@ struct LocalBindingInference {
 #[derive(Clone)]
 struct FixedStorageCheck {
     owner: Option<super::EffectDeclarationId>,
-    seed: TypeVariableId,
-    actual: Type,
+    input: FixedStorageInput,
     contribution: Span,
+}
+
+#[derive(Clone)]
+enum FixedStorageInput {
+    NullableSeed { seed: TypeVariableId, actual: Type },
+    NullPayload(TypeVariableId),
 }
 
 #[derive(Clone)]
@@ -67,6 +72,38 @@ enum FreshAggregateOrigin {
 struct AggregateSeedScope {
     initializer: Span,
     origins: BTreeMap<Span, FreshAggregateOrigin>,
+}
+
+fn prepare_record_payloads(
+    constraints: &mut crate::sema::constraints::TypeConstraints,
+    program: &ArenaProgram,
+    expression: ExprId,
+    actual: &Type,
+    origins: &BTreeMap<Span, FreshAggregateOrigin>,
+    level: u32,
+    seeds: &mut Vec<(TypeVariableId, Span)>,
+    expressions: &mut Vec<(Span, Type)>,
+) -> Type {
+    let span = program.arena.expr(expression).span;
+    if *actual == Type::Null && matches!(program.arena.expr(expression).kind, ArenaExprKind::Null) {
+        let cell = constraints.fresh_at_level(span, level);
+        let Type::Inference(id) = cell else { unreachable!("a fresh nullable payload owns an inference cell"); };
+        seeds.push((id, span));
+        return cell;
+    }
+    let (Some(FreshAggregateOrigin::Record(selected)), Type::Record(fields)) = (origins.get(&span), actual) else {
+        return actual.clone();
+    };
+    let mut fields = fields.as_ref().clone();
+    for (name, expression) in selected {
+        if let Some(expression) = expression && let Some(actual) = fields.get(name) {
+            let prepared = prepare_record_payloads(constraints, program, *expression, actual, origins, level, seeds, expressions);
+            fields.insert(*name, prepared);
+        }
+    }
+    let prepared = Type::Record(Arc::new(fields));
+    expressions.push((span, prepared.clone()));
+    prepared
 }
 
 impl LocalInference {
@@ -334,11 +371,25 @@ impl Checker {
             .drain(enclosing.fixed_storage_start..).collect::<Vec<_>>();
         for check in checks {
             assert_eq!(check.owner, self.stream_origin_owner);
-            if let Err(conflict) = self.type_constraints.check_nullable_seed(
-                check.seed, &check.actual, check.contribution,
-            ) {
-                self.report_inferred_type_conflict(conflict);
-            }
+            let checked = match check.input {
+                FixedStorageInput::NullableSeed { seed, actual } => self.type_constraints.check_nullable_seed(seed, &actual, check.contribution),
+                FixedStorageInput::NullPayload(seed) => {
+                    let field = Type::Inference(seed);
+                    match self.type_constraints.resolve(&field) {
+                        Ok(Type::Inference(_)) => self.type_constraints.constrain_context(&field, &Type::Null, check.contribution),
+                        Ok(expected) if Type::Null.matches_expected(&expected) => Ok(()),
+                        expected => Err(crate::sema::constraints::ConstraintConflict {
+                            expected: expected.as_ref().ok().cloned().unwrap_or(field),
+                            actual: Type::Null,
+                            initializer: None,
+                            established: None,
+                            contribution: check.contribution,
+                            resolution_error: expected.err(),
+                        }),
+                    }
+                }
+            };
+            if let Err(conflict) = checked { self.report_inferred_type_conflict(conflict); }
         }
         let checks = self.local_inference.pipeline_key_checks.drain(enclosing.pipeline_key_start..).collect::<Vec<_>>();
         for check in checks {
@@ -367,8 +418,7 @@ impl Checker {
     ) {
         self.local_inference.fixed_storage_checks.push(FixedStorageCheck {
             owner: self.stream_origin_owner,
-            seed,
-            actual: actual.clone(),
+            input: FixedStorageInput::NullableSeed { seed, actual: actual.clone() },
             contribution,
         });
     }
@@ -400,6 +450,53 @@ impl Checker {
             if self.type_constraints.resolve(item)? == *expected { return Ok(true); }
         }
         Ok(false)
+    }
+
+    pub(super) fn prepare_local_record_input(
+        &mut self,
+        program: &ArenaProgram,
+        expression: ExprId,
+        expected: Option<&Type>,
+        actual: Type,
+    ) -> Type {
+        let Some(expected) = expected else { return actual; };
+        if !matches!(self.local_list_record_input_context(expected, &actual), Ok(true)) {
+            return actual;
+        }
+        let Ok(Type::Inference(item)) = self.type_constraints.resolve(expected) else { return actual; };
+        let Ok(level) = self.type_constraints.type_level(item) else { return actual; };
+        let origins = &self.local_inference.aggregate_scopes.last().expect("a record producer owns its active scope").origins;
+        let span = program.arena.expr(expression).span;
+        let prepared = self.type_constraints.commit_constraint_transaction(|constraints| {
+            let mut seeds = Vec::new();
+            let mut expressions = Vec::new();
+            let prepared = prepare_record_payloads(constraints, program, expression, &actual, origins, level, &mut seeds, &mut expressions);
+            if !seeds.is_empty() {
+                let Type::Record(fields) = &prepared else { unreachable!("a record producer prepares a record"); };
+                constraints.bind_record(item, &crate::sema::constraints::RowShape {
+                    fields: fields.as_ref().clone(),
+                    tail: crate::sema::constraints::RowTail::Closed,
+                }, span)?;
+            }
+            Ok::<_, crate::sema::constraints::ConstraintConflict>((prepared, seeds, expressions))
+        });
+        match prepared {
+            Ok((prepared, seeds, expressions)) => {
+                for (seed, contribution) in seeds {
+                    self.local_inference.fixed_storage_checks.push(FixedStorageCheck {
+                        owner: self.stream_origin_owner,
+                        input: FixedStorageInput::NullPayload(seed),
+                        contribution,
+                    });
+                }
+                for (span, ty) in expressions { self.record_expr_type(span, ty); }
+                prepared
+            }
+            Err(conflict) => {
+                self.report_inferred_type_conflict(conflict);
+                Type::Invalid
+            }
+        }
     }
 
     pub(super) fn prepared_nullable_seed(&self, ty: &Type) -> Option<TypeVariableId> {
@@ -1279,6 +1376,34 @@ mod tests {
             assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedName)), "{:?}", checked.diagnostics);
             assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
         });
+    }
+
+    #[test]
+    fn inferred_record_payloads_reject_nonnullable_contexts() {
+        let source = "type Row = {name: Any, revision: Str, rank: Int}\npure sorted(value: Any) -> List[Row] { var rows = []; for rank in [2, 1] { rows += [{name: value, revision: null, rank}] }; rows |> sort-by .rank }\n";
+        with_checked_local_source(source, |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{:?}", output.diagnostics));
+    }
+
+    #[test]
+    fn inferred_record_payloads_preserve_exact_null_fields() {
+        let source = "type Row = {name: Any, revision: Null, rank: Int}\npure sorted(value: Any) -> List[Row] { var rows = []; rows += [{name: value, revision: null, rank: 1}]; rows |> sort-by .rank }\n";
+        with_checked_local_source(source, |output| assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics));
+    }
+
+    #[test]
+    fn inferred_record_payloads_preserve_sourced_null_domains() {
+        for (declarations, parameters, append) in [
+            ("", "value: Any", "let row = {name: value, revision: null, rank: 1}; rows += [row]"),
+            ("", "value: Any, revision: Null", "rows += [{name: value, revision, rank: 1}]"),
+            ("type Missing = pure() -> Null\n", "value: Any, missing: Missing", "rows += [{name: value, revision: missing(), rank: 1}]"),
+            ("type Provider = module { export pure missing() -> Null }\n", "value: Any, provider: Provider", "rows += [{name: value, revision: provider.missing(), rank: 1}]"),
+        ] {
+            let source = format!("{declarations}type Row = {{name: Any, revision: Str?, rank: Int}}\npure sorted({parameters}) -> List[Row] {{ var rows = []; {append}; rows |> sort-by .rank }}\n");
+            with_checked_local_source(&source, |output| {
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", output.diagnostics);
+                assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedName)), "{source}\n{:?}", output.diagnostics);
+            });
+        }
     }
 
     #[test]

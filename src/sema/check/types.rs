@@ -386,6 +386,15 @@ impl Checker {
         &mut self,
         conflict: crate::sema::constraints::ConstraintConflict,
     ) {
+        if !conflict.expected.contains_inference()
+            && !conflict.actual.contains_inference()
+            && !conflict.expected.contains_recovery()
+            && !conflict.actual.contains_recovery()
+            && conflict.actual.any_flows_to_concrete(&conflict.expected)
+        {
+            self.expect_type(&conflict.expected, &conflict.actual, conflict.contribution);
+            return;
+        }
         let mut diagnostic = Diagnostic::error("inferred types disagree")
             .with_code(DiagnosticCode::CheckTypeMismatch)
             .with_label(Label::primary(
