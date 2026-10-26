@@ -6066,7 +6066,7 @@ impl<'a> ProducerProof<'a> {
                         && !self.checked_list_accumulator(&decoder, input, &checked, runtime_complete)?
                     {
                         let fresh_set = matches!(checked.as_ref(), Type::Set(_))
-                            && self.checked_fresh_list_method_receiver(&decoder, input, &checked)?.is_some();
+                            && self.checked_fresh_collection_method_receiver(&decoder, input, &checked)?.is_some();
                         let empty_collection = self.checked_empty_collection_module_call(&decoder, input, &checked)?;
                         if fresh_set || empty_collection || matches!((self.store.tags[input], checked.as_ref()),
                             (FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprListComp, Type::List(_))
@@ -7351,24 +7351,33 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn checked_fresh_list_method_receiver(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        let (Type::Set(item) | Type::List(item)) = expected else { return Ok(None) };
+    fn checked_fresh_collection_method_receiver(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else { return Ok(None) };
         let receiver = receiver.raw() as usize;
-        if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)
-            || self.declared_type(decoder, receiver)?.is_some()
-        { return Ok(None); }
-        self.budget.charge(1)?;
-        let empty = matches!(decoder.expression_view(receiver)?, schema::ExprView::List(items) if items.len() == 0);
-        if !empty {
-            let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
-            let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
-            if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
-        }
+        let receiver_type = match expected {
+            Type::Map(_, _) => {
+                if !self.checked_empty_collection_module_call(decoder, receiver, expected)? { return Ok(None); }
+                self.budget.charge_clone(expected)?;
+                Arc::new(expected.clone())
+            }
+            Type::Set(item) | Type::List(item) => {
+                if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)
+                    || self.declared_type(decoder, receiver)?.is_some()
+                { return Ok(None); }
+                self.budget.charge(1)?;
+                let empty = matches!(decoder.expression_view(receiver)?, schema::ExprView::List(items) if items.len() == 0);
+                if !empty {
+                    let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
+                    let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
+                    if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
+                }
+                self.budget.charge_clone(item)?;
+                Arc::new(Type::List(item.clone()))
+            }
+            _ => return Ok(None),
+        };
         self.budget.charge(args.len())?;
         let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-        self.budget.charge_clone(item)?;
-        let receiver_type = Arc::new(Type::List(item.clone()));
         let result = decoder.checked_method_return_type(&receiver_type, name, &arguments)?;
         if result.as_ref() != Some(expected) { return Ok(None); }
         Ok(Some(receiver_type))
@@ -7505,7 +7514,7 @@ impl<'a> ProducerProof<'a> {
         let receiver_type = match actual_receiver {
             Some(actual) => actual,
             None if self.receiver_pipeline_cannot_complete(decoder, receiver)? => return Ok(()),
-            None => self.checked_fresh_list_method_receiver(decoder, instruction, expected)?.ok_or_else(|| IrVerifyError::new(format!("ground method has no receiver contract at owner {}, instruction {instruction}, receiver {receiver}, method {name}", decoder.owner)))?,
+            None => self.checked_fresh_collection_method_receiver(decoder, instruction, expected)?.ok_or_else(|| IrVerifyError::new(format!("ground method has no receiver contract at owner {}, instruction {instruction}, receiver {receiver}, method {name}", decoder.owner)))?,
         };
         self.expression_with_fact(decoder.owner, receiver, Arc::clone(&receiver_type), false, receiver_fact);
         let receiver_type = if receiver_type.as_ref() == &Type::Any

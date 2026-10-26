@@ -77,6 +77,16 @@ items -= [2]
   }
 }
 
+test test_empty_map_set_retains_its_receiver_domain { |ctx|
+  let result = test.run_script(ctx, r"""
+var table: Map[List[Int]] = map.empty().set("entry", [1])
+let values = table.get("entry")?
+print values[0]
+""")?
+  assert result.success, result.stderr
+  assert result.stdout == "1\n"
+}
+
 test test_list_compound_assignment_evaluates_selectors_before_rhs_once { |ctx|
   let result = test.run_script(
     ctx,

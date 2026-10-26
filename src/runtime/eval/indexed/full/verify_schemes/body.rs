@@ -2061,6 +2061,41 @@ mod tests {
     }
 
     #[test]
+    fn fresh_empty_map_methods_authenticate_constructor_and_arguments_when_cold() {
+        let mut program = prepare(r#"
+pure make() -> Map[List[Int]] {
+    let wrong_key: Any = 2
+    let wrong_value: Any = true
+    map.empty().set("entry", [1])
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let range = decoder.instruction_range.clone();
+        let method = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "set", .. }))).unwrap();
+        let schema::ExprView::Method { receiver, args, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let arguments = args.collect::<Result<Vec<_>, _>>().unwrap();
+        let operation = program.store.extra[program.store.data[receiver.raw() as usize].range().start as usize] as usize;
+        let mut wrong_factory = program.clone();
+        wrong_factory.store.runtime_ops[operation] = super::super::super::RuntimeOp::SetEmpty;
+        let error = FullVerifier::verify(&wrong_factory).unwrap_err();
+        assert!(error.message.contains("contract"), "{error:?}");
+        let integer = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Int(2)))).unwrap();
+        let boolean = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Bool(true)))).unwrap();
+        let schema::ExprView::List(mut items) = decoder.expression_view(arguments[1].raw() as usize).unwrap() else { unreachable!() };
+        let item = items.next().unwrap().unwrap().raw() as usize;
+        for (subject, replacement) in [(arguments[0].raw() as usize, integer), (item, boolean)] {
+            let mut changed = program.clone();
+            changed.store.tags[subject] = program.store.tags[replacement];
+            changed.store.data[subject] = program.store.data[replacement];
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("contract"), "{error:?}");
+        }
+    }
+
+    #[test]
     fn resource_scope_return_retains_the_ground_owner_effect_contract() {
         prepare("proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
     }
