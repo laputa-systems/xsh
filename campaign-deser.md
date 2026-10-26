@@ -45,10 +45,17 @@ The initial matched large-JSON transform also fails memory acceptance: peak RSS
 is 178,782,208 versus baseline 132,894,720 bytes with identical complete output.
 A decode-only quiescent probe retains 146,296,832 versus 96,124,928 bytes.
 Baseline objects use the existing compact RecordMap shape owner; the new decode
-sink retains dynamic B-trees for completed objects. A focused repair is open.
+sink retains dynamic B-trees for completed objects. `958892462` restores the
+existing shared shape owner for completed objects; its 35 codec tests pass.
+Review caught the public host INI adapter's ownerless path; `ca79546be` scopes
+symbols at that entry point and removes the narrower project-only patch. The
+public lifetime regression fails before and passes after; project 5, encoder 5
+and typed/cold 2 pass. Final focused source review has no open finding.
 The private reader-boxing candidate passes 34 codec tests and shares five typed
 pull-loop implementations instead of fifteen reader-specific ones; its actual
-production size and runtime effects remain unmeasured. Generated SPEC and
+production size and runtime effects remain unmeasured. The final matched build
+is running on frozen `ca79546be`; an earlier rebuild was stopped when the public
+boundary repair made its source stale. Generated SPEC and
 stdlib references are refreshed through the same documentation generator used
 by make docs, using the matching verification tools admitted by the Full owner.
 
