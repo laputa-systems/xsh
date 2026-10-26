@@ -62,8 +62,32 @@ annotation/validation/initializer/owner/factory/arguments and checked dynamic
 admission. Independent source review found no authority gap. This is a new
 causal correction after the named retry condition changed, not a repeated
 unchanged attempt. Pinned native/broad qualification remains pending.
-Next substantive milestone: run the combined S2/S3 Change gate on the integrated
-source before accepting the phase boundary and opening S4 implementation.
+Further S3 qualification on `7261b0420` passed the catalog, all 929 native
+stdlib cases (34 skips), library facade 5, registry 18, signature 5 and API Rust
+3. The API native gate exposed the intentional inventory delta and an old
+ambiguous JSON property. `6c3f9f8b0` uses Deser for the summary, keeps the receiver
+inventory at `method_receivers`, and names its numeric count
+`method_receiver_count`; all 67 native API checks pass. The inventory fixture
+records the intended 40 modules and 498 functions. This is an explicit wire
+shape correction, with no duplicate-property compatibility path.
+
+The tooling corpus exposed new-module name collisions in Tokei's `toml` counter
+and compression's `codec` bindings. `a6ee73b21` renames only those locals;
+both files check, Tokei 3/3 and compression 52 pass with 3 existing skips, and
+both previously failing formatter/lint controls pass in isolation. A CBOR
+underflow probe failed with UnsupportedValue instead of Overflow; `79d7ceb94`
+classifies native wide integer atoms and bignums as Overflow. The retained
+negative test fails before repair; binary Rust 5/5 and pinned native 5/5 pass.
+
+The aggregate tooling leaf exhausted Change's cumulative five-minute budget;
+it is incomplete, not a pass. Preserve every remaining assertion through
+existing disjoint Rust filters: integration remainder, lint-invariance module,
+and exact desugar corpus parity. The latter runs selected native files before
+and after transformation and cannot be replaced by ordinary native results.
+Its execution owns the native slot. No workflow or CI change is needed.
+The final Full/Linux floor remains binding. Next milestone: finish remaining
+selected S2/S3 cases and the unresolved tooling partitions on the frozen tree,
+then deliver CSV/TSV and explicit typed lexical decoding.
 
 ## Charter
 
