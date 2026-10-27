@@ -75,7 +75,8 @@ fixture controls pass. Its resource diagnostic is incomplete because cgroup
 pressure accounting is unavailable; performance remains unmeasured.
 Medium and large `wc` fixtures also pass exact-output Linux diagnostics with
 unchanged source and product observations. The medium scenario stopped before
-execution when host admission was unavailable. Both scenario gates remain open.
+execution when host admission was unavailable. Later source-bound Linux gates
+passed both scenarios. Their pressure diagnostics remain incomplete.
 Explicit small sort, traversal, and AWK scenarios also pass their exact output
 oracles in Linux. Their pressure diagnostics are incomplete, and performance
 remains unmeasured.
