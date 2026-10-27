@@ -114,6 +114,10 @@ and rejects incomplete or mixed traces and missing or duplicate process event ID
 The small, medium, and large Linux
 scenarios check exact output and four, 16, and 64 completed helpers respectively.
 Pipeline performance and resource qualification remain open.
+A host syscall-trace probe completed for small `wc`, but the small sort JSONL
+trace exceeded the 16 MiB event-reader limit. Its text summary was bounded; it
+does not provide the structured lifecycle evidence used by the reader. Core
+syscall scaling remains unqualified.
 Ordinary run attribution now matches each completion to its start. A host trace
 of the existing 128-helper workload reconciles all 128. Process-handle traces
 remain incomplete until their lifecycles can be reconciled.
