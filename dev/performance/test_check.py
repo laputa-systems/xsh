@@ -81,7 +81,8 @@ class CohortTests(unittest.TestCase):
         rows = [{'type': 'syscall.summary', 'syscall_count': 17},
                 {'payload': {'type': 'run.start'}}, {'payload': {'type': 'run.end', 'pid': 19, 'error': None}}]
         self.assertEqual(workloads.trace_counts(iter(rows)), {'syscalls': 17, 'subprocesses': 1})
-        for changed in (rows[1:], rows[:2], rows + rows[:1], rows[:2] + [{'payload': {'type': 'run.end', 'pid': None, 'error': 'failed'}}]):
+        for changed in (rows[1:], rows[:2], rows + rows[:1], rows[:2] + [{'payload': {'type': 'run.end', 'pid': None, 'error': 'failed'}}],
+                        [rows[0] | {'syscall_count': -1}, *rows[1:]]):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'attribution unavailable'):
                 workloads.trace_counts(iter(changed))
 
@@ -92,6 +93,41 @@ class CohortTests(unittest.TestCase):
                 {'type': 'syscall.summary', 'syscall_count': 17}]
         with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
             workloads.trace_counts(iter(rows))
+
+    def test_pipeline_completions_require_exact_declared_segments(self):
+        status = {'kind': 'exit', 'code': 0, 'success': True}
+        rows = [
+            {'kind': 'pipeline.enter', 'event_id': 3, 'payload': {'type': 'none'}},
+            {'kind': 'pipeline.segment.end', 'parent_event_id': 3,
+             'payload': {'type': 'pipeline.segment.end', 'index': 0, 'pid': 19, 'error': None, 'status': status}},
+            {'kind': 'pipeline.segment.end', 'parent_event_id': 3,
+             'payload': {'type': 'pipeline.segment.end', 'index': 1, 'pid': 20, 'error': None, 'status': status}},
+            {'kind': 'pipeline.exit', 'parent_event_id': 3,
+             'payload': {'type': 'pipeline.end', 'error': None, 'status': status}},
+            {'type': 'syscall.summary', 'syscall_count': 17},
+        ]
+        self.assertEqual(workloads.trace_counts(iter(rows), expected_pipeline_segments=(2,)),
+                         {'syscalls': 17, 'subprocesses': 2})
+        duplicate_pid = rows[2] | {'payload': rows[2]['payload'] | {'pid': 19}}
+        failed = rows[2] | {'payload': rows[2]['payload'] | {'status': status | {'code': 1, 'success': False}}}
+        forged = rows[0] | {'payload': {'type': 'run.start'}}
+        for changed in (rows[:2] + rows[3:], rows[:3] + rows[4:], rows[:3] + [rows[2]] + rows[3:],
+                        rows[:2] + [duplicate_pid] + rows[3:], rows[:2] + [failed] + rows[3:],
+                        [forged] + rows[1:], [*rows[:-1], {'payload': {'type': 'run.start'}},
+                                             {'payload': {'type': 'run.end', 'pid': 21, 'error': None}}, rows[-1]]):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+                workloads.trace_counts(iter(changed), expected_pipeline_segments=(2,))
+        with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+            workloads.trace_counts(iter(rows), expected_pipeline_segments=(1, 1))
+        for kind in ('wait.start', 'wait.end', 'spawn.cancel'):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+                workloads.trace_counts(iter([*rows[:-1], {'payload': {'type': kind}}, rows[-1]]),
+                                       expected_pipeline_segments=(2,))
+                workloads.trace_counts(iter([*rows[:-1], {'kind': kind, 'payload': {'type': 'none'}}, rows[-1]]),
+                                       expected_pipeline_segments=(2,))
+        with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+            workloads.trace_counts(iter([*rows[:-1], {'kind': 'pipeline.segment.start', 'payload': {'type': 'none'}}, rows[-1]]),
+                                   expected_pipeline_segments=(2,))
 
     def run_fake_cohort(self, root, *, failure=None):
         cases = tuple(workloads.Workload(name, family, 'common', root / 'script.xsh', (), b'ready\n', 0)

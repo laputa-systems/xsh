@@ -100,7 +100,8 @@ def changes(before, after):
     return {path: {"before": before.get(path), "after": after.get(path)} for path in sorted(before.keys() | after.keys()) if before.get(path) != after.get(path)}
 
 
-def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, clock_ns=time.perf_counter_ns):
+def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, clock_ns=time.perf_counter_ns,
+           on_launch=None, on_cleanup_verified=None):
     if useful_prefix is not None and (not isinstance(useful_prefix, bytes) or not useful_prefix):
         raise ValueError("useful output prefix must be nonempty bytes")
     if not hasattr(os, "pidfd_open"):
@@ -117,6 +118,26 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         if signum == signal.SIGINT:
             raise KeyboardInterrupt
         raise SystemExit(128 + signum)
+    def defer(signum, _frame):
+        nonlocal pending_signal
+        if pending_signal is None:
+            pending_signal = signum
+    def raise_pending(primary):
+        if pending_signal is None:
+            return
+        cancellation = KeyboardInterrupt() if pending_signal == signal.SIGINT else SystemExit(128 + pending_signal)
+        if primary is not None:
+            cancellation.add_note(f'earlier error: {primary}')
+            for note in getattr(primary, '__notes__', ()):
+                cancellation.add_note(note)
+        raise cancellation from primary
+    def set_handlers(handlers):
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, set(handlers))
+        try:
+            for signum, handler in handlers.items():
+                signal.signal(signum, handler)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
     deadline = time.monotonic() + timeout
     timed_out = False
     stdout, stderr = bytearray(), bytearray()
@@ -128,16 +149,27 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
     cpu_ns = None
     max_rss_bytes = None
     previous_signals = {signum: signal.signal(signum, cancel) for signum in (signal.SIGINT, signal.SIGTERM)}
+    launch_prepared = on_launch is None
     try:
+        if on_launch is not None:
+            on_launch()
+            launch_prepared = True
         process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    except BaseException:
-        for signum, handler in previous_signals.items():
-            signal.signal(signum, handler)
+    except BaseException as error:
+        set_handlers({signum: defer for signum in previous_signals})
+        if launch_prepared and on_cleanup_verified is not None:
+            try:
+                on_cleanup_verified()
+            except BaseException as cleanup:
+                error.add_note(f'cleanup verification failed: {cleanup}')
+        set_handlers(previous_signals)
+        raise_pending(error)
         raise
     try:
         spawning = False
         if pending_signal is not None:
-            cancel(pending_signal, None)
+            signal_received, pending_signal = pending_signal, None
+            cancel(signal_received, None)
         pidfd = os.pidfd_open(process.pid)
         with selectors.DefaultSelector() as selector:
             selector.register(pidfd, selectors.EVENT_READ, None)
@@ -164,8 +196,7 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         finished = clock_ns() if measured else None
     except BaseException as error:
         primary = error
-    for signum in previous_signals:
-        signal.signal(signum, signal.SIG_IGN)
+    set_handlers({signum: defer for signum in previous_signals})
     try:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -187,18 +218,21 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         trailing_stdout, trailing_stderr = process.communicate(timeout=5)
         stdout.extend(trailing_stdout)
         stderr.extend(trailing_stderr)
+        if on_cleanup_verified is not None:
+            on_cleanup_verified()
     except BaseException as cleanup:
         if primary is not None:
             primary.add_note(f"process-group cleanup unresolved: {cleanup}")
-            raise primary
-        raise RuntimeError(f"process-group cleanup unresolved for {process.pid}; status={process.returncode}; stdout={bytes(stdout)!r}; stderr={bytes(stderr)!r}") from cleanup
+        else:
+            primary = RuntimeError(f"process-group cleanup unresolved for {process.pid}; status={process.returncode}; stdout={bytes(stdout)!r}; stderr={bytes(stderr)!r}")
+            primary.__cause__ = cleanup
     finally:
         process.stdout.close()
         process.stderr.close()
         if pidfd is not None:
             os.close(pidfd)
-        for signum, handler in previous_signals.items():
-            signal.signal(signum, handler)
+        set_handlers(previous_signals)
+    raise_pending(primary)
     if primary is not None:
         raise primary
     elapsed = finished - started if measured else None

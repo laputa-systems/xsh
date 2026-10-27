@@ -142,6 +142,41 @@ main()?
   }})?
 }
 
+test test_pipeline_gate_preserves_incomplete_and_cancelled_status { |ctx|
+  let repository = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "pipeline-status")?
+  fp"{root}/dev".mkdir()
+  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
+  fp"{root}/tools".mkdir()
+  fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  let python = (run.text which python3)?.trim()
+  fp"{root}/tools/python3".write(f"""#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = "dev.performance.core_pipeline" ]; then exit "$PIPELINE_STATUS"; fi
+done
+exec '{python}' "$@"
+""", mode: 0o755)
+  let products = fp"{root}/target/x86_64-unknown-linux-musl/verification"
+  products.mkdir(parents: true)?
+  fp"{products}/xsht".write("fixture\n", mode: 0o755)
+  init_gate_repository(root, repository)?
+  let inherited = env.get_or("PATH", "")?
+  let source = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  gates.lane(fixtures.linux_context(p"{root}")?, ["--case", "performance/core-pipeline-small/correctness"])?
+}}
+main()?
+"""
+  for status in [{raw: 1, expected: 1}, {raw: 2, expected: 2}, {raw: 130, expected: 130}, {raw: 143, expected: 130}] {
+    let _ = test.expect(ctx, source, status: status.expected, stdout: [f"raw_status={status.raw}"], args: [], env: {
+      PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
+      PIPELINE_STATUS: f"{status.raw}", XSH_DEV_BUILD_PRELOAD: "",
+    })?
+  }
+}
+
 test test_native_gate_reports_required_skips_as_incomplete { |ctx|
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-required-skip")?
@@ -1878,10 +1913,14 @@ test test_core_workload_scenarios_require_explicit_selection {
     assert selected.cases[0].tier == gates.Scenario
   }
   assert gates.plan_paths(context, tests.Verification, [], [], gates.Change)?.cases.is_empty()
-  for changed_path in ["dev/performance/core_cases.py", "dev/performance/test_core_cases.py", "dev/performance/fixtures/core-cases/traversal.xsh"] {
+  for changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/test_core_cases.py", "dev/performance/fixtures/core-cases/traversal.xsh"] {
     let changed = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in changed.cases] == ["verification/core-workloads"]
   }
+  let pipeline = gates.plan_paths(context, tests.Verification, [], ["performance/core-pipeline-small/correctness"], gates.Change)?
+  assert [entry.id for entry in pipeline.cases] == ["performance/core-pipeline-small/correctness"]
+  assert pipeline.products == [tests.Xsht]
+  assert pipeline.cases[0].tier == gates.Scenario
 }
 
 test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection {

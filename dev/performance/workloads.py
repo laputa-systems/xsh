@@ -76,25 +76,68 @@ def frozen_workloads(fixtures, *, selected=None, source_root=SOURCE_ROOT):
     return tuple(cases)
 
 
-def trace_counts(rows):
+def trace_counts(rows, *, expected_pipeline_segments=None):
+    if expected_pipeline_segments is not None and (not isinstance(expected_pipeline_segments, tuple)
+            or any(type(count) is not int or count <= 0 for count in expected_pipeline_segments)):
+        raise ValueError('helper attribution unavailable: invalid expected pipeline segments')
     summaries = []
     starts = 0
     completed = 0
+    pipelines = {}
+    process_handle_events = False
     for row in rows:
         if row.get('type') == 'syscall.summary':
             summaries.append(row)
         payload = row.get('payload', {})
-        if row.get('kind') in ('pipeline.enter', 'pipeline.exit', 'pipeline.segment.end') or payload.get('type') in ('pipeline.end', 'pipeline.segment.end'):
-            raise ValueError('helper attribution unavailable: pipeline lifecycle is not reconciled')
+        kind = row.get('kind')
+        process_handle_events |= kind in ('run.start', 'run.end', 'spawn.start', 'spawn.ready', 'wait.start', 'wait.end', 'spawn.cancel')
+        process_handle_events |= payload.get('type') in ('wait.start', 'wait.end', 'spawn.cancel')
+        if kind == 'pipeline.enter':
+            identity = row.get('event_id')
+            if (expected_pipeline_segments is None or payload != {'type': 'none'}
+                    or type(identity) is not int or identity <= 0 or identity in pipelines
+                    or len(pipelines) >= len(expected_pipeline_segments)):
+                raise ValueError('helper attribution unavailable: pipeline lifecycle is not reconciled')
+            pipelines[identity] = {'segments': {}, 'closed': False,
+                                   'expected': expected_pipeline_segments[len(pipelines)]}
+        elif kind == 'pipeline.segment.end':
+            parent = row.get('parent_event_id')
+            pipeline = pipelines.get(parent) if type(parent) is int else None
+            index, pid, status = payload.get('index'), payload.get('pid'), payload.get('status')
+            if (pipeline is None or pipeline['closed'] or payload.get('type') != 'pipeline.segment.end'
+                    or type(index) is not int or index < 0 or index in pipeline['segments']
+                    or type(pid) is not int or pid <= 0 or pid in pipeline['segments'].values()
+                    or payload.get('error') is not None or not isinstance(status, dict)
+                    or status.get('kind') != 'exit' or type(status.get('code')) is not int
+                    or status.get('code') != 0 or status.get('success') is not True):
+                raise ValueError('helper attribution unavailable: incomplete pipeline segment')
+            pipeline['segments'][index] = pid
+        elif kind == 'pipeline.exit':
+            parent = row.get('parent_event_id')
+            pipeline = pipelines.get(parent) if type(parent) is int else None
+            status = payload.get('status')
+            if (pipeline is None or pipeline['closed'] or len(pipeline['segments']) != pipeline['expected']
+                    or set(pipeline['segments']) != set(range(pipeline['expected']))
+                    or payload.get('type') != 'pipeline.end' or payload.get('error') is not None
+                    or not isinstance(status, dict) or status.get('kind') != 'exit'
+                    or type(status.get('code')) is not int or status.get('code') != 0 or status.get('success') is not True):
+                raise ValueError('helper attribution unavailable: incomplete pipeline lifecycle')
+            pipeline['closed'] = True
+        elif kind == 'pipeline.segment.start' or payload.get('type') in ('pipeline.end', 'pipeline.segment.start', 'pipeline.segment.end'):
+            raise ValueError('helper attribution unavailable: unsupported pipeline event')
         starts += payload.get('type') in ('run.start', 'spawn.start')
         if payload.get('type') in ('run.end', 'spawn.ready'):
             if type(payload.get('pid')) is not int or payload.get('error') is not None:
                 raise ValueError('helper attribution unavailable: incomplete process trace')
             completed += 1
-    if len(summaries) != 1 or type(summaries[0].get('syscall_count')) is not int:
+    if (len(summaries) != 1 or type(summaries[0].get('syscall_count')) is not int
+            or summaries[0]['syscall_count'] < 0):
         raise ValueError('syscall attribution unavailable: expected one complete syscall summary')
-    if completed != starts:
+    if (completed != starts or pipelines and (starts or completed or process_handle_events)
+            or any(not pipeline['closed'] for pipeline in pipelines.values())
+            or expected_pipeline_segments is not None and len(pipelines) != len(expected_pipeline_segments)):
         raise ValueError('helper attribution unavailable: incomplete process trace')
+    completed += sum(len(pipeline['segments']) for pipeline in pipelines.values())
     return {'syscalls': summaries[0]['syscall_count'], 'subprocesses': completed}
 
 

@@ -179,6 +179,9 @@ The explicit `performance/core-sort-small/correctness`,
 `performance/core-traversal-small/correctness`, and
 `performance/core-awk-small/correctness` scenarios check ordering, filesystem
 entries, and record aggregation against exact outputs. They do not measure performance.
+The explicit `performance/core-pipeline-small/correctness` scenario checks two
+pipeline outputs and their four completed helpers through XSHT's syscall trace.
+It does not measure performance.
 Focused execution requires Python 3.11 or newer for source inspection and result
 reconciliation.
 

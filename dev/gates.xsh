@@ -634,6 +634,7 @@ const resource_diagnostics_case_id = "verification/resource-diagnostics"
 const laputa_adapter_case_id = "verification/laputa-adapter"
 const native_leases_case_id = "verification/native-leases"
 const focused_json_case_id = "performance/json-n/correctness"
+const core_pipeline_case_id = "performance/core-pipeline-small/correctness"
 const focused_core_workloads = [
   {id: "performance/core-wc-small/correctness", name: "core-wc-small"},
   {id: "performance/core-sort-small/correctness", name: "core-sort-small"},
@@ -831,6 +832,13 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
       reasons: [f"{item.name} correctness; product and source bound to gate preparation; performance not measured"],
       execution: Alias)]
   }
+  entries += [CatalogCase(id: core_pipeline_case_id, tier: Scenario,
+    limit: RuntimeSeconds(120), products: [tests.Xsht], prerequisite_ids: [],
+    reasons: ["core pipeline output and completed-helper trace; performance not measured"],
+    execution: RunCommand(stages.command(core_pipeline_case_id, ctx.target.triple, "python3",
+      ["python3", "-B", "-m", "dev.performance.core_pipeline", "--xsht",
+        tests.product_path(ctx, profile, tests.Xsht).display(), "--scratch", fp"{ctx.root}/.work/tmp".display()], ctx.root,
+      {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
   entries += [CatalogCase(id: tokei_scenario_case_id, tier: Scenario,
     limit: RuntimeSeconds(360), products: [tests.Xsh], prerequisite_ids: [],
     reasons: ["exact XSH and Tokei v14.0.0 Rust file sets on pinned uutils source; Tokei provenance unqualified"],
@@ -944,7 +952,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += [focused_adapter_case_id] when focused_adapter_case_id not in selected_ids
       continue
     }
-    if changed_path in ["dev/performance/core_cases.py", "dev/performance/test_core_cases.py"] or changed_path.starts_with("dev/performance/fixtures/core-cases/") {
+    if changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/test_core_cases.py"] or changed_path.starts_with("dev/performance/fixtures/core-cases/") {
       selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
       continue
     }
@@ -1987,6 +1995,8 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
         gate_execution.Finished(status) => {
           let raw = status.shell_code()?
           return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when raw == 130
+          return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when entry.id == core_pipeline_case_id and raw == 143
+          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when entry.id == core_pipeline_case_id and raw == 2
           let failed_child = raw != 0 and (raw != 2 or result_runner == "cargo")
           if ! selected_ids.is_empty() {
             let arguments = ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(),

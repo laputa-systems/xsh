@@ -144,6 +144,64 @@ class HarnessTests(unittest.TestCase):
         self.assertIsNone(observation["first_useful_stdout_ns"])
         self.assertIsNone(observation["wall_ns"])
 
+    def test_cleanup_callback_runs_after_success_timeout_and_spawn_failure(self):
+        completed = []
+        observation = invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5,
+                             on_cleanup_verified=lambda: completed.append('success'))
+        self.assertEqual(observation['status'], 0)
+        observation = invoke([sys.executable, "-c", "import signal; signal.pause()"], self.root, {}, 0.1,
+                             on_cleanup_verified=lambda: completed.append('timeout'))
+        self.assertTrue(observation['timed_out'])
+        with self.assertRaises(FileNotFoundError):
+            invoke([str(self.root / 'missing')], self.root, {}, 5,
+                   on_cleanup_verified=lambda: completed.append('spawn'))
+        self.assertEqual(completed, ['success', 'timeout', 'spawn'])
+
+    def test_launch_callback_runs_only_after_preflight(self):
+        launched = []
+        with patch('run.snapshot', side_effect=OSError('snapshot failed')):
+            with self.assertRaisesRegex(OSError, 'snapshot failed'):
+                invoke([sys.executable, '-c', 'pass'], self.root, {}, 5,
+                       on_launch=lambda: launched.append(True))
+        self.assertEqual(launched, [])
+        invoke([sys.executable, '-c', 'pass'], self.root, {}, 5,
+               on_launch=lambda: launched.append(True))
+        self.assertEqual(launched, [True])
+
+    def test_cancellation_during_failed_spawn_keeps_cancellation_and_cleanup(self):
+        completed = []
+        def spawn(*args, **kwargs):
+            os.kill(os.getpid(), signal.SIGTERM)
+            raise FileNotFoundError('spawn failed')
+        with patch('run.subprocess.Popen', side_effect=spawn):
+            with self.assertRaises(SystemExit) as cancelled:
+                invoke([sys.executable, '-c', 'pass'], self.root, {}, 5,
+                       on_launch=lambda: None, on_cleanup_verified=lambda: completed.append(True))
+        self.assertEqual(cancelled.exception.code, 143)
+        self.assertEqual(completed, [True])
+
+    def test_cancellation_during_cleanup_is_deferred(self):
+        def cleanup():
+            os.kill(os.getpid(), signal.SIGTERM)
+        with self.assertRaises(SystemExit) as cancelled:
+            invoke([sys.executable, '-c', 'pass'], self.root, {}, 5, on_cleanup_verified=cleanup)
+        self.assertEqual(cancelled.exception.code, 143)
+
+    def test_cancellation_during_cleanup_handler_transition_is_deferred(self):
+        real_signal = signal.signal
+        sent = []
+        def install(signum, handler):
+            previous = real_signal(signum, handler)
+            if getattr(handler, '__name__', '') == 'defer' and not sent:
+                sent.append(True)
+                os.kill(os.getpid(), signal.SIGTERM)
+            return previous
+        with patch('run.signal.signal', side_effect=install):
+            with self.assertRaises(SystemExit) as cancelled:
+                invoke([sys.executable, '-c', 'pass'], self.root, {}, 5)
+        self.assertEqual(cancelled.exception.code, 143)
+        self.assertEqual(sent, [True])
+
     def test_exited_parent_with_descendant_holding_pipes_hits_deadline_and_cleans_group(self):
         script = "import subprocess,sys; subprocess.Popen([sys.executable,'-c','import signal; signal.pause()']); print('ready',flush=True)"
         observation = invoke([sys.executable, "-c", script], self.root, {}, 0.1, useful_prefix=b"ready\n")
@@ -188,6 +246,7 @@ class HarnessTests(unittest.TestCase):
         real_popen = subprocess.Popen
         real_read = os.read
         children = []
+        completed = []
         def spawn(*args, **kwargs):
             process = real_popen(*args, **kwargs)
             children.append(process)
@@ -199,15 +258,18 @@ class HarnessTests(unittest.TestCase):
         try:
             with patch("run.subprocess.Popen", side_effect=spawn), patch("run.os.wait4", side_effect=OSError("accounting unavailable")), patch("run.os.read", side_effect=read):
                 with self.assertRaisesRegex(RuntimeError, "pipe failure") as caught:
-                    invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5)
+                    invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5,
+                           on_cleanup_verified=lambda: completed.append(True))
         finally:
             for child in children:
                 child.wait(timeout=5)
         self.assertIn("accounting unavailable", caught.exception.__notes__[0])
+        self.assertEqual(completed, [])
 
     def test_cancellation_during_spawn_tracks_then_reaps_the_owned_child(self):
         real_popen = subprocess.Popen
         children = []
+        completed = []
         def spawn_then_cancel(*args, **kwargs):
             process = real_popen(*args, **kwargs)
             children.append(process)
@@ -215,10 +277,12 @@ class HarnessTests(unittest.TestCase):
             return process
         with patch("run.subprocess.Popen", side_effect=spawn_then_cancel):
             with self.assertRaises(SystemExit) as cancelled:
-                invoke([sys.executable, "-c", "import signal; signal.pause()"], self.root, {}, 5)
+                invoke([sys.executable, "-c", "import signal; signal.pause()"], self.root, {}, 5,
+                       on_cleanup_verified=lambda: completed.append(True))
         self.assertEqual(cancelled.exception.code, 143)
         self.assertEqual(len(children), 1)
         self.assertEqual(children[0].returncode, -signal.SIGKILL)
+        self.assertEqual(completed, [True])
         with self.assertRaises(ChildProcessError):
             os.waitid(os.P_PID, children[0].pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
 
