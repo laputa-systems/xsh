@@ -344,8 +344,8 @@ line on the host pipe, not first-byte latency. Timing ends after process exit
 and full stdout and stderr capture. Failed checks, timeout, or unresolved
 cleanup receive no timing credit.
 Helper attribution checks pipeline completions against explicitly declared
-segment counts. It rejects incomplete pipelines and mixed pipeline and ordinary
-helper traces. An incomplete pipeline trace cannot establish a zero-helper count.
+segment counts and distinct trace event IDs. It rejects incomplete pipelines
+and mixed pipeline and ordinary helper traces. An incomplete pipeline trace cannot establish a zero-helper count.
 Ordinary run completions must match distinct starts. Process-handle traces are
 incomplete until their lifecycles can be reconciled.
 

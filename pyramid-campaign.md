@@ -91,7 +91,8 @@ before execution when resource admission was unavailable. The other new Linux
 scenarios remain unverified.
 The pipeline fixture's trace emits segment completions without helper-start
 events. The reader reconciles them against explicitly declared segment counts
-and rejects incomplete or mixed traces. The small, medium, and large Linux
+and rejects incomplete or mixed traces and missing or duplicate process event IDs.
+The small, medium, and large Linux
 scenarios check exact output and four, 16, and 64 completed helpers respectively.
 Pipeline performance and resource qualification remain open.
 Ordinary run attribution now matches each completion to its start. A host trace

@@ -127,11 +127,11 @@ class CohortTests(unittest.TestCase):
         status = {'kind': 'exit', 'code': 0, 'success': True}
         rows = [
             {'kind': 'pipeline.enter', 'event_id': 3, 'payload': {'type': 'none'}},
-            {'kind': 'pipeline.segment.end', 'parent_event_id': 3,
+            {'kind': 'pipeline.segment.end', 'event_id': 4, 'parent_event_id': 3,
              'payload': {'type': 'pipeline.segment.end', 'index': 0, 'pid': 19, 'error': None, 'status': status}},
-            {'kind': 'pipeline.segment.end', 'parent_event_id': 3,
+            {'kind': 'pipeline.segment.end', 'event_id': 5, 'parent_event_id': 3,
              'payload': {'type': 'pipeline.segment.end', 'index': 1, 'pid': 20, 'error': None, 'status': status}},
-            {'kind': 'pipeline.exit', 'parent_event_id': 3,
+            {'kind': 'pipeline.exit', 'event_id': 6, 'parent_event_id': 3,
              'payload': {'type': 'pipeline.end', 'error': None, 'status': status}},
             {'type': 'syscall.summary', 'syscall_count': 17},
         ]
@@ -142,6 +142,10 @@ class CohortTests(unittest.TestCase):
         forged = rows[0] | {'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}}
         for changed in (rows[:2] + rows[3:], rows[:3] + rows[4:], rows[:3] + [rows[2]] + rows[3:],
                         rows[:2] + [duplicate_pid] + rows[3:], rows[:2] + [failed] + rows[3:],
+                        [rows[0], {key: value for key, value in rows[1].items() if key != 'event_id'}, *rows[2:]],
+                        [*rows[:2], rows[2] | {'event_id': 4}, *rows[3:]],
+                        [*rows[:3], {key: value for key, value in rows[3].items() if key != 'event_id'}, rows[4]],
+                        [rows[0], rows[1] | {'payload': {key: value for key, value in rows[1]['payload'].items() if key != 'error'}}, *rows[2:]],
                         [forged] + rows[1:], [*rows[:-1], {'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}},
                                              {'payload': {'type': 'run.end', 'pid': 21, 'error': None}}, rows[-1]]):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):

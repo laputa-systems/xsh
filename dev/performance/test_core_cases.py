@@ -45,10 +45,10 @@ class CoreCasesTests(unittest.TestCase):
         for identity in (3, 7):
             rows.append({'kind': 'pipeline.enter', 'event_id': identity, 'payload': {'type': 'none'}})
             for index in (0, 1):
-                rows.append({'kind': 'pipeline.segment.end', 'parent_event_id': identity,
+                rows.append({'kind': 'pipeline.segment.end', 'event_id': identity + index + 1, 'parent_event_id': identity,
                              'payload': {'type': 'pipeline.segment.end', 'index': index, 'pid': identity * 10 + index,
                                          'error': None, 'status': status}})
-            rows.append({'kind': 'pipeline.exit', 'parent_event_id': identity,
+            rows.append({'kind': 'pipeline.exit', 'event_id': identity + 3, 'parent_event_id': identity,
                          'payload': {'type': 'pipeline.end', 'error': None, 'status': status}})
         rows.append({'type': 'syscall.summary', 'syscall_count': 17})
 
@@ -71,13 +71,13 @@ class CoreCasesTests(unittest.TestCase):
         xsht.write_text('fixture')
         status = {'kind': 'exit', 'code': 0, 'success': True}
         rows = []
-        for identity in range(1, 9):
+        for identity in range(1, 33, 4):
             rows.append({'kind': 'pipeline.enter', 'event_id': identity, 'payload': {'type': 'none'}})
             for index in (0, 1):
-                rows.append({'kind': 'pipeline.segment.end', 'parent_event_id': identity,
+                rows.append({'kind': 'pipeline.segment.end', 'event_id': identity + index + 1, 'parent_event_id': identity,
                              'payload': {'type': 'pipeline.segment.end', 'index': index, 'pid': identity * 10 + index,
                                          'error': None, 'status': status}})
-            rows.append({'kind': 'pipeline.exit', 'parent_event_id': identity,
+            rows.append({'kind': 'pipeline.exit', 'event_id': identity + 3, 'parent_event_id': identity,
                          'payload': {'type': 'pipeline.end', 'error': None, 'status': status}})
         rows.append({'type': 'syscall.summary', 'syscall_count': 17})
         def invoke(command, cwd, environment, timeout, on_launch, on_cleanup_verified):
