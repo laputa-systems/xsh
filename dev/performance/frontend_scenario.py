@@ -22,7 +22,8 @@ class Sampler:
         if row['timed_out']:
             raise ValueError('frontend diagnostic timed out before completion')
         if row['status'] != 0:
-            raise owned_case.WorkloadFailure(f'frontend diagnostic failed: status={row["status"]} timeout={row["timed_out"]}')
+            stderr = base64.b64decode(row['stderr_base64'], validate=True)
+            raise owned_case.WorkloadFailure(f'frontend diagnostic failed: argv={argv!r} status={row["status"]} stderr={stderr[:4096]!r}')
         if row['effects'] != {} or base64.b64decode(row['stderr_base64'], validate=True):
             raise owned_case.WorkloadFailure('frontend diagnostic emitted errors or left effects')
         if self.expected_stdout is not None and base64.b64decode(row['stdout_base64'], validate=True) != self.expected_stdout:

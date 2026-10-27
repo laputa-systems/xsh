@@ -56,6 +56,11 @@ remain unqualified for those workload pairs. Separate exact Linux scenarios
 pass the imported-scheme and compact-entry execution controls after frontend
 state is dropped. The shared process controller distinguishes observed
 nonzero child exits from controller cancellation and incomplete timeouts.
+A bounded host probe of the eight 64-unit Change candidates passed dependency
+chain, generic stream, wide records, and finite overload. Alias chain and
+higher-order composition exceeded the indexed type-materialization work bound;
+reduced recursive-effect and module-diamond inputs failed checking. This probe
+is not a source-bound Linux scenario. The wider frontend scenario remains open.
 Inference workload generator and measurement changes now select their Python
 contract tests instead of generic native developer tests. The selection control
 and all 30 contract tests pass on the host and in the qualified Linux image.

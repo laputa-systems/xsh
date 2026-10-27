@@ -63,14 +63,14 @@ class FrontendCasesTests(unittest.TestCase):
         def invoke(argv, directory, environment, timeout, *, on_launch, on_cleanup_verified):
             on_launch()
             on_cleanup_verified()
-            return {'status': status, 'timed_out': False, 'effects': {}, 'stderr_base64': ''}
+            return {'status': status, 'timed_out': False, 'effects': {}, 'stderr_base64': base64.b64encode(b'diagnostic detail').decode() if status else ''}
         sampler = frontend_scenario.Sampler(lease)
         with patch.object(owned_case.run, 'invoke', side_effect=invoke):
             status = 0
             sampler.invoke(['tool'], self.root, {}, 60)
             self.assertEqual(marks, ['launch', 'clean'])
             status = 1
-            with self.assertRaises(owned_case.WorkloadFailure):
+            with self.assertRaisesRegex(owned_case.WorkloadFailure, 'diagnostic detail'):
                 sampler.invoke(['tool'], self.root, {}, 60)
             status = 2
             with self.assertRaises(owned_case.WorkloadFailure):
