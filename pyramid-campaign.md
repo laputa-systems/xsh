@@ -74,8 +74,16 @@ without its live checkout's untracked file and has no tracked submodules or
 and output policy still need qualification before these become P0 inputs.
 The test image's existing offline cache lacked Tokei's `arbitrary` dependency.
 Locked dependencies were fetched into disposable workspace storage and the
-reference was built offline in the replacement image. Its source-to-product
-binding remains unqualified.
+reference was built offline in the replacement image. A later build used a clean
+checkout of the pinned commit, mounted read-only in that image, with the locked
+dependencies offline. Its binary SHA-256 was
+`53c96c158d369d7bf8ed775c801191a6e8947cff7f47d7155e9c39afc26ca3ba`, matching
+the earlier reference. After the build, all 204 available registry source trees,
+including the 122 compiled registry crates, matched lockfile-verified archives.
+These are before/after observations, not an atomic build snapshot; source
+provenance and P0 remain unqualified. An earlier failed rebuild omitted the
+linker target and did not hold the shared build lease; its artifacts were not
+used for this result.
 An archive projection containing 671 tracked, non-hidden Rust files was checked
 with host XSH and the offline Linux reference: both selected exactly that set.
 XSH counted 213,988 code, 18,298 comment and 30,443 blank lines; upstream
