@@ -192,6 +192,9 @@ outputs. They do not measure performance.
 The explicit `performance/core-{sort,traversal,awk}-{small,medium,large}/correctness`
 scenarios check ordering, filesystem entries, and record aggregation against
 exact outputs. They do not measure performance.
+The explicit `performance/core-sort-small/trace` scenario also reconciles
+its syscall summary and completed helpers through XSHT tracing. Its syscall
+count includes the traced XSHT process; it is not a production timing result.
 The `performance/core-pipeline-{small,medium,large}/correctness` scenarios
 check two, eight, and 32 pipeline outputs and their completed helpers through
 XSHT's syscall trace. An observed child failure retains status 1 if process

@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 import signal
 
-from dev.performance import core_cases, core_pipeline, focused, owned_case
+from dev.performance import core_cases, core_trace, focused, owned_case
 
 
 class CoreCasesTests(unittest.TestCase):
@@ -60,11 +60,11 @@ class CoreCasesTests(unittest.TestCase):
                     'stdout_base64': base64.b64encode(b'probe 0\nprobe 1\n').decode(), 'stderr_base64': ''}
 
         lease = SimpleNamespace(prepare_cleanup_unresolved=lambda _: None, resolve_cleanup_unresolved=lambda: None)
-        with patch.object(core_pipeline.run, 'invoke', side_effect=invoke):
-            self.assertEqual(core_pipeline.check_pipeline(xsht, self.fixtures, lease), 4)
+        with patch.object(core_trace.run, 'invoke', side_effect=invoke):
+            self.assertEqual(core_trace.check_case(xsht, self.fixtures, lease)['subprocesses'], 4)
             rows.pop(1)
             with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+                core_trace.check_case(xsht, self.fixtures, lease)
 
     def test_pipeline_diagnostic_uses_selected_shape(self):
         xsht = self.fixtures / 'xsht'
@@ -89,20 +89,45 @@ class CoreCasesTests(unittest.TestCase):
                     'stdout_base64': base64.b64encode(b''.join(f'probe {i}\n'.encode() for i in range(8))).decode(),
                     'stderr_base64': ''}
         lease = SimpleNamespace(prepare_cleanup_unresolved=lambda _: None, resolve_cleanup_unresolved=lambda: None)
-        with patch.object(core_pipeline.run, 'invoke', side_effect=invoke):
-            self.assertEqual(core_pipeline.check_pipeline(xsht, self.fixtures, lease, 'medium'), 16)
+        with patch.object(core_trace.run, 'invoke', side_effect=invoke):
+            self.assertEqual(core_trace.check_case(xsht, self.fixtures, lease, 'core-pipeline-medium')['subprocesses'], 16)
             rows.pop(1)
             with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease, 'medium')
+                core_trace.check_case(xsht, self.fixtures, lease, 'core-pipeline-medium')
+
+    def test_sort_trace_requires_exact_output_and_complete_summary(self):
+        xsht = self.fixtures / 'xsht'
+        xsht.write_text('fixture')
+        rows = [{'type': 'syscall.summary', 'syscall_count': 17}]
+        case = core_cases.describe_case('core-sort-small', fixtures=self.fixtures, source_root=core_cases.SOURCE_ROOT)
+        def invoke(command, cwd, environment, timeout, on_launch, on_cleanup_verified):
+            on_launch()
+            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            on_cleanup_verified()
+            return {'status': 0, 'timed_out': False, 'effects': {},
+                    'stdout_base64': base64.b64encode(case.expected_stdout).decode(), 'stderr_base64': ''}
+        lease = SimpleNamespace(prepare_cleanup_unresolved=lambda _: None, resolve_cleanup_unresolved=lambda: None)
+        with patch.object(core_trace.run, 'invoke', side_effect=invoke):
+            self.assertEqual(core_trace.check_case(xsht, self.fixtures, lease, 'core-sort-small')['subprocesses'], 0)
+            argument = {'display': 'x', 'hex': '78'}
+            rows[:0] = [{'kind': 'run.start', 'event_id': 1,
+                         'payload': {'type': 'run.start', 'target': argument, 'argv': [], 'cwd': argument, 'env': []}},
+                        {'kind': 'run.end', 'event_id': 2, 'parent_event_id': 1,
+                         'payload': {'type': 'run.end', 'pid': 3, 'status': {'kind': 'exit', 'code': 0, 'success': True}, 'error': None}}]
+            with self.assertRaisesRegex(core_trace.WorkloadFailure, 'helper count'):
+                core_trace.check_case(xsht, self.fixtures, lease, 'core-sort-small')
+            rows.clear()
+            with self.assertRaises(ValueError):
+                core_trace.check_case(xsht, self.fixtures, lease, 'core-sort-small')
 
     def test_pipeline_diagnostic_rejects_unsupported_host_before_quarantine(self):
         xsht = self.fixtures / 'xsht'
         xsht.write_text('fixture')
         marks = []
         lease = SimpleNamespace(prepare_cleanup_unresolved=lambda message: marks.append(message))
-        with patch.object(core_pipeline.sys, 'platform', 'darwin'):
+        with patch.object(core_trace.sys, 'platform', 'darwin'):
             with self.assertRaisesRegex(ValueError, 'Linux pidfd'):
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+                core_trace.check_case(xsht, self.fixtures, lease)
         self.assertEqual(marks, [])
 
     def test_pipeline_diagnostic_preserves_trace_failure_and_cancellation(self):
@@ -114,25 +139,25 @@ class CoreCasesTests(unittest.TestCase):
             on_cleanup_verified()
             return {'status': raw, 'timed_out': False, 'effects': {}, 'stdout_base64': '',
                     'stderr_base64': base64.b64encode(b'trace unavailable').decode()}
-        with patch.object(core_pipeline.run, 'invoke', side_effect=invoke):
+        with patch.object(core_trace.run, 'invoke', side_effect=invoke):
             raw = 2
-            with self.assertRaisesRegex(core_pipeline.WorkloadFailure, 'status=2.*trace unavailable'):
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+            with self.assertRaisesRegex(core_trace.WorkloadFailure, 'status=2.*trace unavailable'):
+                core_trace.check_case(xsht, self.fixtures, lease)
             raw = 1
-            with self.assertRaisesRegex(core_pipeline.WorkloadFailure, 'status=1.*trace unavailable'):
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+            with self.assertRaisesRegex(core_trace.WorkloadFailure, 'status=1.*trace unavailable'):
+                core_trace.check_case(xsht, self.fixtures, lease)
             raw = 130
-            with self.assertRaisesRegex(core_pipeline.WorkloadFailure, 'status=130'):
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+            with self.assertRaisesRegex(core_trace.WorkloadFailure, 'status=130'):
+                core_trace.check_case(xsht, self.fixtures, lease)
 
     def test_pipeline_treats_unfinished_timeout_as_incomplete(self):
         xsht = self.fixtures / 'xsht'
         xsht.write_text('fixture')
         lease = SimpleNamespace(prepare_cleanup_unresolved=lambda _: None, resolve_cleanup_unresolved=lambda: None)
         row = {'status': 0, 'timed_out': True, 'effects': {}, 'stdout_base64': '', 'stderr_base64': ''}
-        with patch.object(core_pipeline.run, 'invoke', return_value=row):
+        with patch.object(core_trace.run, 'invoke', return_value=row):
             with self.assertRaises(ValueError) as error:
-                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+                core_trace.check_case(xsht, self.fixtures, lease)
         self.assertIs(type(error.exception), ValueError)
 
     def test_pipeline_controller_reports_termination_as_cancellation(self):
@@ -141,10 +166,10 @@ class CoreCasesTests(unittest.TestCase):
         lease = SimpleNamespace(campaign_leases=lambda *args, **kwargs: nullcontext(), LeaseBusy=LeaseBusy)
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
         for cancellation in (SystemExit(143), owned_case.check.owned.SignalReceived(signal.SIGTERM)):
-            with self.subTest(cancellation=cancellation), patch.object(core_pipeline.sys, 'argv', argv), \
+            with self.subTest(cancellation=cancellation), patch.object(core_trace.sys, 'argv', argv), \
                     patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
-                    patch.object(core_pipeline, 'check_pipeline', side_effect=cancellation), redirect_stdout(io.StringIO()):
-                self.assertEqual(core_pipeline.main(), 130)
+                    patch.object(core_trace, 'check_case', side_effect=cancellation), redirect_stdout(io.StringIO()):
+                self.assertEqual(core_trace.main(), 130)
 
     def test_pipeline_controller_preserves_child_status_when_cleanup_is_unresolved(self):
         class LeaseBusy(Exception):
@@ -152,12 +177,12 @@ class CoreCasesTests(unittest.TestCase):
         lease = SimpleNamespace(campaign_leases=lambda *args, **kwargs: nullcontext(), LeaseBusy=LeaseBusy)
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
         for raw, expected in ((1, 1), (2, 1), (130, 1), (-9, 2), (-11, 1), (-15, 1), (None, 2)):
-            error = core_pipeline.run.ProcessCleanupUnresolved('cleanup unresolved', raw)
+            error = core_trace.run.ProcessCleanupUnresolved('cleanup unresolved', raw)
             output = io.StringIO()
-            with self.subTest(raw=raw), patch.object(core_pipeline.sys, 'argv', argv), \
+            with self.subTest(raw=raw), patch.object(core_trace.sys, 'argv', argv), \
                     patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
-                    patch.object(core_pipeline, 'check_pipeline', side_effect=error), redirect_stdout(output):
-                self.assertEqual(core_pipeline.main(), expected)
+                    patch.object(core_trace, 'check_case', side_effect=error), redirect_stdout(output):
+                self.assertEqual(core_trace.main(), expected)
             self.assertIn('cleanup unresolved', output.getvalue())
 
     def test_pipeline_controller_defers_signal_during_handler_installation(self):
@@ -167,11 +192,11 @@ class CoreCasesTests(unittest.TestCase):
             os.kill(os.getpid(), signal.SIGTERM)
             return previous
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
-        with patch.object(core_pipeline.sys, 'argv', argv), \
+        with patch.object(core_trace.sys, 'argv', argv), \
                 patch.object(owned_case.check.owned, 'install_signal_handlers', side_effect=install_then_signal), \
                 patch.object(owned_case.check, 'baseline_owner', side_effect=AssertionError('lease should not be loaded')), \
                 redirect_stdout(io.StringIO()):
-            self.assertEqual(core_pipeline.main(), 130)
+            self.assertEqual(core_trace.main(), 130)
 
     def test_pipeline_controller_catches_signal_entering_handler_restoration(self):
         class LeaseBusy(Exception):
@@ -188,11 +213,11 @@ class CoreCasesTests(unittest.TestCase):
             return real_mask(how, values)
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
         try:
-            with patch.object(core_pipeline.sys, 'argv', argv), \
+            with patch.object(core_trace.sys, 'argv', argv), \
                     patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
-                    patch.object(core_pipeline, 'check_pipeline', return_value=4), \
+                    patch.object(core_trace, 'check_case', return_value={'subprocesses': 4, 'syscalls': 17}), \
                     patch.object(owned_case.signal, 'pthread_sigmask', side_effect=mask), redirect_stdout(io.StringIO()):
-                self.assertEqual(core_pipeline.main(), 130)
+                self.assertEqual(core_trace.main(), 130)
                 self.assertEqual({number: signal.getsignal(number) for number in previous}, previous)
         finally:
             for number, handler in previous.items():

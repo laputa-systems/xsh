@@ -153,7 +153,7 @@ test test_pipeline_gate_preserves_incomplete_and_cancelled_status { |ctx|
   let python = (run.text which python3)?.trim()
   fp"{root}/tools/python3".write(f"""#!/bin/sh
 for arg in "$@"; do
-  if [ "$arg" = "dev.performance.core_pipeline" ]; then exit "$PIPELINE_STATUS"; fi
+  if [ "$arg" = "dev.performance.core_trace" ]; then exit "$PIPELINE_STATUS"; fi
 done
 exec '{python}' "$@"
 """, mode: 0o755)
@@ -1914,10 +1914,14 @@ test test_core_workload_scenarios_require_explicit_selection {
     assert selected.cases[0].tier == gates.Scenario
   }
   assert gates.plan_paths(context, tests.Verification, [], [], gates.Change)?.cases.is_empty()
-  for changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/test_core_cases.py", "dev/performance/fixtures/core-cases/traversal.xsh"] {
+  for changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/core_trace.py", "dev/performance/test_core_cases.py", "dev/performance/fixtures/core-cases/traversal.xsh"] {
     let changed = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in changed.cases] == ["verification/core-workloads"]
   }
+  let sort_trace = gates.plan_paths(context, tests.Verification, [], ["performance/core-sort-small/trace"], gates.Change)?
+  assert [entry.id for entry in sort_trace.cases] == ["performance/core-sort-small/trace"]
+  assert sort_trace.products == [tests.Xsht]
+  assert sort_trace.cases[0].tier == gates.Scenario
   for id in ["performance/core-pipeline-small/correctness", "performance/core-pipeline-medium/correctness", "performance/core-pipeline-large/correctness"] {
     let pipeline = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in pipeline.cases] == [id]

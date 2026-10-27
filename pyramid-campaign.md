@@ -118,6 +118,9 @@ Host syscall-trace probes completed for small `wc` and sort. The sort JSONL
 trace exceeded the previous 16 MiB reader limit; a bounded streaming reader now
 reconciles it without loading the whole file. Its 128 MiB total and 1 MiB
 per-record limits leave larger traces and core syscall scaling unqualified.
+The explicit small-sort trace scenario passes its exact output and reconciles
+zero helpers and a syscall summary in the qualified Linux image. Its syscall
+count includes tracing machinery and does not establish production performance.
 Ordinary run attribution now matches each completion to its start. A host trace
 of the existing 128-helper workload reconciles all 128. Process-handle traces
 remain incomplete until their lifecycles can be reconciled.
