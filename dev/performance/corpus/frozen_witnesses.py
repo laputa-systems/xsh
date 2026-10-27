@@ -4,6 +4,7 @@ import csv
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 import io
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -135,8 +136,10 @@ class Site:
 def frozen_table(path):
     try:
         return subprocess.check_output(
-            ["git", "-C", str(ROOT), "show", f"{CHECKPOINT}:{path}"],
+            ["git", "-C", str(ROOT), "-c", f"safe.directory={ROOT}", "show", f"{CHECKPOINT}:{path}"],
             text=True,
+            env={**{name: value for name, value in os.environ.items() if not name.startswith("GIT_")},
+                 "GIT_NO_REPLACE_OBJECTS": "1"},
         )
     except subprocess.CalledProcessError as error:
         raise ValueError(f"cannot read frozen checkpoint table {path}") from error

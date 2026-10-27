@@ -176,8 +176,9 @@ Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
 Changes to inference workload generators and measurement tooling select their
 Python contract tests.
-Inference corpus paths report unresolved until their external inputs and
-verification owners are declared.
+Frozen-witness tooling changes select its Python contract tests. Other inference
+corpus paths report unresolved until their external inputs and verification
+owners are declared.
 The explicit `performance/core-wc-{small,medium,large}/correctness` scenarios
 check binary inputs of 64 KiB, 1 MiB, and 16 MiB against exact line-count
 outputs. They do not measure performance.

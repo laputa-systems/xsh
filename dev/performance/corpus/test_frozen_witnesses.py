@@ -2,10 +2,12 @@ import sys
 sys.dont_write_bytecode = True
 
 import csv
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import frozen_witnesses as corpus
 
@@ -30,6 +32,12 @@ def site(site_id=1, kind="parameter-type", owner="pure f parameter x", reason=""
 
 
 class FrozenWitnessTests(unittest.TestCase):
+    def test_frozen_table_ignores_inherited_git_overrides(self):
+        expected = corpus.frozen_table(corpus.ELIGIBILITY_PATH)
+        with patch.dict(os.environ, {'GIT_DIR': str(WORK_TMP / 'missing-repository'),
+                                     'GIT_CONFIG_COUNT': 'invalid'}):
+            self.assertEqual(corpus.frozen_table(corpus.ELIGIBILITY_PATH), expected)
+
     def test_candidate_revises_only_the_verified_host_link_context_reason(self):
         sites, _eligibility, retained, _individual, _facts = corpus.load_corpus()
         accepted = [[str(site_id), row["reason"]] for site_id, row in sorted(retained.items())]

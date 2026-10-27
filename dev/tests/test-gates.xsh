@@ -1927,10 +1927,20 @@ test test_core_workload_scenarios_require_explicit_selection {
 
 test test_inference_corpus_changes_do_not_select_unrelated_native_tests {
   let context = fixtures.linux_context(/repo)?
-  for changed_path in ["dev/performance/corpus/check.sh", "dev/performance/corpus/frozen_witnesses.py", "dev/performance/corpus/witnesses/source-read.erased.xsh"] {
+  for changed_path in ["dev/performance/corpus/check.sh", "dev/performance/corpus/check_views.sh", "dev/performance/corpus/witnesses/source-read.erased.xsh"] {
     let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert selected.cases.is_empty()
     assert selected.unresolved == [f"inference corpus verification requires explicit external inputs: {changed_path}"]
+  }
+}
+
+test test_frozen_witness_tool_changes_select_their_contract_tests {
+  let context = fixtures.linux_context(/repo)?
+  for changed_path in ["dev/performance/corpus/frozen_witnesses.py", "dev/performance/corpus/test_frozen_witnesses.py"] {
+    let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert [entry.id for entry in selected.cases] == ["verification/frozen-witnesses"]
+    assert selected.products.is_empty()
+    assert selected.unresolved.is_empty()
   }
 }
 

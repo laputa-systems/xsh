@@ -55,6 +55,10 @@ and all 30 contract tests pass on the host and in the qualified Linux image.
 Corpus tooling and witness paths now report unresolved instead of selecting
 unrelated native developer tests. The selection regression passes on the host
 and in a bounded Linux run. Explicit external-input ownership remains open.
+Frozen-witness tooling now selects its 19 Python contracts, which pass on the
+host and in the qualified Linux image. Its pinned Git reads scope checkout
+trust to that invocation and ignore inherited Git overrides and replacement
+refs. Other corpus ownership remains open.
 The constraint-solver Edit case selects an independent row and rollback oracle;
 its ownership control and prepared local Rust harness pass, as does the Linux
 gate. Solver scaling measurements remain open.
