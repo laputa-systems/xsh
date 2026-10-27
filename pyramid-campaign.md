@@ -139,6 +139,10 @@ An isolated PM executor regression now checks actual build-hook counts across a
 fresh build, reuse, and a dependency change; it passes on the host. Its explicit
 scenario prepares and binds XSHI as well as XSH and XSHT and passed in the
 qualified Linux image. Broader world coverage remains open.
+The isolated executor fixture also changes only the application recipe and
+checks that its payload changes while both dependency receipts are reused.
+The focused host test and Linux scenario pass. A real package rebuild remains
+open.
 The catalogue also exposes the existing synthetic Kbuild discovery test as an
 explicit Laputa scenario. Its adapter and host selection controls pass, and its
 selected test passed through the qualified Linux image.
