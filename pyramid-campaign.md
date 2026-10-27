@@ -219,6 +219,12 @@ contains seven build nodes: m4, musl, xsh, llvm-toolchain, bison, flex, and
 linux. Their levels and dependency kinds match the recipe declarations and
 bootstrap policy. This single-root diagnostic does not qualify the current seed,
 the full world inventory, artifact reuse, or a package build.
+Another offline diagnostic built and proved the real m4 and xsh recipes in a
+disposable store with the same historical seed. An unchanged rerun returned
+identical receipts. After adding a newline to the copied m4 source, a second
+plan built a different m4 payload and reused the xsh receipt; both receipts
+passed store verification. Xsh is a runtime-only dependency of m4. The probe
+does not qualify a current-seed build or full-world reuse.
 
 The `performance/json-n/correctness` gate passed its output oracle and cleanup
 checks in the replacement image, bound to the selected source and prepared
