@@ -1944,6 +1944,20 @@ test test_frozen_witness_tool_changes_select_their_contract_tests {
   }
 }
 
+test test_frontend_disposal_scenarios_select_exact_runtime_controls {
+  let context = fixtures.linux_context(/repo)?
+  for id in ["compiler/frontend-disposal/schemes", "compiler/frontend-disposal/compact-entry"] {
+    let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
+    assert [entry.id for entry in selected.cases] == [id]
+    assert selected.products.is_empty()
+    assert selected.cases[0].tier == gates.Scenario
+    match selected.cases[0].execution {
+      gates.RunCommand(spec) => assert "--exact" in spec.argv
+      else => test.fail("frontend disposal case must run its exact Rust control")
+    }
+  }
+}
+
 test test_frontend_scenario_and_owner_are_explicit {
   let context = fixtures.linux_context(/repo)?
   let id = "performance/frontend-edit/correctness"

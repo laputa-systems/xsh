@@ -176,6 +176,9 @@ The explicit `performance/frontend-edit/correctness` scenario checks annotated
 and reduced forms of two generated workloads, including runtime output, frontend
 evidence, and phase-report consistency. It does not qualify disposal execution,
 scaling, or performance.
+The explicit `compiler/frontend-disposal/schemes` and
+`compiler/frontend-disposal/compact-entry` scenarios run exact Rust controls for
+execution after frontend state is dropped.
 Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
 Changes to inference workload generators and measurement tooling select their

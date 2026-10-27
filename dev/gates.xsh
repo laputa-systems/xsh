@@ -735,6 +735,16 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     reasons: ["inference work collection isolation and instantiation counts"],
     execution: RunCommand(rust_gate(ctx, profile, "compiler/inference-work/correctness",
       ["-p", "xsh", "--lib", "frontend_stats::tests::inference_work_invocations_are_isolated_and_generic_calls_count_instantiations", "--", "--exact"], debug: true)?))]
+  entries += [CatalogCase(id: "compiler/frontend-disposal/schemes", tier: Scenario,
+    limit: RuntimeSeconds(120), products: [], prerequisite_ids: [],
+    reasons: ["execute imported schemes on both runtime routes after frontend state is dropped"],
+    execution: RunCommand(rust_gate(ctx, profile, "compiler/frontend-disposal/schemes",
+      ["-p", "xsh", "--lib", "runtime::eval::indexed::full::tests::user_schemes_execute_after_frontend_drop_on_both_routes", "--", "--exact"], debug: true)?))]
+  entries += [CatalogCase(id: "compiler/frontend-disposal/compact-entry", tier: Scenario,
+    limit: RuntimeSeconds(120), products: [], prerequisite_ids: [],
+    reasons: ["execute compact entry after frontend and adapter scratch is dropped"],
+    execution: RunCommand(rust_gate(ctx, profile, "compiler/frontend-disposal/compact-entry",
+      ["-p", "xsh", "--lib", "runtime::eval::indexed::full::tests::compact_entry_executes_after_all_frontend_and_adapter_scratch_is_dropped", "--", "--exact"], debug: true)?))]
   entries += [CatalogCase(id: "compiler/frontend-retention/correctness", tier: Edit,
     limit: RuntimeSeconds(120), products: [], prerequisite_ids: [],
     reasons: ["stable retained frontend measurement columns and reconciliation"],
