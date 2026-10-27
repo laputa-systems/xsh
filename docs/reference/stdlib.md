@@ -497,7 +497,7 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.signal(signal: Str) -> Result[{name: Str, number: Int}, Error]` — Sends a selected signal to a process.
 - `process.signal_action(signal: Str) -> Result[Str, Error]` — Reads or changes how this process treats a signal.
 - `process.signals() -> List[{name: Str, number: Int}]` — Lists the named signals of the host in number order.
-- `process.spawn(command: Command) -> Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]` — Starts a typed command and returns an owned process handle record.
+- `process.spawn(command: Command) -> Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]` — Starts a typed command in the background and returns its pid record.
 - `process.stats(pid: Int) -> Result[{rss_kb: Int, vsz_kb: Int}, Error]` — Reads structured process or listener information from the host.
 - `process.threads() -> Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
 - `process.wait_any(handles: List[ProcessHandle]) -> Result[{index: Int, pid: Int, status: Status}, ProcessError]` — Waits for one process from an owned handle set.

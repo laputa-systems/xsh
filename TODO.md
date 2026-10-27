@@ -72,17 +72,6 @@ performance/resource obligations. Real-hardware enablement is out of scope.
 - **Fix with:** lifecycle-concurrency
 - **Effort:** M
 
-### XSH-50 · P2 · Honor command redirections in `process.spawn`
-
-- **Area:** Runtime contracts
-- **Where:** `src/runtime/eval/lowered_run/module_process.rs`, `src/runtime/process.rs`, `tests/xsh/stdlib/process.xsh`, `docs/SPEC.md`
-- **Problem:** `process.spawn` starts a child from a `Command` but its detached-command options disable the command's stdio redirections. The reported `/bin/echo` reproducer leaves the requested stdout and stderr files absent, while `process.run` writes them. The child still runs, so the loss is silent. The spawn expression uses a separate waitable `ProcessHandle`; `process.spawn` returns a PID record and releases the child to the reaper.
-- **Recommendation:** Apply the command's stdin, stdout, and stderr redirections when `process.spawn` starts the child. If a requested redirection cannot be supported, return an error before starting it. Preserve the spawn record and document detached output behavior. Check the Unix spawn variants for the same issue.
-- **Acceptance:** A native regression covers each stdio path, including paths with spaces, and verifies the redirected output. Existing `process.run` behavior remains unchanged. Use a waitable spawn expression where a consumer must wait; do not treat the `process.spawn` record as a `ProcessHandle`.
-- **Coordination:** Laputa's `tests/pm/trust_update_cli.xsh::trust_cli_status_is_read_only_under_concurrency` currently uses shell-form spawn and redirection.
-- **Fix with:** isolate-effects
-- **Effort:** S
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests

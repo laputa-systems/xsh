@@ -77,3 +77,11 @@ test test_time_explicit_calendar_normalization { |ctx|
   assert output.success, output.stderr
   assert output.stdout == "2024-03-10 01:30:00 -0500\n"
 }
+
+test test_quiet_measure_keeps_command_redirections { |ctx|
+  let root = test.temp_dir(ctx, name: "quiet-measure")?
+  let out = fp"{root}/out.txt"
+  let command = process.command_argv("sh", ["sh", "-c", "printf measured"], stdout: out)
+  assert time.measure(command, quiet: true)?.status.exited_with(0)
+  assert out.read_text()? == "measured"
+}

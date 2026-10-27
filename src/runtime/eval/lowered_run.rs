@@ -7984,7 +7984,6 @@ impl Evaluator {
         managed_options.stdin = ManagedStdio::Inherit;
         managed_options.stdout = ManagedStdio::Inherit;
         managed_options.stderr = ManagedStdio::Inherit;
-        managed_options.apply_redirections = true;
         managed_options.spawn = options;
         if options.same_group {
             managed_options.group = ProcessGroupConfig::Inherit;

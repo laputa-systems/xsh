@@ -889,7 +889,6 @@ pub struct SpawnManagedOptions {
     pub stdin: ManagedStdio,
     pub stdout: ManagedStdio,
     pub stderr: ManagedStdio,
-    pub apply_redirections: bool,
     pub group: ProcessGroupConfig,
     pub reset_signals: bool,
     pub spawn: SpawnOptions,
@@ -901,7 +900,6 @@ impl SpawnManagedOptions {
             stdin: ManagedStdio::Inherit,
             stdout: ManagedStdio::Inherit,
             stderr: ManagedStdio::Inherit,
-            apply_redirections: true,
             group: ProcessGroupConfig::NewRoot,
             reset_signals: true,
             spawn: SpawnOptions::default(),
@@ -913,7 +911,6 @@ impl SpawnManagedOptions {
             stdin: ManagedStdio::Null,
             stdout: ManagedStdio::Null,
             stderr: ManagedStdio::Null,
-            apply_redirections: false,
             group: ProcessGroupConfig::Inherit,
             reset_signals: true,
             spawn: options,
@@ -1046,8 +1043,8 @@ pub fn run_inherit_with_policy(
     )
 }
 
-/// Like `run_inherit_with_policy`, but the child's stdout/stderr are discarded
-/// (sent to `/dev/null`). Used by `time.measure(.., quiet: true)` so benchmarking
+/// Like `run_inherit_with_policy`, but stdout/stderr that the command does not
+/// redirect are discarded (sent to `/dev/null`). Used by `time.measure(.., quiet: true)` so benchmarking
 /// a command does not flood the terminal with its output.
 pub fn run_quiet_with_policy(
     invocation: &ProcessInvocation,
@@ -1056,7 +1053,6 @@ pub fn run_quiet_with_policy(
     let mut options = SpawnManagedOptions::inherited_process_group();
     options.stdout = ManagedStdio::Null;
     options.stderr = ManagedStdio::Null;
-    options.apply_redirections = false;
     run_managed_with_policy(invocation, policy, options)
 }
 
@@ -3513,26 +3509,11 @@ fn command_with_managed_stdio(
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
     }
     configure_managed_child(&mut command, options);
-    let mut inherited = (if options.stdin == ManagedStdio::Inherit { 1 } else { 0 })
+    let inherited = (if options.stdin == ManagedStdio::Inherit { 1 } else { 0 })
         | (if options.stdout == ManagedStdio::Inherit { 2 } else { 0 })
         | (if options.stderr == ManagedStdio::Inherit { 4 } else { 0 });
-    if !options.apply_redirections && invocation.redirections.iter()
-        .any(|item| matches!(item, ProcessRedirection::Input { .. }))
-    {
-        inherited &= !1;
-    }
-    inherit_standard_streams(&mut command, inherited,
-        if options.apply_redirections { &invocation.redirections } else { &[] });
-    if options.apply_redirections {
-        apply_redirections(&mut command, &invocation.redirections)?;
-    } else if invocation
-        .redirections
-        .iter()
-        .any(|item| matches!(item, ProcessRedirection::Input { .. }))
-    {
-        validate_input_sources(&invocation.redirections)?;
-        command.stdin(Stdio::piped());
-    }
+    inherit_standard_streams(&mut command, inherited, &invocation.redirections);
+    apply_redirections(&mut command, &invocation.redirections)?;
     if let Some(entry) = &invocation.namespaces {
         crate::runtime::namespace::prepare(entry, &mut command)?;
     }
@@ -4297,7 +4278,6 @@ mod tests {
             stdin: ManagedStdio::Null,
             stdout: ManagedStdio::Piped,
             stderr: ManagedStdio::Null,
-            apply_redirections: false,
             group: ProcessGroupConfig::NewRoot,
             reset_signals: true,
             spawn: SpawnOptions::default(),

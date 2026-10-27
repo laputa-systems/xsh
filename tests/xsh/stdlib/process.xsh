@@ -744,6 +744,52 @@ test test_process_spawn_options_and_kill_are_observable { |ctx|
   test.error_kind(process.kill(2147483647, signal: "0"), "process-missing")
 }
 
+test test_process_spawn_applies_file_redirections { |ctx|
+  let root = test.temp_dir(ctx, name: "spawn redirections")?
+  let input = fp"{root}/in put.txt"
+  let out = fp"{root}/std out.txt"
+  let err = fp"{root}/std err.txt"
+  let done = fp"{root}/done"
+  input.write("from-stdin")
+
+  let command = process.command_argv(
+    "sh",
+    ["sh", "-c", r"cat; printf stderr-line >&2; : > $1", "sh", done],
+    stdin: input,
+    stdout: out,
+    stderr: err,
+  )
+  let _ = process.spawn(command)?
+  assert appears(done)
+  assert out.read_text()? == "from-stdin"
+  assert err.read_text()? == "stderr-line"
+
+  let combined = fp"{root}/com bined.log"
+  let combined_done = fp"{root}/combined-done"
+  let builder = process.command {
+    stdin = b"bytes-in"
+    stdout = combined
+    stderr = combined
+    run sh -c "cat; printf builder-err >&2; : > $1" sh $combined_done
+  }
+  let _ = process.spawn(builder)?
+  assert appears(combined_done)
+  assert combined.read_text()? == "bytes-inbuilder-err"
+}
+
+test test_process_spawn_redirection_failure_prevents_launch { |ctx|
+  let root = test.temp_dir(ctx, name: "spawn-redirection-failure")?
+  let marker = fp"{root}/started"
+  let command = process.command_argv(
+    "sh",
+    ["sh", "-c", r": > $1", "sh", marker],
+    stdout: fp"{root}/missing/out.txt",
+  )
+  test.error_kind(process.spawn(command), "redirection")
+  time.sleep(200ms)
+  assert ! marker.exists()?
+}
+
 # A parent that ignores SIGCHLD passes that disposition through exec. The
 # runtime must still observe the exit status of the commands it runs.
 test test_children_are_waited_for_when_sigchld_is_inherited_ignored { |ctx|

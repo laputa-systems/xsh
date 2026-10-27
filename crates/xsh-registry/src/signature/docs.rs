@@ -413,8 +413,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["process", "argv", "plan"],
         )),
         ("process", "spawn") => Some((
-            "Starts a typed command and returns an owned process handle record.",
-            "The returned pid record does not carry lexical ownership. The child is released to the background reaper; use the spawn language form when a scope must own a ProcessHandle.",
+            "Starts a typed command in the background and returns its pid record.",
+            "The command's stdin, stdout, and stderr redirections apply; a stream it does not redirect is connected to /dev/null. A redirection that cannot be opened is an error and the command does not start. The returned pid record does not carry lexical ownership. The child is released to the background reaper; use the spawn language form when a scope must own a ProcessHandle.",
             &["process", "ownership", "handle"],
         )),
         ("process", "wait") => Some((
