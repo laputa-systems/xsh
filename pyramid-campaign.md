@@ -93,6 +93,12 @@ The build still used the host's mutable linker and compiler cache, and the
 reference artifact and full P0 remain unqualified. An earlier failed rebuild
 omitted the linker target and did not hold the shared build lease; its artifacts
 were not used for this result.
+A fresh offline build used read-only copies of the linker, linker wrapper, and
+kache, with kache's cache disabled and a new target directory. The resulting
+binary has SHA-256 `3dae78ab69cc013325c7509320d510530b6ec332565b6b97772f390e160036bf`,
+which differs from the earlier cached build. The reason for that difference is
+not established. A corpus scenario with the new binary stopped before execution
+because host admission was unavailable. The new reference and P0 remain open.
 An archive projection containing 671 tracked, non-hidden Rust files was checked
 with host XSH and the offline Linux reference: both selected exactly that set.
 XSH counted 213,988 code, 18,298 comment and 30,443 blank lines; upstream
