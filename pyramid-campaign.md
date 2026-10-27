@@ -73,6 +73,9 @@ The explicit `performance/core-wc-small/correctness` scenario checks a 64 KiB
 binary input against an exact line-count oracle. The focused Linux scenario and
 fixture controls pass. Its resource diagnostic is incomplete because cgroup
 pressure accounting is unavailable; performance remains unmeasured.
+Medium and large `wc` fixtures also pass exact-output Linux diagnostics with
+unchanged source and product observations. The medium scenario stopped before
+execution when host admission was unavailable. Both scenario gates remain open.
 Explicit small sort, traversal, and AWK scenarios also pass their exact output
 oracles in Linux. Their pressure diagnostics are incomplete, and performance
 remains unmeasured.

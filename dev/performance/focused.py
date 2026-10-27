@@ -15,7 +15,8 @@ import tempfile
 from dev.performance import check, resources, workloads
 
 
-_CASE_NAMES = ('json-n', 'core-wc-small', 'core-sort-small', 'core-traversal-small', 'core-awk-small')
+_CASE_NAMES = ('json-n', 'core-wc-small', 'core-wc-medium', 'core-wc-large',
+               'core-sort-small', 'core-traversal-small', 'core-awk-small')
 _RESOURCE_SCOPE = resources.GroupScope.FRESH_CASE_CONTAINER.value
 _RESOURCE_FIELDS = frozenset(resources.CaseResources.__dataclass_fields__)
 _DECLARED_WORKERS = (('container_init', 1), ('python_driver', 1), ('xsh_workload', 1))

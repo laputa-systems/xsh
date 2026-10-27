@@ -637,6 +637,8 @@ const focused_json_case_id = "performance/json-n/correctness"
 const core_pipeline_case_id = "performance/core-pipeline-small/correctness"
 const focused_core_workloads = [
   {id: "performance/core-wc-small/correctness", name: "core-wc-small"},
+  {id: "performance/core-wc-medium/correctness", name: "core-wc-medium"},
+  {id: "performance/core-wc-large/correctness", name: "core-wc-large"},
   {id: "performance/core-sort-small/correctness", name: "core-sort-small"},
   {id: "performance/core-traversal-small/correctness", name: "core-traversal-small"},
   {id: "performance/core-awk-small/correctness", name: "core-awk-small"},

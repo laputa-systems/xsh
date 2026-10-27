@@ -173,8 +173,9 @@ Frontend statistics changes select a retained-column test at Edit tier and
 retain the frontend memory checks at Change tier.
 Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
-The explicit `performance/core-wc-small/correctness` scenario checks a 64 KiB
-binary input against its exact line-count output. It does not measure performance.
+The explicit `performance/core-wc-{small,medium,large}/correctness` scenarios
+check binary inputs of 64 KiB, 1 MiB, and 16 MiB against exact line-count
+outputs. They do not measure performance.
 The explicit `performance/core-sort-small/correctness`,
 `performance/core-traversal-small/correctness`, and
 `performance/core-awk-small/correctness` scenarios check ordering, filesystem
