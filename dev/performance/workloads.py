@@ -40,24 +40,39 @@ class Workload:
         return None
 
 
-def frozen_workloads(fixtures):
+def frozen_workloads(fixtures, *, selected=None, source_root=SOURCE_ROOT):
+    requested = None if selected is None else frozenset(selected)
+    if requested is not None and not requested:
+        raise ValueError('selected workloads must be nonempty')
     cases = [
-        Workload('startup-trivial', 'startup', 'common', SOURCE_ROOT / 'bench/stdlib-port/cold_trivial.xsh', (), b'hello\n', 0),
-        Workload('startup-template', 'startup', 'demanding', SOURCE_ROOT / 'bench/stdlib-port/cold_template.xsh', (), b'hello xsh\n', 0),
+        Workload('startup-trivial', 'startup', 'common', source_root / 'bench/stdlib-port/cold_trivial.xsh', (), b'hello\n', 0),
+        Workload('startup-template', 'startup', 'demanding', source_root / 'bench/stdlib-port/cold_template.xsh', (), b'hello xsh\n', 0),
     ]
+    if requested is not None:
+        cases = [case for case in cases if case.name in requested]
     for shape, count in zip(('n', '2n', '4n'), STREAM_ITEMS):
         for mode in ('count', 'map-where'):
-            cases.append(Workload(f'stream-{mode}-{shape}', 'streaming', shape, SOURCE_ROOT / 'bench/stream-stage-cost.xsh', (mode, str(count)), f'value={count}\n'.encode(), 0))
+            name = f'stream-{mode}-{shape}'
+            if requested is None or name in requested:
+                cases.append(Workload(name, 'streaming', shape, source_root / 'bench/stream-stage-cost.xsh', (mode, str(count)), f'value={count}\n'.encode(), 0))
     for shape, count in zip(('n', '2n', '4n'), PACKAGE_ROW_SHAPES):
         root = fixtures / str(count)
         for script, family in (('json', 'algorithms'), ('directory', 'filesystem-process')):
-            cases.append(Workload(f'{script}-{shape}', family, shape, SOURCE_ROOT / f'bench/consolidation/xsh/{script}.xsh', (str(root),), (root / 'expected' / script).read_bytes(), 0))
-    cases.append(Workload('spawn-128', 'filesystem-process', 'common', SOURCE_ROOT / 'bench/consolidation/xsh/spawn.xsh', (), b''.join(f'probe {index}\n'.encode() for index in range(128)), 128))
+            name = f'{script}-{shape}'
+            if requested is None or name in requested:
+                cases.append(Workload(name, family, shape, source_root / f'bench/consolidation/xsh/{script}.xsh', (str(root),), (root / 'expected' / script).read_bytes(), 0))
+    spawn = Workload('spawn-128', 'filesystem-process', 'common', source_root / 'bench/consolidation/xsh/spawn.xsh', (), b''.join(f'probe {index}\n'.encode() for index in range(128)), 128)
+    if requested is None or spawn.name in requested:
+        cases.append(spawn)
     for count in DEMANDING_PACKAGE_ROW_SHAPES:
         root = fixtures / str(count)
         shape = f'package-range-{count}'
         for script, family in (('json', 'algorithms'), ('directory', 'filesystem-process')):
-            cases.append(Workload(f'{script}-{shape}', family, shape, SOURCE_ROOT / f'bench/consolidation/xsh/{script}.xsh', (str(root),), (root / 'expected' / script).read_bytes(), 0))
+            name = f'{script}-{shape}'
+            if requested is None or name in requested:
+                cases.append(Workload(name, family, shape, source_root / f'bench/consolidation/xsh/{script}.xsh', (str(root),), (root / 'expected' / script).read_bytes(), 0))
+    if requested is not None and {case.name for case in cases} != requested:
+        raise ValueError('unknown selected workload')
     return tuple(cases)
 
 

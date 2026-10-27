@@ -17,11 +17,16 @@ export pure limit_ms(case_timeout_seconds: Int, remaining_ns: Int) -> Result[Int
 }
 
 ## Runs one explicit command and consumes timeout and cancellation cleanup.
-export proc execute(spec: contract.CommandSpec, timeout_ms: Int) [process, error, io] -> Result[RunOutcome, Error] {
+export proc execute(spec: contract.CommandSpec, timeout_ms: Int, output: Path? = null) [process, error, io] -> Result[RunOutcome, Error] {
   return Err(LimitError.Expired(remaining_ns: timeout_ms * 1000000)) when timeout_ms <= 0
   print f"[{spec.stage} target={spec.target} timeout_ms={timeout_ms}] {spec.argv.join(" ")}"
-  let command = process.command_argv(spec.executable, spec.argv, cwd: spec.cwd,
-    env: spec.environment, timeout: time.millis(timeout_ms))
+  let command = if let destination = output {
+    process.command_argv(spec.executable, spec.argv, cwd: spec.cwd,
+      env: spec.environment, stdout: destination, timeout: time.millis(timeout_ms))
+  } else {
+    process.command_argv(spec.executable, spec.argv, cwd: spec.cwd,
+      env: spec.environment, timeout: time.millis(timeout_ms))
+  }
   match process.run(command) {
     Ok(status) => Finished(status)
     Err(cause) => match cause {

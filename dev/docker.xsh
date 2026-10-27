@@ -7,6 +7,9 @@ use targets
 ## Host-side tool paths mounted read-only into the pinned Linux test container.
 export type HostLinkTools = {mold: Path, kache: Path}
 
+## Docker could not identify the immutable image for gate execution.
+export error ImageError = InvalidIdentity(detail: Str) | Unavailable(raw_status: Int) | Cancelled(raw_status: Int)
+
 proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
   return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
   return null when ctx.target.triple != "x86_64-unknown-linux-musl"
@@ -228,7 +231,25 @@ proc internal_command(
   if linux_test_operation(operation) {
     internal_target_dir(ctx, operation).mkdir(parents: true)?
   }
-  let image = ensure_image(ctx)?
+  let gate_operation = operation in ["gate-lane", "gate-full"]
+  let configured_image = if gate_operation and env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim() == "0" {
+    image_name()?
+  } else {
+    ensure_image(ctx)?
+  }
+  let image = if gate_operation {
+    let inspection = run.capture --text docker image inspect --format "{{.Id}}" $configured_image
+    let raw = inspection.status.shell_code()?
+    return Err(ImageError.Cancelled(raw_status: raw)) when raw == 130
+    return Err(ImageError.Unavailable(raw_status: raw)) when raw != 0
+    let identity = inspection.stdout.trim()
+    return Err(ImageError.InvalidIdentity(detail: "Docker returned an invalid image ID")) when ! identity.starts_with("sha256:") or identity.byte_len() != 71
+    for digit in identity[7..].split("") {
+      return Err(ImageError.InvalidIdentity(detail: "Docker returned an invalid image ID")) when digit not in "0123456789abcdef"
+    }
+    return Err(ImageError.InvalidIdentity(detail: "Docker resolved a different image ID")) when configured_image.starts_with("sha256:") and identity != configured_image
+    identity
+  } else { configured_image }
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
@@ -236,7 +257,7 @@ proc internal_command(
   var common_git = null
   if operation in ["gate-lane", "gate-full"] {
     cd (ctx.root) {
-      let output = run.text git rev-parse --path-format=absolute --git-common-dir
+      let output = run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --common-dir
       common_git = fp"{output.trim()}"
     }
   }

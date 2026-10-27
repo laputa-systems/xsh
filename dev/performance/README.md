@@ -410,3 +410,47 @@ paths changed during verification. Its passing outputs do not supply source
 credit. This qualification covers the selected fixture behavior on the seed
 products; it does not establish current canonical acceptance, CPU thresholds,
 observed helper counts, first-output latency, or a performance baseline.
+
+## Tokei Rust corpus projection
+
+`dev/performance/tokei_corpus.py` projects tracked, regular, non-hidden `.rs`
+files from uutils commit `e7c9f3194280835c4487c2945c68d5f01ccacc8d`. It
+requires at least 500 files and limits Git entries, source bytes, report bytes,
+and projection traversal. The selected revision must be available in a local
+uutils checkout.
+
+Run `project-uutils-rust --source-root ROOT --output PATH` with a fresh output
+path under this checkout's `.work/tmp`. Run `reconcile-uutils-rust` with
+`--source-root ROOT`, `--projection PATH`, `--xsh-json XSH_REPORT`, and
+`--tokei-json TOKEI_REPORT` to compare selected paths with the pinned Git
+objects. The helper does not execute or identify the binaries, and its result
+does not qualify timing or memory measurements.
+
+Each call gives its Git subprocesses a shared 60-second deadline. Projection
+writes and report processing have byte and file limits but no end-to-end time
+deadline. A staging-cleanup failure is attached to the original error.
+
+## Run the Tokei Rust correctness scenario
+
+Set `XSH_TOKEI_REFERENCE` to a Linux x86-64 Tokei executable that runs in the
+pinned test image. Set `XSH_TOKEI_CORPUS_ROOT` to a local uutils checkout that
+contains the pinned commit. Then select the scenario:
+
+```sh
+XSH_TOKEI_REFERENCE=/absolute/path/to/tokei \
+XSH_TOKEI_CORPUS_ROOT=/absolute/path/to/uutils \
+cargo dev gate --case showcase/tokei/uutils-rust-correctness
+```
+
+The scenario checks the full Tokei `--version` output, captures both executable
+hashes and modes, and checks that the products remain stable during the run.
+Tokei runs with `RAYON_NUM_THREADS=2` and `--no-ignore`. Both scanners run once
+in the pinned network-disabled container. The scenario records exact file-set
+reconciliation and no timing.
+It also reports Rust code, comment, and blank-line counts for each scanner and
+their differences. Different counts do not fail the file-set check.
+
+The expected Tokei source commit is
+`8cdd6fa3a54f8cd69442d2f00effb29aa3110353`, but the scenario cannot prove that
+the executable came from that commit. It reports Tokei source provenance and
+P0 qualification as unqualified.

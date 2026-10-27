@@ -1,12 +1,13 @@
 from copy import deepcopy
 import base64
-from contextlib import ExitStack, nullcontext, redirect_stderr
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr
 from dataclasses import replace
 import importlib.util
 from io import StringIO
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 import subprocess
 import tempfile
@@ -1056,11 +1057,261 @@ class AdapterDeadlineTests(unittest.TestCase):
                         self.assertIs(caught.exception, primary)
                         if not resolved:
                             self.assertIn('cleanup unresolved', primary.__notes__[0])
+                            failure = primary.cleanup_failure
+                            self.assertIsInstance(failure, check.DockerCleanupError)
+                            self.assertEqual(failure.child_status, 0)
+                            self.assertIsNone(failure.stdout)
+                            self.assertIsNone(failure.stderr)
+                            self.assertEqual(failure.cleanup['resolved'], False)
                     else:
                         self.assertEqual(check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=seconds), (0, b'output', b''))
                     restore.assert_called_once_with(previous)
                 self.assertEqual(events, [('communicate', seconds), ('cleanup',)])
                 self.assertEqual(bool(list(Path(directory).iterdir())), not resolved)
+
+    def test_verified_cleanup_resolves_under_native_lease_without_nested_window(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            events = []
+            lease_held = False
+            cleanup_depth = 0
+
+            @contextmanager
+            def native_lease():
+                nonlocal lease_held
+                lease_held = True
+                try:
+                    yield
+                finally:
+                    lease_held = False
+
+            @contextmanager
+            def cleanup_window():
+                nonlocal cleanup_depth
+                self.assertEqual(cleanup_depth, 0)
+                cleanup_depth += 1
+                events.append('cleanup-window-enter')
+                try:
+                    yield
+                finally:
+                    events.append('cleanup-window-exit')
+                    cleanup_depth -= 1
+
+            class Child:
+                returncode = 0
+
+                def communicate(self, *, timeout):
+                    return b'output', b''
+
+            child = Child()
+
+            def cleanup(actual, remove_container):
+                self.assertIs(actual, child)
+                with check.owned.cleanup_window():
+                    events.append('cleanup')
+                    return {'resolved': True}
+
+            def resolve_quarantine():
+                self.assertTrue(lease_held)
+                self.assertEqual(cleanup_depth, 0)
+                events.append('resolve-quarantine')
+
+            with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                    patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                    patch.object(check.owned, 'restore_signal_handlers'), \
+                    patch.object(check.owned, 'cleanup_window', side_effect=cleanup_window), \
+                    patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), \
+                    patch.object(check.subprocess, 'Popen', return_value=child), \
+                    native_lease():
+                self.assertEqual(check.checked_docker(
+                    ['docker', 'run'],
+                    Path(directory),
+                    timeout_seconds=60,
+                    on_cleanup_verified=resolve_quarantine,
+                ), (0, b'output', b''))
+            self.assertEqual(events, ['cleanup-window-enter', 'cleanup', 'cleanup-window-exit', 'resolve-quarantine'])
+            self.assertFalse(lease_held)
+
+    def test_quarantine_resolution_error_is_reported_without_replacing_primary_failure(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            primary = subprocess.TimeoutExpired(['docker', 'run'], 60)
+            resolution_failure = OSError('cleanup quarantine removal failed')
+            resolution_failure.add_note('quarantine marker restoration failed')
+            lease_held = False
+
+            @contextmanager
+            def native_lease():
+                nonlocal lease_held
+                lease_held = True
+                try:
+                    yield
+                finally:
+                    lease_held = False
+
+            class Child:
+                returncode = 0
+
+                def communicate(self, *, timeout):
+                    raise primary
+
+            def cleanup(actual, remove_container):
+                return {'resolved': True}
+
+            resolutions = []
+
+            def resolve_quarantine():
+                self.assertTrue(lease_held)
+                resolutions.append(True)
+                raise resolution_failure
+
+            with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                    patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                    patch.object(check.owned, 'restore_signal_handlers'), \
+                    patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                    patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), \
+                    patch.object(check.subprocess, 'Popen', return_value=Child()):
+                with native_lease(), self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    check.checked_docker(
+                        ['docker', 'run'],
+                        Path(directory),
+                        timeout_seconds=60,
+                        on_cleanup_verified=resolve_quarantine,
+                    )
+            self.assertIs(caught.exception, primary)
+            self.assertFalse(lease_held)
+            self.assertEqual(resolutions, [True])
+            self.assertTrue(any('cleanup quarantine removal failed' in note for note in primary.__notes__))
+            failure = primary.cleanup_failure
+            self.assertIsInstance(failure, check.DockerCleanupError)
+            self.assertEqual(failure.child_status, 0)
+            self.assertEqual(failure.cleanup, {'resolved': True})
+            self.assertIs(failure.resolution_error, resolution_failure)
+            self.assertEqual(failure.resolution_notes, ('quarantine marker restoration failed',))
+            self.assertIn('quarantine marker restoration failed', str(failure))
+
+    def test_unresolved_cleanup_errors_carry_observed_child_output(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            cleanup_failure = OSError('container inspection failed')
+
+            class Child:
+                returncode = 7
+
+                def communicate(self, *, timeout):
+                    return b'child stdout', b'child stderr'
+
+            def cleanup(actual, remove_container):
+                raise cleanup_failure
+
+            with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                    patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                    patch.object(check.owned, 'restore_signal_handlers'), \
+                    patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                    patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), \
+                    patch.object(check.subprocess, 'Popen', return_value=Child()):
+                with self.assertRaises(check.DockerCleanupError) as caught:
+                    check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=60)
+            failure = caught.exception
+            self.assertEqual(failure.child_status, 7)
+            self.assertEqual(failure.stdout, b'child stdout')
+            self.assertEqual(failure.stderr, b'child stderr')
+            self.assertIsNone(failure.cleanup)
+            self.assertIs(failure.cleanup_error, cleanup_failure)
+            self.assertIsNone(failure.resolution_error)
+
+    def test_unresolved_cleanup_result_carries_observed_child_output(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            class Child:
+                returncode = 3
+
+                def communicate(self, *, timeout):
+                    return b'partial output', b'partial diagnostic'
+
+            def cleanup(actual, remove_container):
+                return {'resolved': False, 'detail': 'container remains'}
+
+            with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                    patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                    patch.object(check.owned, 'restore_signal_handlers'), \
+                    patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                    patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), \
+                    patch.object(check.subprocess, 'Popen', return_value=Child()):
+                with self.assertRaises(check.DockerCleanupError) as caught:
+                    check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=60)
+            failure = caught.exception
+            self.assertEqual(failure.child_status, 3)
+            self.assertEqual(failure.stdout, b'partial output')
+            self.assertEqual(failure.stderr, b'partial diagnostic')
+            self.assertEqual(failure.cleanup, {'resolved': False, 'detail': 'container remains'})
+            self.assertIsNone(failure.cleanup_error)
+            self.assertIsNone(failure.resolution_error)
+
+    def test_verified_cleanup_resolves_quarantine_after_primary_timeout(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            primary = subprocess.TimeoutExpired(['docker', 'run'], 60)
+            resolved = []
+
+            class Child:
+                returncode = 0
+
+                def communicate(self, *, timeout):
+                    raise primary
+
+            def cleanup(actual, remove_container):
+                return {'resolved': True}
+
+            with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                    patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                    patch.object(check.owned, 'restore_signal_handlers'), \
+                    patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                    patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), \
+                    patch.object(check.subprocess, 'Popen', return_value=Child()):
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    check.checked_docker(
+                        ['docker', 'run'],
+                        Path(directory),
+                        timeout_seconds=60,
+                        on_cleanup_verified=lambda: resolved.append(True),
+                    )
+            self.assertIs(caught.exception, primary)
+            self.assertEqual(resolved, [True])
+
+    def test_interrupted_operation_with_unverified_cleanup_keeps_quarantine(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            interruption = check.owned.SignalReceived(signal.SIGTERM)
+            resolved = []
+
+            class Child:
+                returncode = 0
+
+                def communicate(self, *, timeout):
+                    raise interruption
+
+            def cleanup(actual, remove_container):
+                return {'resolved': False, 'detail': 'container remains'}
+
+            with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                    patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                    patch.object(check.owned, 'restore_signal_handlers'), \
+                    patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                    patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), \
+                    patch.object(check.subprocess, 'Popen', return_value=Child()):
+                with self.assertRaises(check.owned.SignalReceived) as caught:
+                    check.checked_docker(
+                        ['docker', 'run'],
+                        Path(directory),
+                        timeout_seconds=60,
+                        on_cleanup_verified=lambda: resolved.append(True),
+                    )
+            self.assertIs(caught.exception, interruption)
+            self.assertEqual(resolved, [])
+            self.assertIn('cleanup unresolved', '\n'.join(interruption.__notes__))
+            self.assertIsInstance(interruption.cleanup_failure, check.DockerCleanupError)
+            self.assertFalse(interruption.cleanup_failure.cleanup['resolved'])
 
 
 class BaselineTests(unittest.TestCase):

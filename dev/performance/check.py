@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
@@ -21,11 +22,29 @@ ADAPTER_ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ADAPTER_ROOT / 'dev/consolidation'
 PERFORMANCE = TOOLS / 'winddown/gate-tools/final-performance-gates'
 sys.path.insert(0, str(PERFORMANCE))
+sys.path.insert(0, str(ADAPTER_ROOT))
 import owned_containers as owned
+from dev import gate_source
 
 
 class CheckError(ValueError):
     pass
+
+
+class DockerCleanupError(CheckError):
+    def __init__(self, message, *, child_status, stdout, stderr, cleanup, cleanup_error, resolution_error):
+        self.child_status = child_status
+        self.stdout = stdout
+        self.stderr = stderr
+        self.cleanup = cleanup
+        self.cleanup_error = cleanup_error
+        self.resolution_error = resolution_error
+        self.resolution_notes = tuple(getattr(resolution_error, '__notes__', ()))
+        super().__init__(
+            f'{message}; child_status={child_status!r} stdout={stdout!r} stderr={stderr!r}; '
+            f'cleanup={cleanup!r}; cleanup_error={cleanup_error!r}; resolution_error={resolution_error!r}; '
+            f'resolution_notes={self.resolution_notes!r}'
+        )
 
 
 def require(condition, message):
@@ -116,7 +135,7 @@ def parse_config(value):
 
 
 def git(root, *args):
-    return subprocess.check_output(['git', '-C', str(root), *args], text=True, timeout=15).strip()
+    return gate_source.git(os.fsencode(root), *(os.fsencode(arg) for arg in args), timeout=15).decode().strip()
 
 
 def source_identity_at(source_root, commit, tree):
@@ -366,7 +385,27 @@ def check_cleanup(cleanup):
     require(cleanup.get('resolved') is True, f'owned container cleanup unresolved: {cleanup}')
 
 
-def checked_docker(command, scratch, *, timeout_seconds):
+def _docker_cleanup_error(message, process, result, primary, cleanup, cleanup_error, resolution_error):
+    return DockerCleanupError(
+        message,
+        child_status=result[0] if result is not None else getattr(process, 'returncode', None),
+        stdout=result[1] if result is not None else getattr(primary, 'output', None),
+        stderr=result[2] if result is not None else getattr(primary, 'stderr', None),
+        cleanup=cleanup,
+        cleanup_error=cleanup_error,
+        resolution_error=resolution_error,
+    )
+
+
+def _preserve_primary_cleanup(primary, cleanup_failure):
+    try:
+        primary.cleanup_failure = cleanup_failure
+    except (AttributeError, TypeError) as error:
+        primary.add_note(f'could not attach structured cleanup failure: {error!r}')
+    primary.add_note(str(cleanup_failure))
+
+
+def checked_docker(command, scratch, *, timeout_seconds, on_cleanup_verified: Callable[[], None] | None = None):
     directory = Path(tempfile.mkdtemp(prefix='adapter-', dir=scratch))
     cidfile = directory / 'container.cid'
     owner = directory.name
@@ -381,20 +420,75 @@ def checked_docker(command, scratch, *, timeout_seconds):
         result = process.returncode, stdout, stderr
     except BaseException as error:
         primary = error
+    cleanup = None
+    cleanup_error = None
+    resolution_error = None
     try:
-        with owned.cleanup_window():
-            cleanup = owned.cleanup_cidfile_container(cidfile, owner=owner, stage='adapter') if process is None else owned.cleanup_container_process(process, lambda: owned.cleanup_cidfile_container(cidfile, owner=owner, stage='adapter'))
+        if process is None:
+            with owned.cleanup_window():
+                try:
+                    cleanup = owned.cleanup_cidfile_container(cidfile, owner=owner, stage='adapter')
+                except BaseException as error:
+                    cleanup_error = error
+                if cleanup_error is None and cleanup.get('resolved') is True and on_cleanup_verified is not None:
+                    try:
+                        on_cleanup_verified()
+                    except BaseException as error:
+                        resolution_error = error
+        else:
+            try:
+                cleanup = owned.cleanup_container_process(
+                    process,
+                    lambda: owned.cleanup_cidfile_container(cidfile, owner=owner, stage='adapter'),
+                )
+            except BaseException as error:
+                cleanup_error = error
+            if cleanup_error is None and cleanup.get('resolved') is True and on_cleanup_verified is not None:
+                try:
+                    on_cleanup_verified()
+                except BaseException as error:
+                    resolution_error = error
     finally:
         owned.restore_signal_handlers(previous)
+    if cleanup_error is not None:
+        failure = _docker_cleanup_error(
+            'owned container cleanup failed', process, result, primary, cleanup, cleanup_error, resolution_error,
+        )
+        if primary is not None:
+            _preserve_primary_cleanup(primary, failure)
+            raise primary
+        raise failure from cleanup_error
+    cleanup_unresolved = cleanup.get('resolved') is not True
     if cleanup.get('resolved') is True:
         shutil.rmtree(directory)
     if primary is not None:
-        if cleanup.get('resolved') is not True:
-            primary.add_note(f'cleanup unresolved; owned cidfile retained at {cidfile}: {cleanup}')
+        if cleanup_unresolved:
+            failure = _docker_cleanup_error(
+                f'cleanup unresolved; owned cidfile retained at {cidfile}',
+                process, result, primary, cleanup, cleanup_error, resolution_error,
+            )
+            _preserve_primary_cleanup(primary, failure)
+        if resolution_error is not None:
+            failure = _docker_cleanup_error(
+                'failed to resolve cleanup quarantine after verified container cleanup',
+                process, result, primary, cleanup, cleanup_error, resolution_error,
+            )
+            _preserve_primary_cleanup(primary, failure)
         raise primary
-    if cleanup.get('resolved') is not True and result[0] != 0:
-        raise CheckError(f'command exited {result[0]}: stdout={result[1]!r} stderr={result[2]!r}; cleanup unresolved; cidfile retained at {cidfile}: {cleanup}')
-    check_cleanup(cleanup)
+    if resolution_error is not None:
+        failure = _docker_cleanup_error(
+            'container cleanup verified but cleanup quarantine resolution failed',
+            process, result, primary, cleanup, cleanup_error, resolution_error,
+        )
+        if isinstance(resolution_error, (owned.SignalReceived, KeyboardInterrupt)):
+            _preserve_primary_cleanup(resolution_error, failure)
+            raise resolution_error
+        raise failure from resolution_error
+    if cleanup_unresolved:
+        raise _docker_cleanup_error(
+            f'cleanup unresolved; owned cidfile retained at {cidfile}',
+            process, result, primary, cleanup, cleanup_error, resolution_error,
+        )
     return result
 
 

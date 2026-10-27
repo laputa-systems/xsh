@@ -63,33 +63,121 @@ The catalogue uses `RuntimeSeconds` for bounded cases and `ManualOwner` for
 manual cases that retain the existing owner lifecycle.
 Scenario cases require explicit `--case ID` selection. Path ownership cannot
 select a Scenario through a prerequisite.
+The explicit `laputa/pm.make/plan` scenario requires `--laputa-root` with an
+absolute canonical Git root. It selects two exact PM planning tests in a
+network-disabled Linux container limited to two CPUs, 4 GiB and 300 seconds.
+The container mounts Laputa, its linked-worktree Git metadata, and prepared XSH
+and XSHT products read-only, with fresh owned scratch as its only writable bind
+mount. The host observes both repositories and product bytes and modes before
+and after execution, and reconciles XSHT events against the selected IDs. These
+observations are not atomic snapshots. The container uses the shared native
+lease and retains its cleanup quarantine until container removal is verified.
+The `laputa/kbuild/discovery` scenario uses the same boundary for one synthetic
+Kbuild discovery test. Select only one Laputa scenario per request.
+The `laputa/kbuild/graph-cache` scenario checks synthetic graph equivalence,
+cache invalidation, and plan output.
+The `laputa/kbuild/make-semantics` scenario checks Make assignment, nested
+function expansion, and compile-flag regressions.
+The `laputa/pm.execute/reuse-count` scenario checks builds and reuse in an
+isolated temporary store. It also prepares and binds XSHI for the executor.
+The `laputa/pm.root/compose` scenario checks isolated root inventories, file
+modes, links, canonical ownership, and collision rejection.
+The `laputa/pm.plan/inventory` scenario checks synthetic package graph order,
+reuse, dependency kinds, and executor provenance.
+The `laputa/world/host-plan` scenario checks isolated host-plan selection and
+mirror environment handling; it does not build a world.
+
+The explicit `performance/json-n/correctness` scenario runs alone. It generates
+its fixture in owned scratch and checks the output and side effects in a fresh,
+network-disabled Linux container. It binds the selected source and prepared XSH
+product before and after execution. Its resource output is diagnostic only:
+unavailable counters are reported as such, and the case does not measure or
+qualify performance.
 
 The initial focused cases include `showcase/tokei/correctness` and
 `core/lsmem/correctness`. Each selects its existing native behavior module.
+At Edit tier, `src/sema/check/local_inference.rs` selects the exact
+`compiler/local-inference/correctness` tests; Change also retains its broader
+checker coverage. `src/sema/schemes.rs` similarly selects the exact
+`compiler/imported-inference/correctness` tests at Edit tier. Edits to
+`src/sema/inference_work.rs` select the exact
+`compiler/inference-work/correctness` Rust test.
 A Change request for `core/lsmem.xsh` also selects `core/lsmem/consumers`, an
 `--exact-id` set of the tests in other modules that run the applet. The
 unprivileged gate lane skips the two namespace-dependent lsmem consumers, as the
 Core directory run does; an exact set cannot include a test that will skip.
+An Edit request for `core/cat.xsh` selects bounded byte-stream tests. Change
+selects the cat behavior module and its exact external consumers.
 Edit rejects Change-only cases before preparing products. Edit runtime is limited
 to 30 seconds and Change runtime to 300 seconds across selected automatic cases.
 Each automatic command also has its declared case limit. Explicit Scenario cases use their
 declared per-case limit and do not increase any automatic case's budget.
 
 Compilation runs outside the runtime budget and is reported as a separate stage.
+Before Linux gate execution, Docker resolves the configured test image to an
+immutable image ID. An unavailable image or a digest that resolves to a
+different ID leaves the scope incomplete; the container uses the resolved ID.
 Cargo prepares each needed test harness once with `--no-run`. Selected tests then
 run through that executable directly, without another Cargo invocation.
 Deadline expiry consumes owned process cleanup and exits 2. Required child failures
 exit 1 while retaining the raw status. Gate cancellation consumes cleanup and exits
 130. No timeout or failure can request Full verification.
 
-Result reconciliation, source snapshot binding, per-case product profiles and
-explicit workload inputs remain open campaign work. Full derives its dependency
+For native filters, the gate lists matching test IDs as JSON and runs that exact
+set from a bounded JSON file, preserving newlines and avoiding argument limits.
+Discovery counts against the case budget. An empty selection, a required skip,
+or an invalid selection exits 2; a failing test exits 1.
+An execution plan with no cases also exits 2, including a change whose only
+available check is a manually requested scenario. Plan inspection remains available.
+
+After focused product preparation, the gate records digests and modes of selected
+XSH, XSHT, and XSHI products. It checks them before and after successful leaf
+commands and between native discovery and execution. A changed or unavailable
+product makes the scope incomplete. Prepared Cargo test harnesses are also
+inspected before and after execution and when reused. Execution inspections run
+in owned children within the case and shared runtime limits; the host selection
+inspection has a separate tier limit. The focused gate also compares the Git
+index and tracked and untracked source contents, including checked-out Git
+submodules, from host selection through
+preparation and successful leaf execution. Source inspection disregards the
+configured Git excludes file so host and container see the same inputs;
+repository ignore files and Git's per-repository exclude file still apply. A
+changed source returns incomplete. These checks are observations, not an atomic
+snapshot: edits reverted between observations,
+ignored and external inputs, harness preparation, and Full are not yet bound.
+Native cases reconcile XSHT events against the selected IDs and child status.
+Missing or contradictory results make a successful child incomplete; a child
+failure retains its failed status even if reconciliation is unavailable.
+Prepared Cargo test harnesses list their selected tests and reconcile libtest
+events. Required ignored tests and missing or contradictory results are incomplete.
+Changes to the result reconciler, source observer, focused adapters, resource
+observer or native leases select their Python contract tests directly.
+At Edit tier, changes to `uniq`, `sort`, `find`, `xargs`, or `awk` select
+focused record, ordering, traversal, process, or program behavior tests.
+Their Change tier retains the broader core test selection.
+Changes to the JSON runtime facade select structured-data behavior tests at
+Edit tier and the existing API and standard-library checks at Change tier.
+Changes to effect-inference checking select capability-contract tests at Edit
+tier and retain the checker gate at Change tier.
+Frontend statistics changes select a retained-column test at Edit tier and
+retain the frontend memory checks at Change tier.
+Constraint-solver production changes select a reference-oracle test at Edit
+tier and retain the checker gate at Change tier.
+Focused execution requires Python 3.11 or newer for source inspection and result
+reconciliation.
+
+Workload result reconciliation, atomic source binding, per-case product profiles
+and explicit workload inputs remain open campaign work. Full derives its dependency
 and product closure from the retained batch owners. It validates the complete
 closure before Docker, product preparation or child execution. Dispatch controls
 use bounded substitute commands and do not perform actual Full verification.
-The current Git path collection is line-based and does not qualify newline or
-non-UTF-8 working-tree paths. These checks do not qualify P0 or the post-inference
-campaign.
+Automatic Git path collection preserves newline characters and includes staged,
+unstaged, and untracked paths independently. It ignores inherited `GIT_*`
+overrides and replacement refs, and rejects indexes with `assume-unchanged` or
+`skip-worktree` entries, which can hide edits. Explicit cases remain available.
+A discovered non-UTF-8
+path makes discovery incomplete with status 2. These
+checks do not qualify P0 or campaign acceptance.
 
 Process tests and native suites use the optimized `verification` profile by
 default. It disables LTO and uses 64 codegen units. Release tests are for final

@@ -1,7 +1,196 @@
 # Scoped verification across XSH and Laputa
 
-Status: first slice landed on master, 2026-10-24; the rest is parked.
-Full inference is separate. P0 qualification and campaign acceptance are open.
+Status: resumed on master. The first slice is integrated; P0 and campaign
+acceptance are open. The owner directs Pyramid before inference and Lean; this
+order replaces the earlier post-inference plan. Qualify Pyramid on
+current source and rerun affected checks when inference changes their inputs.
+See [the roadmap](docs/ROADMAP.md).
+
+Automatic discovery now reads staged, unstaged and untracked Git paths with
+NUL delimiters and rejects non-UTF-8 output. The Docker launcher scopes Git's
+safe-directory setting to the checkout. The selected gate-test module passed
+49 tests in the replacement image. Native file filters are discovered and run
+as exact ID sets within the case budget; required skips and empty selections
+return incomplete. Timed child inspections check selected product digests and
+modes, plus tracked and untracked Git inputs and the index, from host selection
+through preparation and leaf execution. Changed or unavailable inputs return
+incomplete. The Tokei
+Edit case also passes in the replacement image. Ignored and external inputs,
+harness preparation and atomic binding remain open; these
+checks do not establish P0.
+
+Source observation and automatic path discovery now discard inherited Git
+overrides and ignore replacement refs. Discovery returns incomplete for
+`assume-unchanged` or `skip-worktree` index entries that could hide edits;
+explicit cases still work.
+Host and Linux controls cover poisoned indexes, replacement refs, hidden index
+flags and linked-worktree metadata.
+
+The small Tokei fixture now checks the exact selected multilingual file set and
+the complete table bytes, including ignored and unsupported inputs. Its focused
+Linux test passes; the pinned upstream and substantial-corpus comparison remain
+open.
+Selected files that cannot be read now fail both Tokei output modes; a host
+and a Linux regression cover the failure.
+
+The Edit catalogue now selects three exact local-inference behavior tests for
+`src/sema/check/local_inference.rs`; Change retains the broader checker gates.
+The ownership control passes on the host and the selected tests pass in Linux.
+`src/sema/schemes.rs` likewise selects three imported-callable tests at Edit
+tier while retaining broader checker coverage at Change tier. Its ownership and
+selected tests pass on the host and in Linux.
+The Edit catalogue also selects the exact inference-work isolation and
+instantiation-count Rust test. Its ownership control and the source-bound
+Rust test pass in the replacement Linux image.
+The frontend-retention Edit case selects the retained-column stability test;
+its ownership control and prepared local Rust harness pass, as does the Linux
+gate. Wider disposal measurements remain open.
+The constraint-solver Edit case selects an independent row and rollback oracle;
+its ownership control and prepared local Rust harness pass, as does the Linux
+gate. Solver scaling measurements remain open.
+
+The cat Edit case selects four exact byte-stream and error tests. Change selects
+the full cat module and 66 identified external consumers instead of the broad
+Core suite. The source-bound Edit and Change gates passed in the replacement
+image. The permission-error fixture runs its command unprivileged when the
+test runner is root; its locale-adjusted Change gate passed all 79 selected
+tests in Linux after resource admission.
+
+The uniq Edit case selects four record-grouping and streaming tests. The find
+Edit case selects four traversal and path tests. Their ownership controls pass
+on the host and both source-bound cases pass in the replacement Linux image;
+the wider record/order and traversal workloads remain open.
+The sort, xargs, AWK, JSON runtime and effect-inference Edit cases select
+ordering and spill, process and stream, record, structured-data, and capability
+tests respectively. Their ownership controls pass on the host and all 21
+selected tests pass in Linux after resource admission. Wider workload coverage
+remains open.
+
+P0 reference candidates are [upstream Tokei v14.0.0](https://github.com/XAMPPRocky/tokei/releases/tag/v14.0.0) at commit
+`8cdd6fa3a54f8cd69442d2f00effb29aa3110353` and the local uutils/coreutils
+commit `e7c9f3194280835c4487c2945c68d5f01ccacc8d`. The latter can be archived
+without its live checkout's untracked file and has no tracked submodules or
+`.tokeignore` files. Language selection, file reconciliation, worker affinity
+and output policy still need qualification before these become P0 inputs.
+The test image's existing offline cache lacked Tokei's `arbitrary` dependency.
+Locked dependencies were fetched into disposable workspace storage and the
+reference was built offline in the replacement image. Its source-to-product
+binding remains unqualified.
+An archive projection containing 671 tracked, non-hidden Rust files was checked
+with host XSH and the offline Linux reference: both selected exactly that set.
+XSH counted 213,988 code, 18,298 comment and 30,443 blank lines; upstream
+counted 214,731, 18,027 and 29,973 respectively. These are preliminary output
+observations, not source-bound acceptance. An affinity-limited host probe also
+confirmed that XSH reports the two available CPUs. Timing and memory remain
+unqualified.
+The integrated corpus helper also projected the pinned Git blobs directly and
+reconciled real Linux XSH and upstream JSON reports: both selected all 671 files.
+The explicit Tokei scenario now passes the same file-set reconciliation in the
+replacement Linux image, binding XSH to the selected source and checking the
+reference binary's stability. Its Linux report also records the line counts and
+differences above. Reference source provenance and controlled
+performance comparison remain open.
+
+Native cases now reconcile XSHT's structured events against the selected IDs and
+child status. Missing or contradictory results make a successful run incomplete;
+an observed child failure retains failure precedence. Prepared Cargo harnesses
+are inspected across execution and reuse, and their selected libtest results
+are reconciled. Focused Linux controls cover pass, ignored, failed, missing,
+and changed-harness cases; a real nightly libtest probe confirmed pass, ignored,
+and failure outcomes. Other workload reports remain to be integrated.
+
+Native discovery and exact-set execution now exchange JSON files, preserving
+newlines and avoiding argument-size limits. The file reader rejects nonregular
+or oversized inputs. Five targeted Rust CLI tests and the focused Linux gate
+controls pass. The feature-disabled XSHT build remains unverified: its existing
+native-test symbol references fail to compile without that feature.
+
+Laputa now exposes a pure `pm.make.plan_tasks` graph inventory that validates
+structure and cycles without executing tasks or inspecting files. Six focused
+Linux tests cover its inventory and the retained scheduler behavior. The
+cross-repository plan case passed its two selected tests in the replacement
+image, with observed source and product binding and reconciled events. Source
+inspection now includes checked-out Git submodules; its regression covers nested
+modified and untracked files. Atomic binding and other Laputa cases remain open.
+An isolated PM executor regression now checks actual build-hook counts across a
+fresh build, reuse, and a dependency change; it passes on the host. Its explicit
+scenario prepares and binds XSHI as well as XSH and XSHT and passed in the
+qualified Linux image. Broader world coverage remains open.
+The catalogue also exposes the existing synthetic Kbuild discovery test as an
+explicit Laputa scenario. Its adapter and host selection controls pass, and its
+selected test passed through the qualified Linux image.
+The Kbuild graph-cache scenario now selects twelve isolated graph parity, cache
+invalidation, legacy-cache replacement, plan-output, and selected-closure tests.
+All twelve pass in the replacement Linux image after resource admission.
+The closure regression exposed a stale dependent after an upstream rebuild;
+the scheduler now reruns declared dependents when a dependency ran. Its host
+regression and the PM make tests pass.
+The same closure fixture checks the exact `linux-kbuild-stopped` plan error and
+the written plan report; it also passes in Linux.
+PM make now compares nanosecond timestamps, fixing missed same-second input
+changes; its regression passes on the host and in Linux, and the PM make tests
+pass on the host.
+An offline preliminary discovery of Laputa's checksum-pinned Linux 7.2.9
+source with its x86 configuration found 716 directories and 1,477 objects, but
+reported six unsupported items. The planner now handles the nested Make
+functions and assignment replacement responsible for those diagnostics; the
+same local probe reports no unsupported items. The real-kernel scenario and
+its complete inventory remain unqualified.
+The local scan-record cache now uses format `linux-local-records-v4`, so records
+created by the old planner are rebuilt instead of reused.
+Compile-flag caches and discovered-plan fingerprints are likewise versioned
+forward; focused host regressions show the default path rebuilds old entries.
+Explicit plan-cache trust remains an override.
+Default fingerprints now include the architecture, cached plan, reachable Kbuild files and active includes;
+the public `kbuild.plan_fingerprint` requires the source architecture. Host
+regressions cover changed nested and included inputs and pass in Linux.
+Local scan records now carry digests of the Kbuild and active include text
+consumed by each scanner and worker, and their cache keys bind the parsed
+configuration. Plan and compile-flags cache writes still read inputs separately;
+edits during discovery can associate those results with a later digest. Atomic
+input binding remains open and those cache results assume stable source.
+The focused Make-semantics scenario, including the subdirectory-flags control,
+passed five tests in the replacement Linux image after resource admission.
+The explicit PM root-composition scenario selects five isolated inventory,
+ownership, link, and collision tests. Its selection and adapter controls and
+selected tests pass on the host, and the source-bound scenario passes in the
+replacement Linux image.
+The explicit PM package-inventory scenario selects four synthetic graph,
+reuse, dependency-kind, and executor-provenance tests. Its adapter, selection,
+and selected tests pass on the host; the source-bound scenario also passes in
+the replacement Linux image.
+The explicit world host-plan scenario checks selection and mirror environment
+handling in an isolated fixture. Its adapter, selection, and selected host test
+pass, as does the Linux scenario after resource admission. The real world
+inventory remains open.
+
+The `performance/json-n/correctness` gate passed its output oracle and cleanup
+checks in the replacement image, bound to the selected source and prepared
+product. Performance remains unmeasured. Its fresh-container diagnostic sampled
+cgroup counters but reported incomplete because `cgroup.pressure` was unavailable.
+The later rerun was incomplete because resource admission was unavailable.
+Required resource measurements and performance qualification remain open.
+
+The approved Linux test image `sha256:ef7c796588552777825857dc3b8ffca9efe533112a4c340687e625742d93da94`
+is unavailable locally. A gate invocation rebuilt the default `xsh-test` tag
+before the image was pinned; the approved image could not be found afterward.
+The owner authorized qualifying the replacement image
+`sha256:6e97d46216b8e3be9c7ca2ee1c28872c5eee5d7531667ff948fb7a7c67e82db9`.
+It has the pinned nightly compiler and has passed the selected checks above.
+Earlier results from the previous image do not qualify the replacement.
+The gate resolves the configured image to an immutable ID before launch; the
+Tokei Edit case passed through that path. Focused controls cover missing images,
+identity mismatches and cancellation during image inspection.
+An exploratory gate in a delegated worktree later rebuilt the shared
+`xsh-test:latest` tag, leaving this approved image unavailable. The owner
+authorized qualifying its replacement,
+`sha256:dcb4231618e78bfbdd242360ce51c67fb64991eff9db3d80db4c1b476d8bc637`.
+It has the pinned nightly and passed the five-test Tokei Edit gate and eleven
+focused source, dispatch and compiler controls. It is retained under a separate
+local tag and used by immutable ID for subsequent Linux checks.
+Some subsequent launches checked load without separately checking resource
+status with `perf-gate-ready -s`. Their behavior results are provisional for
+campaign admission and must be rerun under both checks.
 
 Landed from `campaign/pyramid-port`:
 
@@ -20,7 +209,7 @@ input binding, stale-evidence status, standalone host execution and mixed
 host/native cases, lease and resource accounting, focused performance and
 workload adapters, Tokei, core-workload, frontend and Laputa PM cases, and the
 final-replay validation boundary. Each is the P1/P2 lane in the table below and
-needs its own port against the accepted inference source.
+needs its own port against the current source.
 
 Pilot, `core/lsmem.xsh` edit, 2 CPUs, in-container operation run on the host
 because the pinned image was absent:
@@ -109,12 +298,10 @@ claiming a pass; memory and binary-size checks still run.
 
 ## Decisions
 
-Owner decisions, 2026-10-21:
+Owner decisions, including the current ordering:
 
-- Full campaign qualification follows full inference. On 2026-10-22 the owner
-  authorized staggered independent implementation before inference closes. Keep
-  early work isolated and provisional; repeat relevant foundation checks on the
-  accepted post-inference source before advancing P0.
+- Qualify Pyramid on the current source before inference. Repeat affected
+  checks when inference changes their inputs, then proceed to Lean.
 - The supplied proposal defines Edit, Change, Scenario and Full tiers. Full
   runs require an explicit owner request and cannot be an automatic fallback.
 - Preserve Cargo, XSHT and the existing benchmark/VM mechanisms. Defer Buck2.
@@ -206,8 +393,8 @@ Delegated decisions:
 ## Baseline and foundation
 
 The planning source is local XSH `21ce1ed25` and Laputa `bbe05e466`. At P0,
-freeze the actual post-inference source, check intervening changes and rerun the
-foundation. Do not transfer these observations into future acceptance.
+freeze the current source, check intervening changes and rerun the foundation.
+Do not transfer these observations into future acceptance.
 
 Two exact native gate tests pass against matching verification products:
 `dev/tests/test-gates.xsh::test_changed_paths_select_and_deduplicate_their_verification_owners`
@@ -238,7 +425,7 @@ Each item has the explicit executable proof in Acceptance below.
 
 | Phase/item | Size | Prerequisites | Exclusive ownership and deliverable |
 |---|---|---|---|
-| P0 ground | M | Full inference accepted/integrated; execution grant | Coordinator freezes both repos/products, measures narrow loop, records failures and pins references. Repair broken selectors before broad work. |
+| P0 ground | M | Current sources; execution grant | Coordinator freezes both repos/products, measures narrow loop, records failures and pins references. Repair broken selectors before broad work. |
 | P1 catalogue | L | P0 | `dev/gates.xsh`, `dev/main.xsh`, live canonical/manual dispatcher callers, gate tests and driver docs: typed catalogue, reasons, plan inspection, tier/manual closure, exact products, snapshot binding. |
 | P1 native results | L | Early isolated implementation authorized; P0 before acceptance | `crates/xsht/src/commands.rs`, native test owner/tests: exact sets, JSONL, per-module preparation, accounting and cancellation. |
 | P1 workload adapters | L | P0 | `dev/performance` and existing benchmark owners/tests: independent correctness-qualified cases and Cargo/performance result translation. Start on agreed event shape before native lane merges. |
@@ -292,14 +479,11 @@ otherwise complete selected Change scope. No full-project green is inferred.
 
 ## Execution boundary
 
-The 2026-10-22 owner request authorizes starting independent isolated Pyramid
-implementation alongside inference. The first lane is limited to XSH native
-runner code, its tests and source documentation. Use existing owned offline
-Docker operations under the shared allocation limits. The requested campaign
-workflow includes reviewed local checkpoints for this lane. Keep code isolated
-until post-inference P0 qualification; defer other Pyramid operations to their
-planned stage and authority boundary. Full-inference grants continue to govern
-inference work. No pushes,
+The current owner request resumes Pyramid ahead of inference. Use existing
+owned offline Docker operations under the shared allocation limits. The earlier
+request authorized reviewed local checkpoints for the isolated XSH native
+runner lane; it does not authorize other commits. Full-inference grants continue
+to govern inference work. No pushes,
 host installation, live roots, secret access, external messages, publication,
 normal-store cleanup or production-service control. Register KVM-dependent
 manual targets but do not execute them without a separate explicit scope grant.
@@ -389,10 +573,9 @@ scope; its optional Buck2/Nextest investigations remain deferred as stated above
 
 - Read the short report, explicit contract changes and any manual scope not run.
 - Review the parked branch commit by commit before porting the next family
-  onto the accepted inference source; `--batch` callers outside the repository
-  must move to `--full`.
-- Expand beyond the landed slice only within an explicit execution grant;
-  qualify the campaign on accepted post-inference sources.
+  onto the current source; `--batch` callers outside the repository must move
+  to `--full`.
+- Qualify Pyramid on current source, then repeat affected checks after inference.
 
 ---
 
