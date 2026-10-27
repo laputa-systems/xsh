@@ -2373,6 +2373,8 @@ Later inference commits remain on the campaign branch: even the focused-green
 `8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
 ready for master.
 
+Retired inference-lane Cargo target directories were later deleted to reclaim
+disk space; their binaries must be rebuilt. Other retained lane artifacts remain.
 Twelve completed lane worktrees are removed after confirming campaign
 integration, clean tracked files, and no open handles. Their generated Cargo
 outputs are discarded. Branches remain. The temporary foundation and diagnostic
@@ -2386,18 +2388,18 @@ Their raw qualification logs remain under
 `.work/tmp/full-inference-retired-qualification/`; their commits remain available.
 Five completed body, compiler, contract-comparison and driver-projection
 checkouts are also removed after clean ancestry and ownership checks.
-Their complete scratch trees remain under
+Their retained non-Cargo artifacts remain under
 `.work/tmp/full-inference-retired-lanes/`. Their branches remain available.
 Four completed interface, record-form, scalar-contract and graph-verification
-checkouts are removed under the same checks. Their complete scratch trees remain
+checkouts are removed under the same checks. Their retained non-Cargo artifacts remain
 in that directory. The imported-source reproducer and dirty iteration prototype
 remain untouched. The prototype's patch lines match the accepted iteration edits
 at `c0a282df8`, apart from seven later added stream-error verification lines.
 Two completed XSHT checkouts are removed after clean patch-equivalence checks
-and confirmation that no agent or process uses them. Their complete ignored
-working trees remain under `.work/tmp/full-inference-retired-lanes/`.
+and confirmation that no agent or process uses them. Their retained non-Cargo
+artifacts remain under `.work/tmp/full-inference-retired-lanes/`.
 The superseded argument and budget qualification checkouts are also removed
-after clean ancestry checks. Their complete scratch trees remain in the same
+after clean ancestry checks. Their retained non-Cargo artifacts remain in the same
 directory. Matching collector, NonEmpty and optional products remain retained.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,

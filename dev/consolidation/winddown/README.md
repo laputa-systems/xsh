@@ -151,10 +151,9 @@ diagnostic overlays are now committed on their own parked branches:
 `campaign/winddown-assignment-reference-20261016`, and
 `campaign/winddown-pipeline-diagnostic-20261016`. They are unqualified source.
 
-Ignored logs and caches from removed worktrees were moved without deleting
-their bytes to `.work/tmp/winddown-retained-20261016/<old-worktree-name>/`,
-retaining each original relative ignored path. This local archive is optional;
-source recovery uses the committed branch index and the campaign handoff.
+The optional local archive of ignored logs and caches from removed worktrees was
+deleted to reclaim disk space. Source recovery uses the committed branch index
+and the campaign handoff.
 Current qualification summaries, exact commands and essential failed-run
 records are committed. Disposable binaries and caches must be rebuilt for any
 fresh accepted run. Historical absolute paths in raw records are observations,
