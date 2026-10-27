@@ -346,6 +346,8 @@ cleanup receive no timing credit.
 Helper attribution checks pipeline completions against explicitly declared
 segment counts. It rejects incomplete pipelines and mixed pipeline and ordinary
 helper traces. An incomplete pipeline trace cannot establish a zero-helper count.
+Ordinary run completions must match distinct starts. Process-handle traces are
+incomplete until their lifecycles can be reconciled.
 
 Common and demanding names do not assert a measured cost. The later accepted
 baseline must establish which substantial cases exceed 50 ms of CPU and qualify

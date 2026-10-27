@@ -85,6 +85,9 @@ events. The reader reconciles them against explicitly declared segment counts
 and rejects incomplete or mixed traces. The Linux scenario checks exact output
 and four completed helpers. Pipeline performance and resource qualification
 remain open.
+Ordinary run attribution now matches each completion to its start. A host trace
+of the existing 128-helper workload reconciles all 128. Process-handle traces
+remain incomplete until their lifecycles can be reconciled.
 
 P0 reference candidates are [upstream Tokei v14.0.0](https://github.com/XAMPPRocky/tokei/releases/tag/v14.0.0) at commit
 `8cdd6fa3a54f8cd69442d2f00effb29aa3110353` and the local uutils/coreutils
