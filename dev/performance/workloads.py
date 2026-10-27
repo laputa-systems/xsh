@@ -6,6 +6,7 @@ from pathlib import Path
 import statistics
 
 from bench.consolidation.fixtures import DEMANDING_PACKAGE_ROW_SHAPES, PACKAGE_ROW_SHAPES
+from dev.performance import results
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
@@ -96,6 +97,8 @@ def trace_counts(rows, *, expected_pipeline_segments=None):
         if row.get('type') == 'syscall.summary':
             summaries.append(row)
         payload = row.get('payload', {})
+        if not isinstance(payload, dict):
+            raise ValueError('helper attribution unavailable: invalid trace payload')
         kind = row.get('kind')
         if kind == 'pipeline.enter':
             identity = row.get('event_id')
@@ -229,8 +232,7 @@ def run_cohort(fixtures, xsh, xsht, scratch, output, sampler, resources, *, diag
                     publish()
                     if not row['equal']:
                         raise ValueError(f'diagnostic output/status/effects failed: {case.name}')
-                with trace.open() as stream:
-                    counts = trace_counts(json.loads(line) for line in stream)
+                counts = trace_counts(results.trace_records(trace))
                 phase_report = json.loads(phase.read_text())
                 if phase_report.get('tracking_active') is not True or phase_report.get('status') != 0:
                     raise ValueError(f'ordinary runtime allocation attribution unavailable: {case.name}')

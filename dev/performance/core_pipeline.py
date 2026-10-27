@@ -48,7 +48,7 @@ def check_pipeline(xsht, scratch, lease_owner, shape='small'):
         if (row['effects'] != {} or base64.b64decode(row['stdout_base64'], validate=True) != case.expected_stdout or stderr):
             raise WorkloadFailure(f'pipeline output or cleanup differs from the oracle: stderr={stderr[:4096]!r}')
         core_cases.validate_case(case, fixtures=fixtures)
-        trace_rows = results._records(results._event_file(trace))
+        trace_rows = results.trace_records(trace)
         counts = workloads.trace_counts(iter(trace_rows),
                                         expected_pipeline_segments=(2,) * core_cases.work_counts(case)['completed_pipelines'])
         if counts['subprocesses'] != case.expected_subprocesses:

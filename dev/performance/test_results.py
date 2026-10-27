@@ -33,6 +33,38 @@ def encode(rows):
 
 
 class ResultTests(unittest.TestCase):
+    def test_trace_records_stream_large_complete_jsonl_and_reject_bad_inputs(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
+            path = Path(directory) / 'trace.jsonl'
+            line = b'{"kind":"ordinary","payload":"' + b'x' * 1000 + b'"}\n'
+            with path.open('wb') as stream:
+                for _ in range(17000):
+                    stream.write(line)
+                stream.write(b'{"type":"syscall.summary","syscall_count":1}\n')
+            self.assertGreater(path.stat().st_size, 16 * 1024 * 1024)
+            count = 0
+            for row in results.trace_records(path):
+                count += 1
+            self.assertEqual(count, 17001)
+            self.assertEqual(row['type'], 'syscall.summary')
+            for data in (b'', b'{"a":1}', b'{"a":1,"a":2}\n', b'[]\n', b'\xff\n', b'{"x":"' + b'x' * (1024 * 1024) + b'"}\n'):
+                path.write_bytes(data)
+                with self.subTest(prefix=data[:20]), self.assertRaises(results.ResultError):
+                    list(results.trace_records(path))
+            with path.open('wb') as stream:
+                stream.truncate(129 * 1024 * 1024)
+            with self.assertRaisesRegex(results.ResultError, 'trace file exceeds'):
+                list(results.trace_records(path))
+            path.unlink()
+            os.mkfifo(path)
+            with self.assertRaisesRegex(results.ResultError, 'regular file'):
+                list(results.trace_records(path))
+            path.unlink()
+            (Path(directory) / 'target').write_text('{}\n')
+            path.symlink_to('target')
+            with self.assertRaises(OSError):
+                list(results.trace_records(path))
+
     def test_cargo_diagnostics_reject_nonregular_input_without_blocking(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
             fifo = Path(directory) / 'cargo.fifo'

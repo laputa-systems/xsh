@@ -985,6 +985,11 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
     if changed_path in ["dev/performance/results.py", "dev/performance/test_results.py"] {
       selected_ids += ["verification/results"] when "verification/results" not in selected_ids
+      if changed_path == "dev/performance/results.py" {
+        selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
+        selected_ids += [performance_check_case_id] when performance_check_case_id not in selected_ids
+        selected_ids += [laputa_adapter_case_id] when laputa_adapter_case_id not in selected_ids
+      }
       continue
     }
     if changed_path in ["dev/performance/tokei_corpus.py", "dev/performance/test_tokei_corpus.py"] {
@@ -1042,6 +1047,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     if changed_path == "dev/performance/workloads.py" {
       selected_ids += [focused_adapter_case_id] when focused_adapter_case_id not in selected_ids
       selected_ids += [performance_check_case_id] when performance_check_case_id not in selected_ids
+      selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
       continue
     }
     if changed_path in ["dev/performance/resources.py", "dev/performance/test_resources.py"] {

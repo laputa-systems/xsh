@@ -70,6 +70,37 @@ def _event_file(path):
     return data.decode('utf-8')
 
 
+def trace_records(path):
+    total_limit = 128 * 1024 * 1024
+    line_limit = 1024 * 1024
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        _require(stat.S_ISREG(before.st_mode), 'trace file must be a regular file')
+        _require(before.st_size <= total_limit, 'trace file exceeds 128 MiB')
+        size = 0
+        while True:
+            line = stream.readline(line_limit + 1)
+            if not line:
+                break
+            size += len(line)
+            _require(size <= total_limit, 'trace file exceeds 128 MiB')
+            _require(len(line) <= line_limit, 'trace record exceeds 1 MiB')
+            _require(line.endswith(b'\n'), 'truncated trace record')
+            try:
+                row = json.loads(line.decode('utf-8'), object_pairs_hook=_object)
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ResultError(f'malformed trace record: {error}') from error
+            _require(isinstance(row, dict), 'trace records must be objects')
+            yield row
+        _require(size > 0, 'empty trace file')
+        after = os.fstat(stream.fileno())
+        current = os.lstat(path)
+        def fingerprint(info):
+            return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        _require(fingerprint(before) == fingerprint(after) == fingerprint(current), 'trace file changed during inspection')
+
+
 def _integer(value):
     return type(value) is int and value >= 0
 

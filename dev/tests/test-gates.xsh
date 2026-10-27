@@ -114,11 +114,12 @@ test test_source_observation_ignores_user_git_excludes { |ctx|
 
 test test_result_reconciler_changes_select_its_tests {
   let ctx = fixtures.linux_context(/repo)?
-  for changed_path in ["dev/performance/results.py", "dev/performance/test_results.py"] {
-    let plan = gates.plan_paths(ctx, tests.Verification, [changed_path], [], gates.Change)?
-    assert [entry.id for entry in plan.cases] == ["verification/results"]
-    assert plan.products.is_empty()
-  }
+  let result_owner = gates.plan_paths(ctx, tests.Verification, ["dev/performance/results.py"], [], gates.Change)?
+  assert [entry.id for entry in result_owner.cases] == ["verification/results", "verification/core-workloads", "verification/performance-check", "verification/laputa-adapter"]
+  assert result_owner.products.is_empty()
+  let result_tests = gates.plan_paths(ctx, tests.Verification, ["dev/performance/test_results.py"], [], gates.Change)?
+  assert [entry.id for entry in result_tests.cases] == ["verification/results"]
+  assert result_tests.products.is_empty()
   for changed_path in ["dev/gate_source.py", "dev/performance/test_gate_source.py"] {
     let plan = gates.plan_paths(ctx, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in plan.cases] == ["verification/source"]
@@ -2041,7 +2042,7 @@ test test_performance_python_owners_select_contract_tests {
   }
   let workloads = gates.plan_paths(context, tests.Verification, ["dev/performance/workloads.py"], [], gates.Change)?
   assert [entry.id for entry in workloads.cases] == [
-    "verification/focused-adapter", "verification/performance-check",
+    "verification/focused-adapter", "verification/performance-check", "verification/core-workloads",
   ]
   for changed_path in ["dev/performance/resources.py", "dev/performance/test_resources.py"] {
     let plan = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?

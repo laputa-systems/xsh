@@ -88,6 +88,12 @@ class CohortTests(unittest.TestCase):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'attribution unavailable'):
                 workloads.trace_counts(iter(changed))
 
+    def test_non_object_trace_payload_is_incomplete(self):
+        for payload in (None, 42, 'bad', []):
+            with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+                workloads.trace_counts(iter([{'kind': 'trace.event', 'payload': payload},
+                                              {'type': 'syscall.summary', 'syscall_count': 1}]))
+
     def test_pipeline_segments_are_not_reported_as_zero_helpers(self):
         rows = [{'kind': 'pipeline.enter', 'payload': {'type': 'none'}},
                 {'kind': 'pipeline.segment.end', 'payload': {'type': 'pipeline.segment.end',

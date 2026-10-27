@@ -114,10 +114,10 @@ and rejects incomplete or mixed traces and missing or duplicate process event ID
 The small, medium, and large Linux
 scenarios check exact output and four, 16, and 64 completed helpers respectively.
 Pipeline performance and resource qualification remain open.
-A host syscall-trace probe completed for small `wc`, but the small sort JSONL
-trace exceeded the 16 MiB event-reader limit. Its text summary was bounded; it
-does not provide the structured lifecycle evidence used by the reader. Core
-syscall scaling remains unqualified.
+Host syscall-trace probes completed for small `wc` and sort. The sort JSONL
+trace exceeded the previous 16 MiB reader limit; a bounded streaming reader now
+reconciles it without loading the whole file. Its 128 MiB total and 1 MiB
+per-record limits leave larger traces and core syscall scaling unqualified.
 Ordinary run attribution now matches each completion to its start. A host trace
 of the existing 128-helper workload reconciles all 128. Process-handle traces
 remain incomplete until their lifecycles can be reconciled.
