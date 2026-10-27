@@ -117,7 +117,8 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   return Err(PlanError.Invalid(detail: "--json requires --plan")) when machine and ! inspect
   let output = if machine { InspectJson } else if inspect { InspectText } else { Execute }
   let selected_laputa_ids = [id for id in case_ids if id in laputa_case_ids]
-  return Err(PlanError.Invalid(detail: "core wc correctness must be selected alone")) when focused_core_wc_case_id in case_ids and case_ids.len() != 1
+  let selected_core_workloads = [item for item in focused_core_workloads if item.id in case_ids]
+  return Err(PlanError.Invalid(detail: "core workload correctness must be selected alone")) when ! selected_core_workloads.is_empty() and case_ids.len() != 1
   return Err(PlanError.Invalid(detail: "Laputa and json-n correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and focused_json_case_id in case_ids
   return Err(PlanError.Invalid(detail: "Laputa and Tokei correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and tokei_scenario_case_id in case_ids
   return Err(PlanError.Invalid(detail: "json-n and Tokei correctness must be selected separately")) when focused_json_case_id in case_ids and tokei_scenario_case_id in case_ids
@@ -633,7 +634,12 @@ const resource_diagnostics_case_id = "verification/resource-diagnostics"
 const laputa_adapter_case_id = "verification/laputa-adapter"
 const native_leases_case_id = "verification/native-leases"
 const focused_json_case_id = "performance/json-n/correctness"
-const focused_core_wc_case_id = "performance/core-wc-small/correctness"
+const focused_core_workloads = [
+  {id: "performance/core-wc-small/correctness", name: "core-wc-small"},
+  {id: "performance/core-sort-small/correctness", name: "core-sort-small"},
+  {id: "performance/core-traversal-small/correctness", name: "core-traversal-small"},
+  {id: "performance/core-awk-small/correctness", name: "core-awk-small"},
+]
 const tokei_scenario_case_id = "showcase/tokei/uutils-rust-correctness"
 const constraint_solver_case_id = "compiler/constraint-solver/correctness"
 
@@ -819,10 +825,12 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     limit: RuntimeSeconds(300), products: [tests.Xsh], prerequisite_ids: [],
     reasons: ["json-n output/status/state correctness only; product and source bound to gate preparation; performance not measured"],
     execution: Alias)]
-  entries += [CatalogCase(id: focused_core_wc_case_id, tier: Scenario,
-    limit: RuntimeSeconds(300), products: [tests.Xsh], prerequisite_ids: [],
-    reasons: ["core wc byte-stream correctness; product and source bound to gate preparation; performance not measured"],
-    execution: Alias)]
+  for item in focused_core_workloads {
+    entries += [CatalogCase(id: item.id, tier: Scenario,
+      limit: RuntimeSeconds(300), products: [tests.Xsh], prerequisite_ids: [],
+      reasons: [f"{item.name} correctness; product and source bound to gate preparation; performance not measured"],
+      execution: Alias)]
+  }
   entries += [CatalogCase(id: tokei_scenario_case_id, tier: Scenario,
     limit: RuntimeSeconds(360), products: [tests.Xsh], prerequisite_ids: [],
     reasons: ["exact XSH and Tokei v14.0.0 Rust file sets on pinned uutils source; Tokei provenance unqualified"],
@@ -1459,9 +1467,10 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     return Err(ExecutionError.Incomplete(case_id: "container", raw_status: 2)) when regular_incomplete
     return
   }
-  if focused_json_case_id in ids or focused_core_wc_case_id in ids {
-    let focused_case_id = if focused_json_case_id in ids { focused_json_case_id } else { focused_core_wc_case_id }
-    let focused_case_name = if focused_case_id == focused_json_case_id { "json-n" } else { "core-wc-small" }
+  let selected_core_workloads = [item for item in focused_core_workloads if item.id in ids]
+  if focused_json_case_id in ids or ! selected_core_workloads.is_empty() {
+    let focused_case_id = if focused_json_case_id in ids { focused_json_case_id } else { selected_core_workloads[0].id }
+    let focused_case_name = if focused_case_id == focused_json_case_id { "json-n" } else { selected_core_workloads[0].name }
     return Err(PlanError.Invalid(detail: f"{focused_case_id} must run alone")) when ! paths.is_empty() or ids.len() != 1
     return Err(ExecutionError.Incomplete(case_id: focused_case_id, raw_status: 0)) when ctx.target.os != "linux"
     let image = gate_image(ctx, focused_case_id)?

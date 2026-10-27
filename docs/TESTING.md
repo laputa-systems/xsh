@@ -175,6 +175,10 @@ Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
 The explicit `performance/core-wc-small/correctness` scenario checks a 64 KiB
 binary input against its exact line-count output. It does not measure performance.
+The explicit `performance/core-sort-small/correctness`,
+`performance/core-traversal-small/correctness`, and
+`performance/core-awk-small/correctness` scenarios check ordering, filesystem
+entries, and record aggregation against exact outputs. They do not measure performance.
 Focused execution requires Python 3.11 or newer for source inspection and result
 reconciliation.
 

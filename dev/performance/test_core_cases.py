@@ -18,15 +18,17 @@ class CoreCasesTests(unittest.TestCase):
     def prepare(self, name):
         return core_cases.prepare_case(name, fixtures=self.fixtures)
 
-    def test_focused_wc_binds_and_rechecks_the_generated_input(self):
-        expected = self.prepare('core-wc-small')
+    def test_focused_cases_bind_and_recheck_generated_inputs(self):
         config = SimpleNamespace(source_root=core_cases.SOURCE_ROOT, fixtures=self.fixtures)
-        case, root, snapshot, owner = focused._case(config, expected.name)
-        self.assertEqual(case, expected)
-        self.assertEqual(owner.snapshot(root), snapshot)
-        (root / 'input').write_bytes(b'changed\n')
-        with self.assertRaisesRegex(ValueError, 'file changed'):
-            owner.snapshot(root)
+        for name in ('core-wc-small', 'core-sort-small', 'core-traversal-small', 'core-awk-small'):
+            with self.subTest(name=name):
+                expected = self.prepare(name)
+                case, root, snapshot, owner = focused._case(config, name)
+                self.assertEqual(case, expected)
+                self.assertEqual(owner.snapshot(root), snapshot)
+                (root / 'unexpected').write_bytes(b'changed\n')
+                with self.assertRaisesRegex(ValueError, 'file changed'):
+                    owner.snapshot(root)
 
     def test_each_family_scales_useful_work_and_keeps_exact_oracles(self):
         for family in ('wc', 'sort', 'awk', 'traversal', 'pipeline'):

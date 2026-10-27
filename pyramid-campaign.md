@@ -73,6 +73,9 @@ The explicit `performance/core-wc-small/correctness` scenario checks a 64 KiB
 binary input against an exact line-count oracle. The focused Linux scenario and
 fixture controls pass. Its resource diagnostic is incomplete because cgroup
 pressure accounting is unavailable; performance remains unmeasured.
+Explicit small sort, traversal, and AWK scenarios also pass their exact output
+oracles in Linux. Their pressure diagnostics are incomplete, and performance
+remains unmeasured.
 
 P0 reference candidates are [upstream Tokei v14.0.0](https://github.com/XAMPPRocky/tokei/releases/tag/v14.0.0) at commit
 `8cdd6fa3a54f8cd69442d2f00effb29aa3110353` and the local uutils/coreutils
