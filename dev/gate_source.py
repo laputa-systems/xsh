@@ -139,6 +139,8 @@ def capture(root=None):
                 raise ValueError("unobserved symlink target")
             if target_info is not None and stat.S_ISDIR(target_info.st_mode):
                 observe_linked_directory(root, target, source_names, gitlinks, digest)
+            elif target_info is not None and not stat.S_ISREG(target_info.st_mode):
+                raise ValueError("unsupported symlink target")
             add(digest, b"link")
             add(digest, os.readlink(path))
         elif stat.S_ISREG(before.st_mode):

@@ -10,6 +10,18 @@ OBSERVER = ROOT / 'dev/gate_source.py'
 
 
 class SourceSnapshotTests(unittest.TestCase):
+    def test_symlink_to_special_file_cannot_be_observed_as_source(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
+            repo = Path(directory) / 'repo'
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            (repo / '.gitignore').write_text('pipe\n')
+            os.mkfifo(repo / 'pipe')
+            (repo / 'link').symlink_to('pipe')
+            subprocess.run(['git', '-C', str(repo), 'add', '.gitignore', 'link'], check=True)
+            result = subprocess.run(['python3', '-B', str(OBSERVER)], cwd=repo, capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(b'unsupported symlink target', result.stderr)
+
     def test_directory_symlink_rejects_unobserved_contents(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
             repo = Path(directory) / 'repo'
