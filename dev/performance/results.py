@@ -344,7 +344,17 @@ def main():
         _require((args.case is None) != (args.cases_json is None) and args.child_status is not None,
                  'result reconciliation requires one case source and child status')
         if args.cases_json is not None:
-            args.case = _case_file(args.cases_json)
+            try:
+                args.case = _ids(_case_file(args.cases_json))
+            except (ValueError, OSError, UnicodeError) as error:
+                if args.cancelled or args.child_status == 130:
+                    status, label = 130, 'cancelled'
+                elif args.child_status not in (0, 130) and (args.runner == 'cargo' or args.child_status != 2):
+                    status, label = 1, 'failed'
+                else:
+                    raise
+                print(f'Selected scope: {label}\nReason: {json.dumps(str(error))}\nCoverage: incomplete\nFull: not run', file=sys.stderr)
+                return status
         reconcile = reconcile_xsht if args.runner == 'xsht' else reconcile_cargo
         read_error = None
         try:

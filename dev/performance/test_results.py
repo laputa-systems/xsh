@@ -187,6 +187,25 @@ class ResultTests(unittest.TestCase):
             outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
             self.assertEqual(outcome.returncode, 2)
 
+    def test_unavailable_selection_preserves_observed_failure_and_cancellation(self):
+        scratch = Path(__file__).resolve().parents[2] / '.work/tmp'
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            root = Path(directory)
+            events = root / 'events.jsonl'
+            events.write_text(encode(native_rows()))
+            command = [sys.executable, '-B', str(Path(results.__file__)), '--runner', 'xsht',
+                       '--events', str(events), '--cases-json', str(root / 'missing'), '--child-status']
+            for raw, expected in (('0', 2), ('1', 1), ('2', 2), ('130', 130)):
+                with self.subTest(raw=raw):
+                    outcome = subprocess.run([*command, raw], capture_output=True, text=True, timeout=2)
+                    self.assertEqual(outcome.returncode, expected)
+                    self.assertIn('missing', outcome.stderr)
+            outcome = subprocess.run([*command, '2', '--cancelled'], capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 130)
+            command[command.index('xsht')] = 'cargo'
+            outcome = subprocess.run([*command, '2'], capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 1)
+
     def test_selected_id_file_rejects_nonregular_input_without_blocking(self):
         scratch = Path(__file__).resolve().parents[2] / '.work/tmp'
         scratch.mkdir(parents=True, exist_ok=True)

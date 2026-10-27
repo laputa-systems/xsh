@@ -154,7 +154,8 @@ Result and Cargo discovery event files must be regular, unlinked files no larger
 than 16 MiB. Invalid event files leave a successful child incomplete.
 Missing or contradictory results make a successful child incomplete; a child
 failure retains its failed status even if reconciliation is unavailable. A
-failed case also retains failure precedence when cleanup or event writing fails;
+failed case also retains failure precedence when the selected-ID file, cleanup,
+or event writing fails;
 the raw status and available cleanup diagnostics remain visible.
 Prepared Cargo test harnesses list their selected tests and reconcile libtest
 events. Required ignored tests and missing or contradictory results are incomplete.
