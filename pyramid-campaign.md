@@ -133,8 +133,8 @@ Medium `wc` and medium and large traversal trace scenarios also pass in the
 qualified Linux image, including exact output and zero-helper reconciliation.
 Ordinary run attribution matches each completion to its start. A host trace
 of the existing 128-helper workload reconciles all 128. A source-bound Linux
-scenario also checks two spawned children, their successful waits, and a no-op
-cancel after wait. Detached and live-cancellation traces and `wait_any` and
+scenarios also check two, eight, and 32 spawned children, their successful
+waits, and a no-op cancel after wait. Detached and live-cancellation traces and `wait_any` and
 `wait_ready` remain incomplete. The trace reader requires root framing,
 contiguous event IDs, valid parent references, and a final syscall summary.
 

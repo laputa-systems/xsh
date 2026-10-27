@@ -644,6 +644,8 @@ const core_standalone_trace_cases = [
   {id: "performance/core-traversal-medium/trace", name: "core-traversal-medium"},
   {id: "performance/core-traversal-large/trace", name: "core-traversal-large"},
   {id: "performance/core-spawn-small/trace", name: "core-spawn-small"},
+  {id: "performance/core-spawn-medium/trace", name: "core-spawn-medium"},
+  {id: "performance/core-spawn-large/trace", name: "core-spawn-large"},
 ]
 const core_pipeline_cases = [
   {id: "performance/core-pipeline-small/correctness", shape: "small"},
