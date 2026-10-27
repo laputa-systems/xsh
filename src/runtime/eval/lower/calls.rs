@@ -19,7 +19,7 @@ pub(super) struct CheckedRecordConstruction<T = Type> {
 }
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
-    fn canonical_alias_signature(&self, mut signature: crate::sema::types::CallableType, kind: crate::sema::types::CallableKind) -> Type {
+    pub(super) fn canonical_alias_signature(&self, mut signature: crate::sema::types::CallableType, kind: crate::sema::types::CallableKind) -> Type {
         signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(kind));
         self.canonicalize_checked_type(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind, sig: signature })))
     }
