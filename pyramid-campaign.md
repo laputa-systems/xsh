@@ -119,10 +119,10 @@ qualified Linux image. Broader world coverage remains open.
 The catalogue also exposes the existing synthetic Kbuild discovery test as an
 explicit Laputa scenario. Its adapter and host selection controls pass, and its
 selected test passed through the qualified Linux image.
-The Kbuild graph-cache scenario now selects fifteen isolated graph parity, cache
+The Kbuild graph-cache scenario now selects eighteen isolated graph parity, cache
 invalidation, legacy-cache replacement, plan-output, and selected-closure tests.
-All fifteen pass in the replacement Linux image after resource admission,
-including the compile-flags mutation and cache-hit controls.
+All eighteen pass in the replacement Linux image after resource admission,
+including the archive-plan and parallel snapshot controls.
 The closure regression exposed a stale dependent after an upstream rebuild;
 the scheduler now reruns declared dependents when a dependency ran. Its host
 regression and the PM make tests pass.
@@ -137,6 +137,10 @@ reported six unsupported items. The planner now handles the nested Make
 functions and assignment replacement responsible for those diagnostics; the
 same local probe reports no unsupported items. The real-kernel scenario and
 its complete inventory remain unqualified.
+A bounded host diagnostic on a separate copy of that source produced 3,064
+archive tasks, 25 missing sources and one generated object without the recipe's
+prepare stage. This checks planner execution only; it is not a real-kernel
+inventory or qualification.
 The local scan-record cache now uses format `linux-local-records-v4`, so records
 created by the old planner are rebuilt instead of reused.
 Compile-flag caches and discovered-plan fingerprints are likewise versioned
@@ -149,8 +153,9 @@ Local scan records now carry digests of the Kbuild and active include text
 consumed by each scanner and worker, and their cache keys bind the parsed
 configuration. Plan-cache fingerprints now use those discovery records and the
 configuration used by the workers. Compile-flags cache misses bind the text
-actually parsed; the archive-plan path still reads inputs separately, so atomic
-input binding remains open there.
+actually parsed. Archive planning prepares flags and source selections once,
+shares them with workers, and validates report and summary bytes before reuse.
+These observations are not an atomic source-tree snapshot.
 Process-pool discovery now shares one parsed configuration with every worker;
 its public entry takes `Kconfig` and requires the `env` effect. The pool uses
 `TMPDIR` for its scratch state. The two-worker regression passed in Linux.
