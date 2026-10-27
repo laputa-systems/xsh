@@ -397,14 +397,22 @@ test test_uu_cat_write_fast_fallthrough_uses_flush { |ctx|
   uu.stdout_only_bytes(r, bytes.concat([cmdline, uu.read(s, "alpha.txt")?]))
 }
 
-# origin: uutils test_cat::test_write_fast_read_error
 test test_uu_cat_write_fast_read_error { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "foo", "content")
+  let prefix = if unix.id()?.euid == 0 {
+    ctx.temp_root.chmod(0o755)?
+    s.root.chmod(0o755)?
+    ["setpriv", "--reuid=65534", "--regid=65534", "--clear-groups"]
+  } else { [] }
+  let command = [@prefix, ctx.xsh_bin.display(), fp"{ctx.core_dir}/cat.xsh".display(), "--", fp"{s.root}/foo".display()]
+  let readable = run.capture --bytes env LC_ALL=C @command ?
+  assert readable.status.ok
+  assert readable.stdout == b"content"
   uu.set_mode(s, "foo", 0o000)
-  let r = uu.invoke(s, "cat", ["foo"])?
-  uu.fails(r)
-  uu.stderr_contains(r, "Permission denied")
+  let result = run.capture --bytes env LC_ALL=C @command ?
+  assert ! result.status.ok
+  assert "Permission denied" in result.stderr.utf8()?
 }
 
 # origin: uutils test_cat::test_version_help_dev_full
