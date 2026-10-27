@@ -200,6 +200,8 @@ Their syscall counts include the traced XSHT process; they are not production
 timing results.
 The `core-wc-medium` and `core-traversal-{medium,large}` trace scenarios
 use the same oracles at larger input sizes.
+The `performance/core-spawn-small/trace` scenario checks two successful
+spawn-and-wait lifecycles and deferred no-op cancellation.
 The `performance/core-pipeline-{small,medium,large}/correctness` scenarios
 check two, eight, and 32 pipeline outputs and their completed helpers through
 XSHT's syscall trace. An observed child failure retains status 1 if process

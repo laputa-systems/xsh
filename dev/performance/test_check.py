@@ -88,6 +88,15 @@ class CohortTests(unittest.TestCase):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'attribution unavailable'):
                 workloads.trace_counts(iter(changed))
 
+    def test_syscall_summary_cannot_double_as_a_process_event(self):
+        argument = {'display': 'x', 'hex': '78'}
+        rows = [{'kind': 'run.start', 'event_id': 1,
+                 'payload': {'type': 'run.start', 'target': argument, 'argv': [], 'cwd': argument, 'env': []}},
+                {'type': 'syscall.summary', 'syscall_count': 1, 'kind': 'run.end', 'event_id': 2, 'parent_event_id': 1,
+                 'payload': {'type': 'run.end', 'pid': 19, 'status': {'kind': 'exit', 'code': 0, 'success': True}, 'error': None}}]
+        with self.assertRaisesRegex(ValueError, 'attribution unavailable'):
+            workloads.trace_counts(iter(rows))
+
     def test_non_object_trace_payload_is_incomplete(self):
         for payload in (None, 42, 'bad', []):
             with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
@@ -104,10 +113,10 @@ class CohortTests(unittest.TestCase):
 
     def test_run_helper_completions_match_distinct_starts(self):
         rows = [{'kind': 'run.start', 'event_id': 3, 'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}},
-                {'kind': 'run.start', 'event_id': 5, 'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}},
-                {'kind': 'run.end', 'event_id': 4, 'parent_event_id': 3,
+                {'kind': 'run.start', 'event_id': 4, 'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}},
+                {'kind': 'run.end', 'event_id': 5, 'parent_event_id': 3,
                  'payload': {'type': 'run.end', 'pid': 19, 'status': {'kind': 'exit', 'code': 0, 'success': True}, 'error': None}},
-                {'kind': 'run.end', 'event_id': 6, 'parent_event_id': 5,
+                {'kind': 'run.end', 'event_id': 6, 'parent_event_id': 4,
                  'payload': {'type': 'run.end', 'pid': 20, 'status': {'kind': 'exit', 'code': 0, 'success': True}, 'error': None}},
                 {'type': 'syscall.summary', 'syscall_count': 17}]
         self.assertEqual(workloads.trace_counts(iter(rows)), {'syscalls': 17, 'subprocesses': 2})
@@ -121,13 +130,52 @@ class CohortTests(unittest.TestCase):
                         [*rows[:2], missing_error, *rows[3:]],
                         [malformed_start, *rows[1:]],
                         [*rows[:2], {key: value for key, value in rows[2].items() if key != 'event_id'}, *rows[3:]],
-                        [*rows[:3], rows[3] | {'event_id': 4}, rows[-1]],
+                        [*rows[:3], rows[3] | {'event_id': 5}, rows[-1]],
                         [*rows[:2], rows[2] | {'payload': rows[2]['payload'] | {'status': {'kind': 'exit', 'code': 1, 'success': True}}}, *rows[3:]],
                         [*rows[:2], rows[2] | {'payload': rows[2]['payload'] | {'status': {'kind': 'signal', 'code': 9, 'success': True}}}, *rows[3:]]):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
                 workloads.trace_counts(iter(changed))
-        with self.assertRaisesRegex(ValueError, 'process handles are not reconciled'):
+        with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
             workloads.trace_counts(iter([{'kind': 'spawn.start', 'payload': {'type': 'spawn.start'}}, rows[-1]]))
+
+    def test_spawned_helpers_require_matched_ready_and_wait_events(self):
+        argument = {'display': 'x', 'hex': '78'}
+        span = {'file': 'script.xsh', 'start_offset': 0, 'end_offset': 1, 'start_line': 1, 'start_column': 1, 'end_line': 1, 'end_column': 2}
+        status = {'kind': 'exit', 'code': 0, 'success': True}
+        rows = [
+            {'kind': 'spawn.start', 'event_id': 2, 'parent_event_id': 1, 'source_span': span,
+             'payload': {'type': 'spawn.start', 'handle_id': None, 'target': argument, 'argv': [], 'cwd': argument, 'env': [], 'detached': False}},
+            {'kind': 'spawn.ready', 'event_id': 3, 'parent_event_id': 1, 'source_span': span,
+             'payload': {'type': 'spawn.ready', 'handle_id': 1, 'pid': 21}},
+            {'kind': 'wait.start', 'event_id': 4, 'parent_event_id': 1, 'source_span': span,
+             'payload': {'type': 'wait.start', 'handle_ids': [1]}},
+            {'kind': 'wait.end', 'event_id': 5, 'parent_event_id': 1, 'source_span': span,
+             'payload': {'type': 'wait.end', 'handle_id': 1, 'pid': 21, 'status': status, 'error': None}},
+            {'type': 'syscall.summary', 'syscall_count': 10},
+        ]
+        self.assertEqual(workloads.trace_counts(iter(rows)), {'syscalls': 10, 'subprocesses': 1})
+        cancel = {'kind': 'spawn.cancel', 'event_id': 6, 'parent_event_id': 1, 'source_span': span,
+                  'payload': {'type': 'spawn.cancel', 'handle_id': 1, 'pid': None, 'signal': 'TERM', 'kill_after_ms': 2000, 'error': None}}
+        self.assertEqual(workloads.trace_counts(iter([*rows[:-1], cancel, rows[-1]])), {'syscalls': 10, 'subprocesses': 1})
+        for changed in (rows[:1] + rows[2:], rows[:3] + rows[4:],
+                        [rows[0], rows[1] | {'source_span': {'file': 'other'}}, *rows[2:]],
+                        [*rows[:3], rows[3] | {'payload': rows[3]['payload'] | {'pid': 22}}, rows[4]],
+                        [rows[0] | {'payload': rows[0]['payload'] | {'detached': True}}, *rows[1:]],
+                        [rows[0], rows[1], rows[2] | {'payload': {'type': 'wait.start', 'handle_ids': [1, 1]}}, *rows[3:]],
+                        [*rows[:3], rows[3] | {'event_id': 3}, rows[4]],
+                        [*rows[:2], rows[2] | {'event_id': 9}, *rows[3:]],
+                        [*[row | {'source_span': {'file': 'bad'}} for row in rows[:-1]], rows[-1]],
+                        [*rows[:2], cancel | {'event_id': 4, 'payload': cancel['payload'] | {'pid': 21}}, *rows[2:]]):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+                workloads.trace_counts(iter(changed))
+
+    def test_empty_wait_is_a_completed_noop(self):
+        span = {'file': 'script.xsh', 'start_offset': 0, 'end_offset': 1,
+                'start_line': 1, 'start_column': 1, 'end_line': 1, 'end_column': 2}
+        rows = [{'kind': 'wait.start', 'event_id': 2, 'parent_event_id': 1, 'source_span': span,
+                 'payload': {'type': 'wait.start', 'handle_ids': []}},
+                {'type': 'syscall.summary', 'syscall_count': 1}]
+        self.assertEqual(workloads.trace_counts(iter(rows)), {'syscalls': 1, 'subprocesses': 0})
 
     def test_pipeline_completions_require_exact_declared_segments(self):
         status = {'kind': 'exit', 'code': 0, 'success': True}
@@ -242,12 +290,14 @@ class CohortTests(unittest.TestCase):
             if argv[1] == 'runtime-stats':
                 Path(argv[3]).write_text(json.dumps(phase))
             else:
-                events = [{'kind': 'run.start', 'event_id': 1, 'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}},
-                          {'kind': 'run.end', 'event_id': 2, 'parent_event_id': 1,
+                events = [{'kind': 'run.start', 'event_id': 2, 'parent_event_id': 1, 'payload': {'type': 'run.start', 'target': {'display': 'x', 'hex': '78'}, 'argv': [], 'cwd': {'display': 'x', 'hex': '78'}, 'env': []}},
+                          {'kind': 'run.end', 'event_id': 3, 'parent_event_id': 2,
                            'payload': {'type': 'run.end', 'pid': 19, 'status': {'kind': 'exit', 'code': 0, 'success': True}, 'error': None}}] if helper else []
                 summary = {'type': 'syscall.summary', 'syscall_count': syscall_count, 'syscall_seconds': 0,
                            'top_syscalls_by_count': [], 'per_program_top_syscalls': [], 'per_process_top_syscalls': []}
-                Path(argv[argv.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in [*events, summary]))
+                root_event = {'kind': 'script.enter', 'event_id': 1, 'parent_event_id': None, 'depth': 0, 'payload': {'type': 'none'}}
+                exit_event = {'kind': 'script.exit', 'event_id': len(events) + 2, 'parent_event_id': 1, 'depth': 0, 'payload': {'type': 'none'}}
+                Path(argv[argv.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in [root_event, *events, exit_event, summary]))
             row = {'wall_ns': None, 'first_useful_stdout_ns': None, 'useful_stdout_observed': True,
                    'status': 0, 'timed_out': False, 'stdout_base64': base64.b64encode(b'ready\n').decode(),
                    'stderr_base64': '', 'effects': {}}

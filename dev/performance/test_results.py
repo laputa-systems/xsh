@@ -36,16 +36,18 @@ class ResultTests(unittest.TestCase):
     def test_trace_records_stream_large_complete_jsonl_and_reject_bad_inputs(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
             path = Path(directory) / 'trace.jsonl'
-            line = b'{"kind":"ordinary","payload":"' + b'x' * 1000 + b'"}\n'
-            with path.open('wb') as stream:
-                for _ in range(17000):
-                    stream.write(line)
-                stream.write(b'{"type":"syscall.summary","syscall_count":1}\n')
+            root = {'kind': 'script.enter', 'event_id': 1, 'parent_event_id': None, 'depth': 0, 'payload': {'type': 'none'}}
+            with path.open('w') as stream:
+                stream.write(encode([root]))
+                for identity in range(2, 17002):
+                    stream.write(encode([{'kind': 'ordinary', 'event_id': identity, 'parent_event_id': 1, 'payload': {'data': 'x' * 1000}}]))
+                stream.write(encode([{'kind': 'script.exit', 'event_id': 17002, 'parent_event_id': 1, 'depth': 0, 'payload': {'type': 'none'}},
+                                     {'type': 'syscall.summary', 'syscall_count': 1}]))
             self.assertGreater(path.stat().st_size, 16 * 1024 * 1024)
             count = 0
             for row in results.trace_records(path):
                 count += 1
-            self.assertEqual(count, 17001)
+            self.assertEqual(count, 17003)
             self.assertEqual(row['type'], 'syscall.summary')
             for data in (b'', b'{"a":1}', b'{"a":1,"a":2}\n', b'[]\n', b'\xff\n', b'{"x":"' + b'x' * (1024 * 1024) + b'"}\n'):
                 path.write_bytes(data)
@@ -65,14 +67,38 @@ class ResultTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 list(results.trace_records(path))
 
+    def test_trace_stream_requires_root_and_contiguous_events_before_summary(self):
+        root = {'kind': 'script.enter', 'event_id': 1, 'parent_event_id': None, 'depth': 0, 'payload': {'type': 'none'}}
+        child = {'kind': 'run.start', 'event_id': 2, 'parent_event_id': 1, 'depth': 1, 'payload': {'type': 'none'}}
+        close = {'kind': 'script.exit', 'event_id': 3, 'parent_event_id': 1, 'depth': 0, 'payload': {'type': 'none'}}
+        summary = {'type': 'syscall.summary', 'syscall_count': 1}
+        rows = [root, child, close, summary]
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
+            path = Path(directory) / 'trace.jsonl'
+            path.write_text(encode(rows))
+            self.assertEqual(list(results.trace_records(path)), rows)
+            for changed in (rows[1:], [root, child, summary], [root, close, summary],
+                            [root | {'depth': False}, child, close, summary],
+                            [root, child, close | {'depth': 0.0}, summary],
+                            [root, child | {'parent_event_id': 99}, close, summary],
+                            [root, child | {'parent_event_id': None}, close, summary],
+                            [root, child, close, summary | {'kind': 'run.end', 'event_id': 4, 'parent_event_id': 2, 'payload': {} }],
+                            [root, child, close, summary, summary], [root, child, close],
+                            [root, child, summary, close]):
+                path.write_text(encode(changed))
+                with self.subTest(changed=changed), self.assertRaises(results.ResultError):
+                    list(results.trace_records(path))
+
     def test_trace_stream_rejects_changed_or_replaced_file(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
             path = Path(directory) / 'trace.jsonl'
             for replace in (False, True):
                 with self.subTest(replace=replace):
-                    path.write_text('{"event":1}\n{"event":2}\n')
+                    root = {'kind': 'script.enter', 'event_id': 1, 'parent_event_id': None, 'depth': 0, 'payload': {'type': 'none'}}
+                    close = {'kind': 'script.exit', 'event_id': 2, 'parent_event_id': 1, 'depth': 0, 'payload': {'type': 'none'}}
+                    path.write_text(encode([root, close, {'type': 'syscall.summary', 'syscall_count': 1}]))
                     records = results.trace_records(path)
-                    self.assertEqual(next(records), {'event': 1})
+                    self.assertEqual(next(records), root)
                     if replace:
                         path.rename(Path(directory) / 'old')
                     path.write_text('{"event":3}\n{"event":4}\n')

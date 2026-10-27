@@ -79,6 +79,9 @@ def trace_records(path):
         _require(stat.S_ISREG(before.st_mode), 'trace file must be a regular file')
         _require(before.st_size <= total_limit, 'trace file exceeds 128 MiB')
         size = 0
+        last_event_id = 0
+        root_closed = False
+        summary_seen = False
         while True:
             line = stream.readline(line_limit + 1)
             if not line:
@@ -92,8 +95,37 @@ def trace_records(path):
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
                 raise ResultError(f'malformed trace record: {error}') from error
             _require(isinstance(row, dict), 'trace records must be objects')
+            if row.get('type') == 'syscall.summary':
+                _require(root_closed and not summary_seen, 'trace summary is out of order')
+                _require(not {'kind', 'event_id', 'parent_event_id', 'payload', 'depth'} & row.keys(),
+                         'trace summary cannot also be an event')
+                summary_seen = True
+            else:
+                _require(not root_closed and not summary_seen, 'trace event follows its root exit')
+                identity = row.get('event_id')
+                kind = row.get('kind')
+                parent = row.get('parent_event_id')
+                _require(type(identity) is int and identity == last_event_id + 1 and isinstance(kind, str),
+                         'trace event IDs must be contiguous')
+                if identity == 1:
+                    _require(kind == 'script.enter' and parent is None and type(row.get('depth')) is int and row['depth'] == 0
+                             and row.get('payload') == {'type': 'none'}, 'trace root entry is unavailable')
+                else:
+                    _require(parent is None or type(parent) is int and 0 < parent < identity,
+                             'trace event parent is unavailable')
+                    if kind in ('run.start', 'run.end', 'pipeline.enter', 'pipeline.exit',
+                                'pipeline.segment.start', 'pipeline.segment.end', 'spawn.start',
+                                'spawn.ready', 'wait.start', 'wait.end', 'spawn.cancel'):
+                        _require(type(parent) is int and 0 < parent < identity,
+                                 'process trace parent is unavailable')
+                    if kind == 'script.exit' and parent == 1:
+                        _require(type(row.get('depth')) is int and row['depth'] == 0 and row.get('payload') == {'type': 'none'},
+                                 'trace root exit is malformed')
+                        root_closed = True
+                last_event_id = identity
             yield row
         _require(size > 0, 'empty trace file')
+        _require(summary_seen, 'trace root exit or syscall summary is unavailable')
         after = os.fstat(stream.fileno())
         current = os.lstat(path)
         def fingerprint(info):

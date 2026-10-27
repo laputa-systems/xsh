@@ -14,6 +14,24 @@ import signal
 from dev.performance import core_cases, core_trace, focused, owned_case
 
 
+def framed_trace(rows):
+    framed = [{'kind': 'script.enter', 'event_id': 1, 'parent_event_id': None, 'depth': 0, 'payload': {'type': 'none'}}]
+    identities = {}
+    summary = None
+    for row in rows:
+        if row.get('type') == 'syscall.summary':
+            summary = row
+            continue
+        identity = len(framed) + 1
+        parent = identities.get(row.get('parent_event_id'), 1)
+        identities[row['event_id']] = identity
+        framed.append(row | {'event_id': identity, 'parent_event_id': parent})
+    if summary is not None:
+        framed.append({'kind': 'script.exit', 'event_id': len(framed) + 1, 'parent_event_id': 1, 'depth': 0, 'payload': {'type': 'none'}})
+        framed.append(summary)
+    return framed
+
+
 class CoreCasesTests(unittest.TestCase):
     def setUp(self):
         self.scratch = core_cases.SOURCE_ROOT / '.work/tmp'
@@ -54,7 +72,7 @@ class CoreCasesTests(unittest.TestCase):
 
         def invoke(command, cwd, environment, timeout, on_launch, on_cleanup_verified):
             on_launch()
-            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in framed_trace(rows)))
             on_cleanup_verified()
             return {'status': 0, 'timed_out': False, 'effects': {},
                     'stdout_base64': base64.b64encode(b'probe 0\nprobe 1\n').decode(), 'stderr_base64': ''}
@@ -83,7 +101,7 @@ class CoreCasesTests(unittest.TestCase):
         def invoke(command, cwd, environment, timeout, on_launch, on_cleanup_verified):
             self.assertEqual(command[-1], '8')
             on_launch()
-            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in framed_trace(rows)))
             on_cleanup_verified()
             return {'status': 0, 'timed_out': False, 'effects': {},
                     'stdout_base64': base64.b64encode(b''.join(f'probe {i}\n'.encode() for i in range(8))).decode(),
@@ -102,7 +120,7 @@ class CoreCasesTests(unittest.TestCase):
         case = core_cases.describe_case('core-sort-small', fixtures=self.fixtures, source_root=core_cases.SOURCE_ROOT)
         def invoke(command, cwd, environment, timeout, on_launch, on_cleanup_verified):
             on_launch()
-            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            Path(command[command.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in framed_trace(rows)))
             on_cleanup_verified()
             return {'status': 0, 'timed_out': False, 'effects': {},
                     'stdout_base64': base64.b64encode(case.expected_stdout).decode(), 'stderr_base64': ''}
@@ -224,7 +242,7 @@ class CoreCasesTests(unittest.TestCase):
                 signal.signal(number, handler)
 
     def test_each_family_scales_useful_work_and_keeps_exact_oracles(self):
-        for family in ('wc', 'sort', 'awk', 'traversal', 'pipeline'):
+        for family in ('wc', 'sort', 'awk', 'traversal', 'pipeline', 'spawn'):
             previous = None
             for shape in ('small', 'medium', 'large'):
                 with self.subTest(family=family, shape=shape):

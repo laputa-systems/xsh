@@ -131,9 +131,12 @@ Linux image. Their syscall counts include tracing machinery and do not establish
 production performance.
 Medium `wc` and medium and large traversal trace scenarios also pass in the
 qualified Linux image, including exact output and zero-helper reconciliation.
-Ordinary run attribution now matches each completion to its start. A host trace
-of the existing 128-helper workload reconciles all 128. Process-handle traces
-remain incomplete until their lifecycles can be reconciled.
+Ordinary run attribution matches each completion to its start. A host trace
+of the existing 128-helper workload reconciles all 128. A source-bound Linux
+scenario also checks two spawned children, their successful waits, and a no-op
+cancel after wait. Detached and live-cancellation traces and `wait_any` and
+`wait_ready` remain incomplete. The trace reader requires root framing,
+contiguous event IDs, valid parent references, and a final syscall summary.
 
 P0 reference candidates are [upstream Tokei v14.0.0](https://github.com/XAMPPRocky/tokei/releases/tag/v14.0.0) at commit
 `8cdd6fa3a54f8cd69442d2f00effb29aa3110353` and the local uutils/coreutils

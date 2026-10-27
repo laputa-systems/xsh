@@ -10,7 +10,7 @@ _SHAPES = {
     'medium': (1024 * 1024, 2048, 256, 8),
     'large': (16 * 1024 * 1024, 16384, 2048, 32),
 }
-_FAMILIES = ('wc', 'sort', 'awk', 'traversal', 'pipeline')
+_FAMILIES = ('wc', 'sort', 'awk', 'traversal', 'pipeline', 'spawn')
 
 
 def _parts(name):
@@ -82,6 +82,9 @@ def describe_case(name, *, fixtures, source_root):
         expected = ''.join(f'{path}\t{rows[path]}\n' for path in sorted(rows)).encode()
         return Workload(name, 'filesystem-process', shape, script_root / 'traversal.xsh',
                         (str(root / 'tree'),), expected, 0)
+    if family == 'spawn':
+        return Workload(name, 'filesystem-process', shape, script_root / 'spawn.xsh',
+                        (str(pipelines),), f'{pipelines}\n'.encode(), pipelines)
     expected = b''.join(f'probe {index}\n'.encode() for index in range(pipelines))
     return Workload(name, 'filesystem-process', shape, script_root / 'pipeline.xsh',
                     (str(pipelines),), expected, pipelines * 2)
@@ -138,6 +141,8 @@ def work_counts(case):
         contents, links = _inputs(case.name)
         return {'completed_entries': len(contents) + len(links) + len(_directories(contents, links)) - 1,
                 'regular_files': files + 1, 'regular_file_bytes': sum(map(len, contents.values()))}
+    if family == 'spawn':
+        return {'completed_children': pipelines, 'subprocess_starts': pipelines}
     return {'completed_pipelines': pipelines, 'subprocess_starts': pipelines * 2,
             'completed_records': pipelines}
 

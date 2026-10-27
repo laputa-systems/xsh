@@ -346,10 +346,12 @@ cleanup receive no timing credit.
 Helper attribution checks pipeline completions against explicitly declared
 segment counts and distinct trace event IDs. It rejects incomplete pipelines
 and mixed pipeline and ordinary helper traces. An incomplete pipeline trace cannot establish a zero-helper count.
-Ordinary run completions must match distinct starts. Process-handle traces are
-incomplete until their lifecycles can be reconciled.
-Trace records are streamed from regular files, with a 128 MiB file limit and
-a 1 MiB record limit. Truncated, changed, or malformed streams are incomplete.
+Ordinary run completions must match distinct starts. Successful non-detached
+spawns must match their ready and wait events; a no-op cancel after wait is
+accepted. Live cancellation, detached children, `wait_any`, and `wait_ready`
+remain incomplete. Trace records are streamed from regular files, with a 128 MiB
+file limit and a 1 MiB record limit. Missing root events, event-ID gaps,
+truncated, changed, or malformed streams are incomplete.
 
 Common and demanding names do not assert a measured cost. The later accepted
 baseline must establish which substantial cases exceed 50 ms of CPU and qualify
