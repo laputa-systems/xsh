@@ -98,9 +98,10 @@ kache, with kache's cache disabled and a new target directory. The resulting
 binary has SHA-256 `3dae78ab69cc013325c7509320d510530b6ec332565b6b97772f390e160036bf`,
 which differs from the earlier cached build. A second cache-free build with a
 fresh target directory produced the same bytes. The reason for the difference
-from the cached build is not established. A corpus scenario with the new binary
-stopped before execution because host admission was unavailable. The new
-reference and P0 remain open.
+from the cached build is not established. The corpus scenario initially stopped
+before execution because host admission was unavailable. A later source-bound
+Linux run passed file-set reconciliation with the new binary and reproduced the
+counts below. The scenario does not qualify reference provenance or P0.
 An archive projection containing 671 tracked, non-hidden Rust files was checked
 with host XSH and the offline Linux reference: both selected exactly that set.
 XSH counted 213,988 code, 18,298 comment and 30,443 blank lines; upstream
