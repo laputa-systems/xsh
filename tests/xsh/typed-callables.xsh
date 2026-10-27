@@ -689,6 +689,12 @@ test test_proc_call_is_a_result_whatever_the_proc_returns { |ctx|
   assert log.read_text()? == "written"
 }
 
+test test_proc_call_propagates_inside_a_comparison {
+  let handle: Proc = bump
+  assert handle.call(1)? == 2
+  assert handle.call(1)? != 3
+}
+
 test test_alias_that_kept_its_signature_fits_a_callable_type {
   let alias = release_build
   let build: Builder = alias

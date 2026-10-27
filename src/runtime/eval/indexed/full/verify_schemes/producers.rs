@@ -3650,6 +3650,7 @@ impl<'a> ProducerProof<'a> {
                 self.budget.charge_clone(&error)?;
                 Some(Type::Result(Box::new(Type::Unknown), Box::new((*error).clone())))
             }
+            schema::ExprView::ProcCallResult(_) => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
             schema::ExprView::Fail { .. } => Some(Type::Result(Box::new(Type::Unknown), Box::new(FullDecoder::registered_api_operation_return_type(super::super::RuntimeOp::ErrorFailure)?))),
             schema::ExprView::Record(mut fields) => {
                 let writers = decoder.checked_record_field_writers(&mut fields, |source| self.need_context(decoder, source)?.ok_or_else(|| IrVerifyError::new("record spread derivation has no input contract")))?;
