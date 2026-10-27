@@ -181,9 +181,15 @@ trace-only flags. See
 test selection and profiles. Use `xsht help test` for test-runner options.
 
 `FILTER` selects matching IDs; `--exact FILTER` selects one exact ID. Both
-execution and `--list` reject an absent exact ID. Repeat `--exact-id ID` to
-freeze a set across modules; it cannot combine with `FILTER` or `--exact`.
-Every requested ID must exist and occur once, including during `--list`.
+execution, `--list`, and `--list-json` reject an absent exact ID. Repeat
+`--exact-id ID` to freeze a set across modules; it cannot combine with
+`FILTER` or `--exact`.
+Use `--exact-ids-file PATH` to read the set from a JSON array of strings. The
+array and each ID must be nonempty. The file must be regular and at most 16 MiB;
+symlinks to regular files are accepted. This option cannot combine with `FILTER`,
+`--exact`, or `--exact-id`. Every requested ID must exist and occur once,
+including during listing. `--list-json` emits the matching IDs as a JSON array,
+including IDs with newlines. It cannot combine with `--list` or `--events-jsonl`.
 Validation completes before a test starts. A selected module's compiler
 diagnostics remain compiler diagnostics; they are not reported as missing IDs.
 Invalid unselected modules do not block an exact set. Selected declarations in

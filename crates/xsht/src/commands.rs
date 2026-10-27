@@ -507,6 +507,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 description: "List matching tests",
             },
             OptionSpec {
+                names: &["--list-json"],
+                arg: OptionArg::Flag,
+                repeatable: false,
+                description: "List matching test IDs as a JSON array (cannot combine with --list or --events-jsonl)",
+            },
+            OptionSpec {
                 names: &["--exact"],
                 arg: OptionArg::Flag,
                 repeatable: false,
@@ -517,6 +523,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 arg: OptionArg::value("ID"),
                 repeatable: true,
                 description: "Select an exact test ID (repeatable; cannot combine with FILTER or --exact)",
+            },
+            OptionSpec {
+                names: &["--exact-ids-file"],
+                arg: OptionArg::value("PATH"),
+                repeatable: false,
+                description: "Select exact test IDs from a nonempty JSON string array (cannot combine with FILTER, --exact, or --exact-id)",
             },
             OptionSpec {
                 names: &["--events-jsonl"],

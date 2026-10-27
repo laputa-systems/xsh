@@ -34,8 +34,10 @@ pub(crate) mod test {
     pub(crate) struct TestOptions {
         pub(crate) filter: Option<String>,
         pub(crate) list: bool,
+        pub(crate) list_json: bool,
         pub(crate) exact: bool,
         pub(crate) exact_ids: Vec<String>,
+        pub(crate) exact_ids_file: Option<std::path::PathBuf>,
         pub(crate) events_jsonl: Option<std::path::PathBuf>,
         pub(crate) nocapture: bool,
         pub(crate) fail_fast: bool,

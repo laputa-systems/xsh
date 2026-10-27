@@ -196,6 +196,131 @@ fn test_exact_sets_validate_the_same_inventory_for_listing_and_execution() {
     }
 }
 
+#[test]
+fn test_json_listing_preserves_newline_in_test_id_for_file_selection() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    fs::write(root.path().join("tests/with\nnewline.xsh"), "test chosen { |_| }\ntest excluded { |_| assert false }\n").unwrap();
+    let listed = Command::new(test_bin!("xsht")).args(["test", "--list-json", "chosen"]).current_dir(root.path()).output().unwrap();
+    assert_eq!(listed.status.code(), Some(0), "{}", String::from_utf8_lossy(&listed.stderr));
+    let json = deser_json::from_str::<xsh::host::json::Value>(std::str::from_utf8(&listed.stdout).unwrap()).unwrap();
+    let ids = json.as_seq().unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0].as_str(), Some("tests/with\nnewline.xsh::chosen"));
+    let path = root.path().join("ids.json");
+    fs::write(&path, &listed.stdout).unwrap();
+    let selected = Command::new(test_bin!("xsht")).args(["test", "--list-json", "--exact-ids-file"]).arg(&path).current_dir(root.path()).output().unwrap();
+    assert_eq!(selected.status.code(), Some(0), "{}", String::from_utf8_lossy(&selected.stderr));
+    assert_eq!(selected.stdout, listed.stdout);
+    let executed = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(&path).current_dir(root.path()).output().unwrap();
+    assert_eq!(executed.status.code(), Some(0), "{}", String::from_utf8_lossy(&executed.stderr));
+    for extra in [vec!["--list"], vec!["--events-jsonl", "events.jsonl"]] {
+        let output = Command::new(test_bin!("xsht")).args(["test", "--list-json"]).args(extra).current_dir(root.path()).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("cannot combine"));
+    }
+}
+
+#[test]
+fn test_exact_ids_file_matches_repeated_ids_and_reports_events() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    fs::write(root.path().join("tests/cases.xsh"), "test alpha { |_| }\ntest beta { |_| }\ntest excluded { |_| assert false }\n").unwrap();
+    let ids = root.path().join("ids.json");
+    fs::write(&ids, "[\"tests/cases.xsh::beta\",\"tests/cases.xsh::alpha\"]").unwrap();
+    let repeated = Command::new(test_bin!("xsht")).args(["test", "--list", "--exact-id", "tests/cases.xsh::beta", "--exact-id", "tests/cases.xsh::alpha"]).current_dir(root.path()).output().unwrap();
+    let file = Command::new(test_bin!("xsht")).args(["test", "--list", "--exact-ids-file"]).arg(&ids).current_dir(root.path()).output().unwrap();
+    assert_eq!(file.status.code(), Some(0), "{}", String::from_utf8_lossy(&file.stderr));
+    assert_eq!(file.stdout, repeated.stdout);
+    assert_eq!(file.stdout, b"tests/cases.xsh::alpha\ntests/cases.xsh::beta\n");
+    let events = root.path().join("events.jsonl");
+    let output = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(&ids).arg("--events-jsonl").arg(&events).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    let (outcomes, _) = reconciled_native_events(&events, 0);
+    assert_eq!(outcomes.len(), 2);
+    assert_eq!(outcomes["tests/cases.xsh::alpha"], "passed");
+    assert_eq!(outcomes["tests/cases.xsh::beta"], "passed");
+}
+
+#[test]
+fn test_exact_ids_file_rejects_invalid_input_and_conflicts() {
+    let root = cli_tempdir();
+    let ids = root.path().join("ids.json");
+    for (input, diagnostic) in [
+        ("[", "invalid exact IDs JSON"),
+        ("{}", "nonempty JSON array of strings"),
+        ("[]", "nonempty JSON array of strings"),
+        ("[1]", "nonempty JSON array of strings"),
+        ("[\"\"]", "exact test ID must not be empty"),
+        ("[\"a\",\"a\"]", "duplicate exact test ID"),
+        ("[\"tests/missing.xsh::case\"]", "missing exact test ID"),
+    ] {
+        fs::write(&ids, input).unwrap();
+        let output = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(&ids).current_dir(root.path()).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "{input}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic), "{input}: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    fs::write(&ids, "[\"a\"]").unwrap();
+    for extra in [vec!["filter"], vec!["--exact"], vec!["--exact-id", "a"]] {
+        let output = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(&ids).args(extra).current_dir(root.path()).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("cannot combine"));
+    }
+    fs::remove_file(&ids).unwrap();
+    let output = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(&ids).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot read exact IDs file"));
+}
+
+#[test]
+fn test_exact_ids_file_rejects_nonregular_and_oversized_files() {
+    let root = cli_tempdir();
+    let fifo = root.path().join("ids.fifo");
+    assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    for path in [&fifo, root.path()] {
+        let mut child = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(path).current_dir(root.path()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if child.try_wait().unwrap().is_some() { break; }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("nonregular exact IDs input blocked");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("must be a regular file"));
+    }
+    let oversized = root.path().join("oversized.json");
+    fs::File::create(&oversized).unwrap().set_len(16 * 1024 * 1024 + 1).unwrap();
+    let output = Command::new(test_bin!("xsht")).args(["test", "--exact-ids-file"]).arg(&oversized).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("exceeds 16 MiB"));
+}
+
+#[test]
+fn test_exact_ids_file_accepts_selection_larger_than_argument_limit() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let mut source = String::new();
+    let mut ids = Vec::new();
+    for index in 0..4000 {
+        let name = format!("selected_case_number_{index:04}");
+        source.push_str(&format!("test {name} {{ |_| }}\n"));
+        ids.push(format!("\"tests/cases.xsh::{name}\""));
+    }
+    fs::write(root.path().join("tests/cases.xsh"), source).unwrap();
+    let json = format!("[{}]", ids.join(","));
+    assert!(json.len() > 131_072);
+    let path = root.path().join("ids.json");
+    fs::write(&path, json).unwrap();
+    let output = Command::new(test_bin!("xsht")).args(["test", "--list", "--exact-ids-file"]).arg(&path).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout.iter().filter(|byte| **byte == b'\n').count(), ids.len());
+}
+
 fn native_event_field<'a>(event: &'a xsh::host::json::Value, name: &str) -> &'a xsh::host::json::Value {
     event.get(name).unwrap_or_else(|| panic!("event is missing {name}"))
 }

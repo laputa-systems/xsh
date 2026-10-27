@@ -382,14 +382,25 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             return Err("`xsht test` accepts at most one FILTER".to_string());
         }
         let list = parsed.flag("--list");
+        let list_json = parsed.flag("--list-json");
+        if list && list_json {
+            return Err("`--list-json` cannot combine with `--list`".to_string());
+        }
         let exact = parsed.flag("--exact");
         let exact_ids = parsed.values("--exact-id").into_iter().map(str::to_owned).collect::<Vec<_>>();
         if !exact_ids.is_empty() && (filter.is_some() || exact) {
             return Err("`--exact-id` cannot combine with FILTER or `--exact`".to_string());
         }
+        let exact_ids_file = parsed.value("--exact-ids-file").map(std::path::PathBuf::from);
+        if exact_ids_file.is_some() && (filter.is_some() || exact || !exact_ids.is_empty()) {
+            return Err("`--exact-ids-file` cannot combine with FILTER, `--exact`, or `--exact-id`".to_string());
+        }
         let events_jsonl = parsed.value("--events-jsonl").map(std::path::PathBuf::from);
         if list && events_jsonl.is_some() {
             return Err("`--events-jsonl` cannot combine with `--list`".to_string());
+        }
+        if list_json && events_jsonl.is_some() {
+            return Err("`--events-jsonl` cannot combine with `--list-json`".to_string());
         }
         if exact && filter.is_none() {
             return Err("`--exact` requires FILTER".to_string());
@@ -398,8 +409,10 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             options: TestOptions {
                 filter,
                 list,
+                list_json,
                 exact,
                 exact_ids,
+                exact_ids_file,
                 events_jsonl,
                 nocapture: parsed.flag("--nocapture"),
                 fail_fast: parsed.flag("--fail-fast"),

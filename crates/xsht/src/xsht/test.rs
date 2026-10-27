@@ -9,7 +9,7 @@ use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{IsTerminal, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -40,8 +40,10 @@ use xsh::process::{cancellation_escalated_signal, cancellation_requested_signal,
 pub(crate) struct TestOptions {
     pub(crate) filter: Option<String>,
     pub(crate) list: bool,
+    pub(crate) list_json: bool,
     pub(crate) exact: bool,
     pub(crate) exact_ids: Vec<String>,
+    pub(crate) exact_ids_file: Option<PathBuf>,
     pub(crate) events_jsonl: Option<std::path::PathBuf>,
     pub(crate) nocapture: bool,
     pub(crate) fail_fast: bool,
@@ -295,9 +297,50 @@ impl TestRunLedger {
     }
 }
 
-pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
+const EXACT_IDS_FILE_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
+fn read_exact_ids_file(path: &Path) -> Result<String, String> {
+    let fd = rustix::fs::open(path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC, Mode::empty()).map_err(|error| format!("cannot read exact IDs file {}: {error}", path.display()))?;
+    let file = fs::File::from(fd);
+    if !file.metadata().map_err(|error| format!("cannot read exact IDs file {}: {error}", path.display()))?.is_file() {
+        return Err(format!("exact IDs file {} must be a regular file", path.display()));
+    }
+    let mut bytes = Vec::new();
+    file.take(EXACT_IDS_FILE_MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|error| format!("cannot read exact IDs file {}: {error}", path.display()))?;
+    if bytes.len() as u64 > EXACT_IDS_FILE_MAX_BYTES {
+        return Err(format!("exact IDs file {} exceeds 16 MiB", path.display()));
+    }
+    String::from_utf8(bytes).map_err(|error| format!("cannot read exact IDs file {}: {error}", path.display()))
+}
+
+pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
     if let Some(output) = native_cancellation_output() {
         return output;
+    }
+    if let Some(path) = &options.exact_ids_file {
+        if options.filter.is_some() || options.exact || !options.exact_ids.is_empty() {
+            return test_input_error("`--exact-ids-file` cannot combine with FILTER, `--exact`, or `--exact-id`".into());
+        }
+        let text = match read_exact_ids_file(path) {
+            Ok(text) => text,
+            Err(error) => return test_input_error(error),
+        };
+        let json = match deser_json::from_str::<xsh::host::json::Value>(&text) {
+            Ok(json) => json,
+            Err(error) => return test_input_error(format!("invalid exact IDs JSON in {}: {error}", path.display())),
+        };
+        let Some(ids) = json.as_seq() else {
+            return test_input_error("exact IDs file must contain a nonempty JSON array of strings".into());
+        };
+        if ids.is_empty() {
+            return test_input_error("exact IDs file must contain a nonempty JSON array of strings".into());
+        }
+        for id in ids {
+            let Some(id) = id.as_str() else {
+                return test_input_error("exact IDs file must contain a nonempty JSON array of strings".into());
+            };
+            options.exact_ids.push(id.to_owned());
+        }
     }
     if options.exact && options.filter.is_none() {
         return CliOutput {
@@ -311,6 +354,12 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
 
     if !options.exact_ids.is_empty() && (options.filter.is_some() || options.exact) {
         return test_input_error("`--exact-id` cannot combine with FILTER or `--exact`".into());
+    }
+    if options.list && options.list_json {
+        return test_input_error("`--list-json` cannot combine with `--list`".into());
+    }
+    if options.list_json && options.events_jsonl.is_some() {
+        return test_input_error("`--events-jsonl` cannot combine with `--list-json`".into());
     }
     if options.list && options.events_jsonl.is_some() {
         return test_input_error("`--events-jsonl` cannot combine with `--list`".into());
@@ -416,6 +465,25 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
                 return test_input_error(format!("missing exact test ID: {id}"));
             }
         }
+    }
+    if options.list_json {
+        let mut ids = Vec::with_capacity(cases.len());
+        for case in &cases {
+            if let Some(output) = native_cancellation_output() { return output; }
+            ids.push(json_string(case.id()));
+        }
+        let json = match xsh::host::json::encode(&ids.into_iter().collect()) {
+            Ok(json) => json,
+            Err(error) => return test_input_error(format!("cannot encode test IDs: {error}")),
+        };
+        if let Some(output) = native_cancellation_output() { return output; }
+        return CliOutput {
+            status: 0,
+            stdout: text_bytes(format!("{json}\n")),
+            stderr: stderr.into_bytes(),
+            trace_text: String::new(),
+            syscall_summary: None,
+        };
     }
     if options.list {
         for case in &cases {
@@ -2337,7 +2405,7 @@ mod tests {
     }
 
     fn runner_options() -> super::TestOptions {
-        super::TestOptions { filter: None, list: false, exact: false, exact_ids: Vec::new(), events_jsonl: None,
+        super::TestOptions { filter: None, list: false, list_json: false, exact: false, exact_ids: Vec::new(), exact_ids_file: None, events_jsonl: None,
             nocapture: false, fail_fast: false, keep_temp: false, jobs: Some(2), timeout: None,
             coverage: false, api: false, coverage_json_out: None, force_frames: false }
     }
