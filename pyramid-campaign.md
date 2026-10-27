@@ -1,10 +1,20 @@
 # Scoped verification across XSH and Laputa
 
-Status: winding down on master. The first slice is integrated; P0 and campaign
-acceptance are open. The owner directs Pyramid before inference and Lean; this
-order replaces the earlier post-inference plan. Qualify Pyramid on
-current source and rerun affected checks when inference changes their inputs.
-See [the roadmap](docs/ROADMAP.md).
+Status: paused 2026-10-27. Resume: “Resume Pyramid, then inference, then Lean.”
+First command: `codex-campaign-closeout.py cancel`.
+Last accepted code revision: `75240d4f1`; selected checks were green, but P0
+and campaign acceptance remain open and time gates were deferred: host busy.
+`campaign/pyramid-json-structured` is parked: host checks and Linux small trace
+passed; rerun all three isolated Linux correctness cases before integration.
+Older unmerged branches `campaign/pyramid-{caller-migration,catalogue,core-cases,
+integration,native-results,resources,workloads}` and `scratch/pyramid-pilot-{baseline,lsmem}`
+are retained pending reconciliation; inspect commits and checks before integration.
+Dirty `.work/wt/pyramid-{core-cases,kbuild-case,laputa-case,native-set,resources,
+tokei-scout}` retain unverified lane changes; the closeout guard could not allow them.
+Other registered worktrees belong to Deser, lint, qualification, or baseline work
+and remain with their existing owners. Protected Tokei and kernel inputs remain local.
+Next: qualify the parked JSON slice, then complete Pyramid source binding,
+workload evidence, and P0 before inference and Lean; see [the roadmap](docs/ROADMAP.md).
 
 Automatic discovery now reads staged, unstaged and untracked Git paths with
 NUL delimiters and rejects non-UTF-8 output. The Docker launcher scopes Git's
