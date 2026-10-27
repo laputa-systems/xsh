@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import os
 import stat
@@ -65,12 +66,13 @@ def capture(root=None):
     index_details = git(root, b"ls-files", b"--debug", b"-z", b"--")
     raw_index = index_bytes(root)
     names = git(root, b"ls-files", b"--cached", b"--others", b"--exclude-standard", b"-z", b"--")
+    source_names = set(records(names))
     digest = hashlib.sha256()
     add(digest, state)
     add(digest, index)
     add(digest, index_details)
     add(digest, raw_index)
-    for name in sorted(set(records(names))):
+    for name in sorted(source_names):
         name.decode("utf-8")
         if name.startswith(b"/") or any(part in (b"", b".", b"..") for part in name.split(b"/")):
             raise ValueError("Git returned an invalid source path")
@@ -92,8 +94,20 @@ def capture(root=None):
             add(digest, b"submodule")
             add(digest, capture(path).encode("ascii"))
         elif stat.S_ISLNK(before.st_mode):
-            if os.path.commonpath((root, os.path.realpath(path))) != root:
+            target = os.path.realpath(path)
+            if os.path.commonpath((root, target)) != root:
                 raise ValueError("source symlink escapes the repository")
+            try:
+                target_info = os.stat(path)
+            except FileNotFoundError:
+                target_info = None
+            except OSError as error:
+                if error.errno != errno.ELOOP:
+                    raise
+                target_info = None
+            if (target_info is not None and stat.S_ISREG(target_info.st_mode)
+                    and os.path.relpath(target, root) not in source_names):
+                raise ValueError("unobserved symlink target")
             add(digest, b"link")
             add(digest, os.readlink(path))
         elif stat.S_ISREG(before.st_mode):

@@ -10,6 +10,25 @@ OBSERVER = ROOT / 'dev/gate_source.py'
 
 
 class SourceSnapshotTests(unittest.TestCase):
+    def test_symlink_to_ignored_file_cannot_be_observed_as_source(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
+            repo = Path(directory) / 'repo'
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            (repo / '.gitignore').write_text('ignored\n')
+            (repo / 'ignored').write_text('unobserved\n')
+            (repo / 'link').symlink_to('ignored')
+            subprocess.run(['git', '-C', str(repo), 'add', '.gitignore', 'link'], check=True)
+            result = subprocess.run(['python3', '-B', str(OBSERVER)], cwd=repo, capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(b'unobserved symlink target', result.stderr)
+            (repo / 'ignored').unlink()
+            self.assertEqual(subprocess.run(['python3', '-B', str(OBSERVER)], cwd=repo,
+                                            capture_output=True).returncode, 0)
+            (repo / 'ignored').write_text('tracked\n')
+            subprocess.run(['git', '-C', str(repo), 'add', '-f', 'ignored'], check=True)
+            self.assertEqual(subprocess.run(['python3', '-B', str(OBSERVER)], cwd=repo,
+                                            capture_output=True).returncode, 0)
+
     def test_inherited_index_cannot_hide_tracked_ignored_file(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
             repo = Path(directory) / 'repo'

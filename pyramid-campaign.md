@@ -25,6 +25,9 @@ overrides and ignore replacement refs. Discovery returns incomplete for
 explicit cases still work.
 Host and Linux controls cover poisoned indexes, replacement refs, hidden index
 flags and linked-worktree metadata.
+An existing regular-file symlink target must also be in the observed source
+set; otherwise inspection returns incomplete. The regression passes on the
+host and in Linux. Ignored directory contents remain unbound.
 
 The small Tokei fixture now checks the exact selected multilingual file set and
 the complete table bytes, including ignored and unsupported inputs. Its focused

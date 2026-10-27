@@ -143,7 +143,8 @@ submodules, from host selection through
 preparation and successful leaf execution. Source inspection disregards the
 configured Git excludes file so host and container see the same inputs;
 repository ignore files and Git's per-repository exclude file still apply. A
-changed source returns incomplete. These checks are observations, not an atomic
+changed source returns incomplete. A symlink to an existing regular file outside
+the observed source set also returns incomplete. These checks are observations, not an atomic
 snapshot: edits reverted between observations,
 ignored and external inputs, harness preparation, and Full are not yet bound.
 Native cases reconcile XSHT events against the selected IDs and child status.
