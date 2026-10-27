@@ -190,6 +190,11 @@ With pinned LLVM, a relative relocation was accepted and an absolute relocation
 was rejected without changing the existing output. The probe bypassed the full
 package staging context and has no independent complete-inventory oracle;
 those remain unqualified.
+After the relocation helper landed, a fresh prepared kernel copy built the
+same two-task closure and reached the compile stop. An unchanged rerun preserved
+both output timestamps. Adding a newline to the copied `gop.c` rebuilt both
+outputs and reached the same stop. This remains a diagnostic outside the full
+package staging context.
 The local scan-record cache now uses format `linux-local-records-v4`, so records
 created by the old planner are rebuilt instead of reused.
 Compile-flag caches and discovered-plan fingerprints are likewise versioned
