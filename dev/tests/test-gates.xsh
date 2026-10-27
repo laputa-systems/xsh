@@ -1917,10 +1917,12 @@ test test_core_workload_scenarios_require_explicit_selection {
     let changed = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in changed.cases] == ["verification/core-workloads"]
   }
-  let pipeline = gates.plan_paths(context, tests.Verification, [], ["performance/core-pipeline-small/correctness"], gates.Change)?
-  assert [entry.id for entry in pipeline.cases] == ["performance/core-pipeline-small/correctness"]
-  assert pipeline.products == [tests.Xsht]
-  assert pipeline.cases[0].tier == gates.Scenario
+  for id in ["performance/core-pipeline-small/correctness", "performance/core-pipeline-medium/correctness", "performance/core-pipeline-large/correctness"] {
+    let pipeline = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
+    assert [entry.id for entry in pipeline.cases] == [id]
+    assert pipeline.products == [tests.Xsht]
+    assert pipeline.cases[0].tier == gates.Scenario
+  }
 }
 
 test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection {

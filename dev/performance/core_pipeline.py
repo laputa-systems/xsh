@@ -25,7 +25,9 @@ def _report_cancellation(error):
         print(f'Detail: {note}')
 
 
-def check_pipeline(xsht, scratch, lease_owner):
+def check_pipeline(xsht, scratch, lease_owner, shape='small'):
+    if shape not in ('small', 'medium', 'large'):
+        raise ValueError('unknown pipeline workload shape')
     if sys.platform != 'linux' or not hasattr(os, 'pidfd_open'):
         raise ValueError('pipeline tracing requires Linux pidfd ownership')
     if not xsht.is_absolute() or xsht != xsht.resolve() or not xsht.is_file():
@@ -38,7 +40,7 @@ def check_pipeline(xsht, scratch, lease_owner):
         execution = work / 'execution'
         fixtures.mkdir()
         execution.mkdir()
-        case = core_cases.prepare_case('core-pipeline-small', fixtures=fixtures)
+        case = core_cases.prepare_case(f'core-pipeline-{shape}', fixtures=fixtures)
         trace = work / 'trace.jsonl'
         command = [str(xsht), 'trace', '--syscalls', '--trace-format', 'jsonl', '--trace-file', str(trace),
                    *case.argv(xsht)[1:]]
@@ -69,6 +71,7 @@ def _main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--xsht', type=Path, required=True)
     parser.add_argument('--scratch', type=Path, required=True)
+    parser.add_argument('--shape', choices=('small', 'medium', 'large'), default='small')
     args = parser.parse_args()
     if sys.platform != 'linux' or not hasattr(os, 'pidfd_open'):
         print('pipeline correctness incomplete: Linux pidfd ownership is unavailable')
@@ -83,7 +86,7 @@ def _main():
         leases = check.baseline_owner(SimpleNamespace(source_root=owner), 'dev/util-linux/leases.py', 'core_pipeline_leases')
         try:
             with leases.campaign_leases(owner, native=True, cargo=True):
-                count = check_pipeline(args.xsht, args.scratch, leases)
+                count = check_pipeline(args.xsht, args.scratch, leases, args.shape)
         except leases.LeaseBusy as error:
             print(f'pipeline correctness incomplete: {error}')
             return 2

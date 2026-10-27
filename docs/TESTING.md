@@ -177,14 +177,13 @@ tier and retain the checker gate at Change tier.
 The explicit `performance/core-wc-{small,medium,large}/correctness` scenarios
 check binary inputs of 64 KiB, 1 MiB, and 16 MiB against exact line-count
 outputs. They do not measure performance.
-The explicit `performance/core-sort-small/correctness`,
-`performance/core-traversal-small/correctness`, and
-`performance/core-awk-small/correctness` scenarios check ordering, filesystem
-entries, and record aggregation against exact outputs. They do not measure performance.
-The explicit `performance/core-pipeline-small/correctness` scenario checks two
-pipeline outputs and their four completed helpers through XSHT's syscall trace.
-An observed child failure retains status 1 if process cleanup is unresolved.
-It does not measure performance.
+The explicit `performance/core-{sort,traversal,awk}-{small,medium,large}/correctness`
+scenarios check ordering, filesystem entries, and record aggregation against
+exact outputs. They do not measure performance.
+The `performance/core-pipeline-{small,medium,large}/correctness` scenarios
+check two, eight, and 32 pipeline outputs and their completed helpers through
+XSHT's syscall trace. An observed child failure retains status 1 if process
+cleanup is unresolved. They do not measure performance.
 Focused execution requires Python 3.11 or newer for source inspection and result
 reconciliation.
 
