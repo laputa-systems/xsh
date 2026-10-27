@@ -1918,7 +1918,7 @@ test test_core_workload_scenarios_require_explicit_selection {
     let changed = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in changed.cases] == ["verification/core-workloads"]
   }
-  for id in ["performance/core-wc-small/trace", "performance/core-sort-small/trace", "performance/core-awk-small/trace", "performance/core-traversal-small/trace"] {
+  for id in ["performance/core-wc-small/trace", "performance/core-wc-medium/trace", "performance/core-sort-small/trace", "performance/core-awk-small/trace", "performance/core-traversal-small/trace", "performance/core-traversal-medium/trace", "performance/core-traversal-large/trace"] {
     let trace = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in trace.cases] == [id]
     assert trace.products == [tests.Xsht]

@@ -122,6 +122,8 @@ The explicit small `wc`, sort, AWK, and traversal trace scenarios pass their
 exact outputs and reconcile zero helpers and syscall summaries in the qualified
 Linux image. Their syscall counts include tracing machinery and do not establish
 production performance.
+Medium `wc` and medium and large traversal trace scenarios also pass in the
+qualified Linux image, including exact output and zero-helper reconciliation.
 Ordinary run attribution now matches each completion to its start. A host trace
 of the existing 128-helper workload reconciles all 128. Process-handle traces
 remain incomplete until their lifecycles can be reconciled.

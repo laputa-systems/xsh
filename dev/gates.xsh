@@ -637,9 +637,12 @@ const focused_json_case_id = "performance/json-n/correctness"
 const frontend_scenario_case_id = "performance/frontend-edit/correctness"
 const core_standalone_trace_cases = [
   {id: "performance/core-wc-small/trace", name: "core-wc-small"},
+  {id: "performance/core-wc-medium/trace", name: "core-wc-medium"},
   {id: "performance/core-sort-small/trace", name: "core-sort-small"},
   {id: "performance/core-awk-small/trace", name: "core-awk-small"},
   {id: "performance/core-traversal-small/trace", name: "core-traversal-small"},
+  {id: "performance/core-traversal-medium/trace", name: "core-traversal-medium"},
+  {id: "performance/core-traversal-large/trace", name: "core-traversal-large"},
 ]
 const core_pipeline_cases = [
   {id: "performance/core-pipeline-small/correctness", shape: "small"},

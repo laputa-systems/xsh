@@ -196,6 +196,8 @@ The explicit `performance/core-{wc,sort,awk,traversal}-small/trace` scenarios
 also reconcile syscall summaries and completed helpers through XSHT tracing.
 Their syscall counts include the traced XSHT process; they are not production
 timing results.
+The `core-wc-medium` and `core-traversal-{medium,large}` trace scenarios
+use the same oracles at larger input sizes.
 The `performance/core-pipeline-{small,medium,large}/correctness` scenarios
 check two, eight, and 32 pipeline outputs and their completed helpers through
 XSHT's syscall trace. An observed child failure retains status 1 if process
