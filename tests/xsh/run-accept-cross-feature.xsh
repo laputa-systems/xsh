@@ -194,7 +194,7 @@ for row in rows { print $row }
       ctx,
       r"""
 error OuterError = Failed(message: Str)
-let original: Result[Unit, ProcessError] = try {
+let original: Result[Unit, Error] = try {
   ctx "rejected input" {
 """ + body + r"""
   }
