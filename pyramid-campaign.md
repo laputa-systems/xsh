@@ -9,8 +9,9 @@ passed; rerun all three isolated Linux correctness cases before integration.
 Older unmerged branches `campaign/pyramid-{caller-migration,catalogue,core-cases,
 integration,native-results,resources,workloads}` and `scratch/pyramid-pilot-{baseline,lsmem}`
 are retained pending reconciliation; inspect commits and checks before integration.
-Dirty `.work/wt/pyramid-{core-cases,kbuild-case,laputa-case,native-set,resources,
-tokei-scout}` retain unverified lane changes; the closeout guard could not allow them.
+`park/pyramid-{core-cases,kbuild-case,laputa-case,native-set,resources,tokei-scout}`
+preserve unverified lane changes; review and qualify before integrating them.
+Their clean `.work/wt/pyramid-*` checkouts retain lane artifacts for review.
 Other registered worktrees belong to Deser, lint, qualification, or baseline work
 and remain with their existing owners. Protected Tokei and kernel inputs remain local.
 Next: qualify the parked JSON slice, then complete Pyramid source binding,
