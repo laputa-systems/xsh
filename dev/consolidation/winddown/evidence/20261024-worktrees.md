@@ -1,7 +1,7 @@
 # Winddown checkout recovery, 2026-10-24
 
 This is a recovery appendix, not acceptance evidence. Source refs are preserved; no branches are deleted.
-Archive directories contain the original ignored data without rewriting its contents. Restore a checkout at its original path before reusing path-bound receipts or artifacts.
+Archive directories retain ignored data except Cargo target directories, which were later deleted to reclaim space. Rebuild those products and restore a checkout at its original path before attempting to revalidate path-bound receipts or artifacts.
 Pre-existing dirty scheduler snapshots are saved on separate parked refs; their original HEAD is recorded below. Reproduce the original instrumentation from the difference between that HEAD and the parked ref when needed.
 
 | Original checkout | Original HEAD | Recovery ref | State | Ignored-data archive / consumer |

@@ -560,7 +560,8 @@ No branch was deleted, no worktree was force-removed, and no ignored cache or
 failed-run record was blanket-deleted. Fifteen pre-existing dirty diagnostic,
 scheduler or draft checkouts were saved on separate parked refs before removal.
 Archived ignored payloads live under the common checkout's
-`.work/winddown/2026-10-24/worktrees/`.
+`.work/winddown/2026-10-24/worktrees/`. Cargo target directories were later
+removed to reclaim disk space; their products must be rebuilt.
 
 The [checkout recovery appendix](../dev/consolidation/winddown/evidence/20261024-worktrees.md)
 records every original path, original HEAD, protected source/recovery ref and
