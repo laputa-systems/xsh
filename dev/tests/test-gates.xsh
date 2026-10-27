@@ -1918,10 +1918,12 @@ test test_core_workload_scenarios_require_explicit_selection {
     let changed = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in changed.cases] == ["verification/core-workloads"]
   }
-  let sort_trace = gates.plan_paths(context, tests.Verification, [], ["performance/core-sort-small/trace"], gates.Change)?
-  assert [entry.id for entry in sort_trace.cases] == ["performance/core-sort-small/trace"]
-  assert sort_trace.products == [tests.Xsht]
-  assert sort_trace.cases[0].tier == gates.Scenario
+  for id in ["performance/core-wc-small/trace", "performance/core-sort-small/trace", "performance/core-awk-small/trace", "performance/core-traversal-small/trace"] {
+    let trace = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
+    assert [entry.id for entry in trace.cases] == [id]
+    assert trace.products == [tests.Xsht]
+    assert trace.cases[0].tier == gates.Scenario
+  }
   for id in ["performance/core-pipeline-small/correctness", "performance/core-pipeline-medium/correctness", "performance/core-pipeline-large/correctness"] {
     let pipeline = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in pipeline.cases] == [id]

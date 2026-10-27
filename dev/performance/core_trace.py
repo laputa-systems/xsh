@@ -12,10 +12,11 @@ import run
 
 
 WorkloadFailure = owned_case.WorkloadFailure
+_CASE_NAMES = ('core-pipeline-small', 'core-pipeline-medium', 'core-pipeline-large', 'core-sort-small', 'core-wc-small', 'core-awk-small', 'core-traversal-small')
 
 
 def check_case(xsht, scratch, lease_owner, name='core-pipeline-small'):
-    if name not in ('core-pipeline-small', 'core-pipeline-medium', 'core-pipeline-large', 'core-sort-small'):
+    if name not in _CASE_NAMES:
         raise ValueError('unknown core trace workload')
     if sys.platform != 'linux' or not hasattr(os, 'pidfd_open'):
         raise ValueError('pipeline tracing requires Linux pidfd ownership')
@@ -60,7 +61,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--xsht', type=Path, required=True)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--case', choices=('core-pipeline-small', 'core-pipeline-medium', 'core-pipeline-large', 'core-sort-small'), default='core-pipeline-small')
+    parser.add_argument('--case', choices=_CASE_NAMES, default='core-pipeline-small')
     args = parser.parse_args()
     def execute(leases):
         counts = check_case(args.xsht, args.scratch, leases, args.case)

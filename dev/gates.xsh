@@ -635,7 +635,12 @@ const laputa_adapter_case_id = "verification/laputa-adapter"
 const native_leases_case_id = "verification/native-leases"
 const focused_json_case_id = "performance/json-n/correctness"
 const frontend_scenario_case_id = "performance/frontend-edit/correctness"
-const core_sort_trace_case_id = "performance/core-sort-small/trace"
+const core_standalone_trace_cases = [
+  {id: "performance/core-wc-small/trace", name: "core-wc-small"},
+  {id: "performance/core-sort-small/trace", name: "core-sort-small"},
+  {id: "performance/core-awk-small/trace", name: "core-awk-small"},
+  {id: "performance/core-traversal-small/trace", name: "core-traversal-small"},
+]
 const core_pipeline_cases = [
   {id: "performance/core-pipeline-small/correctness", shape: "small"},
   {id: "performance/core-pipeline-medium/correctness", shape: "medium"},
@@ -882,13 +887,15 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
         tests.product_path(ctx, profile, tests.Xsh).display(), "--xsht",
         tests.product_path(ctx, profile, tests.Xsht).display(), "--scratch", fp"{ctx.root}/.work/tmp".display()], ctx.root,
       {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
-  entries += [CatalogCase(id: core_sort_trace_case_id, tier: Scenario,
-    limit: RuntimeSeconds(120), products: [tests.Xsht], prerequisite_ids: [],
-    reasons: ["small sort exact output, syscall summary, and completed-helper trace; performance not measured"],
-    execution: RunCommand(stages.command(core_sort_trace_case_id, ctx.target.triple, "python3",
-      ["python3", "-B", "-m", "dev.performance.core_trace", "--xsht",
-        tests.product_path(ctx, profile, tests.Xsht).display(), "--scratch", fp"{ctx.root}/.work/tmp".display(),
-        "--case", "core-sort-small"], ctx.root, {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
+  for item in core_standalone_trace_cases {
+    entries += [CatalogCase(id: item.id, tier: Scenario,
+      limit: RuntimeSeconds(120), products: [tests.Xsht], prerequisite_ids: [],
+      reasons: [f"{item.name} exact output, syscall summary, and completed-helper trace; performance not measured"],
+      execution: RunCommand(stages.command(item.id, ctx.target.triple, "python3",
+        ["python3", "-B", "-m", "dev.performance.core_trace", "--xsht",
+          tests.product_path(ctx, profile, tests.Xsht).display(), "--scratch", fp"{ctx.root}/.work/tmp".display(),
+          "--case", item.name], ctx.root, {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
+  }
   for item in core_pipeline_cases {
     entries += [CatalogCase(id: item.id, tier: Scenario,
       limit: RuntimeSeconds(120), products: [tests.Xsht], prerequisite_ids: [],
@@ -2088,8 +2095,8 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
         gate_execution.Finished(status) => {
           let raw = status.shell_code()?
           return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when raw == 130
-          return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when (entry.id in [item.id for item in core_pipeline_cases] or entry.id == core_sort_trace_case_id or entry.id == frontend_scenario_case_id) and raw == 143
-          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when (entry.id in [item.id for item in core_pipeline_cases] or entry.id == core_sort_trace_case_id or entry.id == frontend_scenario_case_id) and raw == 2
+          return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when (entry.id in [item.id for item in core_pipeline_cases] or entry.id in [item.id for item in core_standalone_trace_cases] or entry.id == frontend_scenario_case_id) and raw == 143
+          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when (entry.id in [item.id for item in core_pipeline_cases] or entry.id in [item.id for item in core_standalone_trace_cases] or entry.id == frontend_scenario_case_id) and raw == 2
           let failed_child = raw != 0 and (raw != 2 or result_runner == "cargo")
           if ! selected_ids.is_empty() {
             let arguments = ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(),
