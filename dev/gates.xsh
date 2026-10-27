@@ -985,6 +985,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       }
       continue
     }
+    if changed_path.starts_with("dev/performance/corpus/") {
+      unresolved += [f"inference corpus verification requires explicit external inputs: {changed_path}"]
+      continue
+    }
     if changed_path in ["dev/performance/inference_workloads.py", "dev/performance/test_inference_workloads.py", "dev/performance/inference_measurement.py", "dev/performance/test_inference_measurement.py"] {
       selected_ids += ["verification/inference-workloads"] when "verification/inference-workloads" not in selected_ids
       continue

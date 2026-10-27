@@ -52,6 +52,9 @@ gate. Wider disposal measurements remain open.
 Inference workload generator and measurement changes now select their Python
 contract tests instead of generic native developer tests. The selection control
 and all 30 contract tests pass on the host and in the qualified Linux image.
+Corpus tooling and witness paths now report unresolved instead of selecting
+unrelated native developer tests. The selection regression passes on the host
+and in a bounded Linux run. Explicit external-input ownership remains open.
 The constraint-solver Edit case selects an independent row and rollback oracle;
 its ownership control and prepared local Rust harness pass, as does the Linux
 gate. Solver scaling measurements remain open.

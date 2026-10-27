@@ -1925,6 +1925,15 @@ test test_core_workload_scenarios_require_explicit_selection {
   }
 }
 
+test test_inference_corpus_changes_do_not_select_unrelated_native_tests {
+  let context = fixtures.linux_context(/repo)?
+  for changed_path in ["dev/performance/corpus/check.sh", "dev/performance/corpus/frozen_witnesses.py", "dev/performance/corpus/witnesses/source-read.erased.xsh"] {
+    let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert selected.cases.is_empty()
+    assert selected.unresolved == [f"inference corpus verification requires explicit external inputs: {changed_path}"]
+  }
+}
+
 test test_inference_workload_changes_select_their_python_contracts {
   let context = fixtures.linux_context(/repo)?
   for changed_path in ["dev/performance/inference_measurement.py", "dev/performance/test_inference_measurement.py", "dev/performance/inference_workloads.py", "dev/performance/test_inference_workloads.py"] {
