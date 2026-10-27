@@ -84,6 +84,8 @@ def trace_counts(rows):
         if row.get('type') == 'syscall.summary':
             summaries.append(row)
         payload = row.get('payload', {})
+        if row.get('kind') in ('pipeline.enter', 'pipeline.exit', 'pipeline.segment.end') or payload.get('type') in ('pipeline.end', 'pipeline.segment.end'):
+            raise ValueError('helper attribution unavailable: pipeline lifecycle is not reconciled')
         starts += payload.get('type') in ('run.start', 'spawn.start')
         if payload.get('type') in ('run.end', 'spawn.ready'):
             if type(payload.get('pid')) is not int or payload.get('error') is not None:

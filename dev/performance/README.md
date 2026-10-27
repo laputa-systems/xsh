@@ -343,6 +343,8 @@ working-directory effects. Useful output is the first complete expected stdout
 line on the host pipe, not first-byte latency. Timing ends after process exit
 and full stdout and stderr capture. Failed checks, timeout, or unresolved
 cleanup receive no timing credit.
+Helper attribution rejects pipeline traces until it can reconcile their segment
+lifecycles. A pipeline trace cannot establish a zero-helper count.
 
 Common and demanding names do not assert a measured cost. The later accepted
 baseline must establish which substantial cases exceed 50 ms of CPU and qualify

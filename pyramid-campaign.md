@@ -76,6 +76,9 @@ pressure accounting is unavailable; performance remains unmeasured.
 Explicit small sort, traversal, and AWK scenarios also pass their exact output
 oracles in Linux. Their pressure diagnostics are incomplete, and performance
 remains unmeasured.
+The pipeline fixture's trace emits segment completions without the helper events
+the attribution reader expects. The reader now rejects that trace instead of
+reporting zero helpers. Pipeline lifecycle reconciliation remains open.
 
 P0 reference candidates are [upstream Tokei v14.0.0](https://github.com/XAMPPRocky/tokei/releases/tag/v14.0.0) at commit
 `8cdd6fa3a54f8cd69442d2f00effb29aa3110353` and the local uutils/coreutils

@@ -85,6 +85,14 @@ class CohortTests(unittest.TestCase):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'attribution unavailable'):
                 workloads.trace_counts(iter(changed))
 
+    def test_pipeline_segments_are_not_reported_as_zero_helpers(self):
+        rows = [{'kind': 'pipeline.enter', 'payload': {'type': 'none'}},
+                {'kind': 'pipeline.segment.end', 'payload': {'type': 'pipeline.segment.end',
+                                                              'index': 0, 'pid': 19, 'error': None}},
+                {'type': 'syscall.summary', 'syscall_count': 17}]
+        with self.assertRaisesRegex(ValueError, 'helper attribution unavailable'):
+            workloads.trace_counts(iter(rows))
+
     def run_fake_cohort(self, root, *, failure=None):
         cases = tuple(workloads.Workload(name, family, 'common', root / 'script.xsh', (), b'ready\n', 0)
                       for name, family in (('cold', 'startup'), ('algorithm', 'algorithms')))
