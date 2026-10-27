@@ -25,6 +25,7 @@ KBUILD_DISCOVERY_IDS = (
 )
 KBUILD_GRAPH_CASE = 'laputa/kbuild/graph-cache'
 KBUILD_GRAPH_IDS = (
+    'packages/linux/tests/main.xsh::test_kbuild_plans_x86_efi_stub_objects',
     'packages/linux/tests/main.xsh::test_kbuild_local_record_graph_matches_default',
     'packages/linux/tests/main.xsh::test_kbuild_worker_records_bind_included_inputs',
     'packages/linux/tests/main.xsh::test_kbuild_local_record_cache_reuses_and_invalidates',

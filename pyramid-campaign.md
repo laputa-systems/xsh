@@ -136,9 +136,9 @@ qualified Linux image. Broader world coverage remains open.
 The catalogue also exposes the existing synthetic Kbuild discovery test as an
 explicit Laputa scenario. Its adapter and host selection controls pass, and its
 selected test passed through the qualified Linux image.
-The Kbuild graph-cache scenario now selects eighteen isolated graph parity, cache
-invalidation, legacy-cache replacement, plan-output, and selected-closure tests.
-All eighteen pass in the replacement Linux image after resource admission,
+The Kbuild graph-cache scenario now selects nineteen isolated graph parity, cache
+invalidation, EFI stub, plan-output, and selected-closure tests.
+All nineteen pass in the replacement Linux image after resource admission,
 including the archive-plan and parallel snapshot controls.
 The closure regression exposed a stale dependent after an upstream rebuild;
 the scheduler now reruns declared dependents when a dependency ran. Its host
@@ -158,6 +158,16 @@ A bounded host diagnostic on a separate copy of that source produced 3,064
 archive tasks, 25 missing sources and one generated object without the recipe's
 prepare stage. This checks planner execution only; it is not a real-kernel
 inventory or qualification.
+A subsequent isolated Linux probe used the checksum-pinned kernel and LLVM
+23.1.0-rc2 archive, with an image CRT wrapper, to run the recipe's x86 prepare
+stage and reach the exact plan stop. Its plan reports 3,114 tasks, no missing
+sources, and no duplicate outputs. The planner now represents x86 EFI stub
+objects as source compilation followed by the existing objcopy task; a
+two-task `gop.stub.o` closure built, reused unchanged outputs, and rebuilt both
+outputs after a controlled source edit. Its stub matched the pinned objcopy
+transformation. The probe bypassed the full package staging context and has no
+independent complete-inventory oracle. The existing EFI copy helper also lacks
+upstream's absolute-relocation rejection; these remain unqualified.
 The local scan-record cache now uses format `linux-local-records-v4`, so records
 created by the old planner are rebuilt instead of reused.
 Compile-flag caches and discovered-plan fingerprints are likewise versioned
