@@ -118,6 +118,7 @@ class LaputaPlanTests(TestCase):
                 'packages/linux/tests/main.xsh::test_kbuild_rebuilds_legacy_local_records_after_make_semantics_change',
                 'packages/linux/tests/main.xsh::test_kbuild_rebuilds_legacy_discovered_plan_cache',
                 'packages/linux/tests/main.xsh::test_kbuild_rebuilds_legacy_compile_flags_cache',
+                'packages/linux/tests/main.xsh::test_kbuild_compile_flags_cache_binds_parsed_include',
                 'packages/linux/tests/main.xsh::test_kbuild_plan_cache_invalidates_nested_and_included_makefiles',
                 'packages/linux/tests/main.xsh::test_kbuild_plan_cache_distinguishes_source_architectures',
                 'packages/linux/tests/main.xsh::test_kbuild_runs_archive_plan_output_from_json',
