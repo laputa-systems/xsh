@@ -5515,7 +5515,7 @@ export proc capture_powercap_bundle(
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    continue when relative.ends_with("/energy_uj")
+    continue when relative.ends_with("energy_uj")
     let raw = source.read_result(relative, max_bytes: 4096)?
     let first = observations[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
@@ -7869,7 +7869,7 @@ export proc capture_cpufreq_bundle(
       p"sys/devices/system/cpu/present",
       p"sys/devices/system/cpu/online",
       p"sys/devices/system/cpu/offline",
-    ] or relative.ends_with("/related_cpus") or relative.ends_with("/affected_cpus")) and raw.state != "observed") {
+    ] or relative.ends_with("related_cpus") or relative.ends_with("affected_cpus")) and raw.state != "observed") {
       complete = false
     }
 
@@ -8257,8 +8257,8 @@ export proc capture_cpu_topology_bundle(
   var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or relative.ends_with("/online") or relative.ends_with(
-      "/offline",
+    let limit = if relative.ends_with("possible") or relative.ends_with("present") or relative.ends_with("online") or relative.ends_with(
+      "offline",
     ) {
       65536
     } else {
@@ -8274,7 +8274,7 @@ export proc capture_cpu_topology_bundle(
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or (! relative.ends_with("/die_id") and raw.state != "observed") {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (! relative.ends_with("die_id") and raw.state != "observed") {
       complete = false
     }
 
@@ -8296,8 +8296,8 @@ export proc capture_cpu_topology_bundle(
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or relative.ends_with("/online") or relative.ends_with(
-      "/offline",
+    let limit = if relative.ends_with("possible") or relative.ends_with("present") or relative.ends_with("online") or relative.ends_with(
+      "offline",
     ) {
       65536
     } else {
@@ -8385,8 +8385,8 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
       return Err(check_failure(f"CPU topology capture cannot score {relative}"))
     }
 
-    let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or relative.ends_with("/online") or relative.ends_with(
-      "/offline",
+    let limit = if relative.ends_with("possible") or relative.ends_with("present") or relative.ends_with("online") or relative.ends_with(
+      "offline",
     ) {
       65536
     } else {
@@ -11622,11 +11622,11 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("/vendor") or relative.ends_with(
-      "/device",
-    ) or relative.ends_with("/subsystem_vendor") or relative.ends_with("/subsystem_device") or relative.ends_with(
-      "/class",
-    ) or relative.ends_with("/revision")) and raw.state != "observed") {
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("vendor") or relative.ends_with(
+      "device",
+    ) or relative.ends_with("subsystem_vendor") or relative.ends_with("subsystem_device") or relative.ends_with(
+      "class",
+    ) or relative.ends_with("revision")) and raw.state != "observed") {
       complete = false
     }
 
@@ -11969,8 +11969,8 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("/idVendor") or relative.ends_with(
-      "/idProduct",
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("idVendor") or relative.ends_with(
+      "idProduct",
     )) and raw.state != "observed") {
       complete = false
     }
@@ -15296,8 +15296,8 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("/dev") or relative.ends_with(
-      "/size",
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("dev") or relative.ends_with(
+      "size",
     )) and raw.state != "observed") {
       complete = false
     }
@@ -15324,7 +15324,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       let raw = source.read_result(relative, max_bytes: 4096)?
       let first = sources[index]
       if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
-        if relative.ends_with("/stat") {
+        if relative.ends_with("stat") {
           yield relative
         } else {
           stable_static = false

@@ -3134,6 +3134,29 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")
 }
 
+test test_system_report_cpu_topology_capture_allows_absent_die_id { |ctx|
+  let source = fs.tempdir()?
+  defer source.close()
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  let cpu_root: RelPath = p"sys/devices/system/cpu"
+  source.mkdir(fp"{cpu_root}/cpu0/topology", parents: true)
+  for name in ["possible", "present", "online"] {
+    source.write(fp"{cpu_root}/{name}".require(RelPath)?, "0\n")
+  }
+
+  source.write(fp"{cpu_root}/offline".require(RelPath)?, "\n")
+  for item in [{name: "physical_package_id", value: "0\n"}, {name: "core_id", value: "0\n"}, {name: "thread_siblings_list", value: "0\n"}] {
+    source.write(fp"{cpu_root}/cpu0/topology/{item.name}".require(RelPath)?, item.value)
+  }
+
+  source.symlink(target: ../../node/node0, path: fp"{cpu_root}/cpu0/node0")
+  report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture")
+  let replay = report_checks.replay_cpu_topology_bundle(bundle)?
+  assert replay.topology.exact
+  assert replay.topology.matched_count == 1
+}
+
 test test_system_report_cpu_topology_capture_rejects_escaping_numa_link {
   let source = fs.tempdir()?
   defer source.close()
