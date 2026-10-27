@@ -1,9 +1,14 @@
 import errno
 import hashlib
 import os
+import re
 import stat
 import subprocess
 import sys
+
+
+_INDEX_PERSISTENT_FLAGS = 0x6000FFFF
+_INDEX_UNSUPPORTED_FLAGS = 0x80000000
 
 
 def git_environment():
@@ -54,6 +59,31 @@ def index_bytes(root):
         return b"\x01" + data
 
 
+def index_flags(root):
+    data = git(root, b"ls-files", b"--debug", b"-z", b"--")
+    pattern = re.compile(rb"  ctime: [^\n]*\n  mtime: [^\n]*\n  dev: [^\n]*\n  uid: [^\n]*\n  size: [^\n]*\tflags: ([0-9a-fA-F]+)\n")
+    result = bytearray()
+    position = 0
+    while position < len(data):
+        end = data.find(b"\0", position)
+        if end < 0:
+            raise ValueError("Git index path is not terminated")
+        name = data[position:end]
+        metadata = pattern.match(data, end + 1)
+        if not name or metadata is None:
+            raise ValueError("Git index flags are unavailable")
+        value = int(metadata.group(1), 16)
+        if value & _INDEX_UNSUPPORTED_FLAGS:
+            raise ValueError("unsupported persistent Git index flags")
+        flags = str(value & _INDEX_PERSISTENT_FLAGS).encode("ascii")
+        result.extend(len(name).to_bytes(8, "big"))
+        result.extend(name)
+        result.extend(len(flags).to_bytes(8, "big"))
+        result.extend(flags)
+        position = metadata.end()
+    return bytes(result)
+
+
 def observe_linked_directory(root, target, source_names, gitlinks, digest):
     def fail(error):
         raise error
@@ -92,15 +122,15 @@ def capture(root=None):
     index = git(root, b"ls-files", b"--stage", b"-z", b"--")
     gitlinks = {entry.split(b"\t", 1)[1] for entry in records(index)
                 if entry.startswith(b"160000 ") and b"\t" in entry}
-    index_details = git(root, b"ls-files", b"--debug", b"-z", b"--")
-    raw_index = index_bytes(root)
+    index_details = index_flags(root)
+    index_presence = index_bytes(root)[:1]
     names = git(root, b"ls-files", b"--cached", b"--others", b"--exclude-standard", b"-z", b"--")
     source_names = set(records(names))
     digest = hashlib.sha256()
     add(digest, state)
     add(digest, index)
     add(digest, index_details)
-    add(digest, raw_index)
+    add(digest, index_presence)
     for name in sorted(source_names):
         name.decode("utf-8")
         if name.startswith(b"/") or any(part in (b"", b".", b"..") for part in name.split(b"/")):
@@ -143,6 +173,9 @@ def capture(root=None):
                 raise ValueError("unsupported symlink target")
             add(digest, b"link")
             add(digest, os.readlink(path))
+            add(digest, os.path.relpath(target, root))
+            if os.path.realpath(path) != target:
+                raise ValueError("source symlink target changed during inspection")
         elif stat.S_ISREG(before.st_mode):
             flags = os.O_RDONLY | os.O_NOFOLLOW
             with os.fdopen(os.open(path, flags), "rb") as source:
@@ -158,8 +191,8 @@ def capture(root=None):
             raise ValueError("source changed during inspection")
     if (state != git(root, b"status", b"--porcelain=v2", b"--branch", b"-z", b"--untracked-files=all")
             or index != git(root, b"ls-files", b"--stage", b"-z", b"--")
-            or index_details != git(root, b"ls-files", b"--debug", b"-z", b"--")
-            or raw_index != index_bytes(root)
+            or index_details != index_flags(root)
+            or index_presence != index_bytes(root)[:1]
             or names != git(root, b"ls-files", b"--cached", b"--others", b"--exclude-standard", b"-z", b"--")):
         raise ValueError("Git state changed during inspection")
     return digest.hexdigest()

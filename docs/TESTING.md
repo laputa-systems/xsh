@@ -137,16 +137,18 @@ commands and between native discovery and execution. A changed or unavailable
 product makes the scope incomplete. Prepared Cargo test harnesses are also
 inspected before and after execution and when reused. Execution inspections run
 in owned children within the case and shared runtime limits; the host selection
-inspection has a separate tier limit. The focused gate also compares the Git
-index and tracked and untracked source contents, including checked-out Git
-submodules, from host selection through
-preparation and successful leaf execution. Source inspection disregards the
+inspection has a separate tier limit. The focused gate also compares staged Git
+entries, persistent index flags, and tracked and untracked source contents,
+including checked-out Git submodules, from host selection through preparation
+and successful leaf execution. Git's cached index stat data does not affect this
+comparison. Source inspection disregards the
 configured Git excludes file so host and container see the same inputs;
 repository ignore files and Git's per-repository exclude file still apply. A
 changed source returns incomplete. A symlink to an existing regular file outside
 the observed source set, or a directory containing an unobserved entry, also
-returns incomplete. Links to special files are unsupported. Linked directory
-names and modes are included in the observation. These checks are observations, not an atomic
+returns incomplete. Links to special files are unsupported. The observation
+includes each resolved symlink target, plus linked directory names and modes.
+These checks are observations, not an atomic
 snapshot: edits reverted between observations,
 ignored and external inputs, harness preparation, and Full are not yet bound.
 Native cases reconcile XSHT events against the selected IDs and child status.
