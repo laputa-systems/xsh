@@ -27,7 +27,8 @@ Host and Linux controls cover poisoned indexes, replacement refs, hidden index
 flags and linked-worktree metadata.
 An existing regular-file symlink target must also be in the observed source
 set; otherwise inspection returns incomplete. The regression passes on the
-host and in Linux. Ignored directory contents remain unbound.
+host and in Linux. Linked directories reject unobserved entries and include
+directory names and modes in the observation. Other ignored inputs remain unbound.
 
 The small Tokei fixture now checks the exact selected multilingual file set and
 the complete table bytes, including ignored and unsupported inputs. Its focused

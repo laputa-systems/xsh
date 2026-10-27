@@ -54,6 +54,35 @@ def index_bytes(root):
         return b"\x01" + data
 
 
+def observe_linked_directory(root, target, source_names, gitlinks, digest):
+    def fail(error):
+        raise error
+
+    for directory, directories, files in os.walk(target, topdown=True, onerror=fail, followlinks=False):
+        before = os.lstat(directory)
+        relative = os.path.relpath(directory, root)
+        add(digest, relative)
+        add(digest, str(before.st_mode).encode("ascii"))
+        directories.sort()
+        files.sort()
+        for name in directories[:]:
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, root)
+            if os.path.islink(path):
+                directories.remove(name)
+                if relative not in source_names:
+                    raise ValueError("unobserved symlink target")
+            elif relative in gitlinks:
+                directories.remove(name)
+            elif name == b".git":
+                raise ValueError("unobserved symlink target")
+        for name in files:
+            if os.path.relpath(os.path.join(directory, name), root) not in source_names:
+                raise ValueError("unobserved symlink target")
+        if fingerprint(os.lstat(directory)) != fingerprint(before):
+            raise ValueError("source changed during inspection")
+
+
 def capture(root=None):
     root = os.fsencode(os.path.realpath(os.getcwd() if root is None else root))
     top = git(root, b"rev-parse", b"--show-toplevel")
@@ -108,6 +137,8 @@ def capture(root=None):
             if (target_info is not None and stat.S_ISREG(target_info.st_mode)
                     and os.path.relpath(target, root) not in source_names):
                 raise ValueError("unobserved symlink target")
+            if target_info is not None and stat.S_ISDIR(target_info.st_mode):
+                observe_linked_directory(root, target, source_names, gitlinks, digest)
             add(digest, b"link")
             add(digest, os.readlink(path))
         elif stat.S_ISREG(before.st_mode):

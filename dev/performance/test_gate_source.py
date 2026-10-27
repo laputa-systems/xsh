@@ -10,6 +10,24 @@ OBSERVER = ROOT / 'dev/gate_source.py'
 
 
 class SourceSnapshotTests(unittest.TestCase):
+    def test_directory_symlink_rejects_unobserved_contents(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
+            repo = Path(directory) / 'repo'
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            (repo / '.gitignore').write_text('tree/hidden\n')
+            (repo / 'tree').mkdir()
+            (repo / 'tree/visible').write_text('observed\n')
+            (repo / 'link').symlink_to('tree', target_is_directory=True)
+            subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+            command = ['python3', '-B', str(OBSERVER)]
+            before = subprocess.check_output(command, cwd=repo)
+            (repo / 'tree/empty').mkdir()
+            self.assertNotEqual(before, subprocess.check_output(command, cwd=repo))
+            (repo / 'tree/hidden').write_text('unobserved\n')
+            result = subprocess.run(command, cwd=repo, capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(b'unobserved symlink target', result.stderr)
+
     def test_symlink_to_ignored_file_cannot_be_observed_as_source(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
             repo = Path(directory) / 'repo'
