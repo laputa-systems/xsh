@@ -80,6 +80,7 @@ passed both scenarios. Their pressure diagnostics remain incomplete.
 Explicit small sort, traversal, and AWK scenarios also pass their exact output
 oracles in Linux. The medium sort scenario passes as well; two large-sort
 attempts stopped before execution because resource admission was unavailable.
+The large sort output oracle passes in a bounded host diagnostic.
 Their pressure diagnostics are incomplete, and performance remains unmeasured.
 Medium and large AWK and traversal scenarios are registered. Their exact output
 oracles pass in a bounded host diagnostic; the medium AWK Linux gate stopped
