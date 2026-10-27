@@ -49,6 +49,9 @@ Rust test pass in the replacement Linux image.
 The frontend-retention Edit case selects the retained-column stability test;
 its ownership control and prepared local Rust harness pass, as does the Linux
 gate. Wider disposal measurements remain open.
+Inference workload generator and measurement changes now select their Python
+contract tests instead of generic native developer tests. The selection control
+and all 30 contract tests pass on the host and in the qualified Linux image.
 The constraint-solver Edit case selects an independent row and rollback oracle;
 its ownership control and prepared local Rust harness pass, as does the Linux
 gate. Solver scaling measurements remain open.

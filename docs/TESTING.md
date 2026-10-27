@@ -174,6 +174,8 @@ Frontend statistics changes select a retained-column test at Edit tier and
 retain the frontend memory checks at Change tier.
 Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
+Changes to inference workload generators and measurement tooling select their
+Python contract tests.
 The explicit `performance/core-wc-{small,medium,large}/correctness` scenarios
 check binary inputs of 64 KiB, 1 MiB, and 16 MiB against exact line-count
 outputs. They do not measure performance.

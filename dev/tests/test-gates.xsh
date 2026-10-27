@@ -1925,6 +1925,15 @@ test test_core_workload_scenarios_require_explicit_selection {
   }
 }
 
+test test_inference_workload_changes_select_their_python_contracts {
+  let context = fixtures.linux_context(/repo)?
+  for changed_path in ["dev/performance/inference_measurement.py", "dev/performance/test_inference_measurement.py", "dev/performance/inference_workloads.py", "dev/performance/test_inference_workloads.py"] {
+    let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert [entry.id for entry in selected.cases] == ["verification/inference-workloads"]
+    assert selected.products.is_empty()
+  }
+}
+
 test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection {
   let context = fixtures.linux_context(/repo)?
   let id = "performance/json-n/correctness"
