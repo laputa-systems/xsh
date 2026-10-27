@@ -173,6 +173,8 @@ Frontend statistics changes select a retained-column test at Edit tier and
 retain the frontend memory checks at Change tier.
 Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
+The explicit `performance/core-wc-small/correctness` scenario checks a 64 KiB
+binary input against its exact line-count output. It does not measure performance.
 Focused execution requires Python 3.11 or newer for source inspection and result
 reconciliation.
 

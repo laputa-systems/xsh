@@ -1869,6 +1869,20 @@ test test_laputa_and_json_n_must_be_selected_separately {
   }
 }
 
+test test_core_wc_scenario_requires_explicit_selection {
+  let context = fixtures.linux_context(/repo)?
+  let id = "performance/core-wc-small/correctness"
+  let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
+  assert [entry.id for entry in selected.cases] == [id]
+  assert selected.products == [tests.Xsh]
+  assert selected.cases[0].tier == gates.Scenario
+  assert gates.plan_paths(context, tests.Verification, [], [], gates.Change)?.cases.is_empty()
+  for changed_path in ["dev/performance/core_cases.py", "dev/performance/test_core_cases.py", "dev/performance/fixtures/core-cases/traversal.xsh"] {
+    let changed = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert [entry.id for entry in changed.cases] == ["verification/core-workloads"]
+  }
+}
+
 test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection {
   let context = fixtures.linux_context(/repo)?
   let id = "performance/json-n/correctness"

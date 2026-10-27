@@ -15,7 +15,7 @@ import tempfile
 from dev.performance import check, resources, workloads
 
 
-_CASE_NAMES = ('json-n',)
+_CASE_NAMES = ('json-n', 'core-wc-small')
 _RESOURCE_SCOPE = resources.GroupScope.FRESH_CASE_CONTAINER.value
 _RESOURCE_FIELDS = frozenset(resources.CaseResources.__dataclass_fields__)
 _DECLARED_WORKERS = (('container_init', 1), ('python_driver', 1), ('xsh_workload', 1))
@@ -195,6 +195,15 @@ def _gate_source_digest(root):
 
 def _case(config, case_name):
     check.require(case_name in _CASE_NAMES, 'unsupported focused workload')
+    if case_name == 'core-wc-small':
+        fixture_owner = check.baseline_owner(
+            config, 'dev/performance/core_cases.py',
+            'focused_core_' + check.owned_digest(config.source_root / 'dev/performance/core_cases.py'),
+        )
+        fixture_root = config.fixtures / case_name
+        case = fixture_owner.describe_case(case_name, fixtures=config.fixtures, source_root=config.source_root)
+        fixture_owner.validate_case(case, fixtures=config.fixtures, source_root=config.source_root)
+        return case, fixture_root, fixture_owner.snapshot(fixture_root), fixture_owner
     fixture_owner = check.baseline_owner(
         config,
         'bench/consolidation/fixtures.py',

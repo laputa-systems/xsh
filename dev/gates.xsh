@@ -117,6 +117,7 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   return Err(PlanError.Invalid(detail: "--json requires --plan")) when machine and ! inspect
   let output = if machine { InspectJson } else if inspect { InspectText } else { Execute }
   let selected_laputa_ids = [id for id in case_ids if id in laputa_case_ids]
+  return Err(PlanError.Invalid(detail: "core wc correctness must be selected alone")) when focused_core_wc_case_id in case_ids and case_ids.len() != 1
   return Err(PlanError.Invalid(detail: "Laputa and json-n correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and focused_json_case_id in case_ids
   return Err(PlanError.Invalid(detail: "Laputa and Tokei correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and tokei_scenario_case_id in case_ids
   return Err(PlanError.Invalid(detail: "json-n and Tokei correctness must be selected separately")) when focused_json_case_id in case_ids and tokei_scenario_case_id in case_ids
@@ -632,6 +633,7 @@ const resource_diagnostics_case_id = "verification/resource-diagnostics"
 const laputa_adapter_case_id = "verification/laputa-adapter"
 const native_leases_case_id = "verification/native-leases"
 const focused_json_case_id = "performance/json-n/correctness"
+const focused_core_wc_case_id = "performance/core-wc-small/correctness"
 const tokei_scenario_case_id = "showcase/tokei/uutils-rust-correctness"
 const constraint_solver_case_id = "compiler/constraint-solver/correctness"
 
@@ -739,6 +741,12 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     execution: RunCommand(stages.command(focused_adapter_case_id, ctx.target.triple, "python3",
       ["python3", "-B", "-m", "unittest", "dev.performance.test_focused", "dev.performance.test_check.AdapterDeadlineTests"], ctx.root,
       {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
+  entries += [CatalogCase(id: "verification/core-workloads", tier: Change,
+    limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
+    reasons: ["core workload fixture and oracle contracts"],
+    execution: RunCommand(stages.command("verification/core-workloads", ctx.target.triple, "python3",
+      ["python3", "-B", "-m", "unittest", "dev.performance.test_core_cases"], ctx.root,
+      {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
   entries += [CatalogCase(id: performance_check_case_id, tier: Change,
     limit: RuntimeSeconds(90), products: [], prerequisite_ids: [],
     reasons: ["performance check and workload catalogue contracts"],
@@ -810,6 +818,10 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
   entries += [CatalogCase(id: focused_json_case_id, tier: Scenario,
     limit: RuntimeSeconds(300), products: [tests.Xsh], prerequisite_ids: [],
     reasons: ["json-n output/status/state correctness only; product and source bound to gate preparation; performance not measured"],
+    execution: Alias)]
+  entries += [CatalogCase(id: focused_core_wc_case_id, tier: Scenario,
+    limit: RuntimeSeconds(300), products: [tests.Xsh], prerequisite_ids: [],
+    reasons: ["core wc byte-stream correctness; product and source bound to gate preparation; performance not measured"],
     execution: Alias)]
   entries += [CatalogCase(id: tokei_scenario_case_id, tier: Scenario,
     limit: RuntimeSeconds(360), products: [tests.Xsh], prerequisite_ids: [],
@@ -924,6 +936,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += [focused_adapter_case_id] when focused_adapter_case_id not in selected_ids
       continue
     }
+    if changed_path in ["dev/performance/core_cases.py", "dev/performance/test_core_cases.py"] or changed_path.starts_with("dev/performance/fixtures/core-cases/") {
+      selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
+      continue
+    }
     if changed_path in ["dev/performance/check.py", "dev/performance/test_check.py"] {
       selected_ids += [performance_check_case_id] when performance_check_case_id not in selected_ids
       continue
@@ -999,7 +1015,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
     continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/consumers", cat_byte_stream_case_id, cat_full_module_case_id, cat_external_consumers_case_id,
-      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
+      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/core-workloads", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
       native_leases_case_id]
     continue when entry.id in [case.id for case in source_edit_cases]
     continue when entry.tier == Scenario
@@ -1184,9 +1200,9 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
   }
 }
 
-proc run_focused_json_n(ctx: context.Context, profile: tests.TestProfile, source: Str,
-    product: ProductObservation, image: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  return Err(ExecutionError.Incomplete(case_id: focused_json_case_id, raw_status: 0)) when ctx.target.os != "linux"
+proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, source: Str,
+    product: ProductObservation, image: Str, case_id: Str, case_name: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0)) when ctx.target.os != "linux"
   let xsh = tests.product_path(ctx, profile, tests.Xsh)
   let commit = cd (ctx.root) { run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --commit }?.trim()
   let tree = cd (ctx.root) { run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --tree }?.trim()
@@ -1197,19 +1213,22 @@ proc run_focused_json_n(ctx: context.Context, profile: tests.TestProfile, source
   let config_path = fp"{scratch_path}/config.json"
   let fixtures = fp"{scratch_path}/fixtures"
   fixtures.mkdir()?
-  let fixture_command = stages.command(f"{focused_json_case_id}-fixtures", ctx.target.triple, "python3", [
-    "python3", "-B", fp"{ctx.root}/bench/consolidation/fixtures.py".display(), fp"{fixtures}/2048".display(),
-  ], ctx.root, {})
+  let fixture_args = if case_name == "json-n" {
+    ["python3", "-B", fp"{ctx.root}/bench/consolidation/fixtures.py".display(), fp"{fixtures}/2048".display()]
+  } else {
+    ["python3", "-B", "-m", "dev.performance.core_cases", "--fixtures", fixtures.display(), "--case", case_name]
+  }
+  let fixture_command = stages.command(f"{case_id}-fixtures", ctx.target.triple, "python3", fixture_args, ctx.root, {})
   match gate_execution.execute(fixture_command, 30000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: focused_json_case_id, raw_status: raw)) when raw == 130
-      return Err(ExecutionError.Incomplete(case_id: focused_json_case_id, raw_status: raw)) when raw == 2
-      return Err(ExecutionError.Failed(case_id: focused_json_case_id, raw_status: raw)) when raw != 0
+      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
+      return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
     }
-    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: focused_json_case_id, cause: cause)) }
-    gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: focused_json_case_id, cause: cause)) }
-    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: focused_json_case_id, cause: cause)) }
+    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
+    gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
+    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
   }
   let config = {
     schema: 1,
@@ -1223,21 +1242,21 @@ proc run_focused_json_n(ctx: context.Context, profile: tests.TestProfile, source
     gate_binding: {source_digest: source, product_digest: product.digest, product_mode: product.mode},
   }
   config_path.write(json.encode(config)?)?
-  let command = stages.command(focused_json_case_id, ctx.target.triple, "python3", [
-    "python3", "-B", "-m", "dev.performance.focused", "--config", config_path.display(), "--case", "json-n",
+  let command = stages.command(case_id, ctx.target.triple, "python3", [
+    "python3", "-B", "-m", "dev.performance.focused", "--config", config_path.display(), "--case", case_name,
   ], ctx.root, {})
   match gate_execution.execute(command, 330000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: focused_json_case_id, raw_status: raw)) when raw == 130
-      return Err(ExecutionError.Incomplete(case_id: focused_json_case_id, raw_status: raw)) when raw == 2
-      return Err(ExecutionError.Failed(case_id: focused_json_case_id, raw_status: raw)) when raw != 0
+      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
+      return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
       let report = try {
         let decoded = json.decode(output.read_text()?)?
         let record = decoded.require(Record)?
         let binding = record.get("gate_binding")?.require(Record)?
         let product_record = record.get("product")?.require(Record)?
-        record.get("case")?.require(Str)? == "json-n"
+        record.get("case")?.require(Str)? == case_name
           and record.get("correctness_complete")?.require(Bool)?
           and record.get("cleanup_complete")?.require(Bool)?
           and ! record.get("full_cohort_run")?.require(Bool)?
@@ -1254,14 +1273,14 @@ proc run_focused_json_n(ctx: context.Context, profile: tests.TestProfile, source
       }
       match report {
         Ok(true) => {}
-        Ok(false) => { return Err(ExecutionError.ResultsUnavailable(case_id: focused_json_case_id,
-          detail: "focused report did not qualify the json-n correctness scope")) }
-        Err(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: focused_json_case_id,
+        Ok(false) => { return Err(ExecutionError.ResultsUnavailable(case_id: case_id,
+          detail: f"focused report did not qualify {case_name} correctness")) }
+        Err(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: case_id,
           detail: cause.message)) }
       }
-      require_source(ctx, source, focused_json_case_id, 30000000000)?
-      let current = bind_product(ctx, xsh.display(), "xsh", focused_json_case_id, 30000000000)?
-      return Err(ExecutionError.ProductChanged(case_id: focused_json_case_id, product: "xsh")) when current != product
+      require_source(ctx, source, case_id, 30000000000)?
+      let current = bind_product(ctx, xsh.display(), "xsh", case_id, 30000000000)?
+      return Err(ExecutionError.ProductChanged(case_id: case_id, product: "xsh")) when current != product
       let resource_report = try {
         let decoded = json.decode(output.read_text()?)?
         let record = decoded.require(Record)?
@@ -1271,16 +1290,16 @@ proc run_focused_json_n(ctx: context.Context, profile: tests.TestProfile, source
         Ok(value) => value
         Err(_) => "unavailable"
       }
-      print "Selected scope: json-n correctness passed"
+      print f"Selected scope: {case_name} correctness passed"
       print "Product source binding: gate-prepared product bound to selected source"
       print f"Resource diagnostics (diagnostic only): {resource_text}"
       print "Performance: not measured"
       print "Full cohort: not run"
       return
     }
-    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: focused_json_case_id, cause: cause)) }
-    gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: focused_json_case_id, cause: cause)) }
-    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: focused_json_case_id, cause: cause)) }
+    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
+    gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
+    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
   }
 }
 
@@ -1440,18 +1459,20 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     return Err(ExecutionError.Incomplete(case_id: "container", raw_status: 2)) when regular_incomplete
     return
   }
-  if focused_json_case_id in ids {
-    return Err(PlanError.Invalid(detail: f"{focused_json_case_id} must run alone")) when ! paths.is_empty() or ids.len() != 1
-    return Err(ExecutionError.Incomplete(case_id: focused_json_case_id, raw_status: 0)) when ctx.target.os != "linux"
-    let image = gate_image(ctx, focused_json_case_id)?
-    let preparation = ["--source-digest", source ?? "", "--tier", tier_name(tier), "--case", focused_json_case_id]
+  if focused_json_case_id in ids or focused_core_wc_case_id in ids {
+    let focused_case_id = if focused_json_case_id in ids { focused_json_case_id } else { focused_core_wc_case_id }
+    let focused_case_name = if focused_case_id == focused_json_case_id { "json-n" } else { "core-wc-small" }
+    return Err(PlanError.Invalid(detail: f"{focused_case_id} must run alone")) when ! paths.is_empty() or ids.len() != 1
+    return Err(ExecutionError.Incomplete(case_id: focused_case_id, raw_status: 0)) when ctx.target.os != "linux"
+    let image = gate_image(ctx, focused_case_id)?
+    let preparation = ["--source-digest", source ?? "", "--tier", tier_name(tier), "--case", focused_case_id]
     env XSH_TEST_IMAGE=$image XSH_TEST_IMAGE_BUILD="0" {
       container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
     }
-    require_source(ctx, source ?? "", focused_json_case_id, 30000000000)?
+    require_source(ctx, source ?? "", focused_case_id, 30000000000)?
     let xsh = tests.product_path(ctx, profile, tests.Xsh)
-    let product = bind_product(ctx, xsh.display(), "xsh", focused_json_case_id, 30000000000)?
-    return run_focused_json_n(ctx, profile, source ?? "", product, image)
+    let product = bind_product(ctx, xsh.display(), "xsh", focused_case_id, 30000000000)?
+    return run_focused_workload(ctx, profile, source ?? "", product, image, focused_case_id, focused_case_name)
   }
   if tokei_scenario_case_id in ids {
     return Err(PlanError.Invalid(detail: f"{tokei_scenario_case_id} must run alone")) when ! paths.is_empty() or ids.len() != 1
