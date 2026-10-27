@@ -263,8 +263,8 @@ the grant without weakening deliverables, acceptance or permission boundaries.
 Use `.work/wt/pyramid-<lane>` and each checkout's `.work/tmp`; first confirm
 `.work/` is ignored through `.git/info/exclude`. State that must survive the
 session belongs in this document or the maintained test catalogue. Add no
-second campaign tracker. Commit only under a later execution grant, using
-Conventional Commits. Never push. Do not change CI, formatters, Rust nightly,
+second campaign tracker. Commit checked, coherent changes using Conventional
+Commits. Never push. Do not change CI, formatters, Rust nightly,
 package epochs, normal stores, or live installed systems.
 
 Preserve the 12 GiB host reserve. Admit launches with `perf-gate-ready -s`:
