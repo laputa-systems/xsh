@@ -1,6 +1,6 @@
 # Scoped verification across XSH and Laputa
 
-Status: resumed on master. The first slice is integrated; P0 and campaign
+Status: winding down on master. The first slice is integrated; P0 and campaign
 acceptance are open. The owner directs Pyramid before inference and Lean; this
 order replaces the earlier post-inference plan. Qualify Pyramid on
 current source and rerun affected checks when inference changes their inputs.
