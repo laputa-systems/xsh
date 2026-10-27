@@ -339,6 +339,20 @@ class HarnessTests(unittest.TestCase):
             if pid_path.exists():
                 os.kill(int(pid_path.read_text()), signal.SIGKILL)
 
+    def test_unresolved_cleanup_retains_observed_child_failure(self):
+        work = self.root / 'work'
+        work.mkdir()
+        pid_path = self.root / 'escaped.pid'
+        child = "import os,pathlib,signal,sys; os.setsid(); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); signal.pause()"
+        parent = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]); time.sleep(.2); sys.exit(1)"
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'cleanup unresolved') as failure:
+                invoke([sys.executable, '-c', parent, child, str(pid_path)], work, {}, 0.5)
+            self.assertEqual(failure.exception.child_status, 1)
+        finally:
+            if pid_path.exists():
+                os.kill(int(pid_path.read_text()), signal.SIGKILL)
+
     def test_overlay_does_not_build_if_base_alias_resolves_to_another_image(self):
         source = self.root / "suite"
         source.mkdir()

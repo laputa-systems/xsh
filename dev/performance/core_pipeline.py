@@ -19,6 +19,8 @@ class WorkloadFailure(ValueError):
 
 def _report_cancellation(error):
     print('pipeline correctness cancelled')
+    if isinstance(error, run.ProcessCleanupUnresolved):
+        print(f'Detail: {error}')
     for note in getattr(error, '__notes__', ()):
         print(f'Detail: {note}')
 
@@ -88,6 +90,17 @@ def _main():
     except WorkloadFailure as error:
         print(f'pipeline correctness failed: {error}')
         return 1
+    except run.ProcessCleanupUnresolved as error:
+        if error.child_status == 130:
+            _report_cancellation(error)
+            return 130
+        if (type(error.child_status) is int and
+                (error.child_status > 0 and error.child_status != 2
+                 or error.child_status < 0 and error.child_status != -signal.SIGKILL)):
+            print(f'pipeline correctness failed: {error}')
+            return 1
+        print(f'pipeline correctness incomplete: {error}')
+        return 2
     except (check.owned.SignalReceived, KeyboardInterrupt) as error:
         _report_cancellation(error)
         return 130

@@ -108,6 +108,20 @@ class CoreCasesTests(unittest.TestCase):
                     patch.object(core_pipeline, 'check_pipeline', side_effect=cancellation), redirect_stdout(io.StringIO()):
                 self.assertEqual(core_pipeline.main(), 130)
 
+    def test_pipeline_controller_preserves_child_status_when_cleanup_is_unresolved(self):
+        class LeaseBusy(Exception):
+            pass
+        lease = SimpleNamespace(campaign_leases=lambda *args, **kwargs: nullcontext(), LeaseBusy=LeaseBusy)
+        argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
+        for raw, expected in ((1, 1), (2, 2), (130, 130), (-9, 2), (-11, 1), (-15, 1), (None, 2)):
+            error = core_pipeline.run.ProcessCleanupUnresolved('cleanup unresolved', raw)
+            output = io.StringIO()
+            with self.subTest(raw=raw), patch.object(core_pipeline.sys, 'argv', argv), \
+                    patch.object(core_pipeline.check, 'baseline_owner', return_value=lease), \
+                    patch.object(core_pipeline, 'check_pipeline', side_effect=error), redirect_stdout(output):
+                self.assertEqual(core_pipeline.main(), expected)
+            self.assertIn('cleanup unresolved', output.getvalue())
+
     def test_pipeline_controller_defers_signal_during_handler_installation(self):
         install = core_pipeline.check.owned.install_signal_handlers
         def install_then_signal():

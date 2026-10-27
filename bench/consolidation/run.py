@@ -25,6 +25,12 @@ BINARIES = {"dash": "/opt/comparators/bin/dash", "bash": "/bin/bash", "nushell":
 MEMORY_LIMIT_BYTES = 4 * 1024**3
 
 
+class ProcessCleanupUnresolved(RuntimeError):
+    def __init__(self, message, child_status):
+        super().__init__(message)
+        self.child_status = child_status
+
+
 def argv_for(tool, workload, fixtures, xsh):
     folder, extension = {"xsh": ("xsh", "xsh"), "dash": ("posix", "sh"), "bash": ("posix", "sh"), "nushell": ("nushell", "nu"), "ysh": ("ysh", "ysh"), "elvish": ("elvish", "elv"), "python": ("python", "py")}[tool]
     options = {"bash": ["--noprofile", "--norc"], "nushell": ["--no-config-file"], "elvish": ["-norc"], "python": ["-I"]}.get(tool, [])
@@ -224,7 +230,10 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         if primary is not None:
             primary.add_note(f"process-group cleanup unresolved: {cleanup}")
         else:
-            primary = RuntimeError(f"process-group cleanup unresolved for {process.pid}; status={process.returncode}; stdout={bytes(stdout)!r}; stderr={bytes(stderr)!r}")
+            primary = ProcessCleanupUnresolved(
+                f"process-group cleanup unresolved for {process.pid}; status={process.returncode}; stdout={bytes(stdout)!r}; stderr={bytes(stderr)!r}",
+                process.returncode,
+            )
             primary.__cause__ = cleanup
     finally:
         process.stdout.close()

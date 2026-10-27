@@ -182,6 +182,7 @@ The explicit `performance/core-sort-small/correctness`,
 entries, and record aggregation against exact outputs. They do not measure performance.
 The explicit `performance/core-pipeline-small/correctness` scenario checks two
 pipeline outputs and their four completed helpers through XSHT's syscall trace.
+An observed child failure retains status 1 if process cleanup is unresolved.
 It does not measure performance.
 Focused execution requires Python 3.11 or newer for source inspection and result
 reconciliation.
