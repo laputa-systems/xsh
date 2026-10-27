@@ -397,6 +397,7 @@ test test_uu_cat_write_fast_fallthrough_uses_flush { |ctx|
   uu.stdout_only_bytes(r, bytes.concat([cmdline, uu.read(s, "alpha.txt")?]))
 }
 
+# origin: uutils test_cat::test_write_fast_read_error
 test test_uu_cat_write_fast_read_error { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "foo", "content")

@@ -489,6 +489,7 @@ proc permission_cases(s: uu.Scene, mask: Int, command: Str) [fs, process, env, e
   }
 }
 
+# origin: gnu cp/perm.log
 test test_gnu_cp_perm_mv_031_log { |ctx|
   permission_cases(uu.scene(ctx)?, 0o031, "mv")
 }
