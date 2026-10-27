@@ -65,6 +65,20 @@ class ResultTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 list(results.trace_records(path))
 
+    def test_trace_stream_rejects_changed_or_replaced_file(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
+            path = Path(directory) / 'trace.jsonl'
+            for replace in (False, True):
+                with self.subTest(replace=replace):
+                    path.write_text('{"event":1}\n{"event":2}\n')
+                    records = results.trace_records(path)
+                    self.assertEqual(next(records), {'event': 1})
+                    if replace:
+                        path.rename(Path(directory) / 'old')
+                    path.write_text('{"event":3}\n{"event":4}\n')
+                    with self.assertRaisesRegex(results.ResultError, 'trace file changed'):
+                        list(records)
+
     def test_cargo_diagnostics_reject_nonregular_input_without_blocking(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
             fifo = Path(directory) / 'cargo.fifo'
