@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 import signal
 
-from dev.performance import core_cases, core_pipeline, focused
+from dev.performance import core_cases, core_pipeline, focused, owned_case
 
 
 class CoreCasesTests(unittest.TestCase):
@@ -116,24 +116,33 @@ class CoreCasesTests(unittest.TestCase):
                     'stderr_base64': base64.b64encode(b'trace unavailable').decode()}
         with patch.object(core_pipeline.run, 'invoke', side_effect=invoke):
             raw = 2
-            with self.assertRaisesRegex(ValueError, 'status=2.*trace unavailable'):
+            with self.assertRaisesRegex(core_pipeline.WorkloadFailure, 'status=2.*trace unavailable'):
                 core_pipeline.check_pipeline(xsht, self.fixtures, lease)
             raw = 1
             with self.assertRaisesRegex(core_pipeline.WorkloadFailure, 'status=1.*trace unavailable'):
                 core_pipeline.check_pipeline(xsht, self.fixtures, lease)
             raw = 130
-            with self.assertRaises(SystemExit) as cancelled:
+            with self.assertRaisesRegex(core_pipeline.WorkloadFailure, 'status=130'):
                 core_pipeline.check_pipeline(xsht, self.fixtures, lease)
-            self.assertEqual(cancelled.exception.code, 130)
+
+    def test_pipeline_treats_unfinished_timeout_as_incomplete(self):
+        xsht = self.fixtures / 'xsht'
+        xsht.write_text('fixture')
+        lease = SimpleNamespace(prepare_cleanup_unresolved=lambda _: None, resolve_cleanup_unresolved=lambda: None)
+        row = {'status': 0, 'timed_out': True, 'effects': {}, 'stdout_base64': '', 'stderr_base64': ''}
+        with patch.object(core_pipeline.run, 'invoke', return_value=row):
+            with self.assertRaises(ValueError) as error:
+                core_pipeline.check_pipeline(xsht, self.fixtures, lease)
+        self.assertIs(type(error.exception), ValueError)
 
     def test_pipeline_controller_reports_termination_as_cancellation(self):
         class LeaseBusy(Exception):
             pass
         lease = SimpleNamespace(campaign_leases=lambda *args, **kwargs: nullcontext(), LeaseBusy=LeaseBusy)
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
-        for cancellation in (SystemExit(143), core_pipeline.check.owned.SignalReceived(signal.SIGTERM)):
+        for cancellation in (SystemExit(143), owned_case.check.owned.SignalReceived(signal.SIGTERM)):
             with self.subTest(cancellation=cancellation), patch.object(core_pipeline.sys, 'argv', argv), \
-                    patch.object(core_pipeline.check, 'baseline_owner', return_value=lease), \
+                    patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
                     patch.object(core_pipeline, 'check_pipeline', side_effect=cancellation), redirect_stdout(io.StringIO()):
                 self.assertEqual(core_pipeline.main(), 130)
 
@@ -142,25 +151,25 @@ class CoreCasesTests(unittest.TestCase):
             pass
         lease = SimpleNamespace(campaign_leases=lambda *args, **kwargs: nullcontext(), LeaseBusy=LeaseBusy)
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
-        for raw, expected in ((1, 1), (2, 2), (130, 130), (-9, 2), (-11, 1), (-15, 1), (None, 2)):
+        for raw, expected in ((1, 1), (2, 1), (130, 1), (-9, 2), (-11, 1), (-15, 1), (None, 2)):
             error = core_pipeline.run.ProcessCleanupUnresolved('cleanup unresolved', raw)
             output = io.StringIO()
             with self.subTest(raw=raw), patch.object(core_pipeline.sys, 'argv', argv), \
-                    patch.object(core_pipeline.check, 'baseline_owner', return_value=lease), \
+                    patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
                     patch.object(core_pipeline, 'check_pipeline', side_effect=error), redirect_stdout(output):
                 self.assertEqual(core_pipeline.main(), expected)
             self.assertIn('cleanup unresolved', output.getvalue())
 
     def test_pipeline_controller_defers_signal_during_handler_installation(self):
-        install = core_pipeline.check.owned.install_signal_handlers
+        install = owned_case.check.owned.install_signal_handlers
         def install_then_signal():
             previous = install()
             os.kill(os.getpid(), signal.SIGTERM)
             return previous
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
         with patch.object(core_pipeline.sys, 'argv', argv), \
-                patch.object(core_pipeline.check.owned, 'install_signal_handlers', side_effect=install_then_signal), \
-                patch.object(core_pipeline.check, 'baseline_owner', side_effect=AssertionError('lease should not be loaded')), \
+                patch.object(owned_case.check.owned, 'install_signal_handlers', side_effect=install_then_signal), \
+                patch.object(owned_case.check, 'baseline_owner', side_effect=AssertionError('lease should not be loaded')), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(core_pipeline.main(), 130)
 
@@ -180,9 +189,9 @@ class CoreCasesTests(unittest.TestCase):
         argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
         try:
             with patch.object(core_pipeline.sys, 'argv', argv), \
-                    patch.object(core_pipeline.check, 'baseline_owner', return_value=lease), \
+                    patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
                     patch.object(core_pipeline, 'check_pipeline', return_value=4), \
-                    patch.object(core_pipeline.signal, 'pthread_sigmask', side_effect=mask), redirect_stdout(io.StringIO()):
+                    patch.object(owned_case.signal, 'pthread_sigmask', side_effect=mask), redirect_stdout(io.StringIO()):
                 self.assertEqual(core_pipeline.main(), 130)
                 self.assertEqual({number: signal.getsignal(number) for number in previous}, previous)
         finally:

@@ -172,6 +172,10 @@ Changes to effect-inference checking select capability-contract tests at Edit
 tier and retain the checker gate at Change tier.
 Frontend statistics changes select a retained-column test at Edit tier and
 retain the frontend memory checks at Change tier.
+The explicit `performance/frontend-edit/correctness` scenario checks annotated
+and reduced forms of two generated workloads, including runtime output, frontend
+evidence, and phase-report consistency. It does not qualify disposal execution,
+scaling, or performance.
 Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
 Changes to inference workload generators and measurement tooling select their
@@ -188,7 +192,9 @@ exact outputs. They do not measure performance.
 The `performance/core-pipeline-{small,medium,large}/correctness` scenarios
 check two, eight, and 32 pipeline outputs and their completed helpers through
 XSHT's syscall trace. An observed child failure retains status 1 if process
-cleanup is unresolved. They do not measure performance.
+cleanup is unresolved. A completed child with a nonzero exit is a failure; an
+unfinished timeout is incomplete and controller cancellation returns 130.
+They do not measure performance.
 Focused execution requires Python 3.11 or newer for source inspection and result
 reconciliation.
 

@@ -49,6 +49,11 @@ Rust test pass in the replacement Linux image.
 The frontend-retention Edit case selects the retained-column stability test;
 its ownership control and prepared local Rust harness pass, as does the Linux
 gate. Wider disposal measurements remain open.
+The explicit frontend Edit scenario validates runtime output and frontend
+evidence for annotated and reduced forms of two generated workloads. Its
+source-bound Linux run passes. Disposal execution, scaling, and performance
+remain unqualified. The shared process controller distinguishes observed
+nonzero child exits from controller cancellation and incomplete timeouts.
 Inference workload generator and measurement changes now select their Python
 contract tests instead of generic native developer tests. The selection control
 and all 30 contract tests pass on the host and in the qualified Linux image.

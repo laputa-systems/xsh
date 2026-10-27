@@ -1944,6 +1944,21 @@ test test_frozen_witness_tool_changes_select_their_contract_tests {
   }
 }
 
+test test_frontend_scenario_and_owner_are_explicit {
+  let context = fixtures.linux_context(/repo)?
+  let id = "performance/frontend-edit/correctness"
+  let scenario = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
+  assert [entry.id for entry in scenario.cases] == [id]
+  assert scenario.products == [tests.Xsh, tests.Xsht]
+  assert scenario.cases[0].tier == gates.Scenario
+  for changed_path in ["dev/performance/frontend_cases.py", "dev/performance/frontend_scenario.py", "dev/performance/test_frontend_cases.py"] {
+    let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert [entry.id for entry in selected.cases] == ["verification/inference-workloads"]
+  }
+  let shared = gates.plan_paths(context, tests.Verification, ["dev/performance/owned_case.py"], [], gates.Change)?
+  assert [entry.id for entry in shared.cases] == ["verification/core-workloads", "verification/inference-workloads"]
+}
+
 test test_inference_workload_changes_select_their_python_contracts {
   let context = fixtures.linux_context(/repo)?
   for changed_path in ["dev/performance/inference_measurement.py", "dev/performance/test_inference_measurement.py", "dev/performance/inference_workloads.py", "dev/performance/test_inference_workloads.py"] {

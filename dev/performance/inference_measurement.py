@@ -113,8 +113,7 @@ def check_diagnostics(stderr):
     return b''.join(lines[:-1])
 
 
-def validate_observation(row, expected_stdout, *, expected_status=0, expected_depth_rejection=False,
-                         require_useful=False, stage=None):
+def validate_output(row, expected_stdout, *, expected_status=0, expected_depth_rejection=False, stage=None):
     status = row.get('status')
     if row.get('timed_out') is not False or type(status) is not int:
         raise ValueError('inference sample did not complete with an observed process status')
@@ -127,22 +126,21 @@ def validate_observation(row, expected_stdout, *, expected_status=0, expected_de
             raise ValueError('512-level deep-record control did not reach the semantic type-depth rejection')
     elif status != expected_status or stdout != expected_stdout or diagnostics or row.get('effects') != {}:
         raise ValueError(f'inference output/status/effects mismatch: status={status} stdout={stdout!r} stderr={stderr!r} effects={row.get("effects")!r}')
+    return {'status': status, 'stdout_bytes': len(stdout), 'stdout_sha256': hashlib.sha256(stdout).hexdigest(),
+            'stderr_bytes': len(stderr), 'stderr_sha256': hashlib.sha256(stderr).hexdigest(), 'effects': row['effects']}
+
+
+def validate_observation(row, expected_stdout, *, expected_status=0, expected_depth_rejection=False,
+                         require_useful=False, stage=None):
+    output = validate_output(row, expected_stdout, expected_status=expected_status,
+                             expected_depth_rejection=expected_depth_rejection, stage=stage)
     for metric in MEASURES:
         if type(row.get(metric)) is not int or row[metric] < 0:
             raise ValueError(f'inference sample lacks valid {metric}')
     useful_time = row.get('first_useful_stdout_ns')
     if require_useful and (row.get('useful_stdout_observed') is not True or type(useful_time) is not int or useful_time < 0):
         raise ValueError('runtime sample lacks first useful output timing')
-    return {
-        **{name: row[name] for name in MEASURES},
-        'status': status,
-        'stdout_bytes': len(stdout),
-        'stdout_sha256': hashlib.sha256(stdout).hexdigest(),
-        'stderr_bytes': len(stderr),
-        'stderr_sha256': hashlib.sha256(stderr).hexdigest(),
-        'effects': row['effects'],
-        'first_useful_stdout_ns': useful_time,
-    }
+    return {**output, **{name: row[name] for name in MEASURES}, 'first_useful_stdout_ns': useful_time}
 
 
 def percentile(values, percent):

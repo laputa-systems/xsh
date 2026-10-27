@@ -634,6 +634,7 @@ const resource_diagnostics_case_id = "verification/resource-diagnostics"
 const laputa_adapter_case_id = "verification/laputa-adapter"
 const native_leases_case_id = "verification/native-leases"
 const focused_json_case_id = "performance/json-n/correctness"
+const frontend_scenario_case_id = "performance/frontend-edit/correctness"
 const core_pipeline_cases = [
   {id: "performance/core-pipeline-small/correctness", shape: "small"},
   {id: "performance/core-pipeline-medium/correctness", shape: "medium"},
@@ -776,7 +777,7 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
     reasons: ["inference workload generation and measurement contracts"],
     execution: RunCommand(stages.command("verification/inference-workloads", ctx.target.triple, "python3",
-      ["python3", "-B", "-m", "unittest", "dev.performance.test_inference_workloads", "dev.performance.test_inference_measurement"], ctx.root,
+      ["python3", "-B", "-m", "unittest", "dev.performance.test_inference_workloads", "dev.performance.test_inference_measurement", "dev.performance.test_frontend_cases"], ctx.root,
       {TMPDIR: fp"{ctx.root}/.work/tmp", PYTHONPATH: fp"{ctx.root}/dev/performance"})))]
   entries += [CatalogCase(id: "verification/core-workloads", tier: Change,
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
@@ -862,6 +863,14 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
       reasons: [f"{item.name} correctness; product and source bound to gate preparation; performance not measured"],
       execution: Alias)]
   }
+  entries += [CatalogCase(id: frontend_scenario_case_id, tier: Scenario,
+    limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    reasons: ["annotated and reduced frontend evidence and runtime output; scaling and disposal execution unqualified"],
+    execution: RunCommand(stages.command(frontend_scenario_case_id, ctx.target.triple, "python3",
+      ["python3", "-B", "-m", "dev.performance.frontend_scenario", "--xsh",
+        tests.product_path(ctx, profile, tests.Xsh).display(), "--xsht",
+        tests.product_path(ctx, profile, tests.Xsht).display(), "--scratch", fp"{ctx.root}/.work/tmp".display()], ctx.root,
+      {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
   for item in core_pipeline_cases {
     entries += [CatalogCase(id: item.id, tier: Scenario,
       limit: RuntimeSeconds(120), products: [tests.Xsht], prerequisite_ids: [],
@@ -997,6 +1006,15 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
     if changed_path.starts_with("dev/performance/corpus/") {
       unresolved += [f"inference corpus verification requires explicit external inputs: {changed_path}"]
+      continue
+    }
+    if changed_path == "dev/performance/owned_case.py" {
+      selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
+      selected_ids += ["verification/inference-workloads"] when "verification/inference-workloads" not in selected_ids
+      continue
+    }
+    if changed_path in ["dev/performance/frontend_cases.py", "dev/performance/frontend_scenario.py", "dev/performance/test_frontend_cases.py"] {
+      selected_ids += ["verification/inference-workloads"] when "verification/inference-workloads" not in selected_ids
       continue
     }
     if changed_path in ["dev/performance/inference_workloads.py", "dev/performance/test_inference_workloads.py", "dev/performance/inference_measurement.py", "dev/performance/test_inference_measurement.py"] {
@@ -2046,8 +2064,8 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
         gate_execution.Finished(status) => {
           let raw = status.shell_code()?
           return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when raw == 130
-          return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when entry.id in [item.id for item in core_pipeline_cases] and raw == 143
-          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when entry.id in [item.id for item in core_pipeline_cases] and raw == 2
+          return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when (entry.id in [item.id for item in core_pipeline_cases] or entry.id == frontend_scenario_case_id) and raw == 143
+          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when (entry.id in [item.id for item in core_pipeline_cases] or entry.id == frontend_scenario_case_id) and raw == 2
           let failed_child = raw != 0 and (raw != 2 or result_runner == "cargo")
           if ! selected_ids.is_empty() {
             let arguments = ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(),
