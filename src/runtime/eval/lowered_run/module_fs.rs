@@ -51,7 +51,19 @@ impl Evaluator {
             {
                 Some(index) if index < self.fs_capabilities.len() => {
                     match self.take_fs_capability(index) {
-                        Some(super::super::FsCapability::Root(_)) => lowered_result_ok(LoweredValue::Unit),
+                        Some(super::super::FsCapability::Root(handle)) => match *handle {
+                            super::super::FsRootHandle::Dir(_) => lowered_result_ok(LoweredValue::Unit),
+                            super::super::FsRootHandle::TempDir(temp) => match temp.remove() {
+                                Ok(()) => lowered_result_ok(LoweredValue::Unit),
+                                Err(error) => lowered_result_err_value(
+                                    RuntimeError::new(
+                                        "fs-root",
+                                        format!("could not remove temporary root: {error}"),
+                                    )
+                                    .with_span(span),
+                                ),
+                            },
+                        },
                         None if closed_ok => lowered_result_ok(LoweredValue::Unit),
                         None => lowered_result_err_value(
                             RuntimeError::new("fs-root", "root handle is not active").with_span(span),

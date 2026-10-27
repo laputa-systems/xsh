@@ -3499,16 +3499,14 @@ enum OwnedHostResource { Process(u64), Net(u64), Capability(usize) }
 
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(Root),
-    TempDir {
-        root: Root,
-        _temp: tempfile::TempDir,
-    },
+    TempDir(crate::modules::fs::TempRoot),
 }
 
 impl FsRootHandle {
     pub(in crate::runtime::eval) fn root(&self) -> &Root {
         match self {
-            Self::Dir(root) | Self::TempDir { root, .. } => root,
+            Self::Dir(root) => root,
+            Self::TempDir(temp) => temp.root(),
         }
     }
 }
@@ -9201,12 +9199,8 @@ mod capture_transfer_tests {
         let root_scope = evaluator.current_scope_id();
         let child_scope = evaluator.enter_owned_host_scope();
         let temp_root = tempfile::tempdir().unwrap();
-        let root = Root::open(temp_root.path()).unwrap();
         let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
-            FsRootHandle::TempDir {
-                root,
-                _temp: temp_root,
-            },
+            FsRootHandle::TempDir(crate::modules::fs::TempRoot::adopt(temp_root).unwrap()),
         )));
         let root_value = Value::FsRoot(FsRootValue {
             id: root_id,
@@ -9305,9 +9299,8 @@ mod capture_transfer_tests {
     fn inactive_stream_owner_does_not_hide_local_prefix_resources() {
         fn temp_root_value(evaluator: &mut Evaluator) -> (usize, Value) {
             let temp = tempfile::tempdir().unwrap();
-            let root = Root::open(temp.path()).unwrap();
             let id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
-                FsRootHandle::TempDir { root, _temp: temp },
+                FsRootHandle::TempDir(crate::modules::fs::TempRoot::adopt(temp).unwrap()),
             )));
             let value = Value::FsRoot(FsRootValue {
                 id,
@@ -9387,12 +9380,8 @@ mod capture_transfer_tests {
         let root_scope = evaluator.current_scope_id();
         let child_scope = evaluator.enter_owned_host_scope();
         let temp = tempfile::tempdir().unwrap();
-        let root = Root::open(temp.path()).unwrap();
         let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
-            FsRootHandle::TempDir {
-                root,
-                _temp: temp,
-            },
+            FsRootHandle::TempDir(crate::modules::fs::TempRoot::adopt(temp).unwrap()),
         )));
         let retained_root = Value::FsRoot(FsRootValue {
             id: root_id,
@@ -9438,9 +9427,8 @@ mod capture_transfer_tests {
         let root_scope = evaluator.current_scope_id();
         let child_scope = evaluator.enter_owned_host_scope();
         let temp = tempfile::tempdir().unwrap();
-        let root = Root::open(temp.path()).unwrap();
         let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
-            FsRootHandle::TempDir { root, _temp: temp },
+            FsRootHandle::TempDir(crate::modules::fs::TempRoot::adopt(temp).unwrap()),
         )));
         let root_value = Value::FsRoot(FsRootValue {
             id: root_id,

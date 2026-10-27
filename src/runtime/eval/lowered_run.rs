@@ -3476,9 +3476,9 @@ fn fs_root_from_temp_dir(
     operation: &'static str,
     span: Span,
 ) -> Result<FsRootHandle, RuntimeError> {
-    let root = Root::open(temp.path())
-        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
-    Ok(FsRootHandle::TempDir { root, _temp: temp })
+    crate::modules::fs::TempRoot::adopt(temp)
+        .map(FsRootHandle::TempDir)
+        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))
 }
 
 fn lowered_count_key(value: &LoweredValue, span: Span) -> Result<String, RuntimeError> {

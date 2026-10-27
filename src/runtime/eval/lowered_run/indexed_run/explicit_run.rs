@@ -797,21 +797,17 @@ proc parent() {
             let root_scope = evaluator.current_scope_id();
             let child_scope = evaluator.enter_owned_host_scope();
             let temp = tempfile::tempdir().unwrap();
-            let root = xsh_root::Root::open(temp.path()).unwrap();
             let root_id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(
-                Box::new(super::super::super::FsRootHandle::TempDir {
-                    root,
-                    _temp: temp,
-                }),
+                Box::new(super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(temp).unwrap(),
+                    )),
             ));
             let apply_temp = tempfile::tempdir().unwrap();
-            let apply_root = xsh_root::Root::open(apply_temp.path()).unwrap();
             let apply_root_id =
                 evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(Box::new(
-                    super::super::super::FsRootHandle::TempDir {
-                        root: apply_root,
-                        _temp: apply_temp,
-                    },
+                    super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(apply_temp).unwrap(),
+                    ),
                 )));
             let mut sources = SourceMap::new();
             let source_id = sources.add_file("retained-frame.xsh", "");
@@ -906,23 +902,19 @@ proc parent() {
             let root_scope = evaluator.current_scope_id();
             let child_scope = evaluator.enter_owned_host_scope();
             let stage_temp = tempfile::tempdir().unwrap();
-            let stage_root = xsh_root::Root::open(stage_temp.path()).unwrap();
             let stage_root_id = evaluator.push_fs_capability(
                 crate::runtime::eval::FsCapability::Root(Box::new(
-                    super::super::super::FsRootHandle::TempDir {
-                        root: stage_root,
-                        _temp: stage_temp,
-                    },
+                    super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(stage_temp).unwrap(),
+                    ),
                 )),
             );
             let continuation_temp = tempfile::tempdir().unwrap();
-            let continuation_root = xsh_root::Root::open(continuation_temp.path()).unwrap();
             let continuation_root_id = evaluator.push_fs_capability(
                 crate::runtime::eval::FsCapability::Root(Box::new(
-                    super::super::super::FsRootHandle::TempDir {
-                        root: continuation_root,
-                        _temp: continuation_temp,
-                    },
+                    super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(continuation_temp).unwrap(),
+                    ),
                 )),
             );
             let stage_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {

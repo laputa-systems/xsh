@@ -1889,24 +1889,39 @@ fn remove_path_with_policy_unnamed(
     result.map_err(|error| RuntimeError::host("fs-remove", &error).with_span(span))
 }
 
-/// Removes the directory tree at `path` without recursion and with a constant
+const OPEN_TREE_DIRECTORY: rfs::OFlags = rfs::OFlags::RDONLY
+    .union(rfs::OFlags::DIRECTORY)
+    .union(rfs::OFlags::NOFOLLOW)
+    .union(rfs::OFlags::CLOEXEC);
+
+fn remove_tree(path: &Path) -> std::io::Result<()> {
+    let root = std::fs::File::from(
+        rfs::openat(CWD, path, OPEN_TREE_DIRECTORY, rfs::Mode::empty())
+            .map_err(std::io::Error::from)?,
+    );
+    empty_directory_tree(root)?;
+    std::fs::remove_dir(path)
+}
+
+fn file_identity(stat: &rfs::Stat) -> (u64, u64) {
+    (stat.st_dev as u64, stat.st_ino as u64)
+}
+
+/// Empties the directory open as `root` without recursion and with a constant
 /// number of descriptors open, so neither the thread stack, RLIMIT_NOFILE, nor
 /// PATH_MAX bounds the depth (a standard recursive removal holds one
 /// descriptor per level). Each level is entered with `openat`, and an emptied
 /// directory is left by reopening `..` and requiring it to be the directory
 /// that was entered from, so a tree rearranged mid-walk fails instead of
 /// removing something outside it. The first error stops the walk.
-fn remove_tree(path: &Path) -> std::io::Result<()> {
+fn empty_directory_tree(root: std::fs::File) -> std::io::Result<()> {
     struct Level {
         name: OsString,
         identity: (u64, u64),
         subdirectories: Vec<OsString>,
     }
 
-    const OPEN_DIRECTORY: rfs::OFlags = rfs::OFlags::RDONLY
-        .union(rfs::OFlags::DIRECTORY)
-        .union(rfs::OFlags::NOFOLLOW)
-        .union(rfs::OFlags::CLOEXEC);
+    const OPEN_DIRECTORY: rfs::OFlags = OPEN_TREE_DIRECTORY;
 
     fn open_level(
         parent: &std::fs::File,
@@ -1917,7 +1932,7 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
                 .map_err(std::io::Error::from)?,
         );
         let stat = rfs::fstat(&directory).map_err(std::io::Error::from)?;
-        Ok((directory, (stat.st_dev as u64, stat.st_ino as u64)))
+        Ok((directory, file_identity(&stat)))
     }
 
     // Unlinks everything that is not a directory and returns the directories
@@ -1949,15 +1964,11 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
         Ok(subdirectories)
     }
 
-    let root = std::fs::File::from(
-        rfs::openat(CWD, path, OPEN_DIRECTORY, rfs::Mode::empty())
-            .map_err(std::io::Error::from)?,
-    );
     let stat = rfs::fstat(&root).map_err(std::io::Error::from)?;
     let mut current = root;
     let mut levels = vec![Level {
         name: OsString::new(),
-        identity: (stat.st_dev as u64, stat.st_ino as u64),
+        identity: file_identity(&stat),
         subdirectories: empty_files(&current)?,
     }];
     loop {
@@ -1974,8 +1985,7 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
         }
         let emptied = levels.pop().expect("a level was just inspected");
         let Some(parent_level) = levels.last() else {
-            drop(current);
-            return std::fs::remove_dir(path);
+            return Ok(());
         };
         let (parent, identity) = open_level(&current, std::ffi::OsStr::new(".."))?;
         if identity != parent_level.identity {
@@ -1987,6 +1997,80 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
         rfs::unlinkat(&parent, &emptied.name, AtFlags::REMOVEDIR)
             .map_err(std::io::Error::from)?;
         current = parent;
+    }
+}
+
+/// A temporary directory owned through the descriptor it was opened as.
+/// Removal empties that directory and unlinks its name only while the name
+/// still refers to it, so a tree later placed at the old path is never
+/// removed; a moved directory is left in place.
+pub(crate) struct TempRoot {
+    root: Root,
+    parent: std::fs::File,
+    name: OsString,
+    removed: bool,
+}
+
+impl TempRoot {
+    pub(crate) fn adopt(temp: tempfile::TempDir) -> std::io::Result<Self> {
+        let path = temp.keep();
+        let name = path
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("temporary directory has no name"))?
+            .to_owned();
+        let parent = path
+            .parent()
+            .ok_or_else(|| std::io::Error::other("temporary directory has no parent"))?;
+        let parent = std::fs::File::from(
+            rfs::openat(CWD, parent, OPEN_TREE_DIRECTORY, rfs::Mode::empty())
+                .map_err(std::io::Error::from)?,
+        );
+        let adopted = Self { root: Root::open(&path)?, parent, name, removed: false };
+        if !adopted.is_named()? {
+            return Err(std::io::Error::other(
+                "temporary directory changed while it was opened",
+            ));
+        }
+        Ok(adopted)
+    }
+
+    pub(crate) fn root(&self) -> &Root {
+        &self.root
+    }
+
+    pub(crate) fn remove(mut self) -> std::io::Result<()> {
+        self.removed = true;
+        self.remove_directory()
+    }
+
+    fn is_named(&self) -> std::io::Result<bool> {
+        let owned = file_identity(&rfs::fstat(&self.root).map_err(std::io::Error::from)?);
+        match rfs::statat(&self.parent, &self.name, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(named) => Ok(file_identity(&named) == owned),
+            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn remove_directory(&self) -> std::io::Result<()> {
+        if !self.is_named()? {
+            if rfs::fstat(&self.root).map_err(std::io::Error::from)?.st_nlink == 0 {
+                return Ok(());
+            }
+            return Err(std::io::Error::other(
+                "temporary root was moved or replaced; its directory was left in place",
+            ));
+        }
+        empty_directory_tree(self.root.open_readable_dir(".")?)?;
+        rfs::unlinkat(&self.parent, &self.name, AtFlags::REMOVEDIR).map_err(std::io::Error::from)
+    }
+}
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        if !self.removed {
+            let _ = self.remove_directory();
+        }
     }
 }
 
