@@ -84,6 +84,9 @@ RUN host_libdir="$(rustc --print target-libdir)" \
 RUN for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do \
         llvm-ar rc "$(rustc --print target-libdir --target "$target")/libutil.a"; \
     done
+# This rustc is built for musl, whose allocator puts most of a thin-LTO build in
+# the kernel; cargo dev preloads jemalloc into compiler steps when it exists.
+RUN apk add --no-cache jemalloc
 RUN apk add --no-cache python3 \
     && addgroup -g 1000 compat \
     && adduser -D -u 1000 -G compat -h /home/compat compat
