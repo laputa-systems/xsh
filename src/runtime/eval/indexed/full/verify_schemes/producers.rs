@@ -6591,10 +6591,15 @@ impl<'a> ProducerProof<'a> {
         let fact = self.store.checked_expr_types.binary_search_by_key(&(instruction as u32), |fact| fact.instruction).ok().map(|index| self.store.checked_expr_types[index]);
         if let Some(fact) = fact && !matches!(fact.purpose, super::super::FullCheckedExprPurpose::CapturedErrorContract(owner) if owner == super::super::ExecutableOwner::from_raw(decoder.owner)?) { return Ok(false); }
         self.budget.charge(body.len())?;
-        let completes = match decoder.checked_value_block_result(&mut body)? {
-            super::super::CheckedValueBlockResult::DoesNotComplete => false,
-            super::super::CheckedValueBlockResult::Tail(tail) => !self.always_propagates_constructed_error(decoder, tail)? && super::super::indexed_expr_can_complete(decoder, tail, 0)?,
-            super::super::CheckedValueBlockResult::Unit => true,
+        let block = body.block_identity();
+        let completes = if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? {
+            false
+        } else {
+            match decoder.checked_value_block_result(&mut body)? {
+                super::super::CheckedValueBlockResult::DoesNotComplete => false,
+                super::super::CheckedValueBlockResult::Tail(tail) => !self.always_propagates_constructed_error(decoder, tail)? && super::super::indexed_expr_can_complete(decoder, tail, 0)?,
+                super::super::CheckedValueBlockResult::Unit => true,
+            }
         };
         if completes { return Ok(false); }
         for delay in delays {
