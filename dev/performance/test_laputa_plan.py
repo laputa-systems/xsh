@@ -122,6 +122,7 @@ class LaputaPlanTests(TestCase):
                 'packages/linux/tests/main.xsh::test_kbuild_plan_cache_distinguishes_source_architectures',
                 'packages/linux/tests/main.xsh::test_kbuild_runs_archive_plan_output_from_json',
                 'tests/pm/pm_make.xsh::make_tasks_rebuild_for_subsecond_input_changes',
+                'tests/pm/linux_recipe.xsh::test_linux_discovery_pool_executes_worker_from_staged_recipe',
                 'packages/linux/tests/main.xsh::test_kbuild_writes_text_plan',
             ],
         )

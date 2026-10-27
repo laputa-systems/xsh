@@ -75,7 +75,7 @@ lease and retains its cleanup quarantine until container removal is verified.
 The `laputa/kbuild/discovery` scenario uses the same boundary for one synthetic
 Kbuild discovery test. Select only one Laputa scenario per request.
 The `laputa/kbuild/graph-cache` scenario checks synthetic graph equivalence,
-cache invalidation, and plan output.
+cache invalidation, plan output, and worker configuration binding.
 The `laputa/kbuild/make-semantics` scenario checks Make assignment, nested
 function expansion, and compile-flag regressions.
 The `laputa/pm.execute/reuse-count` scenario checks builds and reuse in an
