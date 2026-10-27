@@ -115,8 +115,9 @@ and failure outcomes. Other workload reports remain to be integrated.
 Native discovery and exact-set execution now exchange JSON files, preserving
 newlines and avoiding argument-size limits. The file reader rejects nonregular
 or oversized inputs. Five targeted Rust CLI tests and the focused Linux gate
-controls pass. The feature-disabled XSHT build remains unverified: its existing
-native-test symbol references fail to compile without that feature.
+controls pass. The feature-disabled XSHT library now compiles in Linux and
+returns its explicit unavailable-runner diagnostic; a focused regression and
+the default-feature library check pass in the replacement image.
 
 Laputa now exposes a pure `pm.make.plan_tasks` graph inventory that validates
 structure and cycles without executing tasks or inspecting files. Six focused

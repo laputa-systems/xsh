@@ -6,7 +6,9 @@ use crate::xsht::cli::{
 };
 use crate::xsht::commands::{self, ParsedArgs};
 use crate::xsht::help::{command_help as generated_command_help, root_help};
-use crate::xsht::test::{TestOptions, install_test_cancellation_signal_handlers, test_scripts};
+use crate::xsht::test::{TestOptions, test_scripts};
+#[cfg(feature = "native-tests")]
+use crate::xsht::test::install_test_cancellation_signal_handlers;
 use std::process::ExitCode;
 use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
 use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
@@ -46,6 +48,7 @@ pub fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    #[cfg(feature = "native-tests")]
     if args.first().is_some_and(|arg| arg == "test")
         && let Err(error) = install_test_cancellation_signal_handlers()
     {
@@ -90,6 +93,7 @@ pub fn main() -> ExitCode {
             files,
             dry_run,
         }) => finish_command(|| refactor_scripts(&pattern, &replacement, &files, dry_run)),
+        #[cfg(feature = "native-tests")]
         Ok(Command::TestFakeRun {
             options,
             linux,
@@ -164,6 +168,7 @@ enum Command {
     /// Harness-internal: runs a script under the `linux` and `unix` test
     /// fakes for `test.run_script`/`test.run_xsh` after the test called
     /// `test.linux_fake` or `test.unix_fake`. Not listed in help.
+    #[cfg(feature = "native-tests")]
     TestFakeRun {
         options: xsh::execution::script::RunOptions,
         linux: Option<xsh::execution::evaluator::LinuxFake>,
@@ -192,17 +197,20 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "test" => parse_test(&args[1..]),
         "grep" => parse_grep(&args[1..]),
         "refactor" => parse_refactor(&args[1..]),
+        #[cfg(feature = "native-tests")]
         TEST_FAKE_RUN => parse_test_fake_run(&args[1..]),
         "run" => Err("xsht has no `run`; use xsh SCRIPT instead".to_string()),
         other => Err(format!("unknown command '{other}'")),
     }
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) const TEST_FAKE_RUN: &str = "__test-fake-run";
 
 /// `__test-fake-run [--fake MODULE | --fake MODULE.KEY=VALUE]... SCRIPT -- [ARGS...]`
 ///
 /// `--fake MODULE` installs that module's fake; a setting installs it too.
+#[cfg(feature = "native-tests")]
 fn parse_test_fake_run(args: &[String]) -> Result<Command, String> {
     let usage = || {
         format!("usage: xsht {TEST_FAKE_RUN} [--fake MODULE[.KEY=VALUE]]... SCRIPT -- [ARGS...]")
@@ -760,6 +768,18 @@ fn finish(output: CliOutput) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "native-tests"))]
+    #[test]
+    fn test_command_reports_the_disabled_native_runner() {
+        let Command::Test { options } = parse_tool(vec!["test".to_string()]).expect("parse test command") else {
+            panic!("test parser returned the wrong command");
+        };
+        let output = test_scripts(options);
+        assert_eq!(output.status, 2);
+        assert_eq!(output.stderr, b"xsht test requires a build with the native-tests feature\n");
+        assert!(parse_tool(vec!["__test-fake-run".to_string()]).is_err());
+    }
 
     #[test]
     fn every_declared_command_is_dispatched_to_its_own_parser() {
