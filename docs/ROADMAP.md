@@ -2,15 +2,17 @@
 
 Work proceeds in this order:
 
-1. **Pyramid:** complete scoped verification, including accurate selection,
+1. **G0 release candidate:** qualify the existing supported contract on
+   headless Linux x86_64 against Laputa's G0 baseline. See [G0](#g0-release-candidate).
+2. **Pyramid:** complete scoped verification, including accurate selection,
    results, source and product binding, resource accounting, and representative
    workloads. See [the Pyramid campaign](../pyramid-campaign.md).
-2. **Inference:** complete general type, row, and effect inference and its
+3. **Inference:** complete general type, row, and effect inference and its
    compiler and corpus acceptance. See [the inference campaign](../full-inference-campaign.md).
-3. **Lean:** establish a connected compiler proof and execution correspondence,
+4. **Lean:** establish a connected compiler proof and execution correspondence,
    then continue the full-core obligations. See [the Lean campaign](../xsh-lean.md).
 
-Pyramid starts on the current source; it does not wait for inference to finish.
+The Pyramid, inference, and Lean campaigns stay paused until G0 is decided.
 When inference changes a Pyramid input or contract, rerun the affected checks.
 Lean's source-bound correspondence uses the qualified source available after
 the preceding work. Model proofs, finite witnesses, and Rust correspondence
@@ -19,3 +21,41 @@ remain distinct evidence.
 The Deser cutover remains in place. Its performance thresholds are waived;
 outstanding correctness and platform qualification are not passes. See
 [the Deser campaign](../campaign-deser.md).
+
+## G0 release candidate
+
+G0 stabilizes `master`. It admits only these changes:
+
+- correctness, data-loss, and resource-ownership repairs;
+- fixes that Laputa's G0 consumers need;
+- test and documentation corrections;
+- verification repairs without which a result cannot be trusted.
+
+New APIs, codecs, language changes, speculative optimization, and verification
+features wait for a later milestone.
+
+An inference failure belongs to G0 only when it breaks a documented language
+guarantee or a Laputa program. Other inference limits stay with the inference
+milestone.
+
+Performance and resource gates are deferred for G0. XSH-1 and XSH-3 stay open
+and do not block it.
+
+The graphical profile is outside G0, so Laputa's Muon build blocker does not
+gate it. macOS, Linux aarch64, and Asterinas are outside the G0 claim.
+
+The candidate is one immutable XSH commit with its xsh, xsht, xshi, and core
+script products. G0 is complete when:
+
+1. every failing selector in the latest full native run has a recorded cause, a
+   focused reproducer, and a repair or an explicit out-of-scope reason;
+2. one combined run on the candidate products has no unexplained required
+   failure and no unaccounted required skip;
+3. Laputa's check, test, and PM, xinit, and system suites pass with those
+   products, including recipes that actually rebuild rather than reuse cached
+   artifacts;
+4. Laputa's full G0 qualification passes with the same products, and its seed,
+   kernel, and profile are recorded.
+
+A result counts only for the executable and source it ran. Any later executable
+change reruns the affected qualification.

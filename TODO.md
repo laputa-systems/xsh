@@ -13,11 +13,13 @@ to edit another checkout.
 The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
 items remain open. The performance/deployment and Lean campaigns retain their
-own pause/launch rules; this queue update resumes neither. [Deser](campaign-deser.md)
-is preflighted, not implemented or launched, and owns the seven-codec cutover.
-Do not invent a parallel codec campaign or make an unrelated full baseline an
-entry fee for a bounded fix. Use the narrow applicable gate and retain final
-performance/resource obligations. Real-hardware enablement is out of scope.
+own pause/launch rules; this queue update resumes neither. The [Deser](campaign-deser.md)
+codec cutover is accepted; its correctness and platform qualification remain
+open. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
+which items block a release; performance and resource items such as XSH-1 and
+XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
+for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
+out of scope.
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 

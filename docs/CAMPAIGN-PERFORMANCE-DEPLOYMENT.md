@@ -2,6 +2,9 @@
 
 Status: paused 2026-10-25 on `master`. This handoff supersedes the historical
 instructions below. No campaign loop, lane or qualification retry is scheduled.
+Release sequencing now belongs to the [G0 release candidate](ROADMAP.md#g0-release-candidate),
+which defers this campaign's performance obligations. Deser has since been cut
+over; see `campaign-deser.md`.
 
 ## Resume
 
