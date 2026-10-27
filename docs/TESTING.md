@@ -162,6 +162,7 @@ Prepared Cargo test harnesses list their selected tests and reconcile libtest
 events. Required ignored tests and missing or contradictory results are incomplete.
 Changes to the result reconciler, source observer, focused adapters, resource
 observer or native leases select their Python contract tests directly.
+Changes to the comparative runner select its harness and core workload tests.
 At Edit tier, changes to `uniq`, `sort`, `find`, `xargs`, or `awk` select
 focused record, ordering, traversal, process, or program behavior tests.
 Their Change tier retains the broader core test selection.

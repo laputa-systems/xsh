@@ -1938,6 +1938,12 @@ test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection
 
 test test_performance_python_owners_select_contract_tests {
   let context = fixtures.linux_context(/repo)?
+  let harness = gates.plan_paths(context, tests.Verification, ["bench/consolidation/run.py"], [], gates.Change)?
+  assert [entry.id for entry in harness.cases] == ["verification/consolidation-harness", "verification/core-workloads"]
+  for changed_path in ["bench/consolidation/test_harness.py", "bench/consolidation/fixtures.py", "bench/consolidation/prepare.py"] {
+    let plan = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert [entry.id for entry in plan.cases] == ["verification/consolidation-harness"]
+  }
   for changed_path in ["dev/performance/tokei_scenario.py", "dev/performance/test_tokei_scenario.py"] {
     let plan = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in plan.cases] == ["verification/tokei-scenario"]

@@ -750,6 +750,12 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     execution: RunCommand(stages.command(focused_adapter_case_id, ctx.target.triple, "python3",
       ["python3", "-B", "-m", "unittest", "dev.performance.test_focused", "dev.performance.test_check.AdapterDeadlineTests"], ctx.root,
       {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
+  entries += [CatalogCase(id: "verification/consolidation-harness", tier: Change,
+    limit: RuntimeSeconds(90), products: [], prerequisite_ids: [],
+    reasons: ["comparative runner, fixtures, and process cleanup contracts"],
+    execution: RunCommand(stages.command("verification/consolidation-harness", ctx.target.triple, "python3",
+      ["python3", "-B", "-m", "unittest", "bench.consolidation.test_harness"], ctx.root,
+      {TMPDIR: fp"{ctx.root}/.work/tmp", PYTHONPATH: fp"{ctx.root}/bench/consolidation"})))]
   entries += [CatalogCase(id: "verification/core-workloads", tier: Change,
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
     reasons: ["core workload fixture and oracle contracts"],
@@ -954,6 +960,13 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += [focused_adapter_case_id] when focused_adapter_case_id not in selected_ids
       continue
     }
+    if changed_path in ["bench/consolidation/run.py", "bench/consolidation/test_harness.py", "bench/consolidation/fixtures.py", "bench/consolidation/prepare.py"] {
+      selected_ids += ["verification/consolidation-harness"] when "verification/consolidation-harness" not in selected_ids
+      if changed_path == "bench/consolidation/run.py" and "verification/core-workloads" not in selected_ids {
+        selected_ids += ["verification/core-workloads"]
+      }
+      continue
+    }
     if changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/test_core_cases.py"] or changed_path.starts_with("dev/performance/fixtures/core-cases/") {
       selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
       continue
@@ -1033,7 +1046,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
     continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/consumers", cat_byte_stream_case_id, cat_full_module_case_id, cat_external_consumers_case_id,
-      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/core-workloads", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
+      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/consolidation-harness", "verification/core-workloads", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
       native_leases_case_id]
     continue when entry.id in [case.id for case in source_edit_cases]
     continue when entry.tier == Scenario
