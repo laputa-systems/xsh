@@ -5521,7 +5521,9 @@ reaper, and network jobs are cancelled and drained. Cancelling a suspended
 script producer runs that producer's own defers. Then the scope's `defer`
 actions run. After them, the scope closes its still-owned roots and unlocks its
 still-owned locks, newest first; closing a temporary root also removes its
-directory. A defer can use these capabilities and can release them early. An
+directory. Removal works through the opened directory, never the saved path: if
+the directory was moved, or its path now names another entry, the directory is
+left in place and an explicit `root.close()` returns an `fs-root` error. A defer can use these capabilities and can release them early. An
 explicit `root.close()` or `fs.unlock(lock)` returns an error for an already
 released capability, while scope cleanup skips a capability released earlier.
 For an exact local `ProcessHandle`, `NetJob`, `FsRoot`, or `FsLock`, a direct
