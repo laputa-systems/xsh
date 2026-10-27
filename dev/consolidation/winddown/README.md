@@ -158,3 +158,7 @@ Current qualification summaries, exact commands and essential failed-run
 records are committed. Disposable binaries and caches must be rebuilt for any
 fresh accepted run. Historical absolute paths in raw records are observations,
 not commands to resume blindly.
+Raw captures from the `w9-final-56bf`, `w9-final-be0b-20261016T1711Z`,
+`w9-current-0dc9cff7c2b1`, and `w9-current-0deeb9c7fb79` runs were later
+deleted to reclaim space. Their remaining receipts need fresh captures before
+they can be revalidated.

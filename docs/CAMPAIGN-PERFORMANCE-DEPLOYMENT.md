@@ -108,7 +108,8 @@ it; its remaining directory was moved intact, without force removal, to
 `.work/preserved/winddown-20261025/full-inference-integration-remnant`.
 It is preserved data, not a registered worktree. Logs and lane-local data were
 moved under `.work/preserved/winddown-20261025/NAME/`, with `.work` contents in
-`work-data` and standalone Cargo caches in `target-cache`. Unknown fixtures and
+`work-data`. Standalone Cargo `target-cache` directories were later deleted to
+reclaim space. Unknown fixtures and
 failed-run records remain preserved. The bounded cache pass removed 54 dead
 Cargo build/incremental directories and observed 35,807,100,928 additional free
 bytes (33.35 GiB). This is the measured cache-pass delta, not an estimate for
