@@ -12,7 +12,7 @@ import run
 
 
 WorkloadFailure = owned_case.WorkloadFailure
-_CASE_NAMES = ('core-pipeline-small', 'core-pipeline-medium', 'core-pipeline-large', 'core-sort-small', 'core-wc-small', 'core-wc-medium', 'core-awk-small', 'core-traversal-small', 'core-traversal-medium', 'core-traversal-large', 'core-spawn-small', 'core-spawn-medium', 'core-spawn-large')
+_CASE_NAMES = ('core-pipeline-small', 'core-pipeline-medium', 'core-pipeline-large', 'core-sort-small', 'core-wc-small', 'core-wc-medium', 'core-awk-small', 'core-traversal-small', 'core-traversal-medium', 'core-traversal-large', 'core-spawn-small', 'core-spawn-medium', 'core-spawn-large', 'core-json-small')
 
 
 def check_case(xsht, scratch, lease_owner, name='core-pipeline-small'):

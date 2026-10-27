@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -10,7 +11,7 @@ _SHAPES = {
     'medium': (1024 * 1024, 2048, 256, 8),
     'large': (16 * 1024 * 1024, 16384, 2048, 32),
 }
-_FAMILIES = ('wc', 'sort', 'awk', 'traversal', 'pipeline', 'spawn')
+_FAMILIES = ('wc', 'sort', 'awk', 'traversal', 'pipeline', 'spawn', 'json')
 
 
 def _parts(name):
@@ -39,6 +40,9 @@ def _inputs(name):
     if family in ('sort', 'awk'):
         rows = [f'key-{index:06}\t{index * 17 % records}\t{index % 13}\n'.encode() for index in reversed(range(records))]
         return {'input': b''.join(rows)}, {}
+    if family == 'json':
+        rows = [{'index': index, 'value': index * 17 % records, 'label': f'row-{index}'} for index in range(records)]
+        return {'input': json.dumps(rows, ensure_ascii=False, separators=(',', ':')).encode()}, {}
     if family == 'traversal':
         contents = {f'tree/{".hidden" if index // 16 % 2 else "group"}-{index // 16:04}/file {index:06}.txt':
                     f'payload {index}\n'.encode() for index in range(files)}
@@ -61,6 +65,10 @@ def describe_case(name, *, fixtures, source_root):
     byte_count, records, files, pipelines = _SHAPES[shape]
     contents, links = _inputs(name)
     script_root = source_root / 'dev/performance/fixtures/core-cases'
+    if family == 'json':
+        expected = f'{records} {records * (records - 1) // 2}\n'.encode()
+        return Workload(name, 'structured-data', shape, script_root / 'json.xsh',
+                        (str(root / 'input'),), expected, 0)
     if family == 'wc':
         expected = f'{contents["input"].count(bytes([10]))} {root / "input"}\n'.encode()
         return Workload(name, 'byte-stream', shape, source_root / 'core/wc.xsh',
@@ -135,7 +143,7 @@ def work_counts(case):
     byte_count, records, files, pipelines = _SHAPES[shape]
     if family == 'wc':
         return {'input_bytes': byte_count}
-    if family in ('sort', 'awk'):
+    if family in ('sort', 'awk', 'json'):
         return {'input_records': records}
     if family == 'traversal':
         contents, links = _inputs(case.name)

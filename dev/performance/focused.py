@@ -16,7 +16,8 @@ from dev.performance import check, resources, workloads
 
 
 _CASE_NAMES = ('json-n', 'core-wc-small', 'core-wc-medium', 'core-wc-large',
-               'core-sort-small', 'core-sort-medium', 'core-sort-large', 'core-traversal-small', 'core-traversal-medium', 'core-traversal-large', 'core-awk-small', 'core-awk-medium', 'core-awk-large')
+               'core-sort-small', 'core-sort-medium', 'core-sort-large', 'core-traversal-small', 'core-traversal-medium', 'core-traversal-large', 'core-awk-small', 'core-awk-medium', 'core-awk-large',
+               'core-json-small', 'core-json-medium', 'core-json-large')
 _RESOURCE_SCOPE = resources.GroupScope.FRESH_CASE_CONTAINER.value
 _RESOURCE_FIELDS = frozenset(resources.CaseResources.__dataclass_fields__)
 _DECLARED_WORKERS = (('container_init', 1), ('python_driver', 1), ('xsh_workload', 1))

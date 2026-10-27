@@ -646,6 +646,7 @@ const core_standalone_trace_cases = [
   {id: "performance/core-spawn-small/trace", name: "core-spawn-small"},
   {id: "performance/core-spawn-medium/trace", name: "core-spawn-medium"},
   {id: "performance/core-spawn-large/trace", name: "core-spawn-large"},
+  {id: "performance/core-json-small/trace", name: "core-json-small"},
 ]
 const core_pipeline_cases = [
   {id: "performance/core-pipeline-small/correctness", shape: "small"},
@@ -653,6 +654,9 @@ const core_pipeline_cases = [
   {id: "performance/core-pipeline-large/correctness", shape: "large"},
 ]
 const focused_core_workloads = [
+  {id: "performance/core-json-small/correctness", name: "core-json-small"},
+  {id: "performance/core-json-medium/correctness", name: "core-json-medium"},
+  {id: "performance/core-json-large/correctness", name: "core-json-large"},
   {id: "performance/core-wc-small/correctness", name: "core-wc-small"},
   {id: "performance/core-wc-medium/correctness", name: "core-wc-medium"},
   {id: "performance/core-wc-large/correctness", name: "core-wc-large"},

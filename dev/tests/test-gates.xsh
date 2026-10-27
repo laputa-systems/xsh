@@ -1907,6 +1907,14 @@ test test_laputa_and_json_n_must_be_selected_separately {
 
 test test_core_workload_scenarios_require_explicit_selection {
   let context = fixtures.linux_context(/repo)?
+  for id in ["performance/core-json-small/correctness", "performance/core-json-medium/correctness", "performance/core-json-large/correctness"] {
+    let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
+    assert [entry.id for entry in selected.cases] == [id]
+    assert selected.products == [tests.Xsh]
+  }
+  let json_trace = gates.plan_paths(context, tests.Verification, [], ["performance/core-json-small/trace"], gates.Change)?
+  assert [entry.id for entry in json_trace.cases] == ["performance/core-json-small/trace"]
+  assert json_trace.products == [tests.Xsht]
   for id in ["performance/core-wc-small/correctness", "performance/core-wc-medium/correctness", "performance/core-wc-large/correctness", "performance/core-sort-small/correctness", "performance/core-sort-medium/correctness", "performance/core-sort-large/correctness", "performance/core-traversal-small/correctness", "performance/core-traversal-medium/correctness", "performance/core-traversal-large/correctness", "performance/core-awk-small/correctness", "performance/core-awk-medium/correctness", "performance/core-awk-large/correctness"] {
     let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in selected.cases] == [id]

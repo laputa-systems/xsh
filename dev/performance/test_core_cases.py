@@ -43,6 +43,19 @@ class CoreCasesTests(unittest.TestCase):
     def prepare(self, name):
         return core_cases.prepare_case(name, fixtures=self.fixtures)
 
+    def test_json_cases_count_and_validate_structured_records(self):
+        for shape, count in (('small', 256), ('medium', 2048), ('large', 16384)):
+            with self.subTest(shape=shape):
+                case = self.prepare(f'core-json-{shape}')
+                records = json.loads((self.fixtures / case.name / 'input').read_bytes())
+                self.assertEqual(len(records), count)
+                self.assertEqual(case.expected_stdout, f'{count} {sum(row["value"] for row in records)}\n'.encode())
+                self.assertEqual(core_cases.work_counts(case)['input_records'], count)
+                core_cases.validate_case(case, fixtures=self.fixtures)
+                (self.fixtures / case.name / 'input').write_text('[]')
+                with self.assertRaisesRegex(ValueError, 'file changed'):
+                    core_cases.validate_case(case, fixtures=self.fixtures)
+
     def test_focused_cases_bind_and_recheck_generated_inputs(self):
         config = SimpleNamespace(source_root=core_cases.SOURCE_ROOT, fixtures=self.fixtures)
         for name in ('core-wc-small', 'core-wc-medium', 'core-wc-large', 'core-sort-small', 'core-sort-medium', 'core-sort-large', 'core-traversal-small', 'core-traversal-medium', 'core-traversal-large', 'core-awk-small', 'core-awk-medium', 'core-awk-large'):

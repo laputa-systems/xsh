@@ -194,6 +194,9 @@ outputs. They do not measure performance.
 The explicit `performance/core-{sort,traversal,awk}-{small,medium,large}/correctness`
 scenarios check ordering, filesystem entries, and record aggregation against
 exact outputs. They do not measure performance.
+The explicit `performance/core-json-{small,medium,large}/correctness` scenarios
+decode typed records and check their order, values, labels, and aggregate.
+The small trace scenario also reconciles syscall and helper counts.
 The explicit `performance/core-{wc,sort,awk,traversal}-small/trace` scenarios
 also reconcile syscall summaries and completed helpers through XSHT tracing.
 Their syscall counts include the traced XSHT process; they are not production
