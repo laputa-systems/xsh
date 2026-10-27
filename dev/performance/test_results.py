@@ -86,7 +86,7 @@ class ResultTests(unittest.TestCase):
             self.assertEqual(result['unreconciled_selected'], ['tests/a.xsh::case'])
         stdout = StringIO()
         argv = ['results', '--runner', 'xsht', '--events', '/missing', '--case', 'one', '--child-status', '1']
-        with patch('sys.argv', argv), patch.object(results.Path, 'read_text', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
+        with patch('sys.argv', argv), patch.object(results, '_event_file', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
             self.assertEqual(results.main(), 1)
         self.assertIn('missing events', stdout.getvalue())
 
@@ -97,7 +97,7 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(result['unreconciled_selected'], ['one'])
         stdout = StringIO()
         argv = ['results', '--runner', 'cargo', '--events', '/missing', '--case', 'one', '--child-status', '101']
-        with patch('sys.argv', argv), patch.object(results.Path, 'read_text', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
+        with patch('sys.argv', argv), patch.object(results, '_event_file', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
             self.assertEqual(results.main(), 1)
         self.assertIn('missing events', stdout.getvalue())
 
@@ -143,7 +143,7 @@ class ResultTests(unittest.TestCase):
         stdout = StringIO()
         argv = ['results', '--runner', 'xsht', '--events', '/temporary/events.jsonl',
                 '--case', 'tests/a.xsh::case', '--child-status', '0', '--no-artifact-link']
-        with patch('sys.argv', argv), patch.object(results.Path, 'read_text', return_value=encode(native_rows())), redirect_stdout(stdout):
+        with patch('sys.argv', argv), patch.object(results, '_event_file', return_value=encode(native_rows())), redirect_stdout(stdout):
             self.assertEqual(results.main(), 0)
         self.assertNotIn('Details:', stdout.getvalue())
 
@@ -151,9 +151,41 @@ class ResultTests(unittest.TestCase):
         stdout = StringIO()
         argv = ['results', '--runner', 'xsht', '--events', '/events', '--cases-json', '/cases', '--child-status', '0']
         with patch('sys.argv', argv), patch.object(results, '_case_file', return_value=['tests/a.xsh::case']), \
-                patch.object(results.Path, 'read_text', return_value=encode(native_rows())), redirect_stdout(stdout):
+                patch.object(results, '_event_file', return_value=encode(native_rows())), redirect_stdout(stdout):
             self.assertEqual(results.main(), 0)
         self.assertIn('Selected scope: passed', stdout.getvalue())
+
+    def test_event_file_rejects_nonregular_and_oversized_input(self):
+        scratch = Path(__file__).resolve().parents[2] / '.work/tmp'
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            root = Path(directory)
+            fifo = root / 'events.fifo'
+            os.mkfifo(fifo)
+            command = [sys.executable, '-B', str(Path(results.__file__)), '--runner', 'xsht',
+                       '--events', str(fifo), '--case', 'tests/a.xsh::case', '--child-status', '0']
+            outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 2)
+            self.assertIn('regular file', outcome.stderr)
+            oversized = root / 'large.jsonl'
+            with oversized.open('wb') as stream:
+                stream.truncate(16 * 1024 * 1024 + 1)
+            command[command.index(str(fifo))] = str(oversized)
+            outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 2)
+            self.assertIn('exceeds 16 MiB', outcome.stderr)
+            command[-1] = '1'
+            outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 1)
+            self.assertIn('events_unavailable', outcome.stdout)
+            event_file = root / 'events.jsonl'
+            event_file.write_text(encode(native_rows()))
+            linked = root / 'linked.jsonl'
+            linked.symlink_to(event_file)
+            command[command.index(str(oversized))] = str(linked)
+            command[-1] = '0'
+            outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 2)
 
     def test_selected_id_file_rejects_nonregular_input_without_blocking(self):
         scratch = Path(__file__).resolve().parents[2] / '.work/tmp'
@@ -192,7 +224,7 @@ class ResultTests(unittest.TestCase):
         stdout = StringIO()
         argv = ['results', '--runner', 'xsht', '--events', '/owned/events.jsonl',
                 '--case', 'tests/a.xsh::case', '--child-status', '1']
-        with patch('sys.argv', argv), patch.object(results.Path, 'read_text', return_value=encode(rows)), redirect_stdout(stdout):
+        with patch('sys.argv', argv), patch.object(results, '_event_file', return_value=encode(rows)), redirect_stdout(stdout):
             self.assertEqual(results.main(), 1)
         self.assertEqual(stdout.getvalue(), 'Selected scope: failed (1 cases; xsht)\nResults: failed=1\nChild status: 1\nCoverage: complete\nUnresolved: "tests/a.xsh::case": failed {"detail": "expected 7\\nactual 9", "kind": "test_failure"}; runner exited 1\nFull: not run\nDetails: [events](/owned/events.jsonl)\n')
         cargo = [{'type': 'suite', 'event': 'started', 'test_count': 1},
@@ -245,7 +277,7 @@ class ResultTests(unittest.TestCase):
             argv = ['results', '--runner', 'cargo', '--events', 'unused', '--case', 'one', '--child-status', str(raw)]
             if cancelled:
                 argv.append('--cancelled')
-            with patch('sys.argv', argv), patch.object(results.Path, 'read_text', return_value='{'), \
+            with patch('sys.argv', argv), patch.object(results, '_event_file', return_value='{'), \
                     redirect_stdout(stdout), redirect_stderr(stderr):
                 status = results.main()
             self.assertEqual(status, expected)

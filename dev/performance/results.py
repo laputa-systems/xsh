@@ -56,6 +56,16 @@ def _case_file(path):
     return value
 
 
+def _event_file(path):
+    limit = 16 * 1024 * 1024
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, 'rb') as stream:
+        _require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), 'event file must be a regular file')
+        data = stream.read(limit + 1)
+    _require(len(data) <= limit, 'event file exceeds 16 MiB')
+    return data.decode('utf-8')
+
+
 def _integer(value):
     return type(value) is int and value >= 0
 
@@ -329,7 +339,7 @@ def main():
         if args.discover_cargo:
             _require(args.runner == 'cargo' and args.case is None and args.cases_json is None and args.child_status is None and not args.cancelled,
                      'Cargo discovery cannot include execution results')
-            print('\n'.join(discover_cargo(args.events.read_text())))
+            print('\n'.join(discover_cargo(_event_file(args.events))))
             return 0
         _require((args.case is None) != (args.cases_json is None) and args.child_status is not None,
                  'result reconciliation requires one case source and child status')
@@ -338,8 +348,8 @@ def main():
         reconcile = reconcile_xsht if args.runner == 'xsht' else reconcile_cargo
         read_error = None
         try:
-            event_text = args.events.read_text()
-        except (OSError, UnicodeError) as error:
+            event_text = _event_file(args.events)
+        except (OSError, UnicodeError, ResultError) as error:
             if not (args.cancelled or args.child_status == 130
                     or args.child_status not in (0, 130) and (args.runner == 'cargo' or args.child_status != 2)):
                 raise
