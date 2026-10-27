@@ -1207,7 +1207,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
     }
     |> where .keep
     |> par-map { |candidate|
-      var text = candidate.path.read_bytes() ?? b""
+      var text = candidate.path.read_bytes()?
       let language = if candidate.language == LangUnknown { lang_for_shebang(text) } else { candidate.language }
       let scan = match language {
         LangTsx => count_slash_plain(text),
@@ -1333,7 +1333,7 @@ proc main(...argv: List[Str]) [fs, error] {
       }
       |> where .keep
       |> par-map { |candidate|
-        var text = candidate.path.read_bytes() ?? b""
+        var text = candidate.path.read_bytes()?
         let language = if candidate.language == LangUnknown { lang_for_shebang(text) } else { candidate.language }
 
         let scan = match language {

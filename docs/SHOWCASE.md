@@ -5,6 +5,9 @@
 The corpus exercises text, bytes, JSON, native tools, bounded work, cleanup,
 cancellation, and traces.
 
+[`tokei.xsh`](../showcase/tokei.xsh) counts a selected source tree in table or
+JSON form. It fails if a selected file cannot be read.
+
 ## Choosing programs
 
 Prefer recurring operational problems with host interaction across at least
