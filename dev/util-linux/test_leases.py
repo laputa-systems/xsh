@@ -9,8 +9,9 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
-from leases import _cargo_held, _cargo_lease, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root
+from leases import _cargo_held, _cargo_lease, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root, prepare_cleanup_unresolved, resolve_cleanup_unresolved
 
 
 def hold(path, mode, channel):
@@ -164,6 +165,69 @@ class LeaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             with acquire([(self.path, fcntl.LOCK_SH, None)]):
                 self.fail("quarantined lease accepted")
+
+    def test_prepared_quarantine_clears_only_after_explicit_resolution(self):
+        identity = self.path.stat().st_ino
+        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+            token = _native_descriptor.set((descriptors[0], self.path))
+            try:
+                prepare_cleanup_unresolved("focused container launch")
+                sentinel = self.path.read_bytes()
+                self.assertTrue(sentinel.startswith(b"cleanup-unresolved:"))
+                self.assertEqual(self.path.with_suffix(".cleanup-unresolved").read_bytes(), sentinel)
+                self.assertEqual(self.path.stat().st_ino, identity)
+                resolve_cleanup_unresolved()
+            finally:
+                _native_descriptor.reset(token)
+        self.assertEqual(self.path.read_bytes(), b"")
+        self.assertFalse(self.path.with_suffix(".cleanup-unresolved").exists())
+        with acquire([(self.path, fcntl.LOCK_EX, None)]):
+            pass
+
+    def test_quarantine_marker_fsync_failure_leaves_dispatch_fence(self):
+        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+            token = _native_descriptor.set((descriptors[0], self.path))
+            try:
+                with patch("leases.os.fsync", side_effect=OSError("marker fsync failed")):
+                    with self.assertRaisesRegex(OSError, "marker fsync failed"):
+                        prepare_cleanup_unresolved("focused container launch")
+                self.assertTrue(self.path.with_suffix(".cleanup-unresolved").exists())
+            finally:
+                _native_descriptor.reset(token)
+        with self.assertRaises(ValueError):
+            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+                self.fail("partially prepared quarantine accepted")
+
+    def test_lease_sentinel_write_failure_leaves_durable_marker_fence(self):
+        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+            token = _native_descriptor.set((descriptors[0], self.path))
+            try:
+                with patch("leases.os.pwrite", side_effect=OSError("lease sentinel write failed")):
+                    with self.assertRaisesRegex(OSError, "lease sentinel write failed"):
+                        prepare_cleanup_unresolved("focused container launch")
+                self.assertTrue(self.path.with_suffix(".cleanup-unresolved").exists())
+            finally:
+                _native_descriptor.reset(token)
+        with self.assertRaises(ValueError):
+            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+                self.fail("marker-only quarantine accepted")
+
+    def test_quarantine_removal_failure_restores_dispatch_fence(self):
+        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+            token = _native_descriptor.set((descriptors[0], self.path))
+            try:
+                prepare_cleanup_unresolved("focused cleanup verified")
+                marker = self.path.with_suffix(".cleanup-unresolved")
+                with patch("leases.os.unlink", side_effect=OSError("marker removal failed")):
+                    with self.assertRaisesRegex(OSError, "marker removal failed"):
+                        resolve_cleanup_unresolved()
+                self.assertTrue(self.path.read_bytes().startswith(b"cleanup-unresolved:"))
+                self.assertEqual(marker.read_bytes(), self.path.read_bytes())
+            finally:
+                _native_descriptor.reset(token)
+        with self.assertRaises(ValueError):
+            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+                self.fail("restored quarantine accepted")
 
     def test_build_dispatch_requires_held_cargo_guard(self):
         with self.assertRaisesRegex(RuntimeError, "original cargo lease"):

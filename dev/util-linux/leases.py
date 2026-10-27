@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import os
 from pathlib import Path
+import signal
 import stat
 import sys
 import threading
@@ -20,6 +21,7 @@ _PARALLEL_CARGO_CAPACITY = 3
 
 
 _native_descriptor = contextvars.ContextVar("util_linux_native_descriptor", default=None)
+_native_quarantine = contextvars.ContextVar("util_linux_native_quarantine", default=None)
 _cargo_held = contextvars.ContextVar("util_linux_cargo_held", default=False)
 _cargo_guard_module = sys.modules.get("_xsh_util_linux_cargo_lease_guard")
 if _cargo_guard_module is None:
@@ -29,16 +31,22 @@ if _cargo_guard_module is None:
 _cargo_process_guard = _cargo_guard_module.lock
 
 
-def mark_cleanup_unresolved(detail: str) -> None:
+def _native_lease():
     held = _native_descriptor.get()
     if held is None:
         raise RuntimeError("cannot retain unresolved cleanup without the native lease")
-    descriptor, path = held
-    message = ("cleanup-unresolved: util-linux " + detail + "\n").encode("utf-8")
+    return held
+
+
+def _write_lease_quarantine(descriptor: int, message: bytes) -> None:
     written = os.pwrite(descriptor, message, 0)
     if written != len(message):
         raise OSError("short write while retaining unresolved cleanup")
+    os.ftruncate(descriptor, len(message))
     os.fsync(descriptor)
+
+
+def _write_marker(path: Path, message: bytes) -> tuple[int, int]:
     marker = path.with_suffix(".cleanup-unresolved")
     marker_fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
@@ -49,8 +57,91 @@ def mark_cleanup_unresolved(detail: str) -> None:
                 raise OSError("short write while retaining cleanup marker")
             offset += count
         os.fsync(marker_fd)
+        info = os.fstat(marker_fd)
     finally:
         os.close(marker_fd)
+    directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    return info.st_dev, info.st_ino
+
+
+def _establish_cleanup_quarantine(descriptor: int, path: Path, detail: str):
+    message = ("cleanup-unresolved: util-linux " + detail + "\n").encode("utf-8")
+    marker_identity = _write_marker(path, message)
+    _write_lease_quarantine(descriptor, message)
+    return descriptor, path, message, marker_identity
+
+
+def prepare_cleanup_unresolved(detail: str) -> None:
+    descriptor, path = _native_lease()
+    if _native_quarantine.get() is not None:
+        raise RuntimeError("native lease already has an unresolved cleanup quarantine")
+    _native_quarantine.set(_establish_cleanup_quarantine(descriptor, path, detail))
+
+
+def _resolve_cleanup_unresolved() -> None:
+    descriptor, path = _native_lease()
+    quarantine = _native_quarantine.get()
+    if quarantine is None or quarantine[:2] != (descriptor, path):
+        raise RuntimeError("native lease has no matching cleanup quarantine")
+    _, _, message, marker_identity = quarantine
+    marker = path.with_suffix(".cleanup-unresolved")
+    info = marker.lstat()
+    if not stat.S_ISREG(info.st_mode) or (info.st_dev, info.st_ino) != marker_identity:
+        raise ValueError("cleanup marker identity changed before resolution")
+    directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        _write_lease_quarantine(descriptor, b"")
+        try:
+            os.unlink(marker, dir_fd=directory_fd)
+            os.fsync(directory_fd)
+        except BaseException as error:
+            restored_identity = marker_identity
+            try:
+                current = path.with_suffix(".cleanup-unresolved")
+                if not current.exists() and not current.is_symlink():
+                    restored_identity = _write_marker(path, message)
+            except BaseException as restore_error:
+                error.add_note(f"failed to restore cleanup quarantine: {restore_error!r}")
+            try:
+                _write_lease_quarantine(descriptor, message)
+            except BaseException as restore_error:
+                error.add_note(f"failed to restore lease sentinel: {restore_error!r}")
+            _native_quarantine.set((descriptor, path, message, restored_identity))
+            raise
+    finally:
+        os.close(directory_fd)
+    _native_quarantine.set(None)
+
+
+def resolve_cleanup_unresolved() -> None:
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+    error = None
+    try:
+        _resolve_cleanup_unresolved()
+    except BaseException as failure:
+        error = failure
+    mask_restore_failed = False
+    try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+    except BaseException as failure:
+        mask_restore_failed = True
+        if error is None:
+            error = failure
+        else:
+            error.add_note(f"signal mask restoration failed: {failure!r}")
+    if error is not None:
+        if mask_restore_failed:
+            error.add_note("signal mask restoration failed after cleanup quarantine transition")
+        raise error
+
+
+def mark_cleanup_unresolved(detail: str) -> None:
+    descriptor, path = _native_lease()
+    _establish_cleanup_quarantine(descriptor, path, detail)
 
 
 def require_native_lease() -> None:
@@ -194,6 +285,7 @@ def campaign_leases(
         paths.append((infra / "native-suite.lock", fcntl.LOCK_EX, (66307, 62012470)))
     with acquire(paths) as descriptors:
         token = _native_descriptor.set((descriptors[1], paths[1][0]) if native else None)
+        quarantine_token = _native_quarantine.set(None)
         try:
             if cargo:
                 with _cargo_lease(root, infra / "cargo.lock", (66307, 62044429), cargo_target) as cargo_descriptor:
@@ -201,4 +293,5 @@ def campaign_leases(
             else:
                 yield descriptors
         finally:
+            _native_quarantine.reset(quarantine_token)
             _native_descriptor.reset(token)
