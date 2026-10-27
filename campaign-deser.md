@@ -1,14 +1,16 @@
 # Replace XSH serialization with a pruned, vendored Deser
 
-Status: qualification remains open. The lint-status repair is accepted at `23218c727`; `master` is not globally green. No push.
+Status: the owner chose to retain Deser without performance thresholds. The
+lint-status repair is accepted at `23218c727`; correctness and platform
+qualification remain open and `master` is not globally green. No push.
 
 - The lint regression failed before the repair and the four-test lint-selection module passed afterward. Lint now keeps the highest batch exit status regardless of file order.
 - Runtime qualification used the retained production XSH products from `193776459` and the frozen baseline; the later repair changes XSHT only. All 18 workloads completed with exact expected output and readiness checks before and after each sample. Five alternating pairs showed no JSON or existing startup regression beyond the campaign thresholds. Five candidate samples per new codec completed. Large-workload median CPU / peak RSS were: YAML 190.498 ms / 87.09 MiB, TOML 172.420 ms / 102.54 MiB, CBOR 152.107 ms / 84.92 MiB, MessagePack 148.063 ms / 86.58 MiB, and CSV stream 436.675 ms / 67.05 MiB. Sample ranges and output checks are retained in `.work/tmp/deser/cost/runtime-23218/`.
 - The current-source production build passed in a fresh target tree. XSH, XSHT and XSHI are 27,250,496, 39,157,888 and 44,232 bytes against 26,184,512, 37,574,016 and 44,232 bytes at the baseline; all pass the 5% size gate. An earlier build reused the interrupted baseline target tree and failed on stale registry artifacts.
-- Build CPU qualification remains open: the first clean sample overlapped an unrelated compiler and was stopped and discarded. No owned build container remains. **perf gate deferred: host busy**. The scratch build-cost runner now assigns a separate Cargo target tree to each revision while retaining `/work/target` in the container; its syntax passes, but the revised runner has not been exercised. Preserve or rebuild that change before retrying so stale artifacts cannot invalidate the comparison. Native macOS and a green full integration result remain open.
+- Build CPU qualification was waived by the owner. The first clean sample overlapped an unrelated compiler and was discarded; no speed claim follows. No owned build container remains. Native macOS and a green full integration result remain open.
 - Independent source review found no demonstrated serious defect in the selected codec, schema-authority, file-effect and host JSON paths. It ran no tests and did not cover every consumer, vendor parser or platform-specific race; it does not establish migration parity.
 
-- Next slice: qualify build CPU on a quiet host, then finish S7 without waiving existing failures. The lint-status draft is superseded by `23218c727`.
+- Outstanding qualification: finish S7 without waiving existing correctness failures. The lint-status draft is superseded by `23218c727`.
 - Accepted: S1–S5 cutover, bounded decoded-name ownership, xinit optional-module contracts, block capture wire paths, verifier repairs and INI entropy independence. Producer/effect checks pass 261/104; pinned verification and dist pass builtin 9, record-update 8, shuf EAGAIN, optional-module conditions and the xinit `checked` probe.
 - Memory at `193776459`: 175 samples pass. Large JSON peak RSS 129.01→79.18 MiB; retained 94.78→50.75 MiB.
 - Full diagnostic native run: 14,470 passed, 59 failed, 151 skipped. Eleven failing selectors have focused repairs; 47 remaining failures reproduce on the baseline, and one UDP ICMP failure did not reproduce on either exact control. Do not call Full green. Corpus parity passes all 204 files; privileged Linux 82+10 and constrained split 2 pass.
