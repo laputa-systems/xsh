@@ -78,8 +78,9 @@ unchanged source and product observations. The medium scenario stopped before
 execution when host admission was unavailable. Later source-bound Linux gates
 passed both scenarios. Their pressure diagnostics remain incomplete.
 Explicit small sort, traversal, and AWK scenarios also pass their exact output
-oracles in Linux. Their pressure diagnostics are incomplete, and performance
-remains unmeasured.
+oracles in Linux. The medium sort scenario passes as well; two large-sort
+attempts stopped before execution because resource admission was unavailable.
+Their pressure diagnostics are incomplete, and performance remains unmeasured.
 The pipeline fixture's trace emits segment completions without helper-start
 events. The reader reconciles them against explicitly declared segment counts
 and rejects incomplete or mixed traces. The Linux scenario checks exact output

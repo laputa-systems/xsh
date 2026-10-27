@@ -27,7 +27,7 @@ class CoreCasesTests(unittest.TestCase):
 
     def test_focused_cases_bind_and_recheck_generated_inputs(self):
         config = SimpleNamespace(source_root=core_cases.SOURCE_ROOT, fixtures=self.fixtures)
-        for name in ('core-wc-small', 'core-wc-medium', 'core-wc-large', 'core-sort-small', 'core-traversal-small', 'core-awk-small'):
+        for name in ('core-wc-small', 'core-wc-medium', 'core-wc-large', 'core-sort-small', 'core-sort-medium', 'core-sort-large', 'core-traversal-small', 'core-awk-small'):
             with self.subTest(name=name):
                 expected = self.prepare(name)
                 case, root, snapshot, owner = focused._case(config, name)

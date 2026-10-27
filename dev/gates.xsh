@@ -640,6 +640,8 @@ const focused_core_workloads = [
   {id: "performance/core-wc-medium/correctness", name: "core-wc-medium"},
   {id: "performance/core-wc-large/correctness", name: "core-wc-large"},
   {id: "performance/core-sort-small/correctness", name: "core-sort-small"},
+  {id: "performance/core-sort-medium/correctness", name: "core-sort-medium"},
+  {id: "performance/core-sort-large/correctness", name: "core-sort-large"},
   {id: "performance/core-traversal-small/correctness", name: "core-traversal-small"},
   {id: "performance/core-awk-small/correctness", name: "core-awk-small"},
 ]
