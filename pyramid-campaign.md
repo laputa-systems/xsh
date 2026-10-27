@@ -119,10 +119,10 @@ qualified Linux image. Broader world coverage remains open.
 The catalogue also exposes the existing synthetic Kbuild discovery test as an
 explicit Laputa scenario. Its adapter and host selection controls pass, and its
 selected test passed through the qualified Linux image.
-The Kbuild graph-cache scenario now selects thirteen isolated graph parity, cache
+The Kbuild graph-cache scenario now selects fourteen isolated graph parity, cache
 invalidation, legacy-cache replacement, plan-output, and selected-closure tests.
-All thirteen pass in the replacement Linux image after resource admission,
-including the empty-`TMPDIR` error control.
+All fourteen pass in the replacement Linux image after resource admission,
+including the worker-scan mutation regression.
 The closure regression exposed a stale dependent after an upstream rebuild;
 the scheduler now reruns declared dependents when a dependency ran. Its host
 regression and the PM make tests pass.
@@ -147,9 +147,9 @@ the public `kbuild.plan_fingerprint` requires the source architecture. Host
 regressions cover changed nested and included inputs and pass in Linux.
 Local scan records now carry digests of the Kbuild and active include text
 consumed by each scanner and worker, and their cache keys bind the parsed
-configuration. Plan and compile-flags cache writes still read inputs separately;
-edits during discovery can associate those results with a later digest. Atomic
-input binding remains open and those cache results assume stable source.
+configuration. Plan-cache fingerprints now use those discovery records and the
+configuration used by the workers. The compile-flags and archive-plan paths
+still read inputs separately; atomic input binding remains open there.
 Process-pool discovery now shares one parsed configuration with every worker;
 its public entry takes `Kconfig` and requires the `env` effect. The pool uses
 `TMPDIR` for its scratch state. The two-worker regression passed in Linux.
