@@ -250,7 +250,7 @@ def interrupted_evidence(work, selected=IDS):
                 states[name] = 'finished'
                 if outcome == 'cancelled':
                     observed = 'cancelled'
-                elif outcome == 'failed' and observed != 'cancelled':
+                elif outcome in ('failed', 'timed_out') and observed != 'cancelled':
                     observed = 'failed'
             else:
                 return None
@@ -312,9 +312,14 @@ def run(owner, laputa, xsh, xsht, scratch, image, lease_owner, expected=None, pl
                 after = (snapshot(owner, owner), snapshot(owner, laputa), product(xsh), product(xsht))
                 if xshi is not None:
                     after += (product(xshi),)
-            except (OSError, ValueError, subprocess.SubprocessError):
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                print(f'{case}: source inspection incomplete: {error}', file=sys.stderr)
                 if status == 130:
                     verdict = 130
+                    return verdict, status, stdout, stderr
+                evidence = interrupted_evidence(work, selected)
+                if evidence in ('cancelled', 'failed'):
+                    verdict = 130 if evidence == 'cancelled' else 1
                     return verdict, status, stdout, stderr
                 if status != 0:
                     verdict = 2 if status == 2 else 1
@@ -323,12 +328,17 @@ def run(owner, laputa, xsh, xsht, scratch, image, lease_owner, expected=None, pl
             try:
                 event_text = event_bytes(work).decode('utf-8')
                 result = results.reconcile_xsht(event_text, selected, child_status=status)
-            except (OSError, UnicodeError, ValueError):
-                result = {'status': 1 if status not in (0, 2, 130) else 2}
+            except (OSError, UnicodeError, ValueError) as error:
+                evidence = interrupted_evidence(work, selected)
+                print(f'{case}: result stream incomplete: {error}; evidence={evidence}', file=sys.stderr)
+                result = {'status': 130 if evidence == 'cancelled' else
+                          1 if evidence == 'failed' or status not in (0, 2, 130) else 2}
             if 'cases' in result:
                 print(results.render_report(result))
-            if status == 130:
+            if status == 130 or result['status'] == 130:
                 verdict = 130
+            elif result['status'] == 1:
+                verdict = 1
             elif status != 0:
                 verdict = 2 if status == 2 else 1
             elif before != after:

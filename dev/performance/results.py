@@ -148,8 +148,11 @@ def _reconcile_xsht(text, selected, *, child_status):
     _require(child_status == 130 or all(case['outcome'] != 'cancelled' for case in cases.values()),
              'cancelled case contradicts run status')
     if summary['reason'] is not None:
-        _require({'coverage_failure': 1, 'cleanup_failure': 2, 'runner_failure': 2,
-                  'cancellation': 130}.get(summary['reason']['kind']) == child_status,
+        kind = summary['reason']['kind']
+        case_failed = any(case['outcome'] in ('failed', 'timed_out') for case in cases.values())
+        _require((kind in ('cleanup_failure', 'runner_failure') and
+                  (child_status == 2 or child_status == 1 and case_failed)) or
+                 {'coverage_failure': 1, 'cancellation': 130}.get(kind) == child_status,
                  'run reason contradicts status')
     _require(child_status != 0 or all(case['outcome'] == 'passed' for case in cases.values()), 'successful summary has unresolved required results')
     _require(child_status != 0 or summary['reason'] is None, 'successful summary has unresolved run reason')
@@ -164,7 +167,6 @@ def _reconcile_xsht(text, selected, *, child_status):
 def _result(runner, selected, cases, child_status, reason):
     outcomes = {case['outcome'] for case in cases.values()}
     status = (130 if child_status == 130 or 'cancelled' in outcomes else
-              2 if runner == 'xsht' and child_status == 2 else
               1 if outcomes & {'failed', 'timed_out'} or child_status == 1 else
               2 if child_status != 0 or outcomes - {'passed'} else 0)
     return {'runner': runner, 'selected': list(selected), 'cases': {name: cases[name] for name in selected},

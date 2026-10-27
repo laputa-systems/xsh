@@ -222,7 +222,9 @@ cases themselves execute in-process and have no invented child exit status.
 
 Required exact-set skips leave the scope incomplete with exit 2. Existing
 filter and single-exact skip behavior is unchanged. Failures and timeouts exit
-1; invalid selection, event output, or incomplete cleanup exits 2. SIGINT and
+1, retaining any cleanup or runner failure in the final reason when it can be
+written. Invalid selection, event output, or incomplete cleanup without an
+observed failure exits 2. SIGINT and
 SIGTERM stop admission, cancel active tests, and drain owned workers before
 exit 130. Pending tests receive terminal outcomes. A second signal aborts
 immediately and can leave a truncated stream. An in-process evaluator that

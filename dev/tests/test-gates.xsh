@@ -200,6 +200,14 @@ proc main() [fs, process, env, time, error, io] {{
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: ""})?
+  fp"{root}/tests/xsh/required.xsh".write(r"""test required { |ctx|
+  run sh -c "rmdir \"$1\"; : > \"$1\"" -- ${ctx.temp_root.display()}
+  assert false
+}
+""")
+  let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1", "cleanup_failure"], args: [],
+    env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: ""})?
   fp"{root}/tests/xsh/required.xsh".write("pure nothing() { return }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",

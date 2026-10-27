@@ -489,6 +489,50 @@ test unstarted { |_| }
     let (outcomes, summary) = reconciled_native_events(&events, 2);
     assert_eq!(outcomes["tests/cleanup.xsh::unstarted"], "not_executed");
     assert_eq!(native_event_text(native_event_field(native_event_field(&summary, "reason"), "kind")), "cleanup_failure");
+
+    fs::write(root.path().join("tests/cleanup.xsh"), r#"test interferes { |ctx| run sh -c "rmdir \"$1\"; : > \"$1\"" -- ${ctx.temp_root.display()}; assert false }
+"#).unwrap();
+    let failed_events = root.path().join("failed-cleanup.jsonl");
+    let output = Command::new(test_bin!("xsht")).args(["test", "--jobs", "1", "--events-jsonl"]).arg(&failed_events)
+        .args(["--exact-id", "tests/cleanup.xsh::interferes"]).env("TMPDIR", &temp).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let (outcomes, summary) = reconciled_native_events(&failed_events, 1);
+    assert_eq!(outcomes["tests/cleanup.xsh::interferes"], "failed");
+    assert_eq!(native_event_text(native_event_field(native_event_field(&summary, "reason"), "kind")), "cleanup_failure");
+
+    fs::write(root.path().join("tests/cleanup.xsh"), r#"test interferes { |ctx| run sh -c "rmdir \"$1\"; : > \"$1\"" -- ${ctx.temp_root.display()} }
+"#).unwrap();
+    let coverage = root.path().join("coverage-directory");
+    fs::create_dir(&coverage).unwrap();
+    let coverage_events = root.path().join("coverage-cleanup.jsonl");
+    let output = Command::new(test_bin!("xsht")).args(["test", "--jobs", "1", "--events-jsonl"]).arg(&coverage_events)
+        .args(["--exact-id", "tests/cleanup.xsh::interferes", "--cov-json"]).arg(&coverage)
+        .env("TMPDIR", &temp).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let (outcomes, summary) = reconciled_native_events(&coverage_events, 1);
+    assert_eq!(outcomes["tests/cleanup.xsh::interferes"], "passed");
+    let reason = native_event_field(&summary, "reason");
+    assert_eq!(native_event_text(native_event_field(reason, "kind")), "coverage_failure");
+    assert!(native_event_text(native_event_field(reason, "detail")).contains("cleanup"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_event_write_failure_preserves_failed_case_status() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let script = format!("test fails {{ assert false, {:?} }}\n", "x".repeat(4096));
+    fs::write(root.path().join("tests/failed.xsh"), script).unwrap();
+    let events = root.path().join("limited-events.jsonl");
+    let output = Command::new("/bin/sh")
+        .args(["-c", "ulimit -f 1; trap '' XFSZ; exec \"$@\"", "limited"])
+        .arg(test_bin!("xsht"))
+        .args(["test", "--exact-id", "tests/failed.xsh::fails", "--events-jsonl"])
+        .arg(&events).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("FAILED"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot write test events"));
+    assert!(!fs::read_to_string(events).unwrap().contains("run_finished"));
 }
 
 #[test]

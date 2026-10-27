@@ -101,14 +101,25 @@ class ResultTests(unittest.TestCase):
             self.assertEqual(results.main(), 1)
         self.assertIn('missing events', stdout.getvalue())
 
-    def test_native_cleanup_failure_takes_precedence_over_failed_case(self):
+    def test_native_failed_case_takes_precedence_while_reporting_cleanup_failure(self):
+        for status in (1, 2):
+            rows = native_rows('failed', status)
+            rows[-1]['reason'] = {'kind': 'cleanup_failure', 'detail': 'cleanup failed'}
+            result = results.reconcile_xsht(encode(rows), ['tests/a.xsh::case'], child_status=status)
+            self.assertEqual(result['status'], 1)
+            self.assertEqual(result['child_status'], status)
+            self.assertIn('cleanup_failure', results.render_report(result))
+            self.assertEqual(results.reconcile_xsht(encode(rows), ['tests/a.xsh::case'], child_status=status,
+                                                    cancelled=True)['status'], 130)
         rows = native_rows('failed', 2)
-        rows[-1]['reason'] = {'kind': 'cleanup_failure', 'detail': 'cleanup failed'}
-        result = results.reconcile_xsht(encode(rows), ['tests/a.xsh::case'], child_status=2)
-        self.assertEqual(result['status'], 2)
         rows[-1]['reason'] = None
         with self.assertRaises(results.ResultError):
             results.reconcile_xsht(encode(rows), ['tests/a.xsh::case'], child_status=2)
+        coverage = native_rows('passed', 1)
+        coverage[-1]['reason'] = {'kind': 'coverage_failure', 'detail': 'coverage failed; cleanup failure: fixture'}
+        result = results.reconcile_xsht(encode(coverage), ['tests/a.xsh::case'], child_status=1)
+        self.assertEqual(result['status'], 1)
+        self.assertIn('cleanup failure', results.render_report(result))
 
     def test_native_not_executed_cannot_follow_start(self):
         rows = native_rows('not_executed', 2)

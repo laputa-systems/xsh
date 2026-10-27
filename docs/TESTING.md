@@ -149,7 +149,9 @@ snapshot: edits reverted between observations,
 ignored and external inputs, harness preparation, and Full are not yet bound.
 Native cases reconcile XSHT events against the selected IDs and child status.
 Missing or contradictory results make a successful child incomplete; a child
-failure retains its failed status even if reconciliation is unavailable.
+failure retains its failed status even if reconciliation is unavailable. A
+failed case also retains failure precedence when cleanup or event writing fails;
+the raw status and available cleanup diagnostics remain visible.
 Prepared Cargo test harnesses list their selected tests and reconcile libtest
 events. Required ignored tests and missing or contradictory results are incomplete.
 Changes to the result reconciler, source observer, focused adapters, resource

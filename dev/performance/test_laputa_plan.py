@@ -301,17 +301,17 @@ class LaputaPlanTests(TestCase):
             on_cleanup_verified()
             return status, b'out', b'err'
 
-        for status, expected in ((0, 2), (2, 2), (1, 1), (130, 130)):
+        for status, reconciled, expected in ((0, 0, 2), (2, 0, 2), (1, 0, 1), (130, 0, 130), (2, 1, 1)):
             with self.subTest(status=status), \
                     mock.patch.object(plan, 'repository', side_effect=[(owner, owner / '.git'), (laputa, metadata)]), \
                     mock.patch.object(plan, 'snapshot', side_effect=['before-x', 'before-l', 'after-x', 'after-l']), \
                     mock.patch.object(plan, 'verify_image'), \
                     mock.patch.object(plan.check, 'checked_docker', side_effect=docker), \
-                    mock.patch.object(plan.results, 'reconcile_xsht', return_value={'status': 0}):
+                    mock.patch.object(plan.results, 'reconcile_xsht', return_value={'status': reconciled}):
                 result = plan.run(owner, laputa, xsh, xsht, scratch, 'sha256:' + 'a' * 64, lease_owner)
                 self.assertEqual(result[:2], (expected, status))
                 self.assertFalse(list(scratch.iterdir()))
-        self.assertEqual(transitions, ['acquire', 'quarantine', 'resolved', 'release'] * 4)
+        self.assertEqual(transitions, ['acquire', 'quarantine', 'resolved', 'release'] * 5)
 
     def test_json_events_reconcile_exact_scope(self):
         import json
@@ -462,6 +462,49 @@ class LaputaPlanTests(TestCase):
         rows[0]['selected'] = list(plan.IDS)
         (self.root / 'events.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
         self.assertIsNone(plan.interrupted_evidence(self.root, selected))
+
+    def test_incomplete_runner_status_keeps_observed_failed_case(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        from unittest import mock
+        import json
+        owner = self.root / 'owner'
+        scratch = owner / '.work/tmp'
+        scratch.mkdir(parents=True)
+        laputa = self.root / 'laputa'
+        laputa.mkdir()
+        xsh, xsht = self.root / 'xsh', self.root / 'xsht'
+        for path in (xsh, xsht):
+            path.write_bytes(b'product')
+            path.chmod(0o755)
+        @contextmanager
+        def lease(root, *, native):
+            yield
+        leases = SimpleNamespace(campaign_leases=lease, prepare_cleanup_unresolved=lambda detail: None,
+                                 resolve_cleanup_unresolved=lambda: None)
+        common = {'schema': 1, 'run_id': 'fixture'}
+        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS)},
+                {**common, 'event': 'case_started', 'case_id': plan.IDS[0]},
+                {**common, 'event': 'case_finished', 'case_id': plan.IDS[0], 'outcome': 'failed',
+                 'reason': {'kind': 'assertion', 'detail': 'failure'}, 'duration_ns': 1}]
+        def docker(argv, work, *, timeout_seconds, on_cleanup_verified):
+            (work / 'xsht-status').write_text('2\n')
+            (work / 'events.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows) + '{"truncated"')
+            on_cleanup_verified()
+            return 2, b'', b''
+        with mock.patch.object(plan, 'repository', side_effect=[(owner, owner / '.git'), (laputa, laputa / '.git')]), \
+                mock.patch.object(plan, 'snapshot', return_value='unchanged'), \
+                mock.patch.object(plan, 'verify_image'), mock.patch.object(plan.check, 'checked_docker', side_effect=docker):
+            self.assertEqual(plan.run(owner, laputa, xsh, xsht, scratch, 'sha256:' + 'a' * 64, leases)[:2], (1, 2))
+        with mock.patch.object(plan, 'repository', side_effect=[(owner, owner / '.git'), (laputa, laputa / '.git')]), \
+                mock.patch.object(plan, 'snapshot', side_effect=['before-x', 'before-l', OSError('source unavailable')]), \
+                mock.patch.object(plan, 'verify_image'), mock.patch.object(plan.check, 'checked_docker', side_effect=docker):
+            self.assertEqual(plan.run(owner, laputa, xsh, xsht, scratch, 'sha256:' + 'a' * 64, leases)[:2], (1, 2))
+        rows[-1].update(outcome='timed_out', reason={'kind': 'timeout', 'detail': 'limit', 'limit': '1s'})
+        with mock.patch.object(plan, 'repository', side_effect=[(owner, owner / '.git'), (laputa, laputa / '.git')]), \
+                mock.patch.object(plan, 'snapshot', return_value='unchanged'), \
+                mock.patch.object(plan, 'verify_image'), mock.patch.object(plan.check, 'checked_docker', side_effect=docker):
+            self.assertEqual(plan.run(owner, laputa, xsh, xsht, scratch, 'sha256:' + 'a' * 64, leases)[:2], (1, 2))
 
     def test_killed_container_keeps_failure_and_bare_130_is_incomplete(self):
         from contextlib import contextmanager, nullcontext

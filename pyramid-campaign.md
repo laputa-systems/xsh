@@ -114,6 +114,11 @@ are inspected across execution and reuse, and their selected libtest results
 are reconciled. Focused Linux controls cover pass, ignored, failed, missing,
 and changed-harness cases; a real nightly libtest probe confirmed pass, ignored,
 and failure outcomes. Other workload reports remain to be integrated.
+XSHT now retains status 1 for an observed case or coverage failure even when
+cleanup or final event writing also fails; the available secondary diagnostics
+remain in the event reason or stderr. The Laputa adapter can retain an exact-scope
+failed or timed-out event prefix when a final stream or source inspection is
+unavailable. Focused Rust, native gate and Python controls pass in Linux.
 
 Native discovery and exact-set execution now exchange JSON files, preserving
 newlines and avoiding argument-size limits. The file reader rejects nonregular

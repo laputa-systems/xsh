@@ -117,6 +117,8 @@ impl TestTerminal {
 enum RunCompletion {
     Success,
     CaseFailure,
+    CaseFailureWithCleanup(String),
+    CaseFailureWithRunner(String),
     CoverageFailure(String),
     CleanupFailure(String),
     RunnerFailure(String),
@@ -124,10 +126,30 @@ enum RunCompletion {
     Cancelled,
 }
 
+fn combine_run_errors(primary: &str, additional: &[(&str, Option<&str>)]) -> String {
+    let mut detail = primary.to_owned();
+    for (kind, error) in additional {
+        if let Some(error) = error { detail.push_str(&format!("; {kind}: {error}")); }
+    }
+    detail
+}
+
 impl RunCompletion {
     fn select(cancelled: bool, cleanup: Option<&str>, runner: Option<&str>, coverage: Option<&str>, failed: bool, required_skipped: bool) -> Self {
         if cancelled { Self::Cancelled }
-        else if let Some(error) = cleanup { Self::CleanupFailure(error.to_owned()) }
+        else if let Some(error) = cleanup && failed {
+            Self::CaseFailureWithCleanup(combine_run_errors(error, &[("runner failure", runner), ("coverage failure", coverage)]))
+        }
+        else if let Some(error) = runner && failed {
+            Self::CaseFailureWithRunner(combine_run_errors(error, &[("coverage failure", coverage)]))
+        }
+        else if let (Some(coverage), Some(cleanup)) = (coverage, cleanup) {
+            Self::CoverageFailure(combine_run_errors(coverage, &[("cleanup failure", Some(cleanup)), ("runner failure", runner)]))
+        }
+        else if let (Some(coverage), Some(runner)) = (coverage, runner) {
+            Self::CoverageFailure(format!("{coverage}; runner failure: {runner}"))
+        }
+        else if let Some(error) = cleanup { Self::CleanupFailure(combine_run_errors(error, &[("runner failure", runner)])) }
         else if let Some(error) = runner { Self::RunnerFailure(error.to_owned()) }
         else if let Some(error) = coverage { Self::CoverageFailure(error.to_owned()) }
         else if failed { Self::CaseFailure }
@@ -138,7 +160,7 @@ impl RunCompletion {
     fn status(&self) -> u8 {
         match self {
             Self::Success => 0,
-            Self::CaseFailure | Self::CoverageFailure(_) => 1,
+            Self::CaseFailure | Self::CaseFailureWithCleanup(_) | Self::CaseFailureWithRunner(_) | Self::CoverageFailure(_) => 1,
             Self::CleanupFailure(_) | Self::RunnerFailure(_) | Self::RequiredSkipped => 2,
             Self::Cancelled => 130,
         }
@@ -147,8 +169,8 @@ impl RunCompletion {
     fn reason(&self) -> xsh::host::json::Value {
         let (kind, detail) = match self {
             Self::CoverageFailure(error) => ("coverage_failure", error.as_str()),
-            Self::CleanupFailure(error) => ("cleanup_failure", error.as_str()),
-            Self::RunnerFailure(error) => ("runner_failure", error.as_str()),
+            Self::CleanupFailure(error) | Self::CaseFailureWithCleanup(error) => ("cleanup_failure", error.as_str()),
+            Self::RunnerFailure(error) | Self::CaseFailureWithRunner(error) => ("runner_failure", error.as_str()),
             Self::Cancelled => ("cancellation", "native test run interrupted"),
             _ => return xsh::host::json::Value::null(),
         };
@@ -285,7 +307,8 @@ impl TestRunLedger {
                 .into_iter().any(|terminal| counts[terminal as usize] != 0) => {
                     return Err("successful test summary contradicts terminal outcomes".into());
                 }
-            RunCompletion::CaseFailure if counts[TestTerminal::Failed as usize] == 0 && counts[TestTerminal::TimedOut as usize] == 0 => {
+            RunCompletion::CaseFailure | RunCompletion::CaseFailureWithCleanup(_) | RunCompletion::CaseFailureWithRunner(_)
+                if counts[TestTerminal::Failed as usize] == 0 && counts[TestTerminal::TimedOut as usize] == 0 => {
                 return Err("failed test summary has no failed or timed-out outcome".into());
             }
             _ => {}
@@ -517,6 +540,7 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut failure_details = Vec::new();
+    let mut case_failed = false;
     let mut coverage = options
         .collect_coverage()
         .then(|| CoverageCollector::with_api_and_excludes(options.api, &coverage_exclude));
@@ -533,6 +557,7 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
             TestRunEvent::Finished(id, outcome) => (id, outcome),
         };
         if let Err(error) = ledger.finish(&id, &outcome) { lifecycle_error.get_or_insert(error); }
+        case_failed |= matches!(&outcome.kind, TestOutcomeKind::Failed(_) | TestOutcomeKind::TimedOut { .. });
         if let Some(error) = &outcome.cleanup_error { cleanup_error.get_or_insert(error.clone()); }
         if let Some(output) = native_cancellation_output() { interrupted = Some(output); }
 
@@ -644,8 +669,8 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
 
     if interrupted.is_none() { interrupted = native_cancellation_output(); }
     let status_text = if interrupted.is_some() { "CANCELLED" }
-        else if lifecycle_error.is_some() || cleanup_error.is_some() { "INCOMPLETE" }
         else if failed > 0 { "FAILED" }
+        else if lifecycle_error.is_some() || cleanup_error.is_some() { "INCOMPLETE" }
         else if !options.exact_ids.is_empty() && skipped > 0 { "INCOMPLETE" }
         else { "ok" };
     stdout.push_str(&format!(
@@ -653,9 +678,9 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
     ));
 
     let completion = RunCompletion::select(interrupted.is_some(), cleanup_error.as_deref(), lifecycle_error.as_deref(),
-        coverage_error.as_deref(), failed > 0, !options.exact_ids.is_empty() && skipped > 0);
+        coverage_error.as_deref(), case_failed, !options.exact_ids.is_empty() && skipped > 0);
     let mut status = completion.status();
-    if let Err(error) = ledger.final_summary(completion, started.elapsed()) { lifecycle_error.get_or_insert(error); if status != 130 { status = 2; } }
+    if let Err(error) = ledger.final_summary(completion, started.elapsed()) { lifecycle_error.get_or_insert(error); if status != 130 && status != 1 { status = 2; } }
     let mut stderr = stderr;
     if let Some(output) = interrupted { stderr.push_str(&bytes_text_lossy(&output.stderr)); }
     for error in lifecycle_error.into_iter().chain(cleanup_error) { stderr.push_str(&format!("xsht: {error}\n")); }
@@ -2461,6 +2486,12 @@ mod tests {
         ledger.final_summary(coverage, Duration::ZERO).unwrap();
         assert!(matches!(super::RunCompletion::select(true, Some("cleanup"), None, Some("coverage"), true, true), super::RunCompletion::Cancelled));
         assert!(matches!(super::RunCompletion::select(false, None, None, None, true, true), super::RunCompletion::CaseFailure));
+        for failed in [false, true] {
+            let completion = super::RunCompletion::select(false, Some("cleanup"), Some("runner"), Some("coverage"), failed, false);
+            assert_eq!(completion.status(), 1);
+            let reason = xsh::host::json::encode(&completion.reason()).unwrap();
+            for detail in ["cleanup", "runner", "coverage"] { assert!(reason.contains(detail), "{reason}"); }
+        }
         let output = super::CliOutput { status: 143, stdout: vec![1], stderr: vec![2], trace_text: String::new(), syscall_summary: None };
         let normalized = super::normalize_native_cancellation(output);
         assert_eq!(normalized.status, 130);
