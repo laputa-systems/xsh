@@ -208,6 +208,12 @@ The explicit world host-plan scenario checks selection and mirror environment
 handling in an isolated fixture. Its adapter, selection, and selected host test
 pass, as does the Linux scenario after resource admission. The real world
 inventory remains open.
+An offline diagnostic planned the Linux root from Laputa `32db65e` with the
+historical `429f6ff` XSH seed in a disposable repository projection. The plan
+contains seven build nodes: m4, musl, xsh, llvm-toolchain, bison, flex, and
+linux. Their levels and dependency kinds match the recipe declarations and
+bootstrap policy. This single-root diagnostic does not qualify the current seed,
+the full world inventory, artifact reuse, or a package build.
 
 The `performance/json-n/correctness` gate passed its output oracle and cleanup
 checks in the replacement image, bound to the selected source and prepared
