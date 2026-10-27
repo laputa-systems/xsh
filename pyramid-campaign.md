@@ -239,6 +239,10 @@ identical receipts. After adding a newline to the copied m4 source, a second
 plan built a different m4 payload and reused the xsh receipt; both receipts
 passed store verification. Xsh is a runtime-only dependency of m4. The probe
 does not qualify a current-seed build or full-world reuse.
+A separate disposable generation from those two real recipes passed package
+ownership, the `usr/bin/sh` link, receipt, and root-content checks. Its m4
+script produced the expected output using the container's mounted verification
+XSH. The diagnostic uses the historical seed and does not prove a bootable root.
 
 The `performance/json-n/correctness` gate passed its output oracle and cleanup
 checks in the replacement image, bound to the selected source and prepared
