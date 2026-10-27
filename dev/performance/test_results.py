@@ -33,6 +33,16 @@ def encode(rows):
 
 
 class ResultTests(unittest.TestCase):
+    def test_cargo_diagnostics_reject_nonregular_input_without_blocking(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
+            fifo = Path(directory) / 'cargo.fifo'
+            os.mkfifo(fifo)
+            command = [sys.executable, '-B', str(Path(results.__file__)), '--runner', 'cargo',
+                       '--events', str(fifo), '--cargo-diagnostics']
+            outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
+            self.assertEqual(outcome.returncode, 2)
+            self.assertIn('regular file', outcome.stderr)
+
     def test_cargo_diagnostics_caps_input_and_output(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as directory:
             path = Path(directory) / 'cargo.jsonl'

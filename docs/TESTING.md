@@ -151,7 +151,8 @@ snapshot: edits reverted between observations,
 ignored and external inputs, harness preparation, and Full are not yet bound.
 Native cases reconcile XSHT events against the selected IDs and child status.
 Result and Cargo discovery event files must be regular, unlinked files no larger
-than 16 MiB. Invalid event files leave a successful child incomplete.
+than 16 MiB. Cargo diagnostic input must also be a regular, unlinked file; its
+output reads at most 2 MiB. Invalid event files leave a successful child incomplete.
 Missing or contradictory results make a successful child incomplete; a child
 failure retains its failed status even if reconciliation is unavailable. A
 failed case also retains failure precedence when the selected-ID file, cleanup,

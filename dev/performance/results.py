@@ -56,12 +56,16 @@ def _case_file(path):
     return value
 
 
-def _event_file(path):
-    limit = 16 * 1024 * 1024
+def _regular_prefix(path, limit, label):
     descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     with os.fdopen(descriptor, 'rb') as stream:
-        _require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), 'event file must be a regular file')
-        data = stream.read(limit + 1)
+        _require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), f'{label} must be a regular file')
+        return stream.read(limit + 1)
+
+
+def _event_file(path):
+    limit = 16 * 1024 * 1024
+    data = _regular_prefix(path, limit, 'event file')
     _require(len(data) <= limit, 'event file exceeds 16 MiB')
     return data.decode('utf-8')
 
@@ -287,8 +291,7 @@ def render_report(result, *, artifact=None):
 
 def cargo_diagnostics(path):
     limit = 2 * 1024 * 1024
-    with path.open('rb') as source:
-        data = source.read(limit + 1)
+    data = _regular_prefix(path, limit, 'Cargo diagnostic file')
     truncated = len(data) > limit
     data = data[:limit]
     lines = data.split(b'\n')
