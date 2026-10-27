@@ -16,6 +16,81 @@ proc capture_metadata_bytes(bundle: FsRoot, max_bytes = 2097152) [fs, error] -> 
   raw.data
 }
 
+pure capture_wire_value(value: Any) -> Result[Any] {
+  match value {
+    relative is Path => Ok(relative.display())
+    items is List[Any] => {
+      var projected: List[Any] = []
+      for item in items { projected += [capture_wire_value(item)?] }
+      Ok(projected)
+    }
+    fields is Record => {
+      var projected: Map[Any] = {}
+      for key in fields.keys() { projected = projected.set(key, capture_wire_value(fields[key])?) }
+      Ok(projected)
+    }
+    other => Ok(other)
+  }
+}
+
+pure capture_wire_text(capture: Any) -> Result[Str] {
+  json.encode(capture_wire_value(capture)?, pretty: true)
+}
+
+type CaptureWireSource = {path: Str}
+
+type CaptureWireStorage = {storage_path: Str}
+
+type CaptureWireAncestor = {source_path: Str}
+
+type CaptureWireSources = {sources: List[CaptureWireSource]}
+
+type CaptureWireSourcePathsLayout = {source_paths: List[Str]}
+
+type CaptureWireSourcePaths = {layout: CaptureWireSourcePathsLayout, sources: List[CaptureWireSource]}
+
+type CaptureWireGaugeSourcePaths = {
+  layout: CaptureWireSourcePathsLayout,
+  changing_gauges: List[Str],
+  sources: List[CaptureWireSource],
+}
+
+type CaptureWirePowerSupplyLayout = {entries: List[CaptureWireStorage], paths: List[CaptureWireSource]}
+
+type CaptureWirePowerSupply = {
+  layout: CaptureWirePowerSupplyLayout,
+  changing_sources: List[Str],
+  sources: List[CaptureWireSource],
+}
+
+type CaptureWirePowerCapLayout = {zones: List[CaptureWireStorage], source_paths: List[Str]}
+
+type CaptureWirePowerCap = {layout: CaptureWirePowerCapLayout, sources: List[CaptureWireSource]}
+
+type CaptureWireHwmonLayout = {chips: List[CaptureWireStorage], source_paths: List[Str]}
+
+type CaptureWireHwmon = {layout: CaptureWireHwmonLayout, changing_gauges: List[Str], sources: List[CaptureWireSource]}
+
+type CaptureWireThermalLayout = {zone_paths: List[Str], source_paths: List[Str]}
+
+type CaptureWireThermal = {layout: CaptureWireThermalLayout, sources: List[CaptureWireSource]}
+
+type CaptureWirePciLayout = {functions: List[CaptureWireStorage], source_paths: List[Str]}
+
+type CaptureWirePci = {layout: CaptureWirePciLayout, sources: List[CaptureWireSource]}
+
+type CaptureWireUsbLayout = {entries: List[CaptureWireStorage], source_paths: List[Str]}
+
+type CaptureWireUsb = {layout: CaptureWireUsbLayout, sources: List[CaptureWireSource]}
+
+type CaptureWireCgroup2Layout = {ancestors: List[CaptureWireAncestor], paths: List[CaptureWireSource]}
+
+type CaptureWireCgroup2 = {
+  layout: CaptureWireCgroup2Layout,
+  changing_sources: List[Str],
+  sources: List[CaptureWireSource],
+}
+
 ## Rejects a bundle whose provenance or source observations changed during replay.
 export proc require_capture_metadata_unchanged(
   bundle: FsRoot,
@@ -4799,7 +4874,7 @@ export proc capture_power_supply_bundle(
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or (item.path.ends_with("/type") and raw.state != "observed") {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (item.path.display().ends_with("/type") and raw.state != "observed") {
       complete = false
     }
 
@@ -4855,7 +4930,7 @@ export proc capture_power_supply_bundle(
     reference:,
   )
   let wire: Any = capture
-  let encoded = json.encode(wire, pretty: true)?
+  let encoded = capture_wire_text(wire)?
   if encoded.byte_len() > 4194304 {
     return Err(check_failure("power supply capture metadata exceeds its replay bound"))
   }
@@ -4863,9 +4938,23 @@ export proc capture_power_supply_bundle(
   bundle.write_atomic(p"capture.json", encoded)
 }
 
+pure decode_power_supply_capture(text: Str) -> Result[PowerSupplyBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWirePowerSupply)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      entries: [{...item, storage_path: fp"{item.storage_path}".require(RelPath)?} for item in wire.layout.entries],
+      paths: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.layout.paths],
+    },
+    changing_sources: [fp"{relative}".require(RelPath)? for relative in wire.changing_sources],
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(PowerSupplyBundleCapture)
+}
+
 ## Rejects changed power supply links, source bytes, absences, and references.
 export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[PowerSupplyBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
+  let capture = decode_power_supply_capture(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "power-supply-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -5454,13 +5543,26 @@ export proc capture_powercap_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_powercap_capture(text: Str) -> Result[PowerCapCapture] {
+  let wire = json.decode(text)?.require(CaptureWirePowerCap)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      zones: [{...item, storage_path: fp"{item.storage_path}".require(RelPath)?} for item in wire.layout.zones],
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(PowerCapCapture)
 }
 
 ## Rejects altered source identities, link topology, and raw bytes before replay.
 export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference], Error] {
   let metadata = capture_metadata_bytes(bundle)?
-  let capture = json.decode(metadata as Str)?.require(PowerCapCapture)?
+  let capture = decode_powercap_capture(metadata as Str)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "powercap-raw-v1" or ! capture.scoreable or capture.reference == null or ! capture.layout.complete {
     return Err(check_failure("powercap capture has no scoreable reference"))
   }
@@ -6466,7 +6568,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     reference:,
   )
   let wire: Any = capture
-  let encoded = json.encode(wire, pretty: true)?
+  let encoded = capture_wire_text(wire)?
   if encoded.byte_len() > 16777216 {
     return Err(check_failure("hwmon capture metadata exceeds its replay bound"))
   }
@@ -6474,9 +6576,23 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   bundle.write_atomic(p"capture.json", encoded)
 }
 
+pure decode_hwmon_capture(text: Str) -> Result[HwmonBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWireHwmon)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      chips: [{...item, storage_path: fp"{item.storage_path}".require(RelPath)?} for item in wire.layout.chips],
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    changing_gauges: [fp"{relative}".require(RelPath)? for relative in wire.changing_gauges],
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(HwmonBundleCapture)
+}
+
 ## Rejects changed class links, source bytes, absences, and independently decoded channels.
 export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(HwmonBundleCapture)?
+  let capture = decode_hwmon_capture(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "hwmon-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -7545,7 +7661,7 @@ export proc capture_cpu_set_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
 }
 
 ## Validates captured bytes and independently reparses the saved CPU-set reference.
@@ -7815,12 +7931,25 @@ export proc capture_cpufreq_bundle(
     policies:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_cpufreq_capture(text: Str) -> Result[CpuFreqBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWireGaugeSourcePaths)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    changing_gauges: [fp"{relative}".require(RelPath)? for relative in wire.changing_gauges],
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(CpuFreqBundleCapture)
 }
 
 ## Rejects changed policy directories, raw bytes, absence, and decoded references.
 export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFreqBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(CpuFreqBundleCapture)?
+  let capture = decode_cpufreq_capture(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "cpufreq-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -8207,12 +8336,24 @@ export proc capture_cpu_topology_bundle(
     topology:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_cpu_topology_capture(text: Str) -> Result[CpuTopologyBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSourcePaths)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(CpuTopologyBundleCapture)
 }
 
 ## Validates CPU set bytes, topology values, and NUMA link targets before replay.
 export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[CpuTopologyBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(CpuTopologyBundleCapture)?
+  let capture = decode_cpu_topology_capture(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "cpu-topology-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -8410,7 +8551,15 @@ export proc capture_memory_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_memory_capture(text: Str) -> Result[MemoryCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(MemoryCapture)
 }
 
 ## Requires captured bytes and the saved independent memory oracle to agree.
@@ -8420,7 +8569,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     return Err(check_failure("memory capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(MemoryCapture)?
+  let capture = decode_memory_capture(metadata.data as Str)?
   let paths = memory_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "xsh-dev-memory-raw-v1" or capture.sources.len() != paths.len() {
     return Err(check_failure("memory capture metadata has an unsupported contract"))
@@ -9082,7 +9231,7 @@ export proc capture_vulnerabilities_bundle(
     },
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
 }
 
 ## Checks the captured file set, source states, digests, and decoded descriptions.
@@ -9623,7 +9772,15 @@ export proc capture_pressure_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_pressure_capture(text: Str) -> Result[PressureCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(PressureCapture)
 }
 
 ## Verifies each saved pressure source and reparses its independently saved rows.
@@ -9633,7 +9790,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     return Err(check_failure("pressure capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(PressureCapture)?
+  let capture = decode_pressure_capture(metadata.data as Str)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "pressure-procfs-raw-v1" or capture.sources.len() != 3 or capture.reference == null {
     return Err(check_failure("pressure capture has no complete reference"))
   }
@@ -9679,7 +9836,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
 export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[PsiReferenceComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_pressure_bundle(bundle)?
-  let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
+  let capture = decode_pressure_capture(bundle.read_text(p"capture.json")?)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "memory", true)?
   if validate_pressure_bundle(bundle)? != reference {
@@ -9858,7 +10015,7 @@ export proc capture_proc_swaps_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
 }
 
 ## Requires saved bytes, source state, and the parsed device oracle to agree.
@@ -11056,7 +11213,20 @@ export proc capture_thermal_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_thermal_capture(text: Str) -> Result[ThermalCapture] {
+  let wire = json.decode(text)?.require(CaptureWireThermal)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      zone_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.zone_paths],
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(ThermalCapture)
 }
 
 ## Validates source identities, presence, byte digests, and the saved reference.
@@ -11066,7 +11236,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     return Err(check_failure("thermal capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(ThermalCapture)?
+  let capture = decode_thermal_capture(metadata.data as Str)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "thermal-raw-v1" or ! capture.scoreable or capture.reference == null or ! capture.layout.complete {
     return Err(check_failure("thermal capture has no stable scoreable reference"))
   }
@@ -11516,12 +11686,25 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     link:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_pci_capture(text: Str) -> Result[PciBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWirePci)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      functions: [{...item, storage_path: fp"{item.storage_path}".require(RelPath)?} for item in wire.layout.functions],
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(PciBundleCapture)
 }
 
 ## Rejects changed PCI links, source absence, raw bytes, and decoded identities.
 export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(PciBundleCapture)?
+  let capture = decode_pci_capture(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "pci-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -11855,12 +12038,25 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     interfaces:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_usb_capture(text: Str) -> Result[UsbBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWireUsb)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      entries: [{...item, storage_path: fp"{item.storage_path}".require(RelPath)?} for item in wire.layout.entries],
+      source_paths: [fp"{relative}".require(RelPath)? for relative in wire.layout.source_paths],
+    },
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(UsbBundleCapture)
 }
 
 ## Rejects changed USB links, source absence, descriptors, attributes, and reference values.
 export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(UsbBundleCapture)?
+  let capture = decode_usb_capture(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "usb-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -15162,17 +15358,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     reference:,
     counters:,
   )
-  let wire = {
-    ...capture,
-    layout: {
-      ...capture.layout,
-      entries: [{...entry, storage_path: entry.storage_path.display()} for entry in capture.layout.entries],
-      source_paths: [relative.display() for relative in capture.layout.source_paths],
-    },
-    changing_stats: [relative.display() for relative in capture.changing_stats],
-    sources: [{...item, path: item.path.display()} for item in capture.sources],
-  }
-  let encoded = json.encode(wire, pretty: true)?
+  let encoded = capture_wire_text(capture)?
   if encoded.byte_len() > 16777216 {
     return Err(check_failure("block capture metadata exceeds its replay bound"))
   }
@@ -15714,11 +15900,11 @@ export proc capture_mountinfo_bundle(
     reference:,
   )
   let wire: Any = capture
-  var metadata_text = json.encode(wire, pretty: true)?
+  var metadata_text = capture_wire_text(wire)?
   if metadata_text.byte_len() > 16777216 {
     capture = {...capture, reference: null}
     let reduced_wire: Any = capture
-    metadata_text = json.encode(reduced_wire, pretty: true)?
+    metadata_text = capture_wire_text(reduced_wire)?
   }
 
   bundle.write_atomic(p"capture.json", metadata_text)
@@ -16450,7 +16636,7 @@ export proc capture_kernel_modules_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
 }
 
 ## Validates saved procfs bytes before returning the independently parsed module set.
@@ -16578,7 +16764,7 @@ export proc capture_kernel_command_line_bundle(
     reference_base64:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
 }
 
 ## Requires the saved bytes to match the capture digest and exact byte reference.
@@ -16845,7 +17031,15 @@ export proc capture_kernel_parameters_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_kernel_parameters_capture(text: Str) -> Result[KernelParametersCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(KernelParametersCapture)
 }
 
 ## Validates every saved source before returning the independently decoded nine-key oracle.
@@ -16857,7 +17051,7 @@ export proc validate_kernel_parameters_bundle(
     return Err(check_failure("kernel parameter capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(KernelParametersCapture)?
+  let capture = decode_kernel_parameters_capture(metadata.data as Str)?
   let sources = kernel_parameter_sources()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "kernel-parameters-raw-v1" or ! capture.stable or capture.sources.len() != sources.len() or capture.reference == null {
     return Err(check_failure("kernel parameter capture has no stable complete reference"))
@@ -17159,7 +17353,15 @@ export proc capture_os_release_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_os_release_capture(text: Str) -> Result[OsReleaseCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(OsReleaseCapture)
 }
 
 ## Verifies every saved source before using its independently parsed release identity.
@@ -17169,7 +17371,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(OsReleaseCapture)?
+  let capture = decode_os_release_capture(metadata.data as Str)?
   let paths = os_release_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "os-release-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() {
     return Err(check_failure("os-release capture metadata has an unsupported contract"))
@@ -17500,7 +17702,15 @@ export proc capture_device_tree_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_device_tree_capture(text: Str) -> Result[DeviceTreeCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(DeviceTreeCapture)
 }
 
 ## Verifies saved source states, digests, and the decoded device-tree reference.
@@ -17510,7 +17720,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     return Err(check_failure("device-tree capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(DeviceTreeCapture)?
+  let capture = decode_device_tree_capture(metadata.data as Str)?
   let paths = device_tree_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "device-tree-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() or capture.reference == null {
     return Err(check_failure("device-tree capture has no stable complete reference"))
@@ -17699,7 +17909,15 @@ export proc capture_dmi_identity_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
+}
+
+pure decode_dmi_identity_capture(text: Str) -> Result[DmiIdentityCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(DmiIdentityCapture)
 }
 
 ## Checks DMI class source states, digests, and the saved raw-value reference.
@@ -17709,7 +17927,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     return Err(check_failure("DMI identity capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data as Str)?.require(DmiIdentityCapture)?
+  let capture = decode_dmi_identity_capture(metadata.data as Str)?
   let paths = dmi_identity_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "dmi-identity-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() or capture.reference == null {
     return Err(check_failure("DMI identity capture has no stable complete reference"))
@@ -17999,7 +18217,7 @@ export proc capture_uptime_bundle(
     reference_seconds:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
+  bundle.write_atomic(p"capture.json", capture_wire_text(wire)?)
 }
 
 ## Verifies saved uptime bytes before using the parsed whole-second oracle.
@@ -19048,7 +19266,7 @@ export proc capture_cgroup2_bundle(
     reference_resources:,
   )
   let wire: Any = capture
-  let encoded = json.encode(wire, pretty: true)?
+  let encoded = capture_wire_text(wire)?
   if encoded.byte_len() > 1048576 {
     return Err(check_failure("cgroup2 capture metadata exceeds its replay bound"))
   }
@@ -19056,9 +19274,23 @@ export proc capture_cgroup2_bundle(
   bundle.write_atomic(p"capture.json", encoded)
 }
 
+pure decode_cgroup2_capture(text: Str) -> Result[Cgroup2BundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWireCgroup2)?
+  {
+    ...wire,
+    layout: {
+      ...wire.layout,
+      ancestors: [{...item, source_path: fp"{item.source_path}".require(RelPath)?} for item in wire.layout.ancestors],
+      paths: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.layout.paths],
+    },
+    changing_sources: [fp"{relative}".require(RelPath)? for relative in wire.changing_sources],
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(Cgroup2BundleCapture)
+}
+
 ## Requires saved cgroup2 bytes, path selection, and decoded resources to agree.
 export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2BundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
+  let capture = decode_cgroup2_capture(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "cgroup2-rooted-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -19816,7 +20048,7 @@ export proc capture_process_bundle(
     resources:,
   )
   let wire: Any = capture
-  let encoded = json.encode(wire, pretty: true)?
+  let encoded = capture_wire_text(wire)?
   if encoded.byte_len() > 8388608 {
     return Err(check_failure("process capture metadata exceeds its replay bound"))
   }
@@ -19824,9 +20056,17 @@ export proc capture_process_bundle(
   bundle.write_atomic(p"capture.json", encoded)
 }
 
+pure decode_process_capture(text: Str) -> Result[ProcessBundleCapture] {
+  let wire = json.decode(text)?.require(CaptureWireSources)?
+  {
+    ...wire,
+    sources: [{...item, path: fp"{item.path}".require(RelPath)?} for item in wire.sources],
+  }.require(ProcessBundleCapture)
+}
+
 ## Rejects changed saved process bytes, PID membership, and decoded references.
 export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[ProcessBundleCapture, Error] {
-  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
+  let capture = decode_process_capture(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?
   if capture.schema_version != 1 or capture.reference_adapter != "procfs-process-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
@@ -26443,7 +26683,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_cpufreq_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuFreqBundleCapture)?
+    let capture = decode_cpufreq_capture(bundle.read_text(p"capture.json")?)?
     print f"CPUFreq raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; policies={capture.layout.policies.len()}; changing_gauges={capture.changing_gauges.len()}"
     print f"Replay with --replay-cpufreq-bundle {destination}"
     return
@@ -26489,7 +26729,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_cpu_topology_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuTopologyBundleCapture)?
+    let capture = decode_cpu_topology_capture(bundle.read_text(p"capture.json")?)?
     print f"CPU topology raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; CPUs={capture.layout.cpu_ids.len()}; node_links={capture.layout.node_links.len()}"
     print f"Replay with --replay-cpu-topology-bundle {destination}"
     return
@@ -26521,7 +26761,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_memory_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
+    let capture = decode_memory_capture(bundle.read_text(p"capture.json")?)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"memory raw capture saved at {destination}; origin=live_capture; stable={capture.stable}; scoreable={scoreable}"
     print f"Replay with --replay-memory-bundle {destination}"
@@ -26532,7 +26772,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_memory_bundle}")?
     defer bundle.close()
     let result = replay_memory_bundle(bundle)?
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
+    let capture = decode_memory_capture(bundle.read_text(p"capture.json")?)?
     let meminfo_state = if result.meminfo.exact_scored { "exact" } else { "mismatch" }
     let thp_state = if result.thp.reference_count == 0 {
       "unavailable"
@@ -26563,7 +26803,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_cgroup2_bundle(source, bundle, "live_capture")
-    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
+    let capture = decode_cgroup2_capture(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?
     print f"cgroup2 raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; ancestors={capture.layout.ancestors.len()}; resources={capture.reference_resources.len()}; changing_sources={capture.changing_sources.len()}"
     print f"Replay with --replay-cgroup2-bundle {destination}"
     return
@@ -26597,7 +26837,7 @@ export proc validate_and_run(
     defer source.close()
     let units = system.execution_units()?
     capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)
-    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
+    let capture = decode_process_capture(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?
     print f"process raw capture saved at {destination}; origin={capture.origin}; scoreable={capture.scoreable}; pids={capture.pids.len()}; skipped={capture.skipped_count}; page_size={capture.page_size_bytes}"
     print f"Replay with --replay-process-bundle {destination}"
     return
@@ -26630,7 +26870,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_power_supply_bundle(source, bundle, "live_capture")
-    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
+    let capture = decode_power_supply_capture(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?
     print f"power supply raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; supplies={capture.layout.entries.len()}; changing_sources={capture.changing_sources.len()}"
     if capture.scoreable {
       print f"Replay with --replay-power-supply-bundle {destination}"
@@ -26667,7 +26907,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_pressure_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
+    let capture = decode_pressure_capture(bundle.read_text(p"capture.json")?)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"pressure raw capture saved at {destination}; origin=live_capture; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-pressure-bundle {destination}"
@@ -26678,7 +26918,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_pressure_bundle}")?
     defer bundle.close()
     let result = replay_pressure_bundle(bundle)?
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
+    let capture = decode_pressure_capture(bundle.read_text(p"capture.json")?)?
     let state = if result.exact_scored { "exact" } else { "mismatch" }
     print f"pressure raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.mismatched_fields.len()}"
     if ! result.exact_scored {
@@ -26737,7 +26977,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_os_release_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
+    let capture = decode_os_release_capture(bundle.read_text(p"capture.json")?)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"os-release raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; selected={capture.selected_path}"
     print f"Replay with --replay-os-release-bundle {destination}"
@@ -26748,7 +26988,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_os_release_bundle}")?
     defer bundle.close()
     let result = replay_os_release_bundle(bundle)?
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
+    let capture = decode_os_release_capture(bundle.read_text(p"capture.json")?)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"os-release raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; selected={capture.selected_path}"
     if ! result.exact {
@@ -26808,7 +27048,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_dmi_identity_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
+    let capture = decode_dmi_identity_capture(bundle.read_text(p"capture.json")?)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"DMI identity raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-dmi-identity-bundle {destination}"
@@ -26819,7 +27059,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_dmi_identity_bundle}")?
     defer bundle.close()
     let result = replay_dmi_identity_bundle(bundle)?
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
+    let capture = decode_dmi_identity_capture(bundle.read_text(p"capture.json")?)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"DMI identity raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; mismatched={result.sensitive.field_mismatches.len()}; unstable={result.sensitive.unstable_fields.len()}; default_redacted={result.default_redacted}"
     if ! result.exact {
@@ -26843,7 +27083,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_device_tree_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
+    let capture = decode_device_tree_capture(bundle.read_text(p"capture.json")?)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"device-tree raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-device-tree-bundle {destination}"
@@ -26854,7 +27094,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_device_tree_bundle}")?
     defer bundle.close()
     let result = replay_device_tree_bundle(bundle)?
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
+    let capture = decode_device_tree_capture(bundle.read_text(p"capture.json")?)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"device-tree raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; source={result.source_exact}; model={result.model_exact}; compatible={result.compatible_exact}"
     if ! result.exact {
@@ -27018,7 +27258,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_kernel_parameters_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
+    let capture = decode_kernel_parameters_capture(bundle.read_text(p"capture.json")?)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"kernel parameter raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-kernel-parameters-bundle {destination}"
@@ -27029,7 +27269,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_kernel_parameters_bundle}")?
     defer bundle.close()
     let result = replay_kernel_parameters_bundle(bundle)?
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
+    let capture = decode_kernel_parameters_capture(bundle.read_text(p"capture.json")?)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"kernel parameter raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}"
     if ! result.exact {
@@ -27053,7 +27293,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_thermal_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ThermalCapture)?
+    let capture = decode_thermal_capture(bundle.read_text(p"capture.json")?)?
     print f"thermal raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-thermal-bundle {destination}"
     return
@@ -27086,7 +27326,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_hwmon_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(HwmonBundleCapture)?
+    let capture = decode_hwmon_capture(bundle.read_text(p"capture.json")?)?
     print f"hwmon raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; chips={capture.layout.chips.len()}; changing_gauges={capture.changing_gauges.len()}"
     print f"Replay with --replay-hwmon-bundle {destination}"
     return
@@ -27163,7 +27403,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_powercap_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PowerCapCapture)?
+    let capture = decode_powercap_capture(bundle.read_text(p"capture.json")?)?
     print f"powercap raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-powercap-bundle {destination}"
     return
@@ -27196,7 +27436,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_pci_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PciBundleCapture)?
+    let capture = decode_pci_capture(bundle.read_text(p"capture.json")?)?
     print f"PCI raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; functions={capture.layout.functions.len()}"
     print f"Replay with --replay-pci-bundle {destination}"
     return
@@ -27237,7 +27477,7 @@ export proc validate_and_run(
     let source = fs.open_root(/)?
     defer source.close()
     capture_usb_bundle(source, bundle, "live_capture")
-    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UsbBundleCapture)?
+    let capture = decode_usb_capture(bundle.read_text(p"capture.json")?)?
     print f"USB raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; entries={capture.layout.entries.len()}"
     print f"Replay with --replay-usb-bundle {destination}"
     return
