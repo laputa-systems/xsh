@@ -345,10 +345,14 @@ class HarnessTests(unittest.TestCase):
         pid_path = self.root / 'escaped.pid'
         child = "import os,pathlib,signal,sys; os.setsid(); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); signal.pause()"
         parent = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]); time.sleep(.2); sys.exit(1)"
+        callbacks = []
         try:
             with self.assertRaisesRegex(RuntimeError, 'cleanup unresolved') as failure:
-                invoke([sys.executable, '-c', parent, child, str(pid_path)], work, {}, 0.5)
+                invoke([sys.executable, '-c', parent, child, str(pid_path)], work, {}, 0.5,
+                       on_launch=lambda: callbacks.append('launch'),
+                       on_cleanup_verified=lambda: callbacks.append('cleanup'))
             self.assertEqual(failure.exception.child_status, 1)
+            self.assertEqual(callbacks, ['launch'])
         finally:
             if pid_path.exists():
                 os.kill(int(pid_path.read_text()), signal.SIGKILL)
