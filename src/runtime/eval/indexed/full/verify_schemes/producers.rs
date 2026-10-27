@@ -3871,10 +3871,11 @@ impl<'a> ProducerProof<'a> {
                 self.budget.charge_clone(&callable.sig.return_ty)?;
                 Some((*callable.sig.return_ty).clone())
             }
-            schema::ExprView::DynamicCall { callee, .. } => {
-                let Some((_, _, callable)) = self.module_callable(decoder, callee.raw() as usize)? else { return Ok(None) };
-                Some(*callable.sig.return_ty)
-            }
+            schema::ExprView::DynamicCall { callee, .. } => match self.module_callable(decoder, callee.raw() as usize)? {
+                Some((_, _, callable)) => Some(*callable.sig.return_ty),
+                None if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).is_ok() => return Ok(None),
+                None => Some(Type::Any),
+            },
 
             schema::ExprView::Index { base, index, .. } => {
                 if let Some(base) = self.need_context(decoder, base.raw() as usize)? {
