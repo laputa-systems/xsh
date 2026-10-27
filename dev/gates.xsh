@@ -643,7 +643,11 @@ const focused_core_workloads = [
   {id: "performance/core-sort-medium/correctness", name: "core-sort-medium"},
   {id: "performance/core-sort-large/correctness", name: "core-sort-large"},
   {id: "performance/core-traversal-small/correctness", name: "core-traversal-small"},
+  {id: "performance/core-traversal-medium/correctness", name: "core-traversal-medium"},
+  {id: "performance/core-traversal-large/correctness", name: "core-traversal-large"},
   {id: "performance/core-awk-small/correctness", name: "core-awk-small"},
+  {id: "performance/core-awk-medium/correctness", name: "core-awk-medium"},
+  {id: "performance/core-awk-large/correctness", name: "core-awk-large"},
 ]
 const tokei_scenario_case_id = "showcase/tokei/uutils-rust-correctness"
 const constraint_solver_case_id = "compiler/constraint-solver/correctness"

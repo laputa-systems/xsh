@@ -81,6 +81,10 @@ Explicit small sort, traversal, and AWK scenarios also pass their exact output
 oracles in Linux. The medium sort scenario passes as well; two large-sort
 attempts stopped before execution because resource admission was unavailable.
 Their pressure diagnostics are incomplete, and performance remains unmeasured.
+Medium and large AWK and traversal scenarios are registered. Their exact output
+oracles pass in a bounded host diagnostic; the medium AWK Linux gate stopped
+before execution when resource admission was unavailable. The other new Linux
+scenarios remain unverified.
 The pipeline fixture's trace emits segment completions without helper-start
 events. The reader reconciles them against explicitly declared segment counts
 and rejects incomplete or mixed traces. The Linux scenario checks exact output

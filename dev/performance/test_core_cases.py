@@ -27,7 +27,7 @@ class CoreCasesTests(unittest.TestCase):
 
     def test_focused_cases_bind_and_recheck_generated_inputs(self):
         config = SimpleNamespace(source_root=core_cases.SOURCE_ROOT, fixtures=self.fixtures)
-        for name in ('core-wc-small', 'core-wc-medium', 'core-wc-large', 'core-sort-small', 'core-sort-medium', 'core-sort-large', 'core-traversal-small', 'core-awk-small'):
+        for name in ('core-wc-small', 'core-wc-medium', 'core-wc-large', 'core-sort-small', 'core-sort-medium', 'core-sort-large', 'core-traversal-small', 'core-traversal-medium', 'core-traversal-large', 'core-awk-small', 'core-awk-medium', 'core-awk-large'):
             with self.subTest(name=name):
                 expected = self.prepare(name)
                 case, root, snapshot, owner = focused._case(config, name)
@@ -191,13 +191,13 @@ class CoreCasesTests(unittest.TestCase):
         self.assertEqual([int(row.split(b'\t')[1]) for row in output], list(range(256)))
 
     def test_awk_oracle_observes_all_records_and_array_groups(self):
-        case = self.prepare('core-awk-small')
+        case = self.prepare('core-awk-small', 'core-awk-medium', 'core-awk-large')
         self.assertEqual(case.expected_stdout, b'256 32640 20 19\n')
         self.assertIn('groups[$3]++', case.arguments[0])
         self.assertIn('NR', case.arguments[0])
 
     def test_traversal_oracle_requires_hidden_entries_metadata_and_unfollowed_links(self):
-        case = self.prepare('core-traversal-small')
+        case = self.prepare('core-traversal-small', 'core-traversal-medium', 'core-traversal-large')
         self.assertIn(b'.hidden-0001/file 000016.txt\tfile\t11\n', case.expected_stdout)
         self.assertIn(b'link-parent\tlink\t-\n', case.expected_stdout)
         self.assertIn(b'link-dangling\tlink\t-\n', case.expected_stdout)
@@ -212,7 +212,7 @@ class CoreCasesTests(unittest.TestCase):
         self.assertEqual(core_cases.work_counts(case), {'completed_pipelines': 2, 'subprocess_starts': 4, 'completed_records': 2})
 
     def test_corrupt_inputs_or_oracles_and_extra_cleanup_artifacts_reject(self):
-        case = self.prepare('core-awk-small')
+        case = self.prepare('core-awk-small', 'core-awk-medium', 'core-awk-large')
         root = self.fixtures / case.name
         with self.assertRaisesRegex(ValueError, 'descriptor'):
             core_cases.validate_case(replace(case, expected_stdout=b'wrong\n'), fixtures=self.fixtures)
@@ -225,7 +225,7 @@ class CoreCasesTests(unittest.TestCase):
             core_cases.validate_case(empty, fixtures=self.fixtures)
 
     def test_changed_links_and_linked_fixture_parents_reject(self):
-        case = self.prepare('core-traversal-small')
+        case = self.prepare('core-traversal-small', 'core-traversal-medium', 'core-traversal-large')
         link = self.fixtures / case.name / 'tree/link-parent'
         link.unlink()
         link.symlink_to(self.fixtures)
