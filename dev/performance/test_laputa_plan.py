@@ -112,6 +112,8 @@ class LaputaPlanTests(TestCase):
             [argv[i + 1] for i, arg in enumerate(argv) if arg == '--exact-id'],
             [
                 'packages/linux/tests/main.xsh::test_kbuild_plans_x86_efi_stub_objects',
+                'packages/linux/tests/main.xsh::test_kbuild_archive_plan_cache_binds_efi_stub_helper',
+                'tests/pm/linux_recipe.xsh::test_linux_x86_efi_stubcopy_rejects_absolute_relocations',
                 'packages/linux/tests/main.xsh::test_kbuild_local_record_graph_matches_default',
                 'packages/linux/tests/main.xsh::test_kbuild_worker_records_bind_included_inputs',
                 'packages/linux/tests/main.xsh::test_kbuild_local_record_cache_reuses_and_invalidates',

@@ -136,9 +136,9 @@ qualified Linux image. Broader world coverage remains open.
 The catalogue also exposes the existing synthetic Kbuild discovery test as an
 explicit Laputa scenario. Its adapter and host selection controls pass, and its
 selected test passed through the qualified Linux image.
-The Kbuild graph-cache scenario now selects nineteen isolated graph parity, cache
+The Kbuild graph-cache scenario now selects twenty-one isolated graph parity, cache
 invalidation, EFI stub, plan-output, and selected-closure tests.
-All nineteen pass in the replacement Linux image after resource admission,
+All twenty-one pass in the replacement Linux image after resource admission,
 including the archive-plan and parallel snapshot controls.
 The closure regression exposed a stale dependent after an upstream rebuild;
 the scheduler now reruns declared dependents when a dependency ran. Its host
@@ -165,9 +165,12 @@ sources, and no duplicate outputs. The planner now represents x86 EFI stub
 objects as source compilation followed by the existing objcopy task; a
 two-task `gop.stub.o` closure built, reused unchanged outputs, and rebuilt both
 outputs after a controlled source edit. Its stub matched the pinned objcopy
-transformation. The probe bypassed the full package staging context and has no
-independent complete-inventory oracle. The existing EFI copy helper also lacks
-upstream's absolute-relocation rejection; these remain unqualified.
+transformation. The EFI copy helper now checks the stripped object's relocations
+before copying and binds its digest into both the plan cache and task signature.
+With pinned LLVM, a relative relocation was accepted and an absolute relocation
+was rejected without changing the existing output. The probe bypassed the full
+package staging context and has no independent complete-inventory oracle;
+those remain unqualified.
 The local scan-record cache now uses format `linux-local-records-v4`, so records
 created by the old planner are rebuilt instead of reused.
 Compile-flag caches and discovered-plan fingerprints are likewise versioned
