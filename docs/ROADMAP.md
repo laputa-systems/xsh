@@ -78,6 +78,11 @@ dependencies without updating `tests/pm/repository_keys.xsh` and
 `tests/system/profile.xsh`. Criterion 3 still needs release products and
 recipes that rebuild rather than reuse cached artifacts.
 
-Criterion 2 is not yet met: the combined run must be repeated on the final
-candidate, privileged and including the private-namespace lane.
+Criterion 2 is met for candidate `b268b5007`. A privileged combined run on
+`8d7330542`, whose products and tests are identical to the candidate's, passed
+14,588 tests with 151 skips and one incomplete; the private-namespace lane on
+the same products passed 72 of 72. The incomplete gate test saw commits land on
+the checkout during the run and passes on a quiet tree. Of the skips, 72 are the
+lane's tests; the other 79 need root, external network or TLS fixtures, or
+tools absent from the image.
 
