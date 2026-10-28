@@ -659,3 +659,32 @@ print "discarded"
     stderr: ["[check.ignored-result]", "ignored `Int` value"],
   )?
 }
+
+test test_full_inference_empty_pure_body_is_a_generic_unit_function { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure noop(value) { }
+pure sweep(items, callback) { for item in items { callback(item) }; items.len() }
+let first: Unit = noop(1)
+let second: Unit = noop("text")
+noop([true])
+assert sweep([1, 2, 3], noop) == 3
+assert sweep(["a"], noop) == 1
+print "empty"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "empty\n"
+  test.expect(
+    ctx,
+    "pure missing(value) -> Int { }\nlet rejected = missing(1)\n",
+    status: 2,
+    stderr: ["[check.missing-return]"],
+  )?
+  test.expect(
+    ctx,
+    "pure noop(value) { }\nlet rejected: Int = noop(1)\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "found Unit"],
+  )?
+}

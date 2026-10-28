@@ -3202,6 +3202,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() + facts.noncompleting_expressions().len() { return self.block_scheme_lowering(block); }
             return Some((body, lowered_types, BTreeMap::new()));
         }
+        if statements.is_empty() && facts.scheme().kind() == CallableKind::Pure {
+            let value = push_build_row!(self, expr, BuildExprRow::Unit);
+            lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+            let (returned, _) = self.lower_scheme_completion_return(value, self.program.arena.span(block_data.span),
+                ResourceTransferSite::BlockValue(block), None, facts, &mut lowered_types)?;
+            if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() + facts.noncompleting_expressions().len() { return self.block_scheme_lowering(block); }
+            return Some((vec![returned], lowered_types, BTreeMap::new()));
+        }
         let (&tail, prefix) = statements.split_last()?;
         if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
             && (matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })

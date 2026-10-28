@@ -48,7 +48,7 @@ pub(super) fn supports_generalized_body(
     if !program.arena.block_params(block.params).iter().all(|parameter| parameter.name.as_str() == "_" || bindings.declaration_sites.get(&(program.arena.span(parameter.span), parameter.name)).is_some_and(|binding| parameters.contains(binding))) { return false; }
     let statements = program.arena.stmt_ids(block.statements).map(|statement| program.arena.core_stmt_id(statement)).collect::<Vec<_>>();
     let Some((&tail, prefix)) = statements.split_last() else {
-        return matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer)
+        return matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer | BodyCompletion::Function)
             || owner_kind == crate::sema::types::CallableKind::Proc && matches!(completion, BodyCompletion::Procedure);
     };
     let mut available = parameters.clone();

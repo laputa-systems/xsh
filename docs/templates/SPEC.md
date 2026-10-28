@@ -3650,6 +3650,9 @@ rejected at the call with `check.callable-mismatch`. A `pure` callback that
 returns `Unit` is therefore not accepted by a `proc` body's statement call;
 discard any callback value explicitly with `let _ = callback(value)`.
 
+An empty `pure` body returns `Unit` whether or not the callable is quantified:
+`pure noop(value) { }` accepts any argument and is a valid `Unit` callback.
+
 When an inferred proc completion has outer type `Result[T, Error]`, a
 propagated non-Error payload becomes a structured `Error` with kind
 `propagated`. Text and scalar payloads supply its message; other payloads
