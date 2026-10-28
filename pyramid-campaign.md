@@ -1,6 +1,24 @@
 # Scoped verification across XSH and Laputa
 
-Status: paused 2026-10-27. Resume: “Resume Pyramid, then inference, then Lean.”
+Status: resumed 2026-10-28 on `master` while the G0 candidate is qualified
+separately from its own pinned checkout; see [G0](docs/ROADMAP.md#g0-release-candidate).
+The 2026-10-27 pause notes below remain the starting inventory.
+
+Finish line. Pyramid closes when all of these hold, and the rest of the design
+reference is out of scope unless a listed item needs it:
+
+1. Every catalogue Change case completes on clean `master` in the pinned
+   Linux image, with no incomplete or timeout caused by the harness itself.
+2. Every parked branch and worktree below has been integrated, ported by path,
+   or deleted, with the decision recorded here.
+3. Each workload family in Acceptance has a correctness-qualified case with an
+   exact oracle, run through the gate.
+4. P0 references are pinned and P0 timing, memory and size baselines are
+   recorded in a quiet measurement window. Timing gates may stay deferred
+   while the host is busy, but that leaves this item open.
+5. The Close row of Acceptance passes, including an independent review.
+
+Paused 2026-10-27. Resume: “Resume Pyramid, then inference, then Lean.”
 First command: `codex-campaign-closeout.py cancel`.
 Last accepted code revision: `75240d4f1`; selected checks were green, but P0
 and campaign acceptance remain open and time gates were deferred: host busy.
