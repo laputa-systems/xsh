@@ -6,7 +6,7 @@ instructions, and open items.
 | # | Campaign or milestone | Status | Live doc | Next step or reason |
 |---|---|---|---|---|
 | 1 | G0 release candidate | done | [G0](#g0-release-candidate) | Tagged `xsh-g0-rc1` at `b268b5007`. |
-| 2 | Pyramid: scoped verification | active | [pyramid-campaign.md](../pyramid-campaign.md) | Record the P0 baselines in a quiet window, then close after the independent review. |
+| 2 | Pyramid: scoped verification | active | [pyramid-campaign.md](../pyramid-campaign.md) | Record the P0 timing, memory and size baselines in a quiet window; that is the last open item. |
 | 3 | Inference: general type, row, and effect inference | active | [full-inference-campaign.md](../full-inference-campaign.md) | Close the two open G3 items, then reduce annotations in G4. |
 | 4 | Lean: connected compiler proof | paused | [xsh-lean.md](../xsh-lean.md) | Paused by the owner on 2026-10-15. Resumes only on an explicit order, after the source freeze. |
 | 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |

@@ -2,8 +2,10 @@
 
 **Status:** active on `master`, resumed 2026-10-28. Finish-line items 1 to 3 are
 complete. Item 4 (P0 baselines) is open and needs a quiet measurement window.
-Item 5 (Close) is in progress: the independent reviews of 2026-10-28 found no P1,
-and every P2 and the P3s they listed are fixed on `master`.
+Item 5 (Close) is met except for its performance, memory and size record, which
+comes from item 4. The independent reviews of 2026-10-28 found no P1. Every P2,
+and the P3s they listed, is fixed on `master`, and the final review of the
+fixes left no P1 or P2. The campaign closes when item 4 is recorded.
 
 Review findings and their fixes:
 - partial lane exclusion was silent: `8b596e5ae`, `26e941fb7`;
