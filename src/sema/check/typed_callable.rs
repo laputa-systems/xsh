@@ -466,9 +466,11 @@ impl Checker {
             effect_declaration: None, definition_target: None, instantiation: None,
         };
         let mut invocation = None;
+        let mut rejected_in_pure = false;
         if !(callable.kind == crate::sema::types::CallableKind::Pure) {
             if self.boundary.in_pure {
                 self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
+                rejected_in_pure = true;
             } else { invocation = self.check_function_invocation_effects(&contract, &name, span); }
         }
         if !self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument, None) {
@@ -476,6 +478,10 @@ impl Checker {
             return Type::Invalid;
         }
         if !(callable.kind == crate::sema::types::CallableKind::Pure) { self.invalidate_mutable_narrowings(); }
+        if rejected_in_pure {
+            self.reject_invocation_return(None, &contract.effects, span);
+            return Type::Invalid;
+        }
         self.record_invocation_propagation(&contract.effects, &return_ty, span, invocation);
         return_ty
     }

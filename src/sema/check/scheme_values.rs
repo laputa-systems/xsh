@@ -136,13 +136,18 @@ impl Checker {
         self.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite::call(span), id);
         let scheme = relationship.canonical().scheme();
         let contract = self.scheme_call_contract(scheme, None, None, span);
+        let rejected_in_pure = scheme.kind() != CallableKind::Pure && self.boundary.in_pure;
         let invocation = if scheme.kind() == CallableKind::Pure { None }
-            else if self.boundary.in_pure {
+            else if rejected_in_pure {
                 self.error(span, "effectful callable value is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
                 None
             } else { self.check_function_invocation_effects(&contract, "callable value", span) };
         if !self.check_function_contract_arguments_arena(program, source, arguments, &contract, span, checked_argument, expected_context) {
             self.reject_invocation_return(invocation, &contract.effects, span);
+            return Type::Invalid;
+        }
+        if rejected_in_pure {
+            self.reject_invocation_return(None, &contract.effects, span);
             return Type::Invalid;
         }
         self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);

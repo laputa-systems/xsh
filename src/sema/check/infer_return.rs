@@ -364,7 +364,7 @@ impl Checker {
                     });
                 }
                 let ty = inferred.unwrap_or(Type::Unknown);
-                let ty = if return_type_is_concrete(&ty) {
+                let ty = if return_type_is_concrete(&ty) || ty == Type::Invalid {
                     ty
                 } else {
                     self.error(

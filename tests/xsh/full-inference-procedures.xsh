@@ -422,3 +422,19 @@ print $result
   assert output.success, output.stderr
   assert output.stdout == "input\n"
 }
+
+test test_full_inference_pure_effect_rejection_reports_one_diagnostic { |ctx|
+  let cases = [
+    {name: "inferred proc", source: "proc log(value: Str) { print $value }\npure relay(value: Str) { log(value) }\n"},
+    {name: "inferred proc from a generic caller", source: "proc log(value: Str) { print $value }\npure relay(value) { log(value) }\n"},
+    {name: "generic inferred proc", source: "proc log(value) { print $value }\npure relay(value: Str) { log(value) }\n"},
+    {name: "inferred stream", source: "stream numbers(items: List[Int]) { for item in items { yield item } }\npure relay(items: List[Int]) { numbers(items) }\n"},
+    {name: "alias of a proc", source: "proc log(value: Str) { print $value }\nlet alias = log\npure relay(value: Str) { alias(value) }\n"},
+  ]
+  for {name, source} in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, name
+    assert "err[check.pure-effect]" in output.stderr, f"{name}: {output.stderr}"
+    assert output.stderr.split("err[").len() == 2, f"{name}: {output.stderr}"
+  }
+}

@@ -704,15 +704,16 @@ impl Checker {
                 &generalized_body_types, &constructor_producers, &noncompleting_expressions, &self.result_constructors, &self.collect_yields, value,
             )) {
                 let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
-                let reported = self.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
-                        && diagnostic.message == message
-                        && diagnostic
-                            .labels
-                            .iter()
-                            .any(|label| label.span == body_span)
+                let body_rejected = self.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.severity == crate::diagnostic::Severity::Error
+                        && diagnostic.labels.iter().any(|label| {
+                            label.style == crate::diagnostic::LabelStyle::Primary
+                                && label.span.source_id == body_span.source_id
+                                && body_span.start() <= label.span.start()
+                                && label.span.end() <= body_span.end()
+                        })
                 });
-                if !reported {
+                if !body_rejected {
                     self.error(body_span, message, DiagnosticCode::CheckLocalInference);
                 }
                 return None;

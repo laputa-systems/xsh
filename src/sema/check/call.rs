@@ -396,6 +396,7 @@ impl Checker {
                     .method_call = true;
             }
             let mut invocation = None;
+            let mut rejected_in_pure = false;
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 if self.boundary.in_pure {
                     self.error(
@@ -403,6 +404,7 @@ impl Checker {
                         "effectful proc is not allowed in pure functions",
                         DiagnosticCode::CheckPureEffect,
                     );
+                    rejected_in_pure = true;
                 } else {
                     invocation = self.check_function_invocation_effects(
                         &contract,
@@ -420,7 +422,11 @@ impl Checker {
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 self.invalidate_mutable_narrowings();
             }
-            self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
+            if rejected_in_pure {
+            self.reject_invocation_return(None, &contract.effects, span);
+            return Type::Invalid;
+        }
+        self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
             return contract.return_ty;
         }
 
@@ -474,12 +480,14 @@ impl Checker {
             {
                 self.record_function_call_target(span, sig.definition_target);
                 let mut invocation = None;
+                let mut rejected_in_pure = false;
                 if self.boundary.in_pure {
                     self.error(
                         span,
                         "effectful proc is not allowed in pure functions",
                         DiagnosticCode::CheckPureEffect,
                     );
+                    rejected_in_pure = true;
                 } else {
                     invocation = self.check_function_invocation_effects(
                         &sig,
@@ -494,7 +502,11 @@ impl Checker {
                     return Type::Invalid;
                 }
                 self.invalidate_mutable_narrowings();
-                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
+                if rejected_in_pure {
+            self.reject_invocation_return(None, &sig.effects, span);
+            return Type::Invalid;
+        }
+        self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.pures.get(&name).copied()
@@ -515,12 +527,14 @@ impl Checker {
             {
                 self.record_function_call_target(span, sig.definition_target);
                 let mut invocation = None;
+                let mut rejected_in_pure = false;
                 if self.boundary.in_pure {
                     self.error(
                         span,
                         "stream producer is not allowed in pure functions",
                         DiagnosticCode::CheckPureEffect,
                     );
+                    rejected_in_pure = true;
                 } else {
                     invocation = self.check_function_invocation_effects(
                         &sig,
@@ -534,7 +548,11 @@ impl Checker {
                     self.reject_invocation_return(invocation, &sig.effects, span);
                     return Type::Invalid;
                 }
-                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
+                if rejected_in_pure {
+            self.reject_invocation_return(None, &sig.effects, span);
+            return Type::Invalid;
+        }
+        self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
             if (self.procs.contains_key(&name) || self.pures.contains_key(&name) || self.streams.contains_key(&name))
@@ -699,12 +717,14 @@ impl Checker {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
                     let mut invocation = None;
+                    let mut rejected_in_pure = false;
                     if self.boundary.in_pure {
                         self.error(
                             span,
                             "effectful proc is not allowed in pure functions",
                             DiagnosticCode::CheckPureEffect,
                         );
+                        rejected_in_pure = true;
                     } else {
                         invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
@@ -714,7 +734,11 @@ impl Checker {
                         self.reject_invocation_return(invocation, &contract.effects, span);
                         return Type::Invalid;
                     }
-                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
+                    if rejected_in_pure {
+            self.reject_invocation_return(None, &contract.effects, span);
+            return Type::Invalid;
+        }
+        self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -723,12 +747,14 @@ impl Checker {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
                     let mut invocation = None;
+                    let mut rejected_in_pure = false;
                     if self.boundary.in_pure {
                         self.error(
                             span,
                             "stream producer is not allowed in pure functions",
                             DiagnosticCode::CheckPureEffect,
                         );
+                        rejected_in_pure = true;
                     } else {
                         invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
@@ -738,7 +764,11 @@ impl Checker {
                         self.reject_invocation_return(invocation, &contract.effects, span);
                         return Type::Invalid;
                     }
-                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
+                    if rejected_in_pure {
+            self.reject_invocation_return(None, &contract.effects, span);
+            return Type::Invalid;
+        }
+        self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
                 if module == "Path" {
