@@ -97,7 +97,7 @@ checkout while the other tests run. `core/cat/external-consumers` and
 two reruns; no tracked or untracked file differed afterward, and the cause is
 unknown. Repairs: native cases run as the host user, tests the unprivileged lane
 cannot run are declared in `dev/gate_lane.xsh` and run by the explicit
-`lane/privileged-native` scenario, and corpus-wide checks (core suite, desugar
+`lane/root-native` and `lane/namespace-native` scenarios, and corpus-wide checks (core suite, desugar
 corpus, lint-format corpus, `test-awk.xsh`, `test-gnu-sort.xsh`) are Scenario
 cases. Timings were taken at host load 14 to 123, never idle.
 

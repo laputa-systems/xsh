@@ -1,9 +1,9 @@
-##! Native tests the unprivileged Linux gate lane cannot run, and the privileged case that runs the ones a container can.
+##! Native tests the unprivileged Linux gate lane cannot run, and the two scenarios that run the ones a container can.
 
 ## Tests outside every gate lane, grouped by what each lacks.
 export type Exclusion = {missing: Str, tests: List[Str]}
 
-## Tests that need root in the default container; they skip for the unprivileged native user.
+## Tests that need root in the default container; lane/root-native runs them.
 export const root_tests = [
   "core/tests/test-chown.xsh::test_chown_recursive_physical_changes_link_while_logical_changes_referent",
   "core/tests/test-chown.xsh::test_chown_recursive_preserves_non_utf8_child_names",
@@ -33,7 +33,7 @@ export const root_tests = [
   "tests/xsh/stdlib/unix_process.xsh::test_unix_identity_does_not_require_a_group_database",
 ]
 
-## Tests that need user, mount or PID namespaces, which the default seccomp profile and /proc masking refuse.
+## Tests that need user namespaces, which Docker's default seccomp profile refuses; lane/namespace-native runs them.
 export const namespace_tests = [
   "core/tests/test-arp.xsh::test_arp_lists_resolved_pending_and_permanent_entries",
   "core/tests/test-arp.xsh::test_arp_rejects_bad_set_and_delete_forms",
@@ -85,14 +85,11 @@ export const namespace_tests = [
   "core/tests/test-syslog-libc.xsh::test_a_musl_syslog_client_is_recorded_with_its_tag_pid_facility_and_severity",
   "core/tests/test-syslog-libc.xsh::test_a_stalled_receiver_blocks_a_musl_client_which_then_loses_nothing",
   "core/tests/test-syslog-libc.xsh::test_multiline_and_quoted_libc_messages_stay_on_one_escaped_line",
-  "core/tests/test-syslog-libc.xsh::test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials",
   "core/tests/test-unshare.xsh::test_unshare_command_arguments_stay_separate",
   "core/tests/test-unshare.xsh::test_unshare_creates_the_namespace_each_flag_names",
   "core/tests/test-unshare.xsh::test_unshare_fork_makes_the_command_the_first_process_of_a_pid_namespace",
   "core/tests/test-unshare.xsh::test_unshare_leaves_other_namespaces_alone",
   "core/tests/test-unshare.xsh::test_unshare_map_root_user_makes_the_caller_root",
-  "core/tests/test-unshare.xsh::test_unshare_mount_proc_accepts_a_directory",
-  "core/tests/test-unshare.xsh::test_unshare_mount_proc_shows_the_new_pid_namespace",
   "core/tests/test-unshare.xsh::test_unshare_propagation_marks_the_new_mount_tree",
   "core/tests/test-unshare.xsh::test_unshare_relays_the_exit_status_of_the_command",
   "core/tests/test-unshare.xsh::test_unshare_repeats_a_signal_death_of_the_command",
@@ -106,11 +103,16 @@ export const namespace_tests = [
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_run_in_namespaces_joins_namespace_files_in_order",
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_run_in_namespaces_maps_the_caller_to_root",
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_run_in_namespaces_unshares_each_kind",
-  "tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace",
 ]
 
 ## Tests no gate lane can run: the lane lacks a service, resource, platform or the skip outcome is the subject.
 export const lane_exclusions: List[Exclusion] = [
+  Exclusion(missing: "an unmasked /proc or CAP_SYS_ADMIN in the initial user namespace, which no confined gate container grants", tests: [
+    "core/tests/test-syslog-libc.xsh::test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials",
+    "core/tests/test-unshare.xsh::test_unshare_mount_proc_accepts_a_directory",
+    "core/tests/test-unshare.xsh::test_unshare_mount_proc_shows_the_new_pid_namespace",
+    "tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace",
+  ]),
   Exclusion(missing: "a host resource the container lacks", tests: [
     "core/tests/test-basename.xsh::test_basename_runs_as_executable_shebang_script",
     "core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports",

@@ -1168,32 +1168,36 @@ test test_lane_scope_tables_name_declared_tests_once {
   }
 }
 
-test test_privileged_native_case_runs_the_root_and_namespace_groups_alone {
+test test_root_and_namespace_groups_are_separate_scenarios_each_selected_alone {
   let ctx = fixtures.linux_context(/repo)?
-  let plan = gates.plan_paths(ctx, tests.Verification, [], ["lane/privileged-native"], gates.Change)?
-  assert [entry.id for entry in plan.cases] == ["lane/privileged-native"]
-  assert plan.cases[0].tier == gates.Scenario
-  match plan.cases[0].execution {
-    gates.RunCommand(spec) => {
-      var expected = ["test"]
-      for id in [@gate_lane.root_tests, @gate_lane.namespace_tests] { expected += ["--exact-id", id] }
-      assert spec.argv[1..] == expected
+  for pair in [{id: "lane/root-native", tests: gate_lane.root_tests}, {id: "lane/namespace-native", tests: gate_lane.namespace_tests}] {
+    let plan = gates.plan_paths(ctx, tests.Verification, [], [pair.id], gates.Change)?
+    assert [entry.id for entry in plan.cases] == [pair.id]
+    assert plan.cases[0].tier == gates.Scenario
+    match plan.cases[0].execution {
+      gates.RunCommand(spec) => {
+        var expected = ["test"]
+        for id in pair.tests { expected += ["--exact-id", id] }
+        assert spec.argv[1..] == expected
+      }
+      gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("the lane case was not one exact native command")
     }
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("the privileged case was not one exact native command")
+    match gates.parse_request(["--case", pair.id, "--case", "test-api"]) {
+      Ok(_) => test.fail("a lane case was accepted beside another case")
+      Err(error) => assert error.message == "PlanError.Invalid"
+    }
+    match gates.parse_request(["--case", pair.id, "docs/TESTING.md"]) {
+      Ok(_) => test.fail("a lane case was accepted beside a path")
+      Err(error) => assert error.message == "PlanError.Invalid"
+    }
   }
-  match gates.parse_request(["--case", "lane/privileged-native", "--case", "test-api"]) {
-    Ok(_) => test.fail("the privileged case was accepted beside another case")
-    Err(error) => assert error.message == "PlanError.Invalid"
-  }
-  match gates.parse_request(["--case", "lane/privileged-native", "docs/TESTING.md"]) {
-    Ok(_) => test.fail("the privileged case was accepted beside a path")
-    Err(error) => assert error.message == "PlanError.Invalid"
-  }
+  assert gate_lane.root_tests.len() > 0 and gate_lane.namespace_tests.len() > 0
+  for id in gate_lane.root_tests { assert id not in gate_lane.namespace_tests }
 }
 
 test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
   let ctx = fixtures.linux_context(fs.cwd()?)?
-  let gap = "core/tests/test-syslog-libc.xsh has no test the unprivileged Linux lane can run; lane/privileged-native runs the ones that need root or namespaces"
+  let gap = "core/tests/test-syslog-libc.xsh has no test the unprivileged Linux lane can run; lane/root-native and lane/namespace-native run the ones that need root or namespaces"
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/tests/test-syslog-libc.xsh"], [], gates.Change)?
   assert plan.cases.is_empty()
   assert plan.unresolved == [gap]

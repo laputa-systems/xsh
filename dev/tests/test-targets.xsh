@@ -656,6 +656,16 @@ test test_gate_docker_argv_mounts_worktree_git_before_the_image {
   assert argv[-2] == "gate-lane"
 }
 
+test test_namespace_confinement_swaps_only_the_seccomp_profile {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let confined = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], confinement: docker_workflows.Namespaces)?
+  assert "seccomp=/repo/dev/gate-namespaces.seccomp.json" in confined
+  assert "--privileged" not in confined and "--cap-add" not in confined
+  assert [word for word in confined if word.starts_with("systempaths=") or word == "seccomp=unconfined"].len() == 0
+  let plain = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
+  assert [word for word in plain if word.starts_with("seccomp=")].len() == 0
+}
+
 test test_gate_docker_argv_mounts_the_shared_lease_directory_read_write {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], git_common_dir: p"/common/.git", shared_lease_dir: p"/common/.work/consolidation/infra")?

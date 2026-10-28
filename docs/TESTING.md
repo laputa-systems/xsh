@@ -152,15 +152,26 @@ Native cases run as the host user inside the gate container, with a private home
 temporary directory under `.work/tmp`, as the Full native run does. The container itself
 keeps Docker's default seccomp profile and capabilities. Required skips still make a case
 incomplete, so a native test the unprivileged lane cannot run is not selected there.
-`dev/gate_lane.xsh` declares those tests by exact ID. The `root_tests` group needs root in the
-default container, and the `namespace_tests` group needs user, mount and PID namespaces. The
-explicit `lane/privileged-native` scenario runs both groups as root in a container that
-lifts the seccomp profile and `/proc` masking and adds `CAP_SYS_ADMIN`, with no device
-access and no other capability. It must be selected alone. A native file whose every test
-is declared outside the unprivileged lane is a reported gap that names this scenario, not a case. The remaining groups name a
-platform, an external fixture that only a Rust test provides, supplementary groups, a host
-resource, or a test whose subject is the skip outcome; no gate lane runs them. A new native test that skips in the gate lane needs an entry in one of those
-groups, and `dev/tests/test-gates.xsh` checks that every entry names a test that exists.
+`dev/gate_lane.xsh` declares those tests by exact ID. Two groups can run in a container
+and have an explicit Scenario case each; each must be selected alone.
+`lane/root-native` runs the `root_tests` group as root in the default container, with
+Docker's default confinement. `lane/namespace-native` runs the `namespace_tests` group as the
+host user in a container whose only change is the seccomp profile
+`dev/gate-namespaces.seccomp.json`. That file is Docker's default profile (moby
+`profiles/seccomp/default.json`) plus one rule that allows `clone`, `clone3`, `unshare`,
+`setns`, `mount`, `umount`, `umount2`, `pivot_root`, `sethostname`, `setdomainname` and the new
+mount API (`fsopen`, `fsconfig`, `fsmount`, `fspick`, `open_tree`, `move_mount`, `mount_setattr`)
+without `CAP_SYS_ADMIN`; the kernel still checks capabilities in the target user namespace. The
+container gets no added capability and no device, and `/proc` stays masked and its system
+paths stay read-only. Three tests need an unmasked `/proc` (a `procfs` mount inside the new
+namespace, or credential transitions that depend on one) and one needs `CAP_SYS_ADMIN` in the
+initial user namespace, so they are declared outside every
+lane. A native file whose every test is declared outside the unprivileged lane is a reported gap
+that names these scenarios, not a case. The remaining groups name a platform, an external
+fixture that only a Rust test provides, supplementary groups, a host resource, an unmasked
+`/proc`, or a test whose subject is the skip outcome; no gate lane runs them. A new native test
+that skips in the gate lane needs an entry in one of those groups, and
+`dev/tests/test-gates.xsh` checks that every entry names a test that exists.
 
 Compilation runs outside the runtime budget and is reported as a separate stage.
 Before Linux gate execution, Docker resolves the configured test image to an

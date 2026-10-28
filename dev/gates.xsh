@@ -122,7 +122,9 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   let output = if status { InspectStatus } else if machine { InspectJson } else if inspect { InspectText } else { Execute }
   let selected_laputa_ids = [id for id in case_ids if id in laputa_case_ids]
   let selected_core_workloads = [item for item in focused_core_workloads if item.id in case_ids]
-  return Err(PlanError.Invalid(detail: f"{privileged_native_case_id} must be selected alone")) when privileged_native_case_id in case_ids and (case_ids.len() != 1 or ! paths.is_empty())
+  for lane_id in lane_scenario_ids {
+    return Err(PlanError.Invalid(detail: f"{lane_id} must be selected alone")) when lane_id in case_ids and (case_ids.len() != 1 or ! paths.is_empty())
+  }
   return Err(PlanError.Invalid(detail: "core workload correctness must be selected alone")) when ! selected_core_workloads.is_empty() and case_ids.len() != 1
   return Err(PlanError.Invalid(detail: "Laputa and json-n correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and focused_json_case_id in case_ids
   return Err(PlanError.Invalid(detail: "Laputa and Tokei correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and tokei_scenario_case_id in case_ids
@@ -654,7 +656,9 @@ const laputa_root_case_id = "laputa/pm.root/compose"
 const laputa_inventory_case_id = "laputa/pm.plan/inventory"
 const laputa_world_case_id = "laputa/world/host-plan"
 const laputa_case_ids = [laputa_case_id, laputa_kbuild_case_id, laputa_kbuild_graph_case_id, laputa_kbuild_make_case_id, laputa_reuse_case_id, laputa_root_case_id, laputa_inventory_case_id, laputa_world_case_id]
-const privileged_native_case_id = "lane/privileged-native"
+const root_native_case_id = "lane/root-native"
+const namespace_native_case_id = "lane/namespace-native"
+const lane_scenario_ids = [root_native_case_id, namespace_native_case_id]
 const cat_byte_stream_case_id = "core/cat/byte-stream"
 const cat_full_module_case_id = "core/cat/full-module"
 const cat_external_consumers_case_id = "core/cat/external-consumers"
@@ -765,10 +769,14 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
     reasons: ["exact native tests that exercise cat and its external consumers"],
     execution: RunCommand(native_exact_ids_gate(ctx, profile, cat_external_consumers_case_id, cat_external_consumer_test_ids)))]
-  entries += [CatalogCase(id: privileged_native_case_id, tier: Scenario,
+  entries += [CatalogCase(id: root_native_case_id, tier: Scenario,
     limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
-    reasons: ["native tests that need root or user, mount and PID namespaces, run as root in a namespace-capable container"],
-    execution: RunCommand(native_exact_ids_gate(ctx, profile, "lane/privileged-native", [@gate_lane.root_tests, @gate_lane.namespace_tests])))]
+    reasons: ["native tests that need root in the default gate container; they skip for the unprivileged native user"],
+    execution: RunCommand(native_exact_ids_gate(ctx, profile, "lane/root-native", gate_lane.root_tests)))]
+  entries += [CatalogCase(id: namespace_native_case_id, tier: Scenario,
+    limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    reasons: ["native tests that create user, mount and PID namespaces; the container swaps only the seccomp profile"],
+    execution: RunCommand(native_exact_ids_gate(ctx, profile, "lane/namespace-native", gate_lane.namespace_tests)))]
   for case in source_edit_cases {
     entries += [CatalogCase(id: case.id, tier: Edit,
       limit: RuntimeSeconds(120), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
@@ -1695,7 +1703,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   if ctx.target.os == "linux" {
     var forwarded = ["--source-digest", source ?? "", "--tier", tier_name(tier), @paths]
     for id in ids { forwarded += ["--case", id] }
-    let confinement = if privileged_native_case_id in ids { docker.Namespaces } else { docker.Default }
+    let confinement = if namespace_native_case_id in ids { docker.Namespaces } else { docker.Default }
     return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded, confinement: confinement)?)
   }
   execute_plan(ctx, profile, plan, paths, source)
@@ -2046,7 +2054,7 @@ proc outside_unprivileged_lane(ctx: context.Context, file: Str) [fs, error] -> R
 }
 
 pure unprivileged_lane_gap(file: Str) -> Str {
-  f"{file} has no test the unprivileged Linux lane can run; {privileged_native_case_id} runs the ones that need root or namespaces"
+  f"{file} has no test the unprivileged Linux lane can run; {root_native_case_id} and {namespace_native_case_id} run the ones that need root or namespaces"
 }
 
 pure as_native_user(account: NativeUser?, spec: contract.CommandSpec) -> contract.CommandSpec {
@@ -2232,7 +2240,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
         let in_lane = if ctx.target.os == "linux" { [id for id in seen if id not in lane_excluded_tests()] } else { seen }
         print f"lane scope: {seen.len() - in_lane.len()} of {seen.len()} native tests need a capability the unprivileged Linux lane lacks; they are not selected" when in_lane.len() != seen.len()
         if in_lane.is_empty() and ! seen.is_empty() {
-          print f"lane scope: every selected native test is outside the unprivileged Linux lane; request --case {privileged_native_case_id} for the ones a namespace-capable container can run"
+          print f"lane scope: every selected native test is outside the unprivileged Linux lane; request {root_native_case_id} or {namespace_native_case_id} for the ones a container can run"
         }
         return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when in_lane.is_empty()
         selected_ids = in_lane
@@ -2309,7 +2317,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       let execution_ns = available_ns - (time.monotonic()? - case_started)
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when execution_ns < 1000000
       let limit = gate_execution.limit_ms(seconds, execution_ns)?
-      let launched = if native_command and entry.id != privileged_native_case_id { as_native_user(native, selected_command) } else { selected_command }
+      let launched = if native_command and entry.id != root_native_case_id { as_native_user(native, selected_command) } else { selected_command }
       let outcome = gate_execution.execute(launched, limit, output: if result_runner == "cargo" { events } else { null })?
       match outcome {
         gate_execution.Finished(status) => {

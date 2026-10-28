@@ -105,9 +105,10 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
   image
 }
 
-## The container confinement a lifecycle operation requests. Namespaces lifts the default seccomp profile and
-## /proc masking and adds CAP_SYS_ADMIN, which native tests that create user, mount and PID namespaces need;
-## it grants no device access and no other capability.
+## The container confinement a lifecycle operation requests. Namespaces replaces Docker's default seccomp profile
+## with dev/gate-namespaces.seccomp.json, which allows the namespace and mount syscalls without CAP_SYS_ADMIN so that
+## a process can create user namespaces. It adds no capability, leaves /proc masking and read-only paths in place and
+## grants no device access.
 export enum Confinement { Default, Namespaces }
 
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
@@ -185,7 +186,7 @@ export pure internal_argv(
 
   match confinement {
     Default => {}
-    Namespaces => { argv += ["--security-opt", "seccomp=unconfined", "--security-opt", "systempaths=unconfined", "--cap-add", "SYS_ADMIN"] }
+    Namespaces => { argv += ["--security-opt", f"seccomp={ctx.root}/dev/gate-namespaces.seccomp.json"] }
   }
 
   if stress_repeat.trim() != "" {
