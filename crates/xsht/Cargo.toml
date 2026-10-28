@@ -8,7 +8,7 @@ autotests = false
 
 [features]
 default = ["native-tests"]
-native-tests = ["xsh/native-tests", "xsh-registry/native-tests"]
+native-tests = ["xsh/default", "xsh-registry/native-tests"]
 
 [dependencies]
 deser = { path = "../deser/deser", features = ["derive"] }
