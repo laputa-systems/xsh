@@ -128,46 +128,54 @@ test test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_i
 }
 
 test test_linux_nonroot_native_tests_keep_the_callers_environment { |ctx|
-  if system.uname()?.sysname != "Linux" or unix.id()?.euid == 0 {
-    test.skip("requires a non-root Linux test process")
+  if system.uname()?.sysname != "Linux" {
+    test.skip("requires Linux")
     return
   }
 
-  let fixture_root = test.temp_dir(ctx, name: "native-nonroot-identity")?
-  let target_dir = fp"{fixture_root}/target"
-  target_dir.mkdir()
-  let product_dir = fp"{target_dir}/x86_64-unknown-linux-musl/verification"
-  product_dir.parent().mkdir()
-  product_dir.mkdir()
-  let log = fp"{fixture_root}/observed"
-  fp"{product_dir}/xsht".write(
-    f"""#!{ctx.xsh_bin}
+  let parent_root = test.temp_dir(ctx, name: "native-nonroot-identity")?
+  let as_root = unix.id()?.euid == 0
+  if as_root {
+    ctx.temp_root.chmod(0o755)?
+    parent_root.chmod(0o777)?
+  }
+  let fixture_root = fp"{parent_root}/fixture"
+  let result = fp"{parent_root}/result"
+  let repository = fs.cwd()?
+  let script = fp"{parent_root}/scenario.xsh"
+  script.write(f"""use fixtures
+use test_workflows
+use unix
+let fixture_root = p"{fixture_root}"
+let target_dir = fp"{{fixture_root}}/target"
+let product_dir = fp"{{target_dir}}/x86_64-unknown-linux-musl/verification"
+product_dir.mkdir(parents: true)?
+let log = fp"{{fixture_root}}/observed"
+fp"{{product_dir}}/xsht".write(f\"\"\"#!{ctx.xsh_bin}
 use unix
 let cache = env.get("XDG_CACHE_HOME")?
-p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}|{{cache}}|{{args.join("|")}}")?
-""",
-    mode: 0o755,
-  )
-  let workflow_context = {
-    ...fixtures.linux_context(fixture_root, "verification")?,
-    target_dir: target_dir,
-  }
-  let identity = unix.id()?
-  let home = fp"{fixture_root}/home"
-  let temp = fp"{fixture_root}/temp"
-  let cache = fp"{fixture_root}/cache"
-  let home_value = home.display()
-  let temp_value = temp.display()
-  let cache_value = cache.display()
-  home.mkdir()
-  temp.mkdir()
-
-  env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value XDG_CACHE_HOME=$cache_value PATH="" {
-    test_workflows.native(workflow_context, test_workflows.Verification,
-      ["--exact", "native-workflow-contract"])
-  }
-
-  assert log.read_text()? == f"{identity.euid}|{home}|{temp}|{cache}|test|--exact|native-workflow-contract"
+p"{{log}}".write(f"{{{{unix.id()?.euid}}}}|{{{{env.get("HOME")?}}}}|{{{{env.get("TMPDIR")?}}}}|{{{{cache}}}}|{{{{args.join("|")}}}}")?
+\"\"\", mode: 0o755)?
+let workflow_context = {{...fixtures.linux_context(fixture_root, "verification")?, target_dir: target_dir}}
+let home = fp"{{fixture_root}}/home"
+let temp = fp"{{fixture_root}}/temp"
+let cache = fp"{{fixture_root}}/cache"
+home.mkdir()?
+temp.mkdir()?
+let home_value = home.display()
+let temp_value = temp.display()
+let cache_value = cache.display()
+env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value XDG_CACHE_HOME=$cache_value PATH="" {{
+  test_workflows.native(workflow_context, test_workflows.Verification, ["--exact", "native-workflow-contract"])
+}}
+let expected = f"{{unix.id()?.euid}}|{{home}}|{{temp}}|{{cache}}|test|--exact|native-workflow-contract"
+p"{result}".write(if log.read_text()? == expected {{ "same" }} else {{ log.read_text()? }})?
+""")?
+  let prefix = if as_root { ["setpriv", "--reuid=65534", "--regid=65534", "--clear-groups"] } else { [] }
+  let module_path = f"{repository}/dev/tests:{repository}/dev"
+  let scenario = run.capture --text env XSH_MODULE_PATH=$module_path @prefix ${ctx.xsh_bin} $script
+  assert scenario.status.exited_with(0), scenario.stderr
+  assert result.read_text()? == "same", result.read_text()?
 }
 
 test test_nonlinux_native_tests_keep_the_direct_command { |ctx|
