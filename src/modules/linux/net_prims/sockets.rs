@@ -18,9 +18,12 @@ use std::time::Duration;
 
 /// Receive buffer ceiling, so a typo cannot ask for gigabytes.
 const MAX_RECEIVE: i64 = 64 * 1024 * 1024;
-/// Ancillary data room per receive: IP_RECVERR, TTL/hop limit, and TOS fit in
-/// well under this.
-const CONTROL_BYTES: usize = 1024;
+/// Ancillary data room per receive. One SCM_RIGHTS message carries at most 253
+/// descriptors (1012 bytes), and credentials, TTL, TOS, and IP_RECVERR fit
+/// beside it.
+const CONTROL_BYTES: usize = 4096;
+const SOL_SOCKET: i32 = 1;
+const SCM_RIGHTS: i32 = 1;
 /// Largest option value the byte forms of setsockopt and getsockopt move.
 const MAX_OPTION_BYTES: usize = 64 * 1024;
 
@@ -137,6 +140,12 @@ fn sendto(args: &Args<'_>) -> Result<Value, RuntimeError> {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Rights {
+    Keep,
+    Close,
+}
+
 fn recvfrom(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let fd = borrow(args.fd(0)?);
     let max = args.int(1)?;
@@ -144,7 +153,17 @@ fn recvfrom(args: &Args<'_>) -> Result<Value, RuntimeError> {
         return Err(args.invalid(format!("max_bytes must be between 1 and {MAX_RECEIVE}")));
     }
     let flags: u32 = args.int_in_or(2, 0, "flags")?;
-    let flags = RecvFlags::from_bits_retain(flags) | RecvFlags::CMSG_CLOEXEC;
+    let rights = match args.get(3) {
+        None => Rights::Keep,
+        Some(Value::Str(name)) if &**name == "keep" => Rights::Keep,
+        Some(Value::Str(name)) if &**name == "close" => Rights::Close,
+        Some(_) => return Err(args.invalid("rights must be \"keep\" or \"close\"")),
+    };
+    let mut flags = RecvFlags::from_bits_retain(flags) | RecvFlags::CMSG_CLOEXEC;
+    let measures_datagram = sockopt::socket_type(fd).is_ok_and(|kind| kind != SocketType::STREAM);
+    if measures_datagram {
+        flags |= RecvFlags::TRUNC;
+    }
     let mut data = vec![0_u8; max as usize];
     // Zeroed u64 words give the buffer cmsghdr alignment, and the zeros mark
     // where the kernel's messages end, since rustix does not expose arbitrary
@@ -161,9 +180,8 @@ fn recvfrom(args: &Args<'_>) -> Result<Value, RuntimeError> {
         let mut ancillary = RecvAncillaryBuffer::new(space);
         let mut vectors = [IoSliceMut::new(&mut data)];
         let received = net::recvmsg(fd, &mut vectors, &mut ancillary, flags);
-        // Dropping the buffer would close descriptors passed with SCM_RIGHTS;
-        // they are close-on-exec and belong to the script, which sees their
-        // numbers in the control message and closes them.
+        // The ancillary buffer never closes descriptors; this call reads the
+        // kernel's control bytes back itself and closes or reports them.
         std::mem::forget(ancillary);
         match received {
             Ok(message) => break message,
@@ -171,7 +189,7 @@ fn recvfrom(args: &Args<'_>) -> Result<Value, RuntimeError> {
             Err(error) => return Err(args.os(error)),
         }
     };
-    // A datagram longer than the buffer reports its full size under MSG_TRUNC.
+    let size = if measures_datagram { message.bytes } else { message.bytes.min(data.len()) };
     data.truncate(message.bytes.min(data.len()));
     let source = message
         .address
@@ -181,12 +199,77 @@ fn recvfrom(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let control_bytes = unsafe {
         std::slice::from_raw_parts(control.as_ptr().cast::<u8>(), CONTROL_BYTES)
     };
+    let (messages, rights_closed) = match rights {
+        Rights::Keep => (control_messages(control_bytes), 0),
+        Rights::Close => {
+            let closed = close_rights(control_bytes, |descriptor| {
+                // SAFETY: the kernel installed this descriptor for this call
+                // and nothing else holds its number.
+                unsafe { rustix::io::close(descriptor) };
+            });
+            let messages = control_messages(control_bytes).into_iter()
+                .filter(|message| !is_rights(message)).collect();
+            match closed {
+                Ok(count) => (messages, count),
+                Err(count) => {
+                    return Err(args.invalid(format!(
+                        "malformed control message after closing {count} received descriptors"
+                    )));
+                }
+            }
+        }
+    };
     ok(record([
         ("data", Value::Bytes(data)),
+        ("size", Value::Int(i64::try_from(size).unwrap_or(i64::MAX))),
         ("address", source.to_value()),
         ("flags", Value::Int(i64::from(message.flags.bits()))),
-        ("control", Value::List(control_messages(control_bytes))),
+        ("control", Value::List(messages)),
+        ("rights_closed", Value::Int(i64::try_from(rights_closed).unwrap_or(i64::MAX))),
     ]))
+}
+
+fn is_rights(message: &Value) -> bool {
+    let Value::Record(record) = message else { return false };
+    matches!(
+        (record.get("level"), record.get("type")),
+        (Some(Value::Int(level)), Some(Value::Int(kind)))
+            if *level == i64::from(SOL_SOCKET) && *kind == i64::from(SCM_RIGHTS)
+    )
+}
+
+/// Closes every descriptor of every SCM_RIGHTS message in the kernel's control
+/// bytes and counts them. A header that cannot be framed ends the walk with
+/// `Err` carrying the count closed so far; a length that overruns the buffer
+/// still has its complete descriptor slots closed first.
+fn close_rights(buffer: &[u8], mut close: impl FnMut(i32)) -> Result<usize, usize> {
+    const WORD: usize = size_of::<usize>();
+    const HEADER: usize = WORD + 2 * size_of::<i32>();
+    let mut closed = 0;
+    let mut offset = 0;
+    while offset + HEADER <= buffer.len() {
+        let length = usize::from_ne_bytes(buffer[offset..offset + WORD].try_into().unwrap());
+        if length == 0 {
+            return Ok(closed);
+        }
+        if length < HEADER {
+            return Err(closed);
+        }
+        let end = (offset + length).min(buffer.len());
+        let level = i32::from_ne_bytes(buffer[offset + WORD..offset + WORD + 4].try_into().unwrap());
+        let kind = i32::from_ne_bytes(buffer[offset + WORD + 4..offset + HEADER].try_into().unwrap());
+        if level == SOL_SOCKET && kind == SCM_RIGHTS {
+            for slot in buffer[offset + HEADER..end].chunks_exact(size_of::<i32>()) {
+                close(i32::from_ne_bytes(slot.try_into().unwrap()));
+                closed += 1;
+            }
+        }
+        if offset + length > buffer.len() {
+            return Err(closed);
+        }
+        offset += length.next_multiple_of(WORD);
+    }
+    Ok(closed)
 }
 
 /// Walks the kernel's `cmsghdr` sequence: a native-width length covering the
@@ -342,4 +425,67 @@ fn set_timeout(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let timeout = (millis > 0).then(|| Duration::from_millis(millis as u64));
     sockopt::set_socket_timeout(fd, which, timeout).map_err(|error| args.os(error))?;
     ok(Value::Unit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WORD: usize = size_of::<usize>();
+    const HEADER: usize = WORD + 8;
+
+    fn message(buffer: &mut Vec<u8>, level: i32, kind: i32, length: usize, data: &[u8]) {
+        buffer.extend_from_slice(&length.to_ne_bytes());
+        buffer.extend_from_slice(&level.to_ne_bytes());
+        buffer.extend_from_slice(&kind.to_ne_bytes());
+        buffer.extend_from_slice(data);
+        while buffer.len() % WORD != 0 {
+            buffer.push(0);
+        }
+    }
+
+    fn descriptors(numbers: &[i32]) -> Vec<u8> {
+        numbers.iter().flat_map(|number| number.to_ne_bytes()).collect()
+    }
+
+    fn collect(buffer: &[u8]) -> (Result<usize, usize>, Vec<i32>) {
+        let mut closed = Vec::new();
+        let counted = close_rights(buffer, |descriptor| closed.push(descriptor));
+        (counted, closed)
+    }
+
+    #[test]
+    fn close_rights_closes_every_descriptor_of_every_rights_message_and_ignores_the_rest() {
+        let mut buffer = Vec::new();
+        let credentials = [0_u8; 12];
+        message(&mut buffer, SOL_SOCKET, 2, HEADER + credentials.len(), &credentials);
+        message(&mut buffer, SOL_SOCKET, SCM_RIGHTS, HEADER + 8, &descriptors(&[7, 8]));
+        message(&mut buffer, 0, SCM_RIGHTS, HEADER + 4, &descriptors(&[99]));
+        message(&mut buffer, SOL_SOCKET, SCM_RIGHTS, HEADER + 4, &descriptors(&[9]));
+        buffer.resize(4096, 0);
+        assert_eq!(collect(&buffer), (Ok(3), vec![7, 8, 9]));
+    }
+
+    #[test]
+    fn close_rights_of_an_empty_buffer_closes_nothing() {
+        assert_eq!(collect(&[0; 4096]), (Ok(0), Vec::new()));
+        assert_eq!(collect(&[]), (Ok(0), Vec::new()));
+    }
+
+    #[test]
+    fn close_rights_reports_a_length_below_the_header_after_closing_what_precedes_it() {
+        let mut buffer = Vec::new();
+        message(&mut buffer, SOL_SOCKET, SCM_RIGHTS, HEADER + 4, &descriptors(&[5]));
+        message(&mut buffer, SOL_SOCKET, SCM_RIGHTS, 3, &[]);
+        buffer.resize(256, 0);
+        assert_eq!(collect(&buffer), (Err(1), vec![5]));
+    }
+
+    #[test]
+    fn close_rights_closes_the_complete_slots_of_a_message_that_overruns_the_buffer() {
+        let mut buffer = Vec::new();
+        message(&mut buffer, SOL_SOCKET, SCM_RIGHTS, HEADER + 400, &descriptors(&[4, 5, 6]));
+        buffer.truncate(HEADER + 10);
+        assert_eq!(collect(&buffer), (Err(2), vec![4, 5]));
+    }
 }

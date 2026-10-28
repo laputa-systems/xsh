@@ -5675,7 +5675,14 @@ Contracts worth knowing without consulting the reference:
   `sockaddr` bytes, and a received address carries its `raw` bytes.
   `recvfrom` returns the datagram with its sender, `msg_flags` (`MSG_TRUNC`,
   `MSG_CTRUNC`), and ancillary messages, which is how the `IP_RECVERR` queue,
-  TTL, and TOS are read; sends set `MSG_NOSIGNAL`. `linux.netlink_open`,
+  TTL, and TOS are read; sends set `MSG_NOSIGNAL`. Its `size` is the real
+  datagram length even when `data` was cut at `max_bytes` (on a stream it is
+  `data.len()`), so an empty datagram (`size` 0, never end of stream) is
+  distinct from a truncated one. Up to 4096 bytes of control data are read.
+  `rights: "close"` makes `recvfrom` close every `SCM_RIGHTS` descriptor the
+  kernel installed, count them in `rights_closed`, and omit them from
+  `control`; the default `"keep"` leaves them to the script. Descriptors the
+  kernel could not install (`EMFILE`) are reported only by `MSG_CTRUNC`. `linux.netlink_open`,
   `netlink_request`, and `genl_family_id` send one netlink request and collect
   the multipart reply as header-parsed message records; a negative
   `NLMSG_ERROR` code, or a negative status carried by the closing `NLMSG_DONE`

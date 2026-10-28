@@ -2309,7 +2309,7 @@ fn linux_module() -> ModuleSig {
         ("listen", sig(vec![param("fd", Type::Int), default_param("backlog", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxListen)),
         ("accept", sig(vec![param("fd", Type::Int), default_param("nonblock", Type::Bool)], result(crate::records::linux_accepted_socket_type()), false, RuntimeOp::LinuxAccept)),
         ("sendto", sig(vec![param("fd", Type::Int), param("data", Type::Bytes), default_param("address", Type::Optional(Box::new(crate::records::linux_socket_address_argument_type()))), default_param("flags", Type::Int)], result(Type::Int), false, RuntimeOp::LinuxSendto)),
-        ("recvfrom", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int), default_param("flags", Type::Int)], result(crate::records::linux_received_message_type()), false, RuntimeOp::LinuxRecvfrom)),
+        ("recvfrom", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int), default_param("flags", Type::Int), default_param("rights", Type::Str)], result(crate::records::linux_received_message_type()), false, RuntimeOp::LinuxRecvfrom)),
         ("shutdown", sig(vec![param("fd", Type::Int), param("how", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxShutdown)),
         ("getsockname", sig(vec![param("fd", Type::Int)], result(crate::records::linux_socket_address_type()), false, RuntimeOp::LinuxGetsockname)),
         ("getpeername", sig(vec![param("fd", Type::Int)], result(crate::records::linux_socket_address_type()), false, RuntimeOp::LinuxGetpeername)),
@@ -4893,7 +4893,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "LinuxReceivedMessage" => (
             "Holds one received datagram or stream chunk with its sender and ancillary data.",
-            "address is the sender (family unspec on connected stream sockets); flags are the msg_flags the kernel set, such as MSG_TRUNC, MSG_CTRUNC, and MSG_ERRQUEUE.",
+            "size is the real datagram length (equal to the length of data on a stream, and 0 for an empty datagram); address is the sender (family unspec on connected stream sockets); flags are the msg_flags the kernel set, such as MSG_TRUNC, MSG_CTRUNC, and MSG_ERRQUEUE; rights_closed counts the SCM_RIGHTS descriptors recvfrom closed under rights \"close\".",
             &["linux", "network", "socket", "record"],
         ),
         "LinuxNetlinkMessage" => (

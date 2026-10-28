@@ -56,6 +56,9 @@ pub const NET_CONSTANTS: &[(&str, i64)] = &[
     ("SO_LINGER", 13),
     ("SO_REUSEPORT", 15),
     ("SO_PASSCRED", 16),
+    ("SO_MEMINFO", 55),
+    ("SCM_RIGHTS", 1),
+    ("SCM_CREDENTIALS", 2),
     ("SO_PEERCRED", 17),
     ("SO_RCVLOWAT", 18),
     ("SO_SNDLOWAT", 19),
@@ -327,9 +330,11 @@ pub fn linux_control_message_type() -> Type {
 pub fn linux_received_message_type() -> Type {
     record([
         ("data", Type::Bytes),
+        ("size", Type::Int),
         ("address", linux_socket_address_type()),
         ("flags", Type::Int),
         ("control", Type::List(Box::new(linux_control_message_type()))),
+        ("rights_closed", Type::Int),
     ])
 }
 

@@ -927,7 +927,7 @@ proc run_listener(host: Str?, port_spec: Str, opts: Options) [net, fs, process, 
     }
     if ! opts.keep {
       wait_readable(fd)
-      let first = linux.recvfrom(fd, 1, c.MSG_PEEK) ?? {address: bound, control: [], data: b"", flags: 0}
+      let first = linux.recvfrom(fd, 1, c.MSG_PEEK) ?? {address: bound, control: [], data: b"", flags: 0, rights_closed: 0, size: 0}
       if let Err(failure) = linux.connect(fd, first.address.raw) {
         fatal(gnu.strerror(failure))
       }

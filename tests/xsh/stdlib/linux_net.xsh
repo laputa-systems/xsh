@@ -145,6 +145,60 @@ test test_udp_exchange_reports_sender_truncation_and_ttl {
   assert whole.flags.bit_and(c.MSG_TRUNC) == 0
 }
 
+test test_unix_datagram_size_distinguishes_empty_from_truncated_and_stream_eof {
+  let c = linux.net_constants()
+  let pid = process.current_pid()?
+  let server = linux.socket(c.AF_UNIX, c.SOCK_DGRAM.bit_or(c.SOCK_NONBLOCK))?
+  defer unix.close_fd(server)
+  let target = {family: "unix", address: f"@xsh-recvfrom-size-{pid}"}
+  linux.bind(server, target)
+  let client = linux.socket(c.AF_UNIX, c.SOCK_DGRAM)?
+  defer unix.close_fd(client)
+
+  assert linux.sendto(client, b"", target)? == 0
+  let empty = linux.recvfrom(server, 8)?
+  assert empty.data == b"" and empty.size == 0
+  assert empty.flags.bit_and(c.MSG_TRUNC) == 0 and empty.rights_closed == 0
+
+  for length in [8, 9, 65536] {
+    assert linux.sendto(client, bytes.zero(length)?, target)? == length
+    let got = linux.recvfrom(server, 8)?
+    assert got.data.len() == 8 and got.size == length
+    let truncated = got.flags.bit_and(c.MSG_TRUNC) != 0
+    assert truncated == (length > 8)
+  }
+  assert linux.sendto(client, bytes.zero(8)?, target)? == 8
+  let exact = linux.recvfrom(server, 8)?
+  assert exact.data.len() == 8 and exact.size == 8 and exact.flags.bit_and(c.MSG_TRUNC) == 0
+  assert errno_of(linux.recvfrom(server, 8)) == 11
+
+  let listener = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
+  defer unix.close_fd(listener)
+  linux.bind(listener, {family: "unix", address: f"@xsh-recvfrom-stream-{pid}"})
+  linux.listen(listener, 1)
+  let streamer = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
+  defer unix.close_fd(streamer)
+  linux.connect(streamer, {family: "unix", address: f"@xsh-recvfrom-stream-{pid}"})
+  let accepted = linux.accept(listener)?
+  defer unix.close_fd(accepted.fd)
+  assert unix.write_fd(streamer, b"abcdef")? == 6
+  let chunk = linux.recvfrom(accepted.fd, 4)?
+  assert chunk.data == b"abcd" and chunk.size == 4
+  linux.shutdown(streamer, c.SHUT_WR)
+  let rest = linux.recvfrom(accepted.fd, 4)?
+  assert rest.data == b"ef" and rest.size == 2
+  let eof = linux.recvfrom(accepted.fd, 4)?
+  assert eof.data == b"" and eof.size == 0
+}
+
+test test_recvfrom_rejects_an_unknown_rights_policy {
+  let c = linux.net_constants()
+  let receiver = loopback_udp()?
+  defer unix.close_fd(receiver)
+  test.error_kind(linux.recvfrom(receiver, 8, 0, "own"), "invalid-argument")
+  assert errno_of(linux.recvfrom(receiver, 8, c.MSG_DONTWAIT, "close")) == 11
+}
+
 test test_udp_error_queue_reports_the_icmp_origin {
   let c = linux.net_constants()
   let probe = linux.socket(c.AF_INET, c.SOCK_DGRAM)?

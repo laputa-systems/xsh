@@ -346,6 +346,7 @@ fn receive(args: &Args<'_>, fd: i32, fixture: &Path, log: &mut Log<'_>) -> Resul
     datagram.extend_from_slice(&0_u32.to_ne_bytes());
     datagram.extend_from_slice(&0_u32.to_ne_bytes());
     datagram.extend_from_slice(&body);
+    let size = datagram.len();
     let mut received_flags = 0;
     if datagram.len() > max as usize {
         datagram.truncate(max as usize);
@@ -353,9 +354,11 @@ fn receive(args: &Args<'_>, fd: i32, fixture: &Path, log: &mut Log<'_>) -> Resul
     }
     ok(record([
         ("data", Value::Bytes(datagram)),
+        ("size", Value::Int(size as i64)),
         ("address", SockAddr::netlink(0, 0).to_value()),
         ("flags", Value::Int(received_flags)),
         ("control", Value::List(Vec::new())),
+        ("rights_closed", Value::Int(0)),
     ]))
 }
 
