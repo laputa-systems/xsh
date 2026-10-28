@@ -1308,7 +1308,7 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
     "python3", "-B", "-m", "dev.performance.laputa_plan", "--case", case_id, "--owner", ctx.root.display(), "--observe", root,
     "--xsh", tests.product_path(ctx, profile, tests.Xsh).display(),
     "--xsht", tests.product_path(ctx, profile, tests.Xsht).display(), "--scratch", scratch.display(),
-    @(if case_id == laputa_reuse_case_id { ["--xshi", tests.product_path(ctx, profile, tests.Xshi).display()] } else { [] }),
+    @if case_id == laputa_reuse_case_id { ["--xshi", tests.product_path(ctx, profile, tests.Xshi).display()] } else { [] },
     "--image", image, "--platform", ctx.target.docker_platform,
     "--xsh-source", source, "--laputa-source", laputa_source,
   ], ctx.root, {})
