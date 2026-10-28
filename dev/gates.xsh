@@ -635,7 +635,7 @@ proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
   match source {
     Ok(bound) => {
       match try { require_source(ctx, bound, full_evidence_id, 30000000000)? } {
-        Ok(_) => store_evidence(full_evidence_path(ctx), full_evidence_id, bound, [])?
+        Ok(_) => store_evidence(full_evidence_path(ctx), full_evidence_id, bound, [], ctx.target.triple, tests.profile_name(profile))?
         Err(_) => print "Full evidence not recorded: source changed during the run"
       }
     }
@@ -1442,7 +1442,7 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
       require_laputa_source(ctx, root, case_id, laputa_source)?
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
         [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in bindings],
-        laputa: {root: root, source: laputa_source})
+        ctx.target.triple, tests.profile_name(profile), laputa: {root: root, source: laputa_source})
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
@@ -1547,7 +1547,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
       print "Performance: not measured"
       print "Full cohort: not run"
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
-        [evidence_product(ctx, xsh.display(), product.digest, product.mode)])
+        [evidence_product(ctx, xsh.display(), product.digest, product.mode)], ctx.target.triple, tests.profile_name(profile))
     }
     gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
     gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
@@ -1662,7 +1662,7 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
       print "Full cohort: not run"
       return store_evidence(case_evidence_path(ctx, tokei_scenario_case_id), tokei_scenario_case_id, source,
         [evidence_product(ctx, xsh.display(), xsh_product.digest, xsh_product.mode),
-          evidence_product(ctx, tokei_path, tokei_product.digest, tokei_product.mode)])
+          evidence_product(ctx, tokei_path, tokei_product.digest, tokei_product.mode)], ctx.target.triple, tests.profile_name(profile))
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: tokei_scenario_case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: tokei_scenario_case_id, cause: cause))
@@ -1680,7 +1680,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   let profile = tests.execution_profile()?
   let plan = plan_paths(ctx, profile, paths, ids, tier)?
   if output == InspectStatus {
-    inspect_evidence(ctx, plan, laputa_root)?
+    inspect_evidence(ctx, profile, plan, laputa_root)?
     if ! plan.unresolved.is_empty() { exit 2 }
     return
   }
@@ -2038,7 +2038,7 @@ proc require_source(ctx: context.Context, source: Str, case_id: Str, available_n
 export type EvidenceProduct = {path: Str, digest: Str, mode: Int, under_target: Bool}
 ## The Laputa checkout a case ran against.
 export type LaputaBinding = {root: Str, source: Str}
-type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int, laputa: LaputaBinding?}
+type EvidenceRecord = {case: Str, source: Str, target: Str, profile: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int, laputa: LaputaBinding?}
 
 ## The verdict line of a run that left tests outside the unprivileged lane, so it cannot be read as full coverage.
 export pure reduced_verdict(outside: Int) -> Str {
@@ -2074,15 +2074,15 @@ pure evidence_product_path(ctx: context.Context, product: EvidenceProduct) -> St
 }
 
 ## Writes the record for a case that passed.
-export proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], outside_lane: Int = 0, laputa: LaputaBinding? = null) [fs, time, error] -> Result[Unit, Error] {
+export proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], target: Str, profile: Str, outside_lane: Int = 0, laputa: LaputaBinding? = null) [fs, time, error] -> Result[Unit, Error] {
   let directory = record_path.parent()
   if ! directory.exists()? { directory.mkdir(parents: true)? }
-  let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now(), outside_lane: outside_lane, laputa: laputa}
+  let record: EvidenceRecord = {case: id, source: source, target: target, profile: profile, products: products, recorded_ms: time.now(), outside_lane: outside_lane, laputa: laputa}
   record_path.write_atomic(json.encode(record)?)
 }
 
 ## Compares a stored record with the current source and products.
-export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error], laputa: LaputaBinding? = null) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
+export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error], profile: Str, laputa: LaputaBinding? = null) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
   return NotRun when ! record_path.exists()?
   let loaded = try { json.decode(record_path.read_text()?)?.require(EvidenceRecord)? }
   let record = match loaded {
@@ -2090,6 +2090,8 @@ export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, cur
     Err(cause) => { return Stale(f"unreadable record: {cause.message}") }
   }
   return Stale("record belongs to another case") when record.case != id
+  return Stale(f"target changed: {record.target} to {ctx.target.triple}") when record.target != ctx.target.triple
+  return Stale(f"profile changed: {record.profile} to {profile}") when record.profile != profile
   match current_source {
     Ok(digest) => { return Stale("source changed") when digest != record.source }
     Err(cause) => { return Stale(f"source unavailable: {cause.message}") }
@@ -2121,7 +2123,7 @@ export proc evidence_label(state: EvidenceState) [time, error] -> Result[Str, Er
   }
 }
 
-proc inspect_evidence(ctx: context.Context, plan: CatalogPlan, laputa_root: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+proc inspect_evidence(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan, laputa_root: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   let source = try { bind_source(ctx, "status", 30000000000)? }
   for entry in plan.cases {
     var observed: LaputaBinding? = null
@@ -2132,11 +2134,11 @@ proc inspect_evidence(ctx: context.Context, plan: CatalogPlan, laputa_root: Str?
         Err(cause) => { print f"{entry.id}: stale (Laputa source unavailable: {cause.message})"; continue }
       }
     }
-    let state = evidence_state(ctx, case_evidence_path(ctx, entry.id), entry.id, source, laputa: observed)?
+    let state = evidence_state(ctx, case_evidence_path(ctx, entry.id), entry.id, source, tests.profile_name(profile), laputa: observed)?
     print f"{entry.id}: {evidence_label(state)?}"
   }
   for gap in plan.unresolved { print f"incomplete: {gap}" }
-  let full = evidence_state(ctx, full_evidence_path(ctx), full_evidence_id, source)?
+  let full = evidence_state(ctx, full_evidence_path(ctx), full_evidence_id, source, tests.profile_name(profile))?
   print f"Full: {evidence_label(full)?}"
 }
 
@@ -2522,7 +2524,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           let observed = harness_bindings.get(executable)?
           bound += [evidence_product(ctx, executable, observed.digest, observed.mode)]
         }
-        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, outside_lane: outside_lane)?
+        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, ctx.target.triple, tests.profile_name(profile), outside_lane: outside_lane)?
       }
       Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {}
     }

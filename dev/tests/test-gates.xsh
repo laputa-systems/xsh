@@ -1247,6 +1247,23 @@ test test_one_native_file_partly_outside_the_lane_is_incomplete_by_case_id_as_by
   assert suite.unresolved.is_empty()
 }
 
+test test_evidence_is_current_only_for_the_target_and_profile_it_ran_on { |ctx|
+  let root = test.temp_dir(ctx, name: "evidence-profile")?
+  let on_linux = fixtures.linux_context(root)?
+  let darwin = fixtures.darwin_context(root)?
+  let record = gates.case_evidence_path(on_linux, "check-compile")
+  gates.store_evidence(record, "check-compile", "source", [], "x86_64-unknown-linux-musl", "verification")?
+  let cases = [
+    {context: on_linux, profile: "verification", expected: "current (passed"},
+    {context: on_linux, profile: "release", expected: "stale (profile changed: verification to release)"},
+    {context: darwin, profile: "verification", expected: "stale (target changed: x86_64-unknown-linux-musl to aarch64-apple-darwin)"},
+  ]
+  for item in cases {
+    let state = gates.evidence_state(item.context, record, "check-compile", Ok("source"), item.profile)?
+    assert gates.evidence_label(state)?.starts_with(item.expected), gates.evidence_label(state)?
+  }
+}
+
 test test_evidence_for_a_reduced_native_selection_is_not_labelled_current {
   let reduced = gates.evidence_label(gates.Reduced(3))?
   assert reduced.starts_with("reduced")
@@ -1274,7 +1291,7 @@ proc main() [fs, process, env, time, error, io] {{
   let container = fixtures.linux_context(p"{container}")?
   let digest = hash.sha256(p"{container}/{relative}")?.hex()
   let product = gates.evidence_product(container, p"{container}/{relative}".display(), digest, 0o755)
-  gates.store_evidence(p"{record}", "check-compile", "source", [product])?
+  gates.store_evidence(p"{record}", "check-compile", "source", [product], "x86_64-unknown-linux-musl", "verification")?
 }}
 main()?
 """
@@ -1285,7 +1302,7 @@ use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
   let host = fixtures.linux_context(p"{host}")?
-  print gates.evidence_label(gates.evidence_state(host, p"{record}", "check-compile", Ok("source"))?)?
+  print gates.evidence_label(gates.evidence_state(host, p"{record}", "check-compile", Ok("source"), "verification")?)?
 }}
 main()?
 """
@@ -1298,17 +1315,17 @@ test test_laputa_evidence_is_current_only_for_the_laputa_checkout_it_ran_against
   let ctx_root = fixtures.linux_context(test.temp_dir(ctx, name: "laputa-evidence")?)?
   let record = gates.case_evidence_path(ctx_root, "laputa/pm.make/plan")
   let ran: gates.LaputaBinding = {root: "/laputa", source: "a"}
-  gates.store_evidence(record, "laputa/pm.make/plan", "xsh", [], laputa: ran)?
+  gates.store_evidence(record, "laputa/pm.make/plan", "xsh", [], "x86_64-unknown-linux-musl", "verification", laputa: ran)?
   let cases = [
     {observed: ran, expected: "current (passed"},
     {observed: {root: "/laputa", source: "b"}, expected: "stale (Laputa source changed)"},
     {observed: {root: "/elsewhere", source: "a"}, expected: "stale (Laputa root changed)"},
   ]
   for item in cases {
-    let state = gates.evidence_state(ctx_root, record, "laputa/pm.make/plan", Ok("xsh"), laputa: item.observed)?
+    let state = gates.evidence_state(ctx_root, record, "laputa/pm.make/plan", Ok("xsh"), "verification", laputa: item.observed)?
     assert gates.evidence_label(state)?.starts_with(item.expected)
   }
-  let unobserved = gates.evidence_state(ctx_root, record, "laputa/pm.make/plan", Ok("xsh"))?
+  let unobserved = gates.evidence_state(ctx_root, record, "laputa/pm.make/plan", Ok("xsh"), "verification")?
   assert gates.evidence_label(unobserved)? == "stale (Laputa checkout not observed; pass --laputa-root)"
   assert tests.Xshi in gates.laputa_products("laputa/pm.execute/reuse-count")
   assert tests.Xshi not in gates.laputa_products("laputa/pm.make/plan")

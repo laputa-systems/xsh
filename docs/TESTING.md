@@ -59,7 +59,7 @@ record is disposable local evidence and is never committed. A case starts by
 discarding its previous record, so a failed or interrupted run leaves it not run.
 `cargo dev gate [PATH...] [--case ID] --status` lists the selected cases and
 reports each as current, stale or not run. Stale names the first mismatch: a
-changed source, a changed or missing product, or an unreadable record. Status
+changed source, another target or profile, a changed or missing product, or an unreadable record. Status
 only observes source and products; it starts no Docker, Cargo or tests.
 Scenario and Laputa cases store their record when the external run passes. A Laputa record also
 binds the Laputa root and source digest and, for reuse-count, `xshi`; `--status` with `--laputa-root`
