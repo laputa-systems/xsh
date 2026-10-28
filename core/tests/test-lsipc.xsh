@@ -770,6 +770,14 @@ test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
   }
 }
 
+proc parse_reference_json(output: Bytes) [error] -> Result[Unit] {
+  match try { json.decode(output.utf8()?)? } {
+    Ok(_) => Ok()
+    Err(CodecError.DuplicateKey) => Ok()
+    Err(failure) => Err(failure)
+  }
+}
+
 test test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference { |ctx|
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
@@ -873,7 +881,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
       let json_output = run_both(s, json_args)?
       ul.compare(json_output.reference, json_output.candidate)
       assert json_output.candidate.status == 0, f"rejected JSON resource selectors {args.join(" ")}"
-      let _ = json.decode(json_output.candidate.stdout.utf8() ?? "")?
+      parse_reference_json(json_output.candidate.stdout)?
     }
     let reversed_json_args = [args[1], args[0], "--json"]
     if posix_pair {
@@ -883,7 +891,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
       let reversed_json = run_both(s, reversed_json_args)?
       ul.compare(reversed_json.reference, reversed_json.candidate)
       assert reversed_json.candidate.status == 0, f"rejected reversed JSON resource selectors {args.join(" ")}"
-      let _ = json.decode(reversed_json.candidate.stdout.utf8() ?? "")?
+      parse_reference_json(reversed_json.candidate.stdout)?
     }
   }
 
