@@ -382,9 +382,9 @@ export proc remove_owned_containers(ctx: context.Context) [fs, process, error, i
 ## removal verified. A cancellation hook removes the registered containers before the client can be killed.
 export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io, time] -> Result[Status, Error] {
   let registry = owned_container_dir(ctx)?
-  registry.mkdir(parents: true)?
   let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
   let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile)?
+  registry.mkdir(parents: true)?
   print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
   let outcome = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
   remove_owned_container(ctx, cidfile)?

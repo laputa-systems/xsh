@@ -1045,3 +1045,30 @@ match docker.remove_owned_container(ctx, p"{cidfile}") {{
   test.expect(ctx, source, status: 0, stdout: ["removed"], args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", RM_RACES: "1"})?
 }
+
+test test_a_gate_that_fails_before_launching_leaves_no_container_registry { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-no-launch")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  write_fake_tool(fp"{tools}/docker", ctx.xsh_bin, "exit 1", )?
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(root)}
+let registry = docker.owned_container_dir(ctx)?
+match docker.run_internal_status(ctx, "gate-lane", false, []) {{
+  Ok(_) => print "launched"
+  Err(_) => print f"registry={{registry.exists()?}}"
+}}
+""",
+    status: 0,
+    stdout: ["registry=false"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", XSH_TEST_IMAGE_BUILD: "0"},
+  )?
+}
