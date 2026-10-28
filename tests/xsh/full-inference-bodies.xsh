@@ -407,3 +407,28 @@ print "slice domains"
   )?
   assert output.stderr == "", output.stderr
 }
+
+test test_full_inference_collect_yields_a_generic_slice_or_operator_result { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure tails(items) {
+  collect { for at in range(items.len()) { yield items[at..] } }
+}
+pure sums(left, right) {
+  collect { for at in range(left.len()) { yield left[at] + right[at] } }
+}
+let lists = tails([1, 2, 3])
+let texts = tails(b"abc")
+let integers = sums([1, 2], [3, 4])
+let floats = sums([1.5], [2.5])
+let second_sum = integers[1]
+let first_float = floats[0]
+print $lists.len()
+print $texts.len()
+print $second_sum
+print $first_float
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n3\n6\n4\n"
+}

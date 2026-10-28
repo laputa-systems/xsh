@@ -21,7 +21,7 @@ pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SliceBounds { Unbounded, Start, End, Both }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum TypeDomain { SortKey, CountKey, CollectItem, MinMaxItem, OrderingOperand, NegationOperand }
 
 impl TypeDomain {

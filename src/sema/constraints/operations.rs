@@ -305,7 +305,7 @@ pub(super) struct ScopedOperation {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SealedOperations {
     pub(super) entries: BTreeMap<SealedOperationId, ScopedOperation>,
-    source_sites: BTreeMap<(super::CallableApplicationScope, Span), SealedOperationId>,
+    source_sites: BTreeMap<(super::CallableApplicationScope, Span, Option<crate::sema::sealed_operation::TypeDomain>), SealedOperationId>,
     watchers: BTreeMap<ApplicationDependency, BTreeSet<SealedOperationId>>,
     pending: VecDeque<SealedOperationId>,
     queued: BTreeSet<SealedOperationId>,
@@ -314,7 +314,7 @@ pub(super) struct SealedOperations {
 #[derive(Clone, Debug)]
 pub(super) enum OperationChange {
     Fresh(SealedOperationId),
-    Source((super::CallableApplicationScope, Span), SealedOperationId),
+    Source((super::CallableApplicationScope, Span, Option<crate::sema::sealed_operation::TypeDomain>), SealedOperationId),
     Selection(SealedOperationId, Option<SealedOperationSignature>),
     Watcher(ApplicationDependency, SealedOperationId),
     Queued(SealedOperationId),
@@ -328,7 +328,7 @@ impl SealedOperations {
         self.entries.len() * size_of::<(SealedOperationId, ScopedOperation)>()
             + self.entries.values().flat_map(|entry| entry.operation.types()).map(super::type_owned_payload_bytes).sum::<usize>()
             + self.entries.values().map(|entry| entry.operation.owned_fields_bytes()).sum::<usize>()
-            + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span), SealedOperationId)>()
+            + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span, Option<crate::sema::sealed_operation::TypeDomain>), SealedOperationId)>()
             + self.watchers.len() * size_of::<(ApplicationDependency, BTreeSet<SealedOperationId>)>()
             + self.watchers.values().map(|ids| ids.len() * size_of::<SealedOperationId>()).sum::<usize>()
             + self.pending.capacity() * size_of::<SealedOperationId>()
@@ -670,12 +670,12 @@ impl TypeConstraints {
     }
 
     pub(crate) fn sealed_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
-        self.operations.source_sites.get(&(owner, span)).copied()
+        self.operations.source_sites.get(&(owner, span, None)).copied()
     }
 
     pub(crate) fn source_list_from_end_indexes(&self, owner: super::CallableApplicationScope) -> Result<Vec<(Span, u32)>, ConstraintResolutionError> {
         let mut indexes = Vec::new();
-        for (&(scope, span), id) in self.operations.source_sites.range((owner, Span::at(crate::source::SourceId::new(0), 0))..) {
+        for (&(scope, span, _), id) in self.operations.source_sites.range((owner, Span::at(crate::source::SourceId::new(0), 0), None)..) {
             if scope != owner { break; }
             let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if entry.owner != owner || entry.operation.span() != span { return Err(ConstraintResolutionError::ForeignVariable); }
@@ -737,7 +737,8 @@ impl TypeConstraints {
     pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: impl Into<SealedOperation<Type>>) -> Result<SealedOperationId, SealedOperationError> {
         let operation = operation.into();
         self.commit_constraint_transaction(|this| {
-            if let Some(id) = this.sealed_operation_at(owner, operation.span()) {
+            let domain = match &operation { SealedOperation::TypePredicate { domain, .. } => Some(*domain), _ => None };
+            if let Some(id) = this.operations.source_sites.get(&(owner, operation.span(), domain)).copied() {
                 let previous = this.operations.entries[&id].operation.clone();
                 if !previous.same_kind(&operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                 this.apply_journaled(|this, changes| {
@@ -751,8 +752,8 @@ impl TypeConstraints {
             let span = operation.span();
             let id = this.register_sealed_operation(owner, operation)?;
             this.apply_journaled(|this, changes| {
-                assert!(this.operations.source_sites.insert((owner, span), id).is_none());
-                changes.push(ConstraintChange::Operation(OperationChange::Source((owner, span), id)));
+                assert!(this.operations.source_sites.insert((owner, span, domain), id).is_none());
+                changes.push(ConstraintChange::Operation(OperationChange::Source((owner, span, domain), id)));
                 Ok::<_, SealedOperationError>(())
             })?;
             Ok(id)
