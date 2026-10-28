@@ -226,3 +226,43 @@ print "complete"
   assert output.success, output.stderr
   assert output.stdout == "42\ndemo\n42\ndemo\ncomplete\n"
 }
+
+test test_full_inference_inferred_effect_callback_passes_through_an_inferred_proc { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc greet() { print "hello" }
+proc relay(callback) { callback() }
+proc run_relay() { relay(greet)? }
+proc nested() { run_relay()? }
+nested()?
+let kept = run_relay
+print "done"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "hello\ndone\n"
+}
+
+test test_full_inference_inferred_callback_effects_reach_the_caller_bound { |ctx|
+  test.expect(
+    ctx,
+    r"""proc stamp() { let moment = time.now(); print $moment }
+proc relay(callback) { callback() }
+proc bounded() [error] { relay(stamp)? }
+bounded()?
+""",
+    status: 2,
+    stderr: ["[check.effect-violation]", "`time`"],
+  )?
+  test.expect(
+    ctx,
+    r"""proc stamp() { let moment = time.now(); print $moment }
+proc relay(callback) { callback() }
+proc inferred() { relay(stamp)? }
+proc bounded() [error] { inferred()? }
+bounded()?
+""",
+    status: 2,
+    stderr: ["[check.effect-violation]", "`time`"],
+  )?
+}

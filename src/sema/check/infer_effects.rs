@@ -2071,6 +2071,12 @@ impl Checker {
             && declaration.is_some_and(|owner| self.effect_graph.is_inferred(owner))
         {
             self.provisional_effects_read.set(true);
+            if let Some(owner) = declaration
+                && !self.effect_summaries.contains_key(&owner)
+                && self.effect_graph.nodes.get(&owner).is_some_and(|node| node.declared.is_none())
+            {
+                return super::DeclarationEffects::Checked(CheckedEffects::finite([]));
+            }
         }
         self.declaration_effects(declaration)
     }
