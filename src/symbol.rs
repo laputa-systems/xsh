@@ -804,6 +804,14 @@ fn preloaded_symbol(text: &str) -> Option<Symbol> {
         .copied()
 }
 
+/// Makes room for `additional` more dynamic names so none of them can resize the
+/// interner's text table. A diagnostic run calls this before it starts counting,
+/// which keeps a one-off table doubling out of the traffic it reports.
+pub fn reserve_dynamic_symbols(additional: usize) {
+    let mut interner = interner().write().expect("symbol interner poisoned");
+    interner.by_text.reserve(additional);
+}
+
 fn interner() -> &'static RwLock<Interner> {
     static INTERNER: OnceLock<RwLock<Interner>> = OnceLock::new();
     INTERNER.get_or_init(|| RwLock::new(Interner::with_preloaded()))
@@ -872,6 +880,17 @@ mod tests {
             Name::RESULT.symbol().raw() as usize,
             CORE_BUILTIN_SYMBOLS.len() - 1
         );
+    }
+
+    #[test]
+    fn reserved_dynamic_names_never_regrow_the_text_table() {
+        let mut interner = Interner::with_preloaded();
+        interner.by_text.reserve(2048);
+        let capacity = interner.by_text.capacity();
+        for index in 0..2048 {
+            interner.intern(&format!("reserve_probe_{index}"));
+        }
+        assert_eq!(interner.by_text.capacity(), capacity);
     }
 
     #[test]

@@ -202,12 +202,17 @@ pub fn run_script_with_test_fakes(
     finish_run_attempt(&options, attempt)
 }
 
+/// Dynamic names reserved before a measured run, so growth of the process symbol
+/// table is never charged to whichever fixture happens to cross a doubling.
+const MEASURED_RUN_SYMBOL_RESERVE: usize = 4096;
+
 /// Run one script with allocation traffic and diagnostic wall/CPU boundaries.
 /// Ordinary execution through [`run_script`] does not read the phase clock.
 pub(crate) fn run_script_with_allocation_stats(
     options: RunOptions,
 ) -> (ScriptOutput, RuntimeAllocationPhases) {
     let mut phase_times = RuntimePhaseTimes::default();
+    crate::symbol::reserve_dynamic_symbols(MEASURED_RUN_SYMBOL_RESERVE);
     mem_track::begin_stage();
     let preparation_start = PhaseClockReading::now();
     let prepared = try_prepare_program_observed(&options, Some(&mut phase_times));
