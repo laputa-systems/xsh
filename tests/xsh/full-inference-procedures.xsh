@@ -404,3 +404,21 @@ match converted(false, 1) { Ok(value) => { print $value }
   assert output.success, output.stderr
   assert output.stdout == "lost\ndeclined\n"
 }
+
+test test_full_inference_ground_proc_returns_a_generic_callee_application_result { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc relay(callback) {
+  let value = callback("input")?
+  value
+}
+proc echo(text: Str) -> Result[Str] { text }
+proc ground() { relay(echo) }
+let result = ground()?
+assert result == "input"
+print $result
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "input\n"
+}

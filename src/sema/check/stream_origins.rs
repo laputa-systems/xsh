@@ -872,7 +872,7 @@ impl Checker {
                     } else {
                         self.source_argument_origins(
                             source, argument.span, actuals, source_formal_bindings.as_ref(), &source_argument_bindings,
-                        )
+                        ).or_else(|| matches!(&argument.ty, crate::sema::schemes::SchemeType::Ground(ty) if !ty.may_hold_resource()).then(StreamOrigins::default))
                     };
                     let Some(mut origin) = origin else { complete = false; break; };
                     if parameters[slot].rest
