@@ -31,6 +31,7 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | core commands and system reporting | [Core](docs/CORE.md), [system report](docs/SYSTEM-REPORT.md), [btop](docs/BTOP.md) |
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
-| current performance and deployment work | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
+| campaign status and open milestones | [Roadmap](docs/ROADMAP.md) |
+| paused performance and deployment campaign, inference evidence | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
 | open work and design drafts | [TODO](TODO.md) |
 | generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |
