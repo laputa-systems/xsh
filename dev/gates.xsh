@@ -2428,7 +2428,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           if ! selected_ids.is_empty() {
             let arguments = ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(),
               "--runner", result_runner ?? "", "--events", events.display(), "--child-status", f"{raw}",
-              "--no-artifact-link", "--cases-json", cases_file.display()]
+              "--cases-json", cases_file.display()]
             let remaining = available_ns - (time.monotonic()? - case_started)
             if remaining < 1000000 {
               return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when failed_child

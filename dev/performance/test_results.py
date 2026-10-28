@@ -167,8 +167,9 @@ class ResultTests(unittest.TestCase):
             self.assertFalse(result['coverage_complete'])
             self.assertEqual(result['unreconciled_selected'], ['tests/a.xsh::case'])
         stdout = StringIO()
-        argv = ['results', '--runner', 'xsht', '--events', '/missing', '--case', 'one', '--child-status', '1']
-        with patch('sys.argv', argv), patch.object(results, '_event_file', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
+        argv = ['results', '--runner', 'xsht', '--events', '/missing', '--cases-json', '/cases', '--child-status', '1']
+        with patch('sys.argv', argv), patch.object(results, '_case_file', return_value=['one']), \
+                patch.object(results, '_event_file', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
             self.assertEqual(results.main(), 1)
         self.assertIn('missing events', stdout.getvalue())
 
@@ -178,8 +179,9 @@ class ResultTests(unittest.TestCase):
         self.assertFalse(result['coverage_complete'])
         self.assertEqual(result['unreconciled_selected'], ['one'])
         stdout = StringIO()
-        argv = ['results', '--runner', 'cargo', '--events', '/missing', '--case', 'one', '--child-status', '101']
-        with patch('sys.argv', argv), patch.object(results, '_event_file', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
+        argv = ['results', '--runner', 'cargo', '--events', '/missing', '--cases-json', '/cases', '--child-status', '101']
+        with patch('sys.argv', argv), patch.object(results, '_case_file', return_value=['one']), \
+                patch.object(results, '_event_file', side_effect=FileNotFoundError('missing events')), redirect_stdout(stdout):
             self.assertEqual(results.main(), 1)
         self.assertIn('missing events', stdout.getvalue())
 
@@ -191,8 +193,6 @@ class ResultTests(unittest.TestCase):
             self.assertEqual(result['status'], 1)
             self.assertEqual(result['child_status'], status)
             self.assertIn('cleanup_failure', results.render_report(result))
-            self.assertEqual(results.reconcile_xsht(encode(rows), ['tests/a.xsh::case'], child_status=status,
-                                                    cancelled=True)['status'], 130)
         rows = native_rows('failed', 2)
         rows[-1]['reason'] = None
         with self.assertRaises(results.ResultError):
@@ -221,14 +221,6 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(result['status'], 1)
         self.assertFalse(result['coverage_complete'])
 
-    def test_temporary_event_report_has_no_expired_link(self):
-        stdout = StringIO()
-        argv = ['results', '--runner', 'xsht', '--events', '/temporary/events.jsonl',
-                '--case', 'tests/a.xsh::case', '--child-status', '0', '--no-artifact-link']
-        with patch('sys.argv', argv), patch.object(results, '_event_file', return_value=encode(native_rows())), redirect_stdout(stdout):
-            self.assertEqual(results.main(), 0)
-        self.assertNotIn('Details:', stdout.getvalue())
-
     def test_cli_reads_selected_ids_from_json_without_argument_expansion(self):
         stdout = StringIO()
         argv = ['results', '--runner', 'xsht', '--events', '/events', '--cases-json', '/cases', '--child-status', '0']
@@ -244,8 +236,10 @@ class ResultTests(unittest.TestCase):
             root = Path(directory)
             fifo = root / 'events.fifo'
             os.mkfifo(fifo)
+            cases = root / 'cases.json'
+            cases.write_text('["tests/a.xsh::case"]')
             command = [sys.executable, '-B', str(Path(results.__file__)), '--runner', 'xsht',
-                       '--events', str(fifo), '--case', 'tests/a.xsh::case', '--child-status', '0']
+                       '--events', str(fifo), '--cases-json', str(cases), '--child-status', '0']
             outcome = subprocess.run(command, capture_output=True, text=True, timeout=2)
             self.assertEqual(outcome.returncode, 2)
             self.assertIn('regular file', outcome.stderr)
@@ -282,8 +276,6 @@ class ResultTests(unittest.TestCase):
                     outcome = subprocess.run([*command, raw], capture_output=True, text=True, timeout=2)
                     self.assertEqual(outcome.returncode, expected)
                     self.assertIn('missing', outcome.stderr)
-            outcome = subprocess.run([*command, '2', '--cancelled'], capture_output=True, text=True, timeout=2)
-            self.assertEqual(outcome.returncode, 130)
             command[command.index('xsht')] = 'cargo'
             outcome = subprocess.run([*command, '2'], capture_output=True, text=True, timeout=2)
             self.assertEqual(outcome.returncode, 1)
@@ -319,26 +311,26 @@ class ResultTests(unittest.TestCase):
             self.assertEqual(outcome.returncode, 2)
             self.assertIn('utf-8', outcome.stderr)
 
-    def test_cli_preserves_case_reasons_and_links_full_truncated_detail(self):
+    def test_cli_preserves_case_reasons_in_full(self):
         rows = native_rows('failed', 1)
         rows[2]['reason'] = {'kind': 'test_failure', 'detail': 'expected 7\nactual 9'}
         stdout = StringIO()
         argv = ['results', '--runner', 'xsht', '--events', '/owned/events.jsonl',
-                '--case', 'tests/a.xsh::case', '--child-status', '1']
-        with patch('sys.argv', argv), patch.object(results, '_event_file', return_value=encode(rows)), redirect_stdout(stdout):
+                '--cases-json', '/cases', '--child-status', '1']
+        with patch('sys.argv', argv), patch.object(results, '_case_file', return_value=['tests/a.xsh::case']), \
+                patch.object(results, '_event_file', return_value=encode(rows)), redirect_stdout(stdout):
             self.assertEqual(results.main(), 1)
-        self.assertEqual(stdout.getvalue(), 'Selected scope: failed (1 cases; xsht)\nResults: failed=1\nChild status: 1\nCoverage: complete\nUnresolved: "tests/a.xsh::case": failed {"detail": "expected 7\\nactual 9", "kind": "test_failure"}; runner exited 1\nFull: not run\nDetails: [events](/owned/events.jsonl)\n')
+        self.assertEqual(stdout.getvalue(), 'Selected scope: failed (1 cases; xsht)\nResults: failed=1\nChild status: 1\nCoverage: complete\nUnresolved: "tests/a.xsh::case": failed {"detail": "expected 7\\nactual 9", "kind": "test_failure"}; runner exited 1\nFull: not run\n')
         cargo = [{'type': 'suite', 'event': 'started', 'test_count': 1},
                  {'type': 'test', 'event': 'started', 'name': 'one'},
                  {'type': 'test', 'event': 'failed', 'name': 'one', 'stdout': 'assertion failed\n' + 'x' * 500},
                  {'type': 'suite', 'event': 'failed', 'passed': 0, 'failed': 1, 'ignored': 0}]
         result = results.reconcile_cargo(encode(cargo), ['one'], child_status=101)
-        report = results.render_report(result, artifact='/owned/cargo.jsonl')
+        report = results.render_report(result)
         self.assertIn('assertion failed\\n', report)
-        self.assertIn('...', report)
-        self.assertIn('Details: [events](/owned/cargo.jsonl)', report)
+        self.assertIn('x' * 500, report)
+        self.assertNotIn('Details:', report)
         self.assertIn('"kind": "failed"', report)
-        self.assertNotIn('x' * 500, report)
         self.assertLessEqual(len(report.splitlines()), 8)
 
     def test_native_run_reason_remains_visible_when_all_cases_passed(self):
@@ -352,14 +344,14 @@ class ResultTests(unittest.TestCase):
         self.assertNotIn('Unresolved: none', report)
         self.assertLessEqual(len(report.splitlines()), 8)
 
-    def test_explicit_cancellation_preserves_incomplete_coverage_and_raw_status(self):
+    def test_cancellation_preserves_incomplete_coverage_and_raw_status(self):
         cargo = encode([{'type': 'suite', 'event': 'started', 'test_count': 1},
                         {'type': 'test', 'event': 'started', 'name': 'one'}])
         for reconcile, text, selected in ((results.reconcile_cargo, cargo, ['one']),
                                            (results.reconcile_xsht, encode(native_rows()[:2]), ['tests/a.xsh::case'])):
-            for raw, cancelled in ((130, False), (-2, True)):
+            for raw in (130,):
                 with self.subTest(runner=reconcile.__name__, raw=raw):
-                    result = reconcile(text, selected, child_status=raw, cancelled=cancelled)
+                    result = reconcile(text, selected, child_status=raw)
                     self.assertEqual(result['status'], 130)
                     self.assertEqual(result['child_status'], raw)
                     self.assertFalse(result['coverage_complete'])
@@ -367,18 +359,13 @@ class ResultTests(unittest.TestCase):
                     self.assertEqual(result['cases'], {})
                     self.assertIn('Coverage: incomplete', results.render_report(result))
             self.assertEqual(reconcile(text, selected, child_status=1)['status'], 1)
-        result = results.reconcile_xsht(encode(native_rows()), ['tests/a.xsh::case'], child_status=0, cancelled=True)
-        self.assertEqual(result['status'], 130)
-        self.assertTrue(result['coverage_complete'])
-        self.assertNotIn('Unresolved: none', results.render_report(result))
 
     def test_cli_cancellation_precedes_truncated_stream_but_does_not_pass_it(self):
-        for raw, cancelled, expected in ((130, False, 130), (-2, True, 130), (1, False, 1)):
+        for raw, expected in ((130, 130), (1, 1)):
             stdout, stderr = StringIO(), StringIO()
-            argv = ['results', '--runner', 'cargo', '--events', 'unused', '--case', 'one', '--child-status', str(raw)]
-            if cancelled:
-                argv.append('--cancelled')
-            with patch('sys.argv', argv), patch.object(results, '_event_file', return_value='{'), \
+            argv = ['results', '--runner', 'cargo', '--events', 'unused', '--cases-json', '/cases', '--child-status', str(raw)]
+            with patch('sys.argv', argv), patch.object(results, '_case_file', return_value=['one']), \
+                    patch.object(results, '_event_file', return_value='{'), \
                     redirect_stdout(stdout), redirect_stderr(stderr):
                 status = results.main()
             self.assertEqual(status, expected)
@@ -406,7 +393,7 @@ class ResultTests(unittest.TestCase):
                 result = results.reconcile_xsht(encode(rows), ['tests/a.xsh::case'], child_status=raw)
                 self.assertEqual(result['status'], expected)
                 self.assertEqual(result['child_status'], raw)
-                report = results.render_report(result, artifact='/owned/native.jsonl')
+                report = results.render_report(result)
                 self.assertIn('fixture outcome', report)
                 self.assertIn(rows[-2]['reason']['kind'], report)
                 self.assertNotIn('Unresolved: none', report)

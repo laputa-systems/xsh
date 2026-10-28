@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import stat
 import sys
-from urllib.parse import quote_from_bytes
 
 
 OUTCOMES = ('passed', 'failed', 'skipped', 'timed_out', 'cancelled', 'not_executed')
@@ -292,10 +291,10 @@ def _reconcile_cargo(text, selected, *, child_status):
     return _result('cargo', selected, cases, child_status, None)
 
 
-def _reconcile(runner, parse, text, selected, *, child_status, cancelled):
+def _reconcile(runner, parse, text, selected, *, child_status):
     selected = _ids(selected)
-    _require(type(child_status) is int and type(cancelled) is bool, 'invalid controller result status')
-    cancellation = cancelled or child_status == 130
+    _require(type(child_status) is int, 'invalid controller result status')
+    cancellation = child_status == 130
     child_failure = child_status not in (0, 130) and (runner == 'cargo' or child_status != 2)
     try:
         result = parse(text, selected, child_status=child_status)
@@ -315,26 +314,21 @@ def _reconcile(runner, parse, text, selected, *, child_status, cancelled):
     return result
 
 
-def reconcile_xsht(text, selected, *, child_status, cancelled=False):
-    return _reconcile('xsht', _reconcile_xsht, text, selected, child_status=child_status, cancelled=cancelled)
+def reconcile_xsht(text, selected, *, child_status):
+    return _reconcile('xsht', _reconcile_xsht, text, selected, child_status=child_status)
 
 
-def reconcile_cargo(text, selected, *, child_status, cancelled=False):
-    return _reconcile('cargo', _reconcile_cargo, text, selected, child_status=child_status, cancelled=cancelled)
+def reconcile_cargo(text, selected, *, child_status):
+    return _reconcile('cargo', _reconcile_cargo, text, selected, child_status=child_status)
 
 
-def render_report(result, *, artifact=None):
+def render_report(result):
     counts = Counter(case['outcome'] for case in result['cases'].values())
     verdict = {0: 'passed', 1: 'failed', 2: 'incomplete', 130: 'cancelled'}[result['status']]
     def detail(value):
-        text = json.dumps(value, sort_keys=True)
-        if artifact is not None and len(text) > 240:
-            return json.dumps({'kind': value['kind'], 'detail': value['detail'][:160] + '...'}, sort_keys=True)
-        return text
+        return json.dumps(value, sort_keys=True)
     unresolved = [f'{json.dumps(name)}: {case["outcome"]} {detail(case["reason"])}'
                   for name, case in result['cases'].items() if case['outcome'] != 'passed']
-    if artifact is not None and len(unresolved) > 3:
-        unresolved = unresolved[:3] + [f'... {len(unresolved) - 3} more cases']
     if result['reason'] is not None:
         unresolved.append('run: ' + detail(result['reason']))
     elif result['child_status'] != 0:
@@ -346,9 +340,6 @@ def render_report(result, *, artifact=None):
                       'Coverage: ' + coverage,
                       'Unresolved: ' + ('; '.join(unresolved) if unresolved else 'none'),
                       'Full: not run']
-    if artifact is not None:
-        target = quote_from_bytes(os.fsencode(Path(artifact).absolute()), safe='/')
-        lines.append(f'Details: [events]({target})')
     return '\n'.join(lines) + '\n'
 
 
@@ -388,52 +379,48 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runner', required=True, choices=('xsht', 'cargo'))
     parser.add_argument('--events', required=True, type=Path)
-    parser.add_argument('--case', action='append')
     parser.add_argument('--cases-json', type=Path)
     parser.add_argument('--child-status', type=int)
-    parser.add_argument('--cancelled', action='store_true')
-    parser.add_argument('--no-artifact-link', action='store_true')
     parser.add_argument('--discover-cargo', action='store_true')
     parser.add_argument('--cargo-diagnostics', action='store_true')
     args = parser.parse_args()
     try:
         if args.cargo_diagnostics:
-            _require(args.runner == 'cargo' and args.case is None and args.cases_json is None and args.child_status is None and not args.cancelled and not args.discover_cargo,
+            _require(args.runner == 'cargo' and args.cases_json is None and args.child_status is None and not args.discover_cargo,
                      'Cargo diagnostics cannot include execution results')
             cargo_diagnostics(args.events)
             return 0
         if args.discover_cargo:
-            _require(args.runner == 'cargo' and args.case is None and args.cases_json is None and args.child_status is None and not args.cancelled,
+            _require(args.runner == 'cargo' and args.cases_json is None and args.child_status is None,
                      'Cargo discovery cannot include execution results')
             print('\n'.join(discover_cargo(_event_file(args.events))))
             return 0
-        _require((args.case is None) != (args.cases_json is None) and args.child_status is not None,
-                 'result reconciliation requires one case source and child status')
-        if args.cases_json is not None:
-            try:
-                args.case = _ids(_case_file(args.cases_json))
-            except (ValueError, OSError, UnicodeError) as error:
-                if args.cancelled or args.child_status == 130:
-                    status, label = 130, 'cancelled'
-                elif args.child_status not in (0, 130) and (args.runner == 'cargo' or args.child_status != 2):
-                    status, label = 1, 'failed'
-                else:
-                    raise
-                print(f'Selected scope: {label}\nReason: {json.dumps(str(error))}\nCoverage: incomplete\nFull: not run', file=sys.stderr)
-                return status
+        _require(args.cases_json is not None and args.child_status is not None,
+                 'result reconciliation requires a case file and child status')
+        try:
+            selected = _ids(_case_file(args.cases_json))
+        except (ValueError, OSError, UnicodeError) as error:
+            if args.child_status == 130:
+                status, label = 130, 'cancelled'
+            elif args.child_status not in (0, 130) and (args.runner == 'cargo' or args.child_status != 2):
+                status, label = 1, 'failed'
+            else:
+                raise
+            print(f'Selected scope: {label}\nReason: {json.dumps(str(error))}\nCoverage: incomplete\nFull: not run', file=sys.stderr)
+            return status
         reconcile = reconcile_xsht if args.runner == 'xsht' else reconcile_cargo
         read_error = None
         try:
             event_text = _event_file(args.events)
         except (OSError, UnicodeError, ResultError) as error:
-            if not (args.cancelled or args.child_status == 130
+            if not (args.child_status == 130
                     or args.child_status not in (0, 130) and (args.runner == 'cargo' or args.child_status != 2)):
                 raise
             event_text, read_error = '', {'kind': 'events_unavailable', 'detail': str(error)}
-        result = reconcile(event_text, args.case, child_status=args.child_status, cancelled=args.cancelled)
+        result = reconcile(event_text, selected, child_status=args.child_status)
         if read_error is not None:
             result['coverage_reason'] = read_error
-        print(render_report(result, artifact=None if args.no_artifact_link else args.events), end='')
+        print(render_report(result), end='')
         return result['status']
     except (ValueError, OSError, UnicodeError) as error:
         print(f'Selected scope: incomplete\nReason: {json.dumps(str(error))}\nFull: not run', file=sys.stderr)
