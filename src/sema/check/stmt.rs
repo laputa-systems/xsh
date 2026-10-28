@@ -3103,8 +3103,11 @@ impl Checker {
 
     fn statement_result_with_unit_payload(&mut self, actual: &Type, value: Span) -> Type {
         if matches!(actual, Type::Inference(_))
-            && let Ok(resolved @ Type::Inference(_)) = self.type_constraints.resolve(actual)
+            && let Ok(resolved) = self.type_constraints.resolve(actual)
         {
+            if !matches!(resolved, Type::Inference(_)) {
+                return self.statement_result_with_unit_payload(&resolved, value);
+            }
             if self.boundary.in_pure {
                 self.expect_type(&Type::Unit, actual, value);
                 return Type::Unit;

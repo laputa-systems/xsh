@@ -639,3 +639,23 @@ test test_full_inference_negation_rejects_operands_outside_its_domain { |ctx|
     )?
   }
 }
+
+test test_full_inference_statement_call_classifies_the_instantiated_result { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure ignore(value) -> Unit { let _ = value }
+pure relay(callback, value) { callback(value) }
+relay(ignore, 1)
+relay(ignore, "text")
+print "discarded"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "discarded\n"
+  test.expect(
+    ctx,
+    "pure keep(value) { value }\npure relay(callback, value) { callback(value) }\nrelay(keep, 1)\nprint \"tail\"\n",
+    status: 2,
+    stderr: ["[check.ignored-result]", "ignored `Int` value"],
+  )?
+}
