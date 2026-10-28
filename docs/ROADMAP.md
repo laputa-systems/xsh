@@ -66,8 +66,8 @@ Of the 59 failures in the last recorded full native run, 47 still reproduced
 on `master`; all 47 are fixed. A full native run on `f39195a4e`
 then had 3 failures, introduced by the temporary-root fix and since repaired,
 and 215 skips. The 64 skips above the recorded run need user namespaces and
-pass in a privileged container. 71 of the 72 util-linux private-namespace
-tests pass in that lane's namespace; XSH-51 tracks the other one.
+pass in a privileged container. All 72 util-linux private-namespace tests
+pass in that lane's namespace.
 The remaining skips need root, external fixtures, or tools absent from the
 image.
 

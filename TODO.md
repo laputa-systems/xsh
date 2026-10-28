@@ -21,15 +21,6 @@ XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
 
-### XSH-51 · P2 · Decide lsipc JSON for merged POSIX selector tables
-
-- **Area:** Core commands
-- **Where:** `core/lsipc.xsh`, `core/tests/test-lsipc.xsh:344`
-- **Problem:** For two POSIX selectors, reference util-linux crashes and XSH defines the output. Its `--json` table repeats column names such as `NAME` and `PERMS` as object keys, so XSH's strict decoder rejects XSH's own output and `test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference` fails in the private-namespace lane. For pairs where util-linux does not crash, both emit the same duplicate keys.
-- **Recommendation:** Decide whether the crash-only pairs keep util-linux's duplicate-key shape or emit unique keys, then make the structural check read the chosen shape. Keep byte parity for the non-crashing pairs.
-- **Fix with:** reference-parity
-- **Effort:** S
-
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
 - **Area:** Performance

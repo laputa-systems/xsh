@@ -341,7 +341,16 @@ proc known_reference_sigsegv_candidate_success(s: uu.Scene, args: List[Str]) [fs
   Ok(candidate)
 }
 
-proc assert_posix_selector_pair_candidate(fixture: IpcKeeper, args: List[Str], candidate: ul.Observed) [error] -> Result[Unit, Error] {
+proc merged_columns_json(s: uu.Scene, output: Bytes) [fs, process, env, error] -> Result[Str, Error] {
+  let document = uu.at(s, "merged-columns.json")
+  document.write(output)?
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/merged_json.py"
+  let folded = run.capture --text python3 -I $script $document
+  assert folded.status.exited_with(0), folded.stderr
+  folded.stdout
+}
+
+proc assert_posix_selector_pair_candidate(s: uu.Scene, fixture: IpcKeeper, args: List[Str], candidate: ul.Observed) [fs, process, env, error] -> Result[Unit, Error] {
   let selectors = [args[0], args[1]]
   let json_output = args.len() == 3 and args[2] == "--json"
   let has_posix_mqueues = "--posix-mqueues" in selectors
@@ -370,7 +379,7 @@ proc assert_posix_selector_pair_candidate(fixture: IpcKeeper, args: List[Str], c
   }
 
   if json_output {
-    let document = json.decode(candidate.stdout.utf8()?)?.require(Record)?
+    let document = json.decode(merged_columns_json(s, candidate.stdout)?)?.require(Record)?
     let table = if has_posix_semaphores { "posix-semaphores" } else if has_posix_shmems { "posix-sharedmemory" } else { "posix-messages" }
     assert document.keys() == [table]
     let rows = json.get(document, [table])?.require(List[Any])?
@@ -856,7 +865,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let posix_pair = args[0].starts_with("--posix-") and args[1].starts_with("--posix-")
     if posix_pair {
       let accepted = known_reference_sigsegv_candidate_success(s, args)?
-      assert_posix_selector_pair_candidate(fixture, args, accepted)?
+      assert_posix_selector_pair_candidate(s, fixture, args, accepted)?
     } else {
       let accepted = run_both(s, args)?
       ul.compare(accepted.reference, accepted.candidate)
@@ -866,7 +875,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let reversed_args = [args[1], args[0]]
     if posix_pair {
       let reversed = known_reference_sigsegv_candidate_success(s, reversed_args)?
-      assert_posix_selector_pair_candidate(fixture, reversed_args, reversed)?
+      assert_posix_selector_pair_candidate(s, fixture, reversed_args, reversed)?
     } else {
       let reversed = run_both(s, reversed_args)?
       ul.compare(reversed.reference, reversed.candidate)
@@ -876,7 +885,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let json_args = args.extend(["--json"])
     if posix_pair {
       let json_output = known_reference_sigsegv_candidate_success(s, json_args)?
-      assert_posix_selector_pair_candidate(fixture, json_args, json_output)?
+      assert_posix_selector_pair_candidate(s, fixture, json_args, json_output)?
     } else {
       let json_output = run_both(s, json_args)?
       ul.compare(json_output.reference, json_output.candidate)
@@ -886,7 +895,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let reversed_json_args = [args[1], args[0], "--json"]
     if posix_pair {
       let reversed_json = known_reference_sigsegv_candidate_success(s, reversed_json_args)?
-      assert_posix_selector_pair_candidate(fixture, reversed_json_args, reversed_json)?
+      assert_posix_selector_pair_candidate(s, fixture, reversed_json_args, reversed_json)?
     } else {
       let reversed_json = run_both(s, reversed_json_args)?
       ul.compare(reversed_json.reference, reversed_json.candidate)
