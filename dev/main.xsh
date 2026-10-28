@@ -389,13 +389,13 @@ pure gate_request(arguments: List[Str]) -> Bool {
 
 on INT --pre-cancel=45s [fs, process, env, time, error, io] {
   if gate_request(args) {
-    gates.cancel_owned_work(lifecycle.create()?)
+    gates.cancel_owned_work(lifecycle.create()?, "INT")
     exit 130
   }
 }
 on TERM --pre-cancel=45s [fs, process, env, time, error, io] {
   if gate_request(args) {
-    gates.cancel_owned_work(lifecycle.create()?)
+    gates.cancel_owned_work(lifecycle.create()?, "TERM")
     exit 130
   }
 }

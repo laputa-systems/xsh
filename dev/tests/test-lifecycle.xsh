@@ -940,7 +940,7 @@ use targets as target_policy
 let ctx: context.Context = {context_source(repository)}
 
 on TERM --pre-cancel=20s [fs, process, env, time, error, io] {{
-  gates.cancel_owned_work(ctx)
+  gates.cancel_owned_work(ctx, "TERM")
   exit 130
 }}
 
@@ -970,4 +970,53 @@ proc main() [fs, process, env, time, error, io] {{
   assert f"rm|-f|{id}" in log.read_lines()?
   assert fp"{root}/gone-{id}".exists()?
   assert "gates.cancel_owned_work(" in fp"{repository}/dev/main.xsh".read_text()?
+}
+
+test test_a_cancelled_gate_gives_its_adapters_the_time_their_cleanup_needs { |ctx|
+  let root = test.temp_dir(ctx, name: "adapter-cancel")?
+  let repository = fs.cwd()?
+  let ready = fp"{root}/ready"
+  let cleaned = fp"{root}/cleaned"
+  let adapter = fp"{root}/adapter.sh"
+  adapter.write(f"""#!/bin/sh
+trap 'sleep 1; echo cleaned > {cleaned}; exit 143' TERM
+: > {ready}
+sleep 30 &
+wait
+""", mode: 0o755)
+  let script = fp"{root}/run.xsh"
+  script.write(f"""
+use context
+use gates
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+
+on TERM --pre-cancel=20s [fs, process, env, time, error, io] {{
+  gates.cancel_owned_work(ctx, "TERM")
+  exit 130
+}}
+
+proc main() [fs, process, env, time, error, io] {{
+  run {adapter}
+}}
+""")
+  let search_path = env.get_or("PATH", "")?
+  let module_path = fp"{repository}/dev".display()
+  let xsh = ctx.xsh_bin
+  env PATH=$search_path XSH_MODULE_PATH=$module_path {
+    let child = spawn run $xsh $script ?
+    var waited = 0
+    while ! ready.exists()? and waited < 100 {
+      time.sleep(100ms)
+      waited += 1
+    }
+    assert ready.exists()?
+    process.kill(child.pid, signal: "TERM")
+    let status = wait child?
+    assert status.exited_with(130)
+  }
+  assert cleaned.exists()?
+  assert "gates.cancel_owned_work(lifecycle.create()?, \"INT\")" in fp"{repository}/dev/main.xsh".read_text()?
+  assert "gates.cancel_owned_work(lifecycle.create()?, \"TERM\")" in fp"{repository}/dev/main.xsh".read_text()?
 }

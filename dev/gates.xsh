@@ -1762,11 +1762,27 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
 
 ## Runs from the INT and TERM hooks while the runtime still holds the primary signal, which the hook's pre-cancel budget
 ## defers. It removes every container this run started and verifies each removal, so none keeps writing after the
-## cancellation is reported.
-export proc cancel_owned_work(ctx: context.Context) [fs, process, error, io, time] {
+## cancellation is reported. It then forwards the signal to the processes this run started and waits up to grace_ms for
+## them to exit, because the runtime kills a child group 150 ms after forwarding and the Python adapters need longer
+## to remove their own containers and release the shared leases.
+export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int = 30000) [fs, process, error, io, time] {
   match docker.remove_owned_containers(ctx) {
     Ok(_) => {}
     Err(cause) => print f"cancelled run could not remove its container: {cause.message}"
+  }
+  let me = process.current_pid()?
+  let owned = [entry.pid for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
+  for pid in owned {
+    match process.kill(pid, signal: signal) {
+      Ok(_) => {}
+      Err(_) => {}
+    }
+  }
+  let deadline = time.monotonic()? + grace_ms * 1000000
+  while time.monotonic()? < deadline {
+    let alive = [entry.pid for entry in process.list()? if entry.pid in owned and entry.status != "Z"]
+    break when alive.is_empty()
+    time.sleep(100ms)
   }
 }
 
