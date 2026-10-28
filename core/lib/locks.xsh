@@ -244,6 +244,12 @@ pure file_path(files: List[LinuxOpenFile], pid: Int, inode: Int) -> LinuxOpenFil
   null
 }
 
+proc live_lock_file(pid: Int, inode: Int) [fs, process] -> LinuxOpenFile? {
+  let observed = try { linux.open_files(pid)?.collect() }
+  guard let files = observed else { return null }
+  file_path(files, pid, inode)
+}
+
 pure descriptor_for_lock(fallback: List[DescriptorLock], lock: KernelLock) -> DescriptorLock? {
   for item in fallback {
     if ! item.lock.blocked and same_lock(lock, item.lock) { return item }
@@ -295,10 +301,11 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
         }
         if name == "" { "(unknown)" } else { name }
       }
-      let path_file = file_path(files, pid, lock.inode)
-      let lock_path: Bytes? = if resolved != null and ! lock.blocked { resolved.path } else if path_file != null { path_file.path.bytes() } else { null }
-      let size = if resolved != null and ! lock.blocked {
-        resolved.size
+      let descriptor_owner = if lock.pid < 0 and ! lock.blocked { resolved } else { null }
+      let path_file = if lock.pid > 0 { live_lock_file(lock.pid, lock.inode) } else { file_path(files, pid, lock.inode) }
+      let lock_path: Bytes? = if descriptor_owner != null { descriptor_owner.path } else if path_file != null { path_file.path.bytes() } else { null }
+      let size = if descriptor_owner != null {
+        descriptor_owner.size
       } else if path_file != null {
         let metadata = fs.stat(fp"/proc/{pid}/fd/{path_file.fd}", follow_symlinks: true)
         if let Ok(value) = metadata { value.size } else { 0 }
