@@ -34476,6 +34476,34 @@ assert nullable_name == null
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
+    #[test]
+    fn full_verifier_rejects_a_forged_generic_family_condition_fact() {
+        let program = fixture(
+            "generic-family-condition.xsh",
+            "pure label(items) { if items.is_empty() { \"none\" } else { \"some\" } }\n\
+             let empty: List[Int] = []\nlet text = label(empty)\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let function = scheme_fixture_root_function(&program, "label");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[function].contract else { panic!("label has a generic scheme") };
+        let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let ground = |index: usize, wanted: crate::runtime::eval::indexed::semantic::TypeTag| {
+            let fact = program.store.scheme_body_facts[index];
+            fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                && fact.ty().is_some_and(|ty| {
+                    let node = program.store.scheme_types[ty.index()];
+                    node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == wanted
+                })
+        };
+        let condition = facts.clone().find(|index| ground(*index, crate::runtime::eval::indexed::semantic::TypeTag::Bool)).expect("the condition has a Bool fact");
+        let text = facts.clone().find(|index| ground(*index, crate::runtime::eval::indexed::semantic::TypeTag::Str)).expect("a branch has a Str fact");
+        let mut forged = program.clone();
+        let (condition_value, text_value) = (forged.store.scheme_body_facts[condition].value, forged.store.scheme_body_facts[text].value);
+        forged.store.scheme_body_facts[condition].value = text_value;
+        forged.store.scheme_body_facts[text].value = condition_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",

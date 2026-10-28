@@ -532,3 +532,24 @@ print $none
   assert output.success, output.stderr
   assert output.stdout == "ab\nabcdef\n5\n0\n"
 }
+
+test test_full_inference_emptiness_family_is_a_generic_condition { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure label(items) { if items.is_empty() { "none" } else { "some" } }
+pure first_or(opts, fallback) { if opts.delimiter.is_empty() { fallback } else { opts.delimiter[-1] } }
+let empty: List[Int] = []
+let none = label(empty)
+let one = label([1])
+let last = first_or({delimiter: ["a", "b"]}, "z")
+let empty_names: List[Str] = []
+let fallback = first_or({delimiter: empty_names}, "z")
+print $none
+print $one
+print $last
+print $fallback
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "none\nsome\nb\nz\n"
+}

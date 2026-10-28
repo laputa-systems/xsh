@@ -6790,7 +6790,11 @@ impl<'a> ProducerProof<'a> {
             self.verify_scalar(&decoder, instruction)?;
             self.verify_operands(&decoder, instruction)
         } else {
-            let ty = self.need_context(&decoder, instruction)?.ok_or_else(|| IrVerifyError::new(format!("condition producer has no checked contract at owner {owner}, instruction {instruction} {:?}", self.store.tags[instruction])))?;
+            let ty = match self.need_context(&decoder, instruction)? {
+                Some(ty) => ty,
+                None => self.scoped_expression_type(&decoder, instruction)?.and_then(|ty| ty.closed_ground_type()).map(Arc::new)
+                    .ok_or_else(|| IrVerifyError::new(format!("condition producer has no checked contract at owner {owner}, instruction {instruction} {:?}", self.store.tags[instruction])))?,
+            };
             let ty = match ty.unvalidated() {
                 Type::Optional(payload) if !role.accepts(&ty)
                     && (self.optional_read_is_narrowed(&decoder, instruction, &ty)? || self.pushes_expected_to_results(&decoder, instruction, payload, true)?) =>
