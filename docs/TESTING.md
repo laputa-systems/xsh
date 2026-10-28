@@ -53,6 +53,18 @@ building products or starting Docker. Add `--json` for schema 1 inspection outpu
 Saved plans carry no execution authority and cannot be passed back for execution.
 Unknown paths produce incomplete scope and exit 2. They never select a broad fallback.
 
+A focused case that passes stores a record under the checkout's `.work/gate/`,
+bound to the source digest and the product digests and modes the run used. The
+record is disposable local evidence and is never committed. A case starts by
+discarding its previous record, so a failed or interrupted run leaves it not run.
+`cargo dev gate [PATH...] [--case ID] --status` lists the selected cases and
+reports each as current, stale or not run. Stale names the first mismatch: a
+changed source, a changed or missing product, or an unreadable record. Status
+only observes source and products; it starts no Docker, Cargo or tests. Alias
+and scenario cases store no record and report not run. A `--full` run stores a
+source-bound record only after every step passes; until then status reports
+`Full: not run`, and a source edit afterwards reports it stale.
+
 Only the sole `cargo dev gate --full` request enters comprehensive verification.
 The former `--batch` flag and `internal gate-batch` operation are removed.
 The canonical replay caller uses `internal gate-validate-full` before any Docker

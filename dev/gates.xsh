@@ -53,7 +53,7 @@ export type CatalogPlan = {
   available_scenarios: List[Str],
 }
 
-enum OutputMode { Execute, InspectText, InspectJson }
+enum OutputMode { Execute, InspectText, InspectJson, InspectStatus }
 
 enum RequestAuthority { FocusedAuthority, FullAuthority }
 
@@ -77,11 +77,13 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   var laputa_root: Str? = null
   var inspect = false
   var machine = false
+  var status = false
   var index = 0
   while index < arguments.len() {
     let arg = arguments[index]
     match arg {
       "--plan" => inspect = true
+      "--status" => status = true
       "--json" => machine = true
       "--tier" => {
         return Err(PlanError.Invalid(detail: "--tier requires edit or change")) when index + 1 >= arguments.len()
@@ -115,7 +117,8 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
     index += 1
   }
   return Err(PlanError.Invalid(detail: "--json requires --plan")) when machine and ! inspect
-  let output = if machine { InspectJson } else if inspect { InspectText } else { Execute }
+  return Err(PlanError.Invalid(detail: "--status cannot be combined with --plan")) when status and inspect
+  let output = if status { InspectStatus } else if machine { InspectJson } else if inspect { InspectText } else { Execute }
   let selected_laputa_ids = [id for id in case_ids if id in laputa_case_ids]
   let selected_core_workloads = [item for item in focused_core_workloads if item.id in case_ids]
   return Err(PlanError.Invalid(detail: "core workload correctness must be selected alone")) when ! selected_core_workloads.is_empty() and case_ids.len() != 1
@@ -590,6 +593,8 @@ proc dispatch_manual(ctx: context.Context, profile: tests.TestProfile, request: 
 }
 
 proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  full_evidence_path(ctx).remove(missing_ok: true)?
+  let source = bind_source(ctx, full_evidence_id, 30000000000)?
   for entry in plan.cases {
     match entry.execution {
       ManualPreparation(preparation) => tests.run_commands([preparation.command])
@@ -601,6 +606,8 @@ proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       ManualFull | Alias => {}
     }
   }
+  require_source(ctx, source, full_evidence_id, 30000000000)?
+  store_evidence(full_evidence_path(ctx), full_evidence_id, source, [])?
 }
 
 pure tier_name(tier: Tier) -> Str {
@@ -1550,6 +1557,11 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   let paths = if supplied.is_empty() and ids.is_empty() { changed_paths(ctx)? } else { supplied }
   let profile = tests.execution_profile()?
   let plan = plan_paths(ctx, profile, paths, ids, tier)?
+  if output == InspectStatus {
+    inspect_evidence(ctx, plan)?
+    if ! plan.unresolved.is_empty() { exit 2 }
+    return
+  }
   inspect_plan(plan, output == InspectJson)
   if ! plan.unresolved.is_empty() { exit 2 }
   return when output != Execute
@@ -1874,6 +1886,69 @@ proc require_source(ctx: context.Context, source: Str, case_id: Str, available_n
   return Err(ExecutionError.SourceChanged(case_id: case_id)) when bind_source(ctx, case_id, available_ns)? != source
 }
 
+type EvidenceProduct = {path: Str, digest: Str, mode: Int}
+type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int}
+
+enum EvidenceState { Current(Int), Stale(Str), NotRun }
+
+const full_evidence_id = "full"
+
+pure case_evidence_path(ctx: context.Context, id: Str) -> Path {
+  fp"{ctx.root}/.work/gate/cases/{id.replace("%", with: "%25").replace("/", with: "%2F")}.json"
+}
+
+pure full_evidence_path(ctx: context.Context) -> Path {
+  fp"{ctx.root}/.work/gate/full.json"
+}
+
+proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct]) [fs, time, error] -> Result[Unit, Error] {
+  let directory = record_path.parent()
+  if ! directory.exists()? { directory.mkdir(parents: true)? }
+  let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now()}
+  record_path.write_atomic(json.encode(record)?)
+}
+
+proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error]) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
+  return NotRun when ! record_path.exists()?
+  let loaded = try { json.decode(record_path.read_text()?)?.require(EvidenceRecord)? }
+  let record = match loaded {
+    Ok(value) => value
+    Err(cause) => { return Stale(f"unreadable record: {cause.message}") }
+  }
+  return Stale("record belongs to another case") when record.case != id
+  match current_source {
+    Ok(digest) => { return Stale("source changed") when digest != record.source }
+    Err(cause) => { return Stale(f"source unavailable: {cause.message}") }
+  }
+  for product in record.products {
+    let observed = try { bind_product(ctx, product.path, product.path, id, 30000000000)? }
+    match observed {
+      Ok(value) => { return Stale(f"product changed: {product.path}") when value.digest != product.digest or value.mode != product.mode }
+      Err(cause) => { return Stale(f"product unavailable: {product.path}: {cause.message}") }
+    }
+  }
+  Current(record.recorded_ms)
+}
+
+proc evidence_label(state: EvidenceState) [time, error] -> Result[Str, Error] {
+  match state {
+    Current(recorded_ms) => f"current (passed {time.format(recorded_ms * 1000000, "%Y-%m-%d %H:%M:%S", utc: true)?} UTC)"
+    Stale(reason) => f"stale ({reason})"
+    NotRun => "not run"
+  }
+}
+
+proc inspect_evidence(ctx: context.Context, plan: CatalogPlan) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  let source = try { bind_source(ctx, "status", 30000000000)? }
+  for entry in plan.cases {
+    let state = evidence_state(ctx, case_evidence_path(ctx, entry.id), entry.id, source)?
+    print f"{entry.id}: {evidence_label(state)?}"
+  }
+  for gap in plan.unresolved { print f"incomplete: {gap}" }
+  let full = evidence_state(ctx, full_evidence_path(ctx), full_evidence_id, source)?
+  print f"Full: {evidence_label(full)?}"
+}
+
 proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan, paths: List[Str], expected_source: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   var first_limit_ns = automatic_budget_ns(plan.tier)
   for entry in plan.cases {
@@ -1902,6 +1977,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
   var harnesses: Map[Str] = {}
   var harness_bindings: Map[ProductObservation] = {}
   for entry in plan.cases {
+    case_evidence_path(ctx, entry.id).remove(missing_ok: true)?
     var commands: List[contract.CommandSpec] = []
     var compiled = false
     var harness: Str? = null
@@ -2162,6 +2238,17 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       let case_elapsed = time.monotonic()? - case_started
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when case_elapsed > available_ns
       remaining_ns -= case_elapsed when entry.tier != Scenario
+    }
+    match entry.execution {
+      RunCommand(_) | DocumentationCheck => {
+        var bound = [{path: tests.product_path(ctx, profile, binding.product).display(), digest: binding.digest, mode: binding.mode} for binding in products]
+        if let executable = harness {
+          let observed = harness_bindings.get(executable)?
+          bound += [{path: executable, digest: observed.digest, mode: observed.mode}]
+        }
+        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound)?
+      }
+      Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {}
     }
   }
 }

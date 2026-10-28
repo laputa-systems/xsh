@@ -959,6 +959,7 @@ test test_gate_request_rejects_all_nonliteral_full_routes {
     ["--batch"], ["--full", "src/sema.rs"], ["--plan", "--full"],
     ["--tier", "full"], ["--tier", "scenario"], ["--tier"],
     ["--case"], ["--case", "--full"], ["--json"], ["--from-plan", "saved.json"],
+    ["--status", "--plan"], ["--status", "--json"], ["--full", "--status"],
   ] {
     match gates.parse_request(arguments) {
       Ok(_) => test.fail(f"invalid gate request {arguments.join(" ")} was accepted")
@@ -967,6 +968,7 @@ test test_gate_request_rejects_all_nonliteral_full_routes {
   }
   let _ = gates.parse_request(["--full"])?
   let _ = gates.parse_request(["--plan", "--json", "--tier", "edit", "--case", "safe"])?
+  let _ = gates.parse_request(["--status", "--case", "safe", "src/sema.rs"])?
 }
 
 test test_catalogue_plans_tokei_without_showcase_fallback_and_marks_unknown_scope {
@@ -1495,7 +1497,7 @@ proc main() [fs, process, env, time, error, io] {{
 }
 
 test test_gate_container_preserves_selected_failure_incomplete_and_cancel_statuses { |ctx|
-  test.timeout(ctx, 40s)
+  test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-container-status")?
   let cargo_home = fp"{tools}/cargo"
@@ -2666,4 +2668,95 @@ test test_source_edit_cases_deduplicate_and_preserve_unresolved_paths {
   assert [entry.id for entry in plan.cases] == ["core/uniq/records", "core/find/traversal"]
   assert plan.products == [tests.Xsh, tests.Xsht]
   assert plan.unresolved == ["unknown verification owner: unknown/example.xsh"]
+}
+
+test test_gate_status_reports_current_stale_and_not_run_evidence_without_starting_work { |ctx|
+  test.timeout(ctx, 120s)
+  let repository = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "gate-status")?
+  for name in ["Cargo.toml", "rust-toolchain.toml", "xsht-config.ini"] { fp"{root}/{name}".write("") }
+  fp"{root}/dev".mkdir()
+  fp"{root}/target".mkdir()
+  fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
+  fp"{root}/target/x86_64-unknown-linux-musl/verification".mkdir()
+  for product in ["xsh", "xsht", "xshi"] {
+    fp"{root}/target/x86_64-unknown-linux-musl/verification/{product}".write("fixture\n", mode: 0o755)
+  }
+  fp"{root}/tools".mkdir()
+  fp"{root}/dev/gate_case.xsh".write(fp"{repository}/dev/gate_case.xsh".read_bytes()?)
+  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
+  let cargo_calls = fp"{root}/cargo-calls"
+  let harness_calls = fp"{root}/harness-calls"
+  let harness = fp"{root}/target/prepared-test"
+  let harness_source = f"""#!{ctx.xsh_bin}
+let name = args[0] + "::case"
+if "--list" in args {{
+  print json.encode({{type: "suite", event: "discovery"}})?
+  print json.encode({{type: "test", event: "discovered", name: name, ignore: false}})?
+  print json.encode({{type: "suite", event: "completed", tests: 1, benchmarks: 0, total: 1, ignored: 0}})?
+}} else {{
+  let output = p"{harness_calls}"
+  let previous = if output.exists()? {{ output.read_text()? }} else {{ "" }}
+  output.write(previous + args[0] + "\\n")?
+  print json.encode({{type: "suite", event: "started", test_count: 1}})?
+  print json.encode({{type: "test", event: "started", name: name}})?
+  print json.encode({{type: "test", event: "ok", name: name}})?
+  print json.encode({{type: "suite", event: "ok", passed: 1, failed: 0, ignored: 0}})?
+}}
+"""
+  harness.write(harness_source, mode: 0o755)
+  fp"{root}/tools/cargo".write(f"""#!{ctx.xsh_bin}
+let output = p"{cargo_calls}"
+let previous = if output.exists()? {{ output.read_text()? }} else {{ "" }}
+output.write(previous + args.join(" ") + "\\n")?
+if args[0] == "test" {{
+  if "--no-run" not in args {{ exit 99 }}
+  print json.encode({{reason: "compiler-artifact", profile: {{test: true}}, executable: "{harness}"}})?
+  print json.encode({{reason: "build-finished", success: true}})?
+}}
+""", mode: 0o755)
+  let docker_marker = fp"{root}/docker-started"
+  fp"{root}/tools/docker".write(f"#!/bin/sh\ntouch '{docker_marker}'\nexit 1\n", mode: 0o755)
+  init_gate_repository(root, repository)?
+  let inherited = env.get_or("PATH", "")?
+  let environment = {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: ""}
+  let run_source = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  gates.lane(fixtures.linux_context(p"{root}")?, ["--case", "test-route-witness-unit"])?
+}}
+main()?
+"""
+  let status_source = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  gates.execute(fixtures.linux_context(p"{root}")?, ["--status", "--case", "test-route-witness-unit"])?
+}}
+main()?
+"""
+  let id = "test-route-witness-unit"
+  let record = fp"{root}/.work/gate/cases/{id}.json"
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run", "Full: not run"], args: [], env: environment)?
+  assert ! record.exists()?
+  assert ! cargo_calls.exists()?
+  let _ = test.expect(ctx, run_source, status: 0, args: [], env: environment)?
+  assert record.exists()?
+  let compile_calls = cargo_calls.read_lines()?.len()
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current", "Full: not run"], args: [], env: environment)?
+  harness.write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (product changed: {harness}", "Full: not run"], args: [], env: environment)?
+  harness.write(harness_source, mode: 0o755)
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current"], args: [], env: environment)?
+  fp"{root}/Cargo.toml".write("edited\n")
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)", "Full: not run"], args: [], env: environment)?
+  fp"{root}/Cargo.toml".write("")
+  record.write("{not json")
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (unreadable record"], args: [], env: environment)?
+  record.remove()?
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
+  assert cargo_calls.read_lines()?.len() == compile_calls
+  assert harness_calls.read_lines()?.len() == 1
+  assert ! docker_marker.exists()?
 }

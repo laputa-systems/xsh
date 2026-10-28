@@ -96,6 +96,7 @@ commands:
   build
   check [lint]
   gate [PATH...] [--tier edit|change] [--case ID] [--plan [--json]]
+  gate [PATH...] [--case ID] --status
   gate --full
   docs [check]
   lint --fix
