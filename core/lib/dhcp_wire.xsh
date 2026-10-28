@@ -460,6 +460,18 @@ pure is_label(label: Str) -> Bool {
   true
 }
 
+## True for a name made of one to 127 dot-separated labels of letters, digits,
+## hyphens and underscores, at most 253 bytes in all. A trailing dot is not
+## accepted. This is the only form a lease or file may place in a resolver
+## search list.
+export pure is_domain_name(text: Str) -> Bool {
+  return false when text == "" or text.byte_len() > MAX_DOMAIN_LENGTH
+  for label in text.split(".") {
+    return false unless is_label(label)
+  }
+  true
+}
+
 pure strip_trailing_nuls(data: Bytes) -> Bytes {
   var end = data.len()
   while end > 0 and data.byte_at(end - 1) == 0 {
@@ -476,9 +488,7 @@ pure domain_name(options: List[RawOption]) -> Result[Str?, WireReject] {
   guard decoded is Ok(_) else { fail .BadOptionValue(OPTION_DOMAIN) }
   let text = decoded ?? ""
   let trimmed = if text.ends_with(".") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
-  for label in trimmed.split(".") {
-    fail .BadOptionValue(OPTION_DOMAIN) unless is_label(label)
-  }
+  fail .BadOptionValue(OPTION_DOMAIN) unless is_domain_name(trimmed)
   Ok(trimmed)
 }
 
