@@ -4776,6 +4776,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
         body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
+        if slots.propagated_condition != Some(expression) && self.bodies.propagating_conditions.contains(&expression) {
+            let outer = slots.propagated_condition.replace(expression);
+            let operand = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body);
+            slots.propagated_condition = outer;
+            let operand = operand?;
+            let value = push_build_row!(self, expr, BuildExprRow::Try { value: operand, span: self.program.arena.expr(expression).span });
+            lowered_types.insert(value, SchemeType::Ground(Type::Bool));
+            return Some(value);
+        }
         let requirements = facts.requirement_pack_at(expression).ok()?;
         if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
         if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none_or(|ordinal| {

@@ -549,3 +549,34 @@ let first = spin(3)?
     stderr: ["[check.type-mismatch]", "completions of proc `spin`"],
   )?
 }
+
+test test_full_inference_result_bool_condition_propagates_in_a_generic_proc { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc probe(marker, target: Path) [fs, io, error] {
+  if target.exists() { print $marker } else { print "missing" }
+  while target.is_dir() { return 1 }
+  0
+}
+let first = probe("here", p"/")?
+let second = probe(7, p"/etc/hostname")?
+assert first == 1 and second == 0
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "here\n7\n"
+}
+
+test test_full_inference_failed_condition_propagates_from_a_generic_proc { |ctx|
+  test.expect(
+    ctx,
+    r"""proc probe(marker, target: Path) [fs, io, error] {
+  if target.is_dir() { print $marker }
+  0
+}
+let missing = probe("here", p"/nonexistent-xsh-path")?
+""",
+    status: 3,
+    stderr: ["fs-metadata"],
+  )?
+}

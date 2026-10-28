@@ -832,11 +832,13 @@ impl Checker {
         let expr = arena.arena.expr(id);
         let result_bool = |ty: &Type| matches!(ty, Type::Result(ok, _) if **ok == Type::Bool);
         if control && result_bool(&actual) {
+            self.condition_operand_types.insert(expr.span, actual.clone());
             self.propagating_conditions.insert(expr.span);
             self.record_condition_error(&actual, expr.span);
             return Type::Bool;
         }
         self.propagating_conditions.remove(&expr.span);
+        self.condition_operand_types.remove(&expr.span);
         if control
             && let ArenaExprKind::Try(operand) = expr.kind
             && self

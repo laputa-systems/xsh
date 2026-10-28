@@ -327,6 +327,9 @@ impl Checker {
                 && !self.stream_expr_may_complete(program, expression)
         }).collect::<std::collections::BTreeSet<_>>();
         for expression in &noncompleting_expressions { body_types.remove(expression); }
+        for (expression, ty) in body_types.iter_mut() {
+            if let Some(operand) = self.condition_operand_types.get(&program.arena.expr(*expression).span) { *ty = operand.clone(); }
+        }
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
             Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
             _ => None,
