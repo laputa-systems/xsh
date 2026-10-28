@@ -123,6 +123,7 @@ export type Lease = {
   prefix: Int,
   broadcast: Int,
   routers: List[Int],
+  classless: List[wire.ClasslessRoute],
   dns: List[Int],
   domain: Str?,
   server: Int,
@@ -284,11 +285,36 @@ export pure lease_timers(lease_secs: Int, server_renewal: Int?, server_rebinding
   {renew_ms: renew_ms, rebind_ms: rebind_ms, rule: rule}
 }
 
+pure covers(route: wire.ClasslessRoute, address: Int) -> Bool {
+  let mask = wire.prefix_mask(route.prefix) ?? 0
+  address.bit_and(mask) == route.destination
+}
+
+pure reachable_gateway(gateway: Int, address: Int, mask: Int, on_link: List[wire.ClasslessRoute]) -> Bool {
+  return true when gateway == 0
+  if on_subnet(gateway, address, mask) {
+    return gateway != address
+  }
+  for route in on_link {
+    return true when covers(route, gateway)
+  }
+  false
+}
+
+pure usable_classless(routes: List[wire.ClasslessRoute], address: Int, mask: Int) -> List[wire.ClasslessRoute] {
+  let on_link = [route for route in routes if route.gateway == 0]
+  [route for route in routes if reachable_gateway(route.gateway, address, mask, on_link)]
+}
+
 ## Builds the lease an acknowledgement grants. `anchor` is when the request
 ## it answers was first sent, which is when the lease starts. A lease of zero
 ## or under `min_lease_secs` seconds, or an address the mask makes a network or
 ## broadcast address, is rejected. A missing mask falls back to the classful
-## one, and only routers on the leased subnet are kept.
+## one, and only routers on the leased subnet are kept. Classless static routes
+## (RFC 3442) replace the routers entirely when the message carries any, and
+## only those whose router is the link itself, lies on the leased subnet or
+## inside an on-link route's destination are kept, because the kernel refuses
+## the others and the whole lease would then fail to apply.
 export pure lease_from_ack(message: wire.Message, anchor: Int, timing: Timing) -> Result[Lease, LeaseReject] {
   let lease_secs = message.lease_secs ?? 0
   fail .ZeroLease() when lease_secs == 0
@@ -300,7 +326,8 @@ export pure lease_from_ack(message: wire.Message, anchor: Int, timing: Timing) -
   let host = message.yiaddr.bit_and(host_bits)
   fail .BadAddress() when prefix < 31 and (host == 0 or host == host_bits)
   fail .BadAddress() when prefix == 0
-  let routers = [router for router in message.routers if router != message.yiaddr and on_subnet(router, message.yiaddr, mask)]
+  let classless = usable_classless(message.classless_routes, message.yiaddr, mask)
+  let routers = if message.classless_routes.is_empty() { [router for router in message.routers if router != message.yiaddr and on_subnet(router, message.yiaddr, mask)] } else { [] }
   let broadcast = message.yiaddr - host + host_bits
   if infinite {
     return Ok(
@@ -309,6 +336,7 @@ export pure lease_from_ack(message: wire.Message, anchor: Int, timing: Timing) -
         prefix:,
         broadcast:,
         routers:,
+        classless:,
         dns: message.dns,
         domain: message.domain,
         server: message.server_id ?? 0,
@@ -328,6 +356,7 @@ export pure lease_from_ack(message: wire.Message, anchor: Int, timing: Timing) -
       prefix:,
       broadcast:,
       routers:,
+      classless:,
       dns: message.dns,
       domain: message.domain,
       server: message.server_id ?? 0,
@@ -496,7 +525,7 @@ pure accept_lease(machine: Machine, lease: Lease, now: Int) -> Step {
 }
 
 pure renew_in_place(machine: Machine, current: Lease, lease: Lease) -> Step {
-  let changed = current.prefix != lease.prefix or current.routers != lease.routers or current.dns != lease.dns or current.domain != lease.domain or current.broadcast != lease.broadcast
+  let changed = current.prefix != lease.prefix or current.routers != lease.routers or current.classless != lease.classless or current.dns != lease.dns or current.domain != lease.domain or current.broadcast != lease.broadcast
   let bound = {...machine, state: Bound, lease: lease, candidate: null, offer: null, attempt: 0, probes_sent: 0, announces_left: 0, retry_at: null}
   let configure: List[Effect] = if changed { [Configure(lease)] } else { [] }
   step_of(bound, configure.push(Persist(lease)), if changed { "options_changed" } else { "" })

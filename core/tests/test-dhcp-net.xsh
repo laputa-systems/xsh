@@ -19,6 +19,7 @@ pure lease(address: Int, router: Int) -> machine.Lease {
     prefix: 24,
     broadcast: BROADCAST,
     routers: [router],
+    classless: [],
     dns: [ROUTER],
     domain: null,
     server: ROUTER,
@@ -347,4 +348,45 @@ test test_feedback_that_does_not_fit_the_phase_ends_the_walk_as_partial {
   }
   let finished = network.advance(wrong.walk, network.Persisted)
   if let .Finished(_) = finished.action {} else { assert false, "a closed walk stays closed" }
+}
+
+pure routed(destination: Int, prefix: Int, gateway: Int) -> network.Route {
+  {destination: destination, prefix: prefix, gateway: gateway, table: 254, tos: 0, priority: METRIC, protocol: 16}
+}
+
+pure classless_lease(routes: List[wire.ClasslessRoute]) -> machine.Lease {
+  {...lease(ADDRESS, ROUTER), routers: [], classless: routes}
+}
+
+test test_classless_routes_are_asked_for_with_on_link_routes_first {
+  let listed = [
+    wire.ClasslessRoute(destination: 0, prefix: 0, gateway: 3221225985),
+    wire.ClasslessRoute(destination: 167838208, prefix: 24, gateway: ROUTER),
+    wire.ClasslessRoute(destination: 3221225985, prefix: 32, gateway: 0),
+  ]
+  assert network.desired_routes(classless_lease(listed), METRIC) == [routed(3221225985, 32, 0), routed(0, 0, 3221225985), routed(167838208, 24, ROUTER)]
+  assert network.desired_routes({...lease(ADDRESS, ROUTER), classless: []}, METRIC) == [default_via(ROUTER)]
+}
+
+test test_classless_routes_are_owned_individually_and_withdrawn_without_touching_foreign_routes {
+  let listed = [wire.ClasslessRoute(destination: 167838208, prefix: 24, gateway: ROUTER), wire.ClasslessRoute(destination: 0, prefix: 0, gateway: ROUTER)]
+  let foreign = routed(167903232, 24, ROUTER)
+  let observed = link([], [{...foreign, priority: 5, protocol: 4}], true)
+  let planned = network.plan(classless_lease(listed), METRIC, network.empty_owned(IFINDEX), observed)
+  assert planned.owned_after.routes == [routed(167838208, 24, ROUTER), routed(0, 0, ROUTER)]
+  assert planned.conflicts.is_empty()
+  let after = link([host(ADDRESS)], [{...foreign, priority: 5, protocol: 4}, routed(167838208, 24, ROUTER), routed(0, 0, ROUTER)], true)
+  let narrower = network.plan(classless_lease([listed[0]]), METRIC, planned.owned_after, after)
+  assert narrower.owned_after.routes == [routed(167838208, 24, ROUTER)]
+  assert [kernel_model.operation_name(operation) for operation in narrower.operations] == ["-route 192.168.1.1"]
+  let withdrawn = network.plan(null, METRIC, narrower.owned_after, link([host(ADDRESS)], [{...foreign, priority: 5, protocol: 4}, routed(167838208, 24, ROUTER)], true))
+  assert withdrawn.operations.len() == 2 and withdrawn.owned_after.routes.is_empty()
+}
+
+test test_an_on_link_route_is_requested_with_link_scope_and_no_gateway {
+  let item = routed(3221225993, 32, 0)
+  let add = network.route_request(item, IFINDEX, true)?
+  assert add.payload == b"\x02\x20\x00\x00\xfe\x10\xfd\x01\x00\x00\x00\x00\x08\x00\x01\x00\xc0\x00\x02\x09\x08\x00\x04\x00\x03\x00\x00\x00\x08\x00\x06\x00\x64\x00\x00\x00"
+  let remove = network.route_request(item, IFINDEX, false)?
+  assert remove.payload == b"\x02\x20\x00\x00\xfe\x10\xff\x00\x00\x00\x00\x00\x08\x00\x01\x00\xc0\x00\x02\x09\x08\x00\x04\x00\x03\x00\x00\x00\x08\x00\x06\x00\x64\x00\x00\x00"
 }

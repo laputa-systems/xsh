@@ -1,6 +1,7 @@
 use core.lib.dhcp_machine as machine
 use core.lib.dhcp_net as network
 use core.lib.dhcp_store as store
+use core.lib.dhcp_wire as wire
 
 const MAC = b"\x02\x00\x00\x00\x00\x01"
 const BOOT = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
@@ -11,6 +12,7 @@ pure sample_lease() -> machine.Lease {
     prefix: 24,
     broadcast: 3232236031,
     routers: [3232235777],
+    classless: [],
     dns: [3232235777, 167772161],
     domain: "example.org",
     server: 3232235777,
@@ -49,6 +51,16 @@ pure current(index: Int, boot: Str, mac: Bytes) -> store.Current {
   {name: "eth0", ifindex: index, mac: mac, boot_id: boot}
 }
 
+test test_classless_routes_round_trip_and_must_be_canonical {
+  let routes = [wire.ClasslessRoute(destination: 167838208, prefix: 24, gateway: 3232235777), wire.ClasslessRoute(destination: 0, prefix: 0, gateway: 3232235777), wire.ClasslessRoute(destination: 3221225993, prefix: 32, gateway: 0)]
+  let record = {...sample_record(), lease: {...sample_lease(), routers: [], classless: routes}}
+  let text = store.encode(record)?
+  assert store.decode(text)? == record
+  for edit in [["\"gateway\":\"192.168.1.1\",\"prefix\":24}", "\"gateway\":\"192.168.1.1\",\"prefix\":33}"], ["\"destination\":\"10.1.2.0\"", "\"destination\":\"10.1.2.1\""], ["\"destination\":\"192.0.2.9\",\"gateway\":\"0.0.0.0\"", "\"destination\":\"192.0.2.9\",\"gateway\":\"127.0.0.1\""]] {
+    assert store.decode(edited(text, edit[0], edit[1])) is Err(_), edit[0]
+  }
+}
+
 test test_a_record_round_trips_exactly {
   let record = sample_record()
   assert store.decode(store.encode(record)?)? == record
@@ -60,7 +72,7 @@ test test_a_record_round_trips_exactly {
 
 test test_the_document_is_versioned_and_names_addresses_as_text {
   let text = store.encode(sample_record())?
-  assert "\"version\":1" in text and "\"address\":\"192.168.1.100\"" in text and "\"mac\":\"020000000001\"" in text
+  assert "\"version\":2" in text and "\"address\":\"192.168.1.100\"" in text and "\"mac\":\"020000000001\"" in text
 }
 
 pure filler(count: Int) -> Str {
@@ -74,10 +86,10 @@ pure edited(text: Str, from: Str, to: Str) -> Str {
 test test_malformed_documents_are_typed_rejections_never_partial_records {
   let good = store.encode(sample_record())?
   let cases = [
-    ["version", edited(good, "\"version\":1", "\"version\":2")],
-    ["version", edited(good, "\"version\":1", "\"version\":\"1\"")],
+    ["version", edited(good, "\"version\":2", "\"version\":3")],
+    ["version", edited(good, "\"version\":2", "\"version\":\"2\"")],
     ["schema", edited(good, "\"boot_id\":", "\"boot\":")],
-    ["unknown", edited(good, "\"version\":1", "\"version\":1,\"extra\":true")],
+    ["unknown", edited(good, "\"version\":2", "\"version\":2,\"extra\":true")],
     ["unknown", edited(good, "\"reconcile\":true", "\"reconcile\":true,\"owned_by\":\"someone\"")],
     ["schema", edited(good, "\"prefix\":24,\"rebind_at\"", "\"prefix\":\"24\",\"rebind_at\"")],
     ["value", edited(good, "\"address\":\"192.168.1.100\",\"broadcast\"", "\"address\":\"192.168.1.1000\",\"broadcast\"")],
@@ -99,12 +111,17 @@ test test_malformed_documents_are_typed_rejections_never_partial_records {
       Err(_) => {}
     }
   }
-  if let Err(store.StoreReject.Version {found}) = store.decode(edited(good, "\"version\":1", "\"version\":2")) {
-    assert found == 2
+  if let Err(store.StoreReject.Version {found}) = store.decode(edited(good, "\"version\":2", "\"version\":3")) {
+    assert found == 3
   } else {
     assert false, "an unknown version is its own rejection"
   }
-  if let Err(store.StoreReject.Unknown) = store.decode(edited(good, "\"version\":1", "\"version\":1,\"extra\":true")) {} else {
+  if let Err(store.StoreReject.Version {found}) = store.decode(edited(good, "\"version\":2", "\"version\":1")) {
+    assert found == 1, "a record from before classless routes is refused, not guessed at"
+  } else {
+    assert false, "the previous layout is its own rejection"
+  }
+  if let Err(store.StoreReject.Unknown) = store.decode(edited(good, "\"version\":2", "\"version\":2,\"extra\":true")) {} else {
     assert false, "an unknown field is its own rejection"
   }
 }

@@ -96,6 +96,7 @@ pure lease_with(servers: List[Int], domain: Str?) -> machine.Lease {
     prefix: 24,
     broadcast: 3232236031,
     routers: [3232235777],
+    classless: [],
     dns: servers,
     domain:,
     server: 3232235777,

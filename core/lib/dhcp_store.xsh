@@ -9,12 +9,13 @@ use dhcp_net as network
 use dhcp_wire as wire
 
 ## The version of the document layout this library reads and writes.
-export const RECORD_VERSION = 1
+export const RECORD_VERSION = 2
 ## The largest record the loader reads, in bytes.
 export const MAX_RECORD_BYTES = 65536
 
 const MAX_NAME_BYTES = 15
 const MAX_ROUTES = 8
+const MAX_CLASSLESS = wire.MAX_CLASSLESS_ROUTES
 const MAX_DNS = 8
 const MAX_DOMAIN_BYTES = 253
 
@@ -41,11 +42,14 @@ export error StoreReject {
   Value(message: Str)
 }
 
+type ClasslessJson = {destination: Str, prefix: Int, gateway: Str}
+
 type LeaseJson = {
   address: Str,
   prefix: Int,
   broadcast: Str,
   routers: List[Str],
+  classless_routes: List[ClasslessJson],
   dns: List[Str],
   domain: Str?,
   server: Str,
@@ -114,6 +118,7 @@ pure lease_json(lease: machine.Lease) -> LeaseJson {
     prefix: lease.prefix,
     broadcast: wire.ip_text(lease.broadcast),
     routers: ips_of(lease.routers),
+    classless_routes: [ClasslessJson(destination: wire.ip_text(item.destination), prefix: item.prefix, gateway: wire.ip_text(item.gateway)) for item in lease.classless],
     dns: ips_of(lease.dns),
     domain: lease.domain,
     server: wire.ip_text(lease.server),
@@ -201,6 +206,20 @@ pure prefix_of(prefix: Int, what: Str) -> Result[Int, StoreReject] {
   prefix
 }
 
+pure classless_of(items: List[ClasslessJson]) -> Result[List[wire.ClasslessRoute], StoreReject] {
+  fail .Value("classless routes") when items.len() > MAX_CLASSLESS
+  var routes = []
+  for entry in items {
+    let prefix = prefix_of(entry.prefix, "classless prefix")?
+    let destination = address_of(entry.destination, "classless destination")?
+    fail .Value("classless destination") unless destination.bit_and(wire.prefix_mask(prefix) ?? 0) == destination
+    let gateway = address_of(entry.gateway, "classless gateway")?
+    fail .Value("classless gateway") unless gateway == 0 or wire.is_unicast(gateway)
+    routes += [wire.ClasslessRoute(destination:, prefix:, gateway:)]
+  }
+  Ok(routes)
+}
+
 pure lease_of(item: LeaseJson) -> Result[machine.Lease, StoreReject] {
   guard let rule = timer_rule(item.timers) else { fail .Value("timers") }
   fail .Value("lease_secs") when item.lease_secs < 0 or item.lease_secs > wire.INFINITE_LEASE
@@ -211,6 +230,7 @@ pure lease_of(item: LeaseJson) -> Result[machine.Lease, StoreReject] {
       prefix: prefix_of(item.prefix, "prefix")?,
       broadcast: address_of(item.broadcast, "broadcast")?,
       routers: addresses_of(item.routers, "routers", MAX_ROUTES)?,
+      classless: classless_of(item.classless_routes)?,
       dns: addresses_of(item.dns, "dns", MAX_DNS)?,
       domain: item.domain,
       server: address_of(item.server, "server")?,

@@ -59,13 +59,20 @@ type Reply = {
   rebinding: Int?,
   dns: List[Int],
   routers: List[Int],
+  classless: List[wire.ClasslessRoute],
 }
 
 pure reply(kind: Int, xid: Int) -> Reply {
-  Reply(kind:, xid:, server: SERVER, address: ADDRESS, lease_secs: 20, renewal: null, rebinding: null, dns: [3232235777], routers: [ROUTER])
+  Reply(kind:, xid:, server: SERVER, address: ADDRESS, lease_secs: 20, renewal: null, rebinding: null, dns: [3232235777], routers: [ROUTER], classless: [])
+}
+
+pure classless_entry(route: wire.ClasslessRoute) -> Bytes {
+  let significant = (route.prefix + 7) / 8
+  bytes.concat([bytes.from_ints([route.prefix]) ?? b"", be32(route.destination)[..significant], be32(route.gateway)])
 }
 
 pure reply_bytes(r: Reply) -> Bytes {
+  let classless: List[Bytes] = if r.classless.is_empty() { [] } else { [option(121, bytes.concat([classless_entry(route) for route in r.classless]))] }
   let renewal: List[Bytes] = if let seconds = r.renewal { [option(58, be32(seconds))] } else { [] }
   let rebinding: List[Bytes] = if let seconds = r.rebinding { [option(59, be32(seconds))] } else { [] }
   let header = {op: 2, xid: r.xid, secs: 0, broadcast: false, ciaddr: 0, yiaddr: if r.kind == 6 { 0 } else { r.address }, siaddr: 0, giaddr: 0, chaddr: MAC}
@@ -78,6 +85,7 @@ pure reply_bytes(r: Reply) -> Bytes {
     option(6, bytes.concat([be32(server) for server in r.dns])),
     @renewal,
     @rebinding,
+    @classless,
   ]
   wire.encode_message(header, options) ?? b""
 }
@@ -691,4 +699,43 @@ pure effect_arm(effect: machine.Effect) -> Int {
     machine.Disarm => -1
     else => -2
   }
+}
+
+pure route_of(destination: Int, prefix: Int, gateway: Int) -> wire.ClasslessRoute {
+  wire.ClasslessRoute(destination:, prefix:, gateway:)
+}
+
+test test_classless_routes_replace_the_routers_in_the_lease {
+  var ses = begin(fast())
+  let xid = sends(ses.effects)[0].xid
+  let both = {...reply(5, xid), classless: [route_of(167838208, 24, ROUTER), route_of(0, 0, ROUTER)]}
+  let lease = machine.lease_from_ack(message(both)?, 0, fast())?
+  assert lease.routers.is_empty(), "option 121 overrides option 3"
+  assert lease.classless == [route_of(167838208, 24, ROUTER), route_of(0, 0, ROUTER)]
+  let plain = machine.lease_from_ack(message(reply(5, xid))?, 0, fast())?
+  assert plain.routers == [ROUTER] and plain.classless.is_empty()
+}
+
+test test_classless_routes_keep_only_gateways_the_kernel_can_reach {
+  var ses = begin(fast())
+  let xid = sends(ses.effects)[0].xid
+  let on_link = route_of(3221225993, 32, 0)
+  let reachable_through_it = route_of(0, 0, 3221225993)
+  let off_subnet = route_of(167838208, 24, 167772161)
+  let own_address = route_of(167903232, 24, ADDRESS)
+  let on_subnet = route_of(168099840, 24, ROUTER)
+  let listed = {...reply(5, xid), classless: [off_subnet, on_link, own_address, reachable_through_it, on_subnet]}
+  let lease = machine.lease_from_ack(message(listed)?, 0, fast())?
+  assert lease.classless == [on_link, reachable_through_it, on_subnet]
+  assert lease.routers.is_empty(), "option 121 overrides option 3 even when some of its routes are dropped"
+}
+
+test test_a_changed_classless_set_on_renewal_reconfigures_the_interface {
+  var ses = bound_ses(fast())?
+  assert held(ses)?.classless.is_empty()
+  ses = feed(ses, .OnTick, ses.machine.lease?.renew_at ?? 0)
+  let changed = {...reply(5, ses.machine.xid), classless: [route_of(167838208, 24, ROUTER)]}
+  ses = feed(ses, .OnReceived(message(changed)?), ses.now + 1)
+  assert only_actions(ses.effects) == ["configure", "persist"] and ses.note == "options_changed"
+  assert ses.machine.lease?.classless == [route_of(167838208, 24, ROUTER)]
 }

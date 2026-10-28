@@ -194,12 +194,24 @@ pure desired_address(lease: machine.Lease) -> Address {
   {address: lease.address, prefix: lease.prefix, broadcast: lease.broadcast}
 }
 
-## The default route a lease asks for: its first router, installed in the main
-## table with the client's protocol and `metric` as priority. Further routers
-## are ignored. A lease without a router asks for none.
+pure dhcp_route(destination: Int, prefix: Int, gateway: Int, metric: Int) -> Route {
+  {destination: destination, prefix: prefix, gateway: gateway, table: TABLE_MAIN, tos: 0, priority: metric, protocol: PROTOCOL_DHCP}
+}
+
+## The routes a lease asks for, installed in the main table with the client's
+## protocol and `metric` as priority. A lease with classless static routes
+## asks for exactly those, on-link routes first because a gateway may only be
+## reachable through one of them. Otherwise it asks for a default route through
+## its first router, ignoring further routers, and a lease without a router
+## asks for none.
 export pure desired_routes(lease: machine.Lease, metric: Int) -> List[Route] {
+  if ! lease.classless.is_empty() {
+    let on_link = [dhcp_route(item.destination, item.prefix, 0, metric) for item in lease.classless if item.gateway == 0]
+    let routed = [dhcp_route(item.destination, item.prefix, item.gateway, metric) for item in lease.classless if item.gateway != 0]
+    return on_link.extend(routed)
+  }
   guard ! lease.routers.is_empty() else { return [] }
-  [{destination: 0, prefix: 0, gateway: lease.routers[0], table: TABLE_MAIN, tos: 0, priority: metric, protocol: PROTOCOL_DHCP}]
+  [dhcp_route(0, 0, lease.routers[0], metric)]
 }
 
 pure without_address(items: List[Address], gone: Address) -> List[Address] {
@@ -347,11 +359,11 @@ export pure address_request(item: Address, ifindex: Int, add: Bool) -> Result[Re
 ## priority, protocol and tos, and leaves scope and type as wildcards.
 export pure route_request(item: Route, ifindex: Int, add: Bool) -> Result[Request, Error] {
   let c = linux.net_constants()
-  let scope = if add { c.RT_SCOPE_UNIVERSE } else { c.RT_SCOPE_NOWHERE }
+  let scope = if ! add { c.RT_SCOPE_NOWHERE } else if item.gateway == 0 { c.RT_SCOPE_LINK } else { c.RT_SCOPE_UNIVERSE }
   let kind = if add { c.RTN_UNICAST } else { 0 }
   let header = bytes.concat([bytes.from_ints([c.AF_INET, item.prefix, 0, item.tos, item.table, item.protocol, scope, kind])?, bytes.zero(4)?])
   let destination = if item.prefix > 0 { attribute(c.RTA_DST, be32(item.destination)?)? } else { b"" }
-  let via = attribute(c.RTA_GATEWAY, be32(item.gateway)?)?
+  let via = if item.gateway != 0 { attribute(c.RTA_GATEWAY, be32(item.gateway)?)? } else { b"" }
   let device = attribute(c.RTA_OIF, bytes.pack_le(ifindex, 4)?)?
   let priority = attribute(c.RTA_PRIORITY, bytes.pack_le(item.priority, 4)?)?
   let flags = if add { c.NLM_F_REQUEST.bit_or(c.NLM_F_ACK).bit_or(c.NLM_F_CREATE).bit_or(c.NLM_F_EXCL) } else { c.NLM_F_REQUEST.bit_or(c.NLM_F_ACK) }
