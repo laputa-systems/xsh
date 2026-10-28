@@ -328,19 +328,8 @@ pure right_pad(text: Str, width: Int) -> Str {
   result
 }
 
-proc write_stderr_bytes(data: Bytes) [process, env, io] {
-  if let Err(failure) = io.write_stderr_bytes(data) {
-    gnu.error(f"write error: {gnu.strerror(failure)}")
-    exit 1
-  }
-  if let Err(failure) = io.flush_stderr() {
-    gnu.error(f"write error: {gnu.strerror(failure)}")
-    exit 1
-  }
-}
-
 proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io, error] {
-  write_stderr_bytes(bytes.concat([
+  ul_io.write_diagnostic_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: {kind}"), pathname,
     bytes.from_text(f": {gnu.strerror(failure)}\n"),
   ]))
@@ -348,7 +337,7 @@ proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io,
 }
 
 proc report_loop(pathname: Bytes) [process, env, io] {
-  write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: "), pathname, b": exceeded limit of symlinks\n"]))
+  ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: "), pathname, b": exceeded limit of symlinks\n"]))
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {

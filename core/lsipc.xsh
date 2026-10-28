@@ -532,8 +532,7 @@ pure diagnostic_bytes(text: Str, raw: List[gnu.RawArgument]) -> Bytes {
 proc option_diagnostic(detail: Str, raw: List[gnu.RawArgument], usage: Bool) [process, env, io, error] -> Unit {
   let hint = if usage { f"Try '{gnu.phrase()} --help' for more information.\n" } else { "" }
   let message = diagnostic_bytes(f"{gnu.prog()}: {detail}\n{hint}", raw)
-  io.write_stderr_bytes(message)?
-  io.flush_stderr()?
+  ul_io.write_diagnostic_bytes(message)
   exit 1
 }
 

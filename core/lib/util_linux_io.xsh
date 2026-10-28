@@ -23,6 +23,17 @@ export proc write_text(text: Str) [process, io] -> Unit {
   flush_output()
 }
 
+proc diagnostic_write_error(failure: Error) [process, env] -> Unit {
+  gnu.error(f"write error: {gnu.strerror(failure)}")
+  exit 1
+}
+
+## Writes a diagnostic to stderr; a failed write reports NAME: write error: REASON and exits 1.
+export proc write_diagnostic_bytes(data: Bytes) [process, env, io] -> Unit {
+  if let Err(failure) = io.write_stderr_bytes(data) { diagnostic_write_error(failure) }
+  if let Err(failure) = io.flush_stderr() { diagnostic_write_error(failure) }
+}
+
 ## Writes help text, adding a final newline when absent.
 export proc help(text: Str) [process, io] -> Unit {
   write_text(if text.ends_with("\n") { text } else { f"{text}\n" })

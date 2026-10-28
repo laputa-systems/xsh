@@ -32,17 +32,6 @@ type Options = {
   operands: List[Str],
 }
 
-proc write_error_bytes(data: Bytes) [process, env, io] {
-  if let Err(failure) = io.write_stderr_bytes(data) {
-    gnu.error(f"write error: {gnu.strerror(failure)}")
-    exit 1
-  }
-  if let Err(failure) = io.flush_stderr() {
-    gnu.error(f"write error: {gnu.strerror(failure)}")
-    exit 1
-  }
-}
-
 proc bad_usage() [process, env] {
   gnu.error("bad usage")
   gnu.try_help()
@@ -50,14 +39,14 @@ proc bad_usage() [process, env] {
 }
 
 proc report_path_error(name: Bytes, failure: Error) [process, env, io] {
-  write_error_bytes(bytes.concat([
+  ul_io.write_diagnostic_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: "), name,
     bytes.from_text(f": {gnu.strerror(failure)}\n"),
   ]))
 }
 
 proc report_non_block(name: Bytes) [process, env, io] {
-  write_error_bytes(bytes.concat([
+  ul_io.write_diagnostic_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: "), name,
     b": not a block device\n",
   ]))
