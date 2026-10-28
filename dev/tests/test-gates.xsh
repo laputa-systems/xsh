@@ -966,15 +966,15 @@ test test_focused_catalogue_rejects_manual_closure_cycles_and_missing_cases {
   let implicit_scenario = {...command, id: "implicit-scenario", prerequisite_ids: ["scenario"]}
   let catalogue = [command, manual, alias, transit, cycle, scenario, implicit_scenario]
   for id in ["full", "alias", "transit", "cycle", "missing", "implicit-scenario"] {
-    match gates.resolve_plan(catalogue, ["safe", id], gates.Change) {
+    match gates.resolve_selection(catalogue, ["safe", id], ["safe", id], gates.Change) {
       Ok(_) => test.fail(f"invalid closure {id} was accepted")
       Err(error) => assert error.message == "PlanError.Invalid"
     }
   }
-  let plan = gates.resolve_plan(catalogue, ["safe", "safe"], gates.Change)?
+  let plan = gates.resolve_selection(catalogue, ["safe", "safe"], ["safe", "safe"], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["safe"]
   assert plan.products == [tests.Xsht]
-  assert gates.resolve_plan(catalogue, ["scenario"], gates.Change)?.cases[0].tier == gates.Scenario
+  assert gates.resolve_selection(catalogue, ["scenario"], ["scenario"], gates.Change)?.cases[0].tier == gates.Scenario
 }
 
 test test_gate_request_rejects_all_nonliteral_full_routes {
@@ -1861,7 +1861,7 @@ test test_full_catalogue_validates_alias_dependency_and_product_closure {
       Err(error) => assert error.message == "PlanError.Invalid"
     }
   }
-  match gates.resolve_plan([base, check, alias, full], ["alias"], gates.Change) {
+  match gates.resolve_selection([base, check, alias, full], ["alias"], ["alias"], gates.Change) {
     Ok(_) => test.fail("a manual child acquired focused authority through its alias")
     Err(error) => assert error.message == "PlanError.Invalid"
   }

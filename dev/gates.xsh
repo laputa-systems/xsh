@@ -168,11 +168,6 @@ pure resolve_case(entries: List[CatalogCase], id: Str, explicit: List[Str], visi
   [@resolved, entry]
 }
 
-## Resolves the entire focused dependency closure before returning commands.
-export pure resolve_plan(entries: List[CatalogCase], ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
-  resolve_selection(entries, ids, ids, tier)
-}
-
 pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
   var ids: List[Str] = []
   for entry in entries {
@@ -183,7 +178,8 @@ pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
   return
 }
 
-pure resolve_selection(entries: List[CatalogCase], ids: List[Str], explicit_ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
+## Resolves the entire focused dependency closure before returning commands.
+export pure resolve_selection(entries: List[CatalogCase], ids: List[Str], explicit_ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
   validate_cases(entries)?
   var resolved: List[CatalogCase] = []
   for id in ids {
@@ -1784,26 +1780,17 @@ export proc run_case(ctx: context.Context, action: CaseAction, id: Str, paths: L
   let entry = entries[0]
   match entry.execution {
     RunCommand(spec) => {
-      match action {
-        Prepare => {
-          guard spec.executable == "cargo" and spec.argv[1] == "test" else {
-            return Err(PlanError.Invalid(detail: "only Cargo test harnesses require leaf preparation"))
-          }
-          let argv = harness_build_argv(spec.argv)
-          return cargo_steps.run_build({...spec, stage: f"{spec.stage}-compile", argv: [@argv, "--message-format=json-render-diagnostics"]})
-        }
-        ExecuteLeaf => {
-          return Err(PlanError.Invalid(detail: "prepared Cargo harnesses execute directly, never through Cargo")) when spec.executable == "cargo"
-          return tests.run_commands([spec])
-        }
+      guard action == Prepare and spec.executable == "cargo" and spec.argv[1] == "test" else {
+        return Err(PlanError.Invalid(detail: "only Cargo test harnesses require leaf preparation"))
       }
+      let argv = harness_build_argv(spec.argv)
+      return cargo_steps.run_build({...spec, stage: f"{spec.stage}-compile", argv: [@argv, "--message-format=json-render-diagnostics"]})
     }
     DocumentationCheck => {
       return Err(PlanError.Invalid(detail: "documentation is not a Cargo harness")) when action == Prepare
       return docs_gate(ctx, profile)
     }
-    Alias => return
-    ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => { return Err(PlanError.Invalid(detail: "manual leaf cannot execute in a focused request")) }
+    Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => { return Err(PlanError.Invalid(detail: "only a Cargo harness or the documentation check runs through a leaf adapter")) }
   }
 }
 
