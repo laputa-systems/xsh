@@ -21,7 +21,7 @@ proc require_tools() [process, error] -> Result[Bool, Error] {
 
 test test_dnsmasq_offers_and_acknowledges_the_clients_request_and_both_captures_agree { |ctx|
   guard require_tools() else { return }
-  guard let dir = scenario.execute(
+  guard let dir = scenario.execute_as_real_root(
     ctx,
     "reference",
     [

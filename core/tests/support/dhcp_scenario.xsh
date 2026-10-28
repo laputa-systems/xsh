@@ -1,7 +1,8 @@
 ##! Test support: runs a scenario in private user, mount and network
-##! namespaces from an ordinary test; a test already running as root (the
-##! privileged Linux lane) omits the user namespace, because a server that drops
-##! group privileges, like dnsmasq, cannot do so inside one. The scenario's steps are the driver's;
+##! namespaces from an ordinary test, as root of the user namespace for any
+##! caller. A server that drops group privileges, like dnsmasq, cannot do so
+##! inside a user namespace, so `execute_as_real_root` omits it and needs real
+##! root with network administration. The scenario's steps are the driver's;
 ##! this module only writes the scenario file, enters the namespaces and
 ##! returns the directory the driver filled. A kernel that refuses the
 ##! namespaces skips the test with the reason, never passes it.
@@ -55,6 +56,20 @@ export pure snapshot(name: Str) -> types.Step {
 ## Runs `steps` in a fresh world below the test's temporary directory and
 ## returns that directory, or null after skipping the test.
 export proc execute(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Path?, Error] {
+  run_scenario(ctx, name, steps, true)
+}
+
+## Like `execute`, but without a user namespace, for a server that must drop
+## group privileges. Skips the test unless the caller is root.
+export proc execute_as_real_root(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Path?, Error] {
+  if unix.id()?.uid != 0 {
+    test.skip("this scenario needs real root, because its server drops group privileges")
+    return Ok(null)
+  }
+  run_scenario(ctx, name, steps, false)
+}
+
+proc run_scenario(ctx: TestContext, name: Str, steps: List[types.Step], mapped: Bool) [fs, process, error] -> Result[Path?, Error] {
   let dir = test.temp_dir(ctx, name:)?
   let scenario = types.Scenario(xsh: ctx.xsh_bin.display(), core: ctx.core_dir.display(), dir: dir.display(), steps:)
   let file = fp"{dir}/scenario.json"
@@ -70,9 +85,8 @@ export proc execute(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, p
     log,
     timeout: 120s,
   )
-  let privileged = unix.id()?.uid == 0
-  let kinds = if privileged { ["mnt", "net"] } else { ["user", "mnt", "net"] }
-  match linux.run_in_namespaces(plan, unshare: kinds, map_root_user: ! privileged) {
+  let kinds = if mapped { ["user", "mnt", "net"] } else { ["mnt", "net"] }
+  match linux.run_in_namespaces(plan, unshare: kinds, map_root_user: mapped) {
     Ok(status) => {
       return Ok(dir) when status.exited_with(0)
       let text = log.read_text()?
