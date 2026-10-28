@@ -71,6 +71,14 @@ tests pass in that lane's namespace; XSH-51 and XSH-52 track the other two.
 The remaining skips need root, external fixtures, or tools absent from the
 image.
 
+With verification products from `387259402`, Laputa `d4f8a03` passes
+`make check`, `test-xinit`, `test-linux`, and `tests/integration`. `test-pm`
+and `test-system` each have one failure that Laputa's frozen XSH snapshot
+reproduces: Laputa `2549eb0` added `ca-certificates` to tailscale's runtime
+dependencies without updating `tests/pm/repository_keys.xsh` and
+`tests/system/profile.xsh`. Criterion 3 still needs release products and
+recipes that rebuild rather than reuse cached artifacts.
+
 Criterion 2 is not yet met: the combined run must be repeated on the final
 candidate, privileged and including the private-namespace lane.
 
