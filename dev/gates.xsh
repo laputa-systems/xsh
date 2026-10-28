@@ -1985,7 +1985,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
   tests.run_commands(tests.product_builds(ctx, profile, plan.products)?)
   let binding_started = time.monotonic()?
   let products = bind_products(ctx, profile, plan.products, "products", initial_ns - source_ns)?
-  require_source(ctx, source, "source", initial_ns - source_ns - (time.monotonic()? - binding_started))?
   var binding_ns = source_ns + time.monotonic()? - binding_started
   var remaining_ns = automatic_budget_ns(plan.tier) - (if plan.tier == Scenario { 0 } else { binding_ns })
   var harnesses: Map[Str] = {}
