@@ -1,12 +1,12 @@
 use tests.support.dhcp_pcap as pcap
 use tests.support.dhcp_scenario as scenario
 
-type Seen = {kind: Int, xid: Int, address: Str, server: Str, lease: Int, renew: Int?, rebind: Int?, mask: Str, routers: List[Str], dns: List[Str], domain: Str?, broadcast: Bool}
+type Seen = {kind: Int, xid: Int, address: Str, server: Str, lease: Int, renew: Int?, rebind: Int?, mask: Str, routers: List[Str], classless: List[Str], dns: List[Str], domain: Str?, broadcast: Bool}
 
 type ProbeResult = {offer: Seen, ack: Seen}
 
 pure dnsmasq_flags() -> List[Str] {
-  ["--dhcp-range=192.168.50.100,192.168.50.110,255.255.255.0,2m", "--dhcp-option=option:router,192.168.50.1", "--dhcp-option=option:dns-server,192.168.50.1,192.168.50.2", "--dhcp-option=option:domain-name,lab.example", "--dhcp-authoritative"]
+  ["--dhcp-range=192.168.50.100,192.168.50.110,255.255.255.0,2m", "--dhcp-option=option:router,192.168.50.1", "--dhcp-option=option:dns-server,192.168.50.1,192.168.50.2", "--dhcp-option=option:domain-name,lab.example", "--dhcp-option=option:classless-static-route,10.77.0.0/16,192.168.50.1,192.0.2.9/32,0.0.0.0,0.0.0.0/0,192.168.50.1", "--dhcp-authoritative"]
 }
 
 proc require_tools() [process, error] -> Result[Bool, Error] {
@@ -40,6 +40,7 @@ test test_dnsmasq_offers_and_acknowledges_the_clients_request_and_both_captures_
   assert result.ack.address in ["192.168.50.100", "192.168.50.101", "192.168.50.102", "192.168.50.103", "192.168.50.104", "192.168.50.105", "192.168.50.106", "192.168.50.107", "192.168.50.108", "192.168.50.109", "192.168.50.110"]
   assert result.ack.server == "192.168.50.1" and result.ack.mask == "255.255.255.0"
   assert result.ack.routers == ["192.168.50.1"] and result.ack.dns == ["192.168.50.1", "192.168.50.2"] and result.ack.domain == "lab.example"
+  assert result.ack.classless == ["10.77.0.0/16 192.168.50.1", "192.0.2.9/32 0.0.0.0", "0.0.0.0/0 192.168.50.1"], "dnsmasq's own encoding of option 121 decodes to the routes it was given"
   assert result.ack.lease == 120 and result.ack.renew == 60 and result.ack.rebind == 105
 
   let ours = pcap.dhcp_messages(pcap.parse(fp"{dir}/recorder.pcap".read_bytes()?)?)

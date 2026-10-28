@@ -14,6 +14,7 @@ export pure reply(kind: Str) -> types.Reply {
     t2: null,
     mask: "255.255.255.0",
     routers: ["192.168.50.1"],
+    classless: [],
     dns: ["192.168.50.1"],
     domain: null,
     server_id: "192.168.50.1",

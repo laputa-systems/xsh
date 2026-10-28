@@ -20,7 +20,10 @@ under `--lease-dir` (default `/var/lib/dhcpc`), and never flushes anything
 else. It reads replies from a packet socket, because a reply to an unaddressed
 client is dropped by reverse-path filtering before a UDP socket sees it, and
 sends unaddressed messages as raw frames. Renewal at T1 is unicast, rebinding
-at T2 is broadcast, expiry withdraws only owned state, and a remembered lease
+at T2 is broadcast, expiry withdraws only owned state, classless static routes
+(option 121, RFC 3442) replace the router option and are owned and withdrawn
+route by route (a route whose gateway the kernel could not reach is dropped,
+and an on-link route has link scope), and a remembered lease
 is validated with INIT-REBOOT after a restart or boot-identity change. The
 resolver is shared through one coordinator: per-interface contributions under
 `--run-dir` are merged with the operator's static file (`--static-file`) into

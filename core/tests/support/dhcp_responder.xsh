@@ -81,6 +81,14 @@ pure reply_kind(name: Str) -> Int {
   }
 }
 
+pure classless_entry(text: Str) -> Bytes {
+  let parts = text.split(" ")
+  let network = parts[0].split("/")
+  let prefix = network[1].parse_int() ?? 0
+  let destination = bytes.pack_be(wire.ip_parse(network[0]) ?? 0, 4) ?? b""
+  bytes.concat([bytes.from_ints([prefix]) ?? b"", destination[..(prefix + 7) / 8], address_bytes(parts[1])])
+}
+
 ## The datagram a reply specification produces for a request.
 export pure reply_datagram(reply: types.Reply, request: wire.Message) -> Bytes {
   let xid = if reply.xid == "other" { request.xid + 1 } else { request.xid }
@@ -104,9 +112,10 @@ export pure reply_datagram(reply: types.Reply, request: wire.Message) -> Bytes {
     if let seconds = reply.t2 { wire.option(59, bytes.pack_be(seconds, 4) ?? b"") ?? b"" } else { b"" },
   ]
   let routers = if reply.routers.is_empty() or reply.kind == "nak" { [] } else { [wire.option(3, bytes.concat([address_bytes(router) for router in reply.routers])) ?? b""] }
+  let classless = if reply.classless.is_empty() or reply.kind == "nak" { [] } else { [wire.option(121, bytes.concat([classless_entry(route) for route in reply.classless])) ?? b""] }
   let servers = if reply.dns.is_empty() or reply.kind == "nak" { [] } else { [wire.option(6, bytes.concat([address_bytes(server) for server in reply.dns])) ?? b""] }
   let domain = if let name = reply.domain { [wire.option(15, bytes.from_text(name)) ?? b""] } else { [] }
-  let options = [@common, @granted, @timers, @routers, @servers, @domain]
+  let options = [@common, @granted, @timers, @routers, @classless, @servers, @domain]
   corrupt(wire.encode_message(header, options) ?? b"", reply.corrupt)
 }
 

@@ -6,6 +6,8 @@
 ## "other" (an unrelated transaction or client); `dest` is "broadcast",
 ## "source" (the request's source address), "ciaddr" or "yiaddr"; `corrupt` is
 ## "none", "truncate", "cookie", "option_length", "no_end" or "garbage".
+## `classless` lists RFC 3442 routes as "DESTINATION/PREFIX GATEWAY" text, where
+## a gateway of 0.0.0.0 is an on-link route.
 export type Reply = {
   kind: Str,
   address: Str,
@@ -14,6 +16,7 @@ export type Reply = {
   t2: Int?,
   mask: Str,
   routers: List[Str],
+  classless: List[Str],
   dns: List[Str],
   domain: Str?,
   server_id: Str,

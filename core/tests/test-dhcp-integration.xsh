@@ -350,3 +350,55 @@ test test_a_bound_client_idles_without_polling_or_growth { |ctx|
   assert measured.after.fds == measured.before.fds, "no descriptor leaks while idle"
   assert measured.after.rss_kb <= measured.before.rss_kb + 512, "no memory growth while idle"
 }
+
+pure owned_by_client(snapshot: Snapshot) -> List[RouteRow] {
+  [route for route in snapshot.routes if route.protocol == 16]
+}
+
+test test_classless_static_routes_replace_the_router_are_owned_and_follow_the_renewal { |ctx|
+  let first = ["10.77.0.0/16 192.168.50.1", "192.0.2.9/32 0.0.0.0", "198.51.100.0/24 192.0.2.9", "0.0.0.0/0 192.168.50.1"]
+  let second = ["10.88.0.0/16 192.168.50.1", "192.0.2.9/32 0.0.0.0", "0.0.0.0/0 192.168.50.1"]
+  let rules = [
+    script.always("discover", [{...script.reply("offer"), lease: 20}]),
+    script.only("request", 1, [{...script.reply("ack"), lease: 20, classless: first}]),
+    script.from("request", 2, [{...script.reply("ack"), lease: 20, classless: second}]),
+  ]
+  let file = write_rules(ctx, rules)?
+  guard let dir = scenario.execute(
+    ctx,
+    "classless",
+    [
+      scenario.fixture("link_add_dummy", ["ts0", "02:00:00:00:00:77"]),
+      scenario.fixture("link_up", ["ts0"]),
+      scenario.fixture("route_add_type4", ["10.98.0.0", "16", "6"]),
+      scenario.server_xsh(file),
+      scenario.wait_for("server.requests", "", 5000),
+      scenario.write("etc/resolv.static", ""),
+      scenario.client("client", client_args([])),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 20000),
+      scenario.sleep(500),
+      scenario.snapshot("first"),
+      scenario.wait_for("server.requests", "\"occurrence\":2", 25000),
+      scenario.sleep(1500),
+      scenario.snapshot("second"),
+      scenario.kill("client", "TERM"),
+      scenario.sleep(500),
+    ],
+  )? else { return }
+  let initial = owned_by_client(json.read(fp"{dir}/first.json")?.require(Snapshot)?)
+  let shapes = [f"{route.destination ?? "default"}/{route.prefix} via {route.gateway ?? "link"}" for route in initial]
+  assert shapes.len() == 4, shapes.join(",")
+  for expected in ["10.77.0.0/16 via 192.168.50.1", "192.0.2.9/32 via link", "198.51.100.0/24 via 192.0.2.9", "default/0 via 192.168.50.1"] {
+    assert expected in shapes, f"{expected} missing from {shapes.join(",")}"
+  }
+  let on_link = [route for route in initial if route.gateway == null][0]
+  assert on_link.scope == 253, "an on-link route has link scope"
+  assert [route for route in initial if route.priority != 100].is_empty()
+
+  let renewed = json.read(fp"{dir}/second.json")?.require(Snapshot)?
+  let later = [f"{route.destination ?? "default"}/{route.prefix} via {route.gateway ?? "link"}" for route in owned_by_client(renewed)]
+  assert later.len() == 3, later.join(",")
+  assert "10.88.0.0/16 via 192.168.50.1" in later and "10.77.0.0/16 via 192.168.50.1" not in later
+  assert "198.51.100.0/24 via 192.0.2.9" not in later, "a route the server stopped advertising is withdrawn"
+  assert [route for route in renewed.routes if route.destination == "10.98.0.0"].len() == 1, "the foreign route survives"
+}

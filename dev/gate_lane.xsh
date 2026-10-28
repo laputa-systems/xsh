@@ -44,6 +44,7 @@ export const namespace_tests = [
   "core/tests/test-df.xsh::test_df_operand_is_measured_when_mount_table_is_unreadable",
   "core/tests/test-dhcp-integration.xsh::test_a_bound_client_idles_without_polling_or_growth",
   "core/tests/test-dhcp-integration.xsh::test_a_foreign_resolver_file_is_reported_and_left_alone_while_the_lease_still_binds",
+  "core/tests/test-dhcp-integration.xsh::test_classless_static_routes_replace_the_router_are_owned_and_follow_the_renewal",
   "core/tests/test-dhcp-integration.xsh::test_a_killed_client_restarts_into_init_reboot_and_keeps_the_address",
   "core/tests/test-dhcp-integration.xsh::test_ifup_and_ifdown_drive_the_running_client_without_a_second_acquisition_or_a_flush",
   "core/tests/test-dhcp-integration.xsh::test_link_flap_and_interface_recreation_are_survived_without_a_new_discovery_storm",

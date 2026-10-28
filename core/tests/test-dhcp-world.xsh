@@ -3,7 +3,7 @@ use tests.support.dhcp_scenario as scenario
 use tests.support.dhcp_script as script
 use tests.support.dhcp_types as types
 
-type Seen = {kind: Int, xid: Int, address: Str, server: Str, lease: Int, renew: Int?, rebind: Int?, mask: Str, routers: List[Str], dns: List[Str], domain: Str?, broadcast: Bool}
+type Seen = {kind: Int, xid: Int, address: Str, server: Str, lease: Int, renew: Int?, rebind: Int?, mask: Str, routers: List[Str], classless: List[Str], dns: List[Str], domain: Str?, broadcast: Bool}
 
 type ProbeResult = {offer: Seen, ack: Seen}
 

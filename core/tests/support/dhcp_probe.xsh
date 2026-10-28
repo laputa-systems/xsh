@@ -8,7 +8,7 @@ use lib.dhcp_frame as frame_codec
 use lib.dhcp_wire as wire
 use lib.nettools_fixture as fixture
 
-type Seen = {kind: Int, xid: Int, address: Str, server: Str, lease: Int, renew: Int?, rebind: Int?, mask: Str, routers: List[Str], dns: List[Str], domain: Str?, broadcast: Bool}
+type Seen = {kind: Int, xid: Int, address: Str, server: Str, lease: Int, renew: Int?, rebind: Int?, mask: Str, routers: List[Str], classless: List[Str], dns: List[Str], domain: Str?, broadcast: Bool}
 
 pure summary(message: wire.Message) -> Seen {
   {
@@ -21,6 +21,7 @@ pure summary(message: wire.Message) -> Seen {
     rebind: message.rebinding_secs,
     mask: wire.ip_text(message.subnet_mask ?? 0),
     routers: [wire.ip_text(router) for router in message.routers],
+    classless: [f"{wire.ip_text(route.destination)}/{route.prefix} {wire.ip_text(route.gateway)}" for route in message.classless_routes],
     dns: [wire.ip_text(server) for server in message.dns],
     domain: message.domain,
     broadcast: message.broadcast,
