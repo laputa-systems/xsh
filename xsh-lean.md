@@ -1,181 +1,47 @@
 # XSH semantic soundness campaign
 
-**Status:** Paused by the owner on 2026-10-15 during consolidation winddown.
-Preserve existing foundations and unfinished work in Git. Start no new Lean
-lanes. Only on an explicit Lean resume, follow
-[the typing and formal successor requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements):
-complete one connected compiler proof milestone while retaining the full-core
-obligations and post-consolidation source-freeze requirement.
-Typing acceptance does not wait for this phase. A typing-only resume leaves
-Lean paused.
+**Status:** paused by the owner on 2026-10-15. Start no new Lean lanes. Git
+keeps the existing foundations and unfinished work.
 
-The 2026-10-28 scope revision keeps that pause and the source-freeze gate. It
-makes the independent contract reusable by a second implementation of the
-core, with a Goose frontend as the first intended experiment, and adds five
-planned obligations (`SRC-ADMIT`, `TYPE-COMPLETE`, `TYPE-DIAG`, `CERT-FACTS`,
-`IMPL-REFINE`). No Goose implementation exists, and none is a prerequisite for
-any obligation in this plan. See [Replacement implementation
-contract](#replacement-implementation-contract).
+**Resume:** only on an explicit Lean resume. Then complete one connected
+compiler proof milestone (see [the typing and formal successor
+requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements))
+while retaining the full-core obligations and the post-consolidation source
+freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
+resume leaves Lean paused.
 
-The foundations were authorized on 2026-10-13 after preflight.
-The pinned toolchain, finite private bridge fixtures, provisional inventory,
-scalar, base-machine, and observed-machine fragments, validation, nominal
-identity/provenance,
-union-membership, byte-lexical RelPath, and recursive `.require` fragments,
-bounded refinements, non-empty filtering, environment/store, effects including
-bounded failure witnesses, edge-order laws, and five bounded primitive
-classifications, argv expansion, finite ordered-set laws, List access bounds
-and bounded List-comprehension execution, finite loop-control traces,
-collect-block publication, ordered match-arm selection, and duration
-operations, native path components and lexical path normalization, Str-backed
-enum wire conversion, JSON compatibility projection,
-raw-IR, and transport codec/law fragments are
-integrated, along with finite map-presence laws over ordinal keys, checked call
-argument ordering, Unicode scalar text slicing, primitive collection-key
-ordering, finite Result fallback traces, JSON-tree paths, checked record
-updates, finite Map literal evaluation, UTF-8 byte string search and byte
-access, lazy optional access, Result `?`
-propagation boundaries, and finite `.require(Set[T])` validation and array
-conversion, finite Boolean short-circuit evaluation, raw `Bytes` access,
-effectful List splices, ordered Set algebra, bounded List pattern matching,
-and bounded integer byte codecs.
-The XSH language contract defines Float `==` and `!=` by IEEE value equality;
-runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
-and `Xsh.Values.FloatEquality` defines an executable comparator over raw
-encodings with Lean laws for IEEE value equality. A source regression covers
-runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidation
-acceptance and the post-consolidation G0b source freeze remain pending gates.
-The earlier authorization for wider staggered lanes is paused. These independent fragments make no
-source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
-77 inventoried universal theorem obligations remain planned. The Raw decoder
-modules include a finite four-tag schema model with successful-row conditions,
-bounded payload ranges, malformed-row rejection witnesses, and a guard
-mutation witness. A separate `FiniteSchema` model adds nine roots over an
-`Array (Option Nat)` ordinal-to-width schema and `List Word32` rows. It proves
-only finite decoder claims for that model; it establishes no Rust `FullTag` or
-field-schema correspondence, covers no other raw IR structures or verifier
-behavior, and does not close universal G7a. `Xsh.Effects.CheckerBridge`
-consumes already-classified `FactSet` summaries and checks their body-site
-obligations in the finite lexical model. It establishes no Rust classification
-or runtime correspondence and closes neither `EFF-LATENT` nor `EFF-SEMANTIC`.
-`Xsh.Effects.DelayedCausality` adds 13
-roots over finite producer instructions and callback operations. Its list model
-preserves pull order and keeps producer creation-site charges distinct from
-callback operation-site charges; it does not establish source or Rust
-correspondence, aliases, delegation, close semantics, divergence, or full
-`EFF-LATENT`, `EFF-SEMANTIC`, or universal G3 closure. `Xsh.Validation.IdentityStorage`
-adds 22 roots for exact validation identities, structural base views, guarded
-Optional injection, and persistent resource-preserving updates. It models only
-finite Path, List, Stream, Set, Map, Optional, Result, and runtime payload
-shapes. Set elements and Map keys stay invariant; eligible Map values may
-widen by a base view. The Result field witness uses structural `baseView` only.
-Optional injection excludes Optional and Any sources; its rejection witness
-covers only Optional Path to Optional Any and Any to Optional Any. It excludes Null,
-Record, Union, Rust/source correspondence, and full G2 closure.
-The inventory now names 685 roots across 92 owners; its 51 Python tests check inventory consistency,
-mutation controls, and finite-case evidence boundaries. The observed-machine
-fragment wraps the accepted scalar/integer BaseMachine in an ordered
-observation trace; progress preserves the link between a pending typed wait
-and its emitted request. The binding adapter uses occurrence IDs as labels
-while resolving the same raw name in distinct checked declaration contexts,
-then reads or writes the corresponding active typed cell. It proves no
-source-site table or source-site uniqueness and no whole lexical-shadowing
-semantics. It establishes no source, raw-IR/lowering, Rust, or concrete-clock
-correspondence, and closes no full BASE-* obligation or G1. `Xsh.Proofs.BaseMachineComposition`
-adds four roots composing checked lookup through a typed store with a scripted
-clock response and observed machine trace. Its mutations distinguish arithmetic,
-inactive-binding, and wrong-response behavior; it establishes no source,
-raw-IR/lowering, Rust/OS, or concrete clock correspondence and closes no full
-BASE-* or G1 obligation. The RelPath roots
-cover the independent byte-list model only;
-they establish no Rust checker/runtime correspondence, symlink confinement,
-or full G2 validation closure. Five observation
-fragments pair caller-supplied emissions with classified obligations, require
-explicit alignment for permission and pull-sequence correspondence, and use
-structural `Expr` site labels that cannot distinguish identical occurrences.
-They do not execute producers or establish Rust conformance or full
-`EFF-LATENT`/`EFF-SEMANTIC` semantics. The record-update fragment models the
-current checker's path-prefix overlap rule; `docs/SPEC.md` currently omits this
-rule. No `BASE-*` obligation is complete.
+**State:** `formal/coverage.json` is the only inventory. It lists 685
+theorem roots across 92 owners, all `SPEC_PROVED` finite models of selected
+behavior. None establishes source, raw-IR, Rust, OS, or clock correspondence or
+closes a full-language obligation. All 77 universal obligations stay planned,
+`source_identity` is null, and `finite_conformance.cases` is empty. Each
+fragment's exclusions are recorded beside its roots. `python3
+formal/scripts/check-inventory.py` validates the inventory against this plan.
 
-`Xsh.Control.OptionalAccess` models one lazy access hop over an already
-evaluated nullable receiver, callback order, and Result propagation before
-method arguments; it excludes effects, cleanup, and runtime parity.
-`Xsh.Strings.ByteAccess` models `Str` byte lookup and UTF-8-boundary-checked
-slices with an explicit length only. It excludes omitted-length slices,
-runtime errors, and `UInt8` conversion. Neither fragment establishes Rust
-conformance or closes a full G1/G2/G3 obligation.
+**Open items:**
 
-`Xsh.Iteration.Snapshot` models finite eager values captured for a loop over a
-List, finite Map, Str, Bytes, or Result. Its body frame keeps the current item
-immutable across source rebinding. It excludes streams and pipelines, loop
-control, typechecking, and runtime or Rust correspondence. `Xsh.Loops.ControlFlow`
-has twelve roots for finite loop-local outcomes and traces over a preselected
-finite item sequence. It covers current-loop continue and break, outer-target
-propagation through nested loops, return and failure propagation, repeat-count
-evaluation, finite ranges, and exact traces. It excludes checker target
-validity, stage callbacks, divergence, effects, cleanup, streams, and runtime
-or Rust correspondence. `Xsh.Paths.Fields`
-models POSIX lexical name, basename, dirname, parent, and extension queries on
-native bytes; it does not match every Rust-backed XSH `Path.name`, `Path.ext`,
-or `Path.parent` edge case, including `foo/.`, `foo/..`, and component
-normalization, so it establishes no XSH API/Rust correspondence. `Xsh.Paths.Normalize`
-has twelve roots for a native-byte lexical stack model. It removes empty and dot
-components, cancels ordinary components before `..`, preserves leading relative
-parents, clamps parents at an absolute root, and retains component bytes. Its
-concrete repeated-normalization example is not a general idempotence law. Runtime
-NUL admission, cwd and filesystem resolution, symlinks and confinement, path
-fields, construction and interpolation, and runtime or Rust correspondence are
-excluded.
+- Consolidation acceptance and the G0b source freeze gate everything below.
+- The record-update fragment models the checker's path-prefix overlap rule.
+  `docs/SPEC.md` does not state that rule. Add it to the SPEC template or
+  record an owner decision.
+- `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
+  `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
+  correspondence.
+- After G0b, run `tests/xsh/float-equality.xsh` against the frozen source and
+  record the result as finite evidence.
+- No Goose implementation exists, and none is a prerequisite for any
+  obligation. See [Replacement implementation
+  contract](#replacement-implementation-contract).
 
-`Xsh.Collect.Block` has twelve roots for finite collect events and publication.
-Only an already classified escaping transfer is represented; it records its
-kind without a target or return/error payload. Loop-local control classification,
-effects, cleanup, streams, retry, checker/type inference, AST evaluation, and
-runtime/Rust correspondence are excluded. `Xsh.Matches.Selection` has twelve
-roots for ordered arm decisions after a single subject evaluation, with
-abstract pattern outcomes and a supplied Boolean guard result. It excludes
-actual pattern matching, guard expression evaluation, type diagnostics,
-exhaustiveness, parsing, and runtime/Rust correspondence.
-
-`Xsh.Json.Encoding`
-models bounded compact encoding of a finite JSON tree; it excludes Float
-formatting, pretty output, parsing, and I/O, and establishes no runtime or Rust
-correspondence.
-The earlier 29 roots cover argv word/splice expansion, five named primitive
-effect classifications under the represented lexical rules, and ordered-set laws
-over finite ordinal keys. They establish no parser, Rust implementation, or full
-G1/G3 correspondence. The List-access and duration batch added 29 roots for
-List index and slice rules plus checked millisecond-duration operations. The
-List fragment excludes parsing,
-diagnostic phases, store updates, String/Bytes slicing, and Rust correspondence.
-The Duration fragment excludes parsing, evaluation, source spans, compound
-assignment, and Rust correspondence; its generalized mathematical-Int
-`time.millis` saturation case is unreachable from signed-64-bit XSH `IntValue`
-inputs. The inventory remains provisional, with null source identity, no finite
-conformance cases, and all 77 universal obligations planned.
-**Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
-**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
+**Scope:** formalize the whole frozen XSH core in Lean, prove its semantic and
 lowering obligations, and connect those independent statements to the Rust
-implementation with conformance and certified artifacts. The current scalar,
-syntax, environment/store, validation, effects, argv, ordered-set, base-machine,
-raw-IR, transport, UTF-8 byte search, Result propagation, Set validation, JSON
-compatibility projection, bounded List-comprehension execution, finite loop
-control, and native-byte path normalization modules are partial foundations
-only. The search model uses Lean's encoded byte list;
-Result propagation assumes an explicit compatible-error embedding; Set
-validation assumes a finite ordered key table and target predicate. JSON
-compatibility assumes unique record and Map keys, models Set serialization only
-for ordered ordinal keys emitted as ordinals, and requires explicit path
-conversion. List execution uses abstract finite expressions. None of these
-fragments establishes Rust correspondence.
-Every semantic claim starts after parsing except where `SRC-ADMIT` evidence
-covers the source bytes and module inputs for an admitted domain. A proof that begins
-with supplied syntax is a claim about that syntax, not about the original
-source program.
-`formal/Xsh.lean` imports every current module under `formal/Xsh/`, but root reachability does not
-establish adequacy or close any full-language obligation. These fragments do
-not establish Rust conformance.
+implementation with conformance and certified artifacts. Every semantic claim
+starts after parsing, except where `SRC-ADMIT` evidence covers the source bytes
+and module inputs for an admitted domain. A proof that begins with supplied
+syntax is a claim about that syntax, not about the original source program.
+`formal/Xsh.lean` imports every current module under `formal/Xsh/`. Root
+reachability does not establish adequacy.
+
 
 ## Deliverables
 
@@ -192,8 +58,6 @@ Rust is the production implementation and the first comparison implementation. T
 Run G0–G10 to G10. Every core rule stays in scope even when difficult. Development may use explicitly named fragments, but no fragment theorem closes a full-language obligation. Do not turn a universal theorem into a finite corpus claim. Brief progress updates may report evidence or a parked item; they do not pause work for routine approval. Park only the affected item for an irreversible/outside-repository action, a forbidden boundary, an incompatible redesign, or a loop that cannot produce a check; continue independent work and leave a concrete next probe.
 
 Use the repository's `orchestrate` campaign procedure for lane selection, merges, and review. Each lane owns an end-to-end capability, its tests and docs, and an exclusive `formal/Xsh/<domain>/` directory. No nested delegation unless the integrator assigns it. The integrator owns shared semantic interfaces, `formal/Xsh.lean`, `formal/coverage.json`, `formal/README.md`, gate/CI routing, and cross-workstream Rust files. Changes to any shared production path are serialized in its owning lane. Reviewers are read-only and need no build slot.
-
-All worktrees go under `.work/wt/<lane>` and scratch under `.work/tmp`; before the first such write, ensure `.work/` is ignored in `.git/info/exclude`. Set `TMPDIR=.work/tmp` for commands that spill large files. Do not use `/tmp`. Commit coherent campaign work with Conventional Commit messages; pushing is forbidden. Once a lane is integrated and its merged-tree checks pass, remove its worktree and branch. Do not leave generated corpora, traces, or stale pass reports in the repository.
 
 ### Evidence and trust
 
@@ -235,7 +99,7 @@ The integrator chooses file splits and proof lemmas within the domains and owner
 
 ## Baseline
 
-G0a established the pinned Lean/Lake/checker setup, private test-only bridge, provisional source inventory, and initial scalar foundation. Continue reconciling the imported theorem modules, inventory mutation controls, and audit results as foundations grow. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
+G0a established the pinned Lean/Lake/checker setup, private test-only bridge, provisional source inventory, and initial scalar foundation. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
 
 Coverage schema 2 keeps `source_state` provisional and `source_identity` null
 through consolidation; `finite_conformance.cases` stays empty until G0b freezes
@@ -260,11 +124,11 @@ Record only cases that have actually run; all universal theorem obligations
 remain independently planned until their complete proofs and required evidence
 pass.
 
-The initial Float equality disagreement has been repaired: the XSH language contract defines Float equality by IEEE value equality, and runtime, constant-folded, and fuzz-oracle comparisons implement that rule while raw Float representation and total-sort order stay intact. `formal/Xsh/Values/FloatEquality.lean` defines a Boolean comparator over raw encodings and proves its agreement with IEEE value equality, symmetry, transitivity, and reflexivity exactly for non-NaNs. It also proves that signed-zero equality preserves distinct payloads, wire encodings, and total-sort order. `tests/xsh/float-equality.xsh` now contains the runtime and constant-folding witnesses, including signed zero, same-bit NaN, and nested values. After consolidation closes, run these source witnesses against the frozen source and record the results as finite evidence. The Lean model and laws do not establish Rust conformance.
+Float equality follows owner decision 1: the runtime, constant-folding, and fuzz-oracle comparisons implement IEEE value equality and keep raw bits and total-sort order. `formal/Xsh/Values/FloatEquality.lean` proves the comparator laws, and `tests/xsh/float-equality.xsh` holds the runtime and constant-folding witnesses, including signed zero, same-bit NaN, and nested values. The Lean model establishes no Rust conformance.
 
-Record measured startup, exact-name native gate, fresh Rust build, Lean changed-module check, and clean Lean build as each becomes available. Warm changed Lean-module check target: at most 60 seconds. Exact-name Rust/native check target: at most 30 seconds unless an external/process boundary requires more. If a repeated core loop exceeds 120 seconds or twice its measured baseline, repair the loop before broad lane work. Do not report a benchmark claim from one run. Performance is measured and logged during parity work; optimization gates begin only after feature and test parity. Final performance gates run only when `perf-gate-ready` passes immediately before and `perf-gate-ready -1` passes immediately after; if the host remains busy, report `perf gate deferred: host busy`. Memory and binary-size gates always run.
+Record measured startup, exact-name native gate, fresh Rust build, Lean changed-module check, and clean Lean build as each becomes available. Warm changed Lean-module check target: at most 60 seconds. Exact-name Rust/native check target: at most 30 seconds unless an external/process boundary requires more. If a repeated core loop exceeds 120 seconds or twice its measured baseline, repair the loop before broad lane work. Do not report a benchmark claim from one run. Performance is measured during parity work; optimization gates begin only after feature and test parity.
 
-G0 writes the only machine-readable evidence inventory, `formal/coverage.json`, consumed by the gates. It records actual commands/results, versions, fixed-case counts by outcome, theorem roots and axiom audits, statement-drift review, artifact identities only where required, and remaining assumptions/baselines. Do not add `STATUS.md`, duplicate receipts, hashes of unrelated state, or a second register. Keep short append-only decision and phase logs in this document.
+G0 writes the only machine-readable evidence inventory, `formal/coverage.json`, consumed by the gates. It records actual commands/results, versions, fixed-case counts by outcome, theorem roots and axiom audits, statement-drift review, artifact identities only where required, and remaining assumptions/baselines. Do not add `STATUS.md`, duplicate receipts, or a second register. Keep the short log at the end of this document.
 
 ## Sequence and ownership
 
@@ -275,23 +139,15 @@ routing, and cross-workstream Rust paths.
 
 ### G0 — Ground (integrator only)
 
-G0a has started after this preflight. The pinned toolchain, private typed test
-bridge, and provisional inventory are in place; continue validating their
-controls and keep every formal module reachable from the root. The bridge maps
-arena names to text and Lean binders deterministically and tests parser/printer
-projection without exporting private runtime structures through a product API.
-FullStore, FullProgram, and FullVerifier are private and have no portable
-encoder. Prefer a `#[cfg(test)]` exporter/decoder beside verifier tests; do not
-use the default-enabled `native-tests` feature. G0b starts after consolidation
-closes: rebuild the post-close source; inventory every core syntax/type/call/
-control/stage/IR variant and the exclusion boundary; retain the signed-zero,
-NaN, and structural Float equality regressions in
-`tests/xsh/float-equality.xsh` and record their post-repair results; validate
-closed wire/scenario forms, proof root, audit controls, gate routing, and loop
-costs. Rust's typed `FullTag` cannot carry arbitrary unknown
-raw tag bytes: reject those at the Lean transport boundary and cover
-typed-representable corruptions in Rust. No unresolved core item may disappear
-from `formal/coverage.json`.
+G0a: the pinned toolchain, private typed test bridge, and provisional
+inventory are in place. Keep validating their controls and keep every formal
+module reachable from the root. G1b owns the bridge and transport rules.
+G0b starts after consolidation closes: rebuild the post-close source;
+inventory every core syntax/type/call/control/stage/IR variant and the
+exclusion boundary; run the Float equality regressions in
+`tests/xsh/float-equality.xsh` and record their results; validate closed
+wire/scenario forms, proof root, audit controls, gate routing, and loop costs.
+No unresolved core item may disappear from `formal/coverage.json`.
 
 ### G1 — Semantic foundation (one dedicated owner)
 
@@ -701,65 +557,10 @@ This map was checked at `120f8b44e98b4fa3cb87ab2ee6fc75da2b3d07c4`; the campaign
 
 The existing runtime applies verified indexed execution, uses heap-backed frames and a verifier-bounded in-place path (currently height 128), and retains program ownership for suspended producers. Resource/effect/lowering facts are behavior-bearing; prove their preservation rather than expanding hot rows by default. Re-resolve callable provenance and temporary-writer verifier checks at campaign start.
 
-### Proof and evidence references
+### Log
 
-Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean 4.28 and was previously named `lean4checker`. The local preflight environment reports Lean 4.34.1 release commit `5045d0056413266e57c625dcd7c365b10e377c52` and Lake `5.0.0-src`. A smoke invocation on `Init.Prelude` exited 0; this establishes checker availability only, not a project build, theorem, or proof. Run the full `Xsh` root after the formal project exists.
-
-### Append-only decision log
-
-- 2026-10-13 — Owner chose IEEE Float equality across all semantic paths; authorize only the minimal repair and regressions during the future campaign.
-- 2026-10-13 — The authorized runtime, constant-folding, and fuzz-oracle Float equality repair is integrated. This implementation status does not claim Rust conformance.
-- 2026-10-13 — Owner confirmed lexical `without` bounds and producer-origin effect charging; retain causal latent-effect proof, reject runtime-sandbox redesign.
-- 2026-10-13 — Pin Lean 4.34.1/Lake 5.0.0-src; bundle the checker and audit axioms separately.
-- 2026-10-13 — No Mathlib by default; use only after a named missing theorem and a bounded maintenance/trust/build-cost case.
-- 2026-10-28 — Owner revised the scope so the independent contract supports a second implementation, with Goose as the first intended experiment. Added SRC-ADMIT, TYPE-COMPLETE, TYPE-DIAG, CERT-FACTS, and IMPL-REFINE as planned obligations, raising the count from 72 to 77; the pause and source-freeze gate are unchanged.
-
-### Append-only phase log
-
-| Phase | Commit/revision and exact evidence | Open items / next action |
-|---|---|---|
-| Preflight | Lean 4.34.1 fresh `Init.Prelude` recheck; pinned release hello execution/JSONL trace; private typed-callable verifier regression passed. `mdtool check --untracked xsh-lean.md`: zero errors; planned-path/symbol warnings and known dangling-fixture notes. Independent review found no P1/P2 blocker. | Exporter and project do not yet exist; G0a proves those foundations before dependent work. |
-| G0a | Pinned project, module-wide axiom audit, guarded fresh-check runner, and exact scalar foundation merged. Private Rust bridge and provisional inventory have focused checks and independent review; integration fixes remain. | Include every theorem module in the fresh-check root. Finish reference and inventory mutation controls; G0b waits for consolidation close. |
-| Staggered foundations | Scalar bit/key round trips, lexical lookup and scope restoration, cell-reference captures, membership-guarded store laws, `NonEmpty` and bounded-integer validation boundaries, finite effect-lattice and recursive-summary fragments, and lexical bounds with delayed-work origins are integrated. The provisional inventory contains 89 owner rows and leaves all 72 complete theorem obligations planned; its 13 mutation tests pass. The private bridge has strict JSON limits, table bounds, and ghost-reference rejection tests. | These fragments do not close G2 or G3, establish Rust conformance, or supply the shared whole-language invariant. Whole syntax, typing, operational semantics, and artifact certification remain open. |
-| Rooted machine, raw IR, and transport foundations | Commits `9d475279b`, `7de4804c4`, `7e2e91947`, `1e434d815`, `d8b24f16e`, `9bc73a8a2`, and `0107c8158` add the validated store, integer base machine, raw IR word/table/range/row fragments, and strict transport codecs with accepted-value re-encoding laws; each module is imported by `formal/Xsh.lean`. Follow-ups `8a6b70d42` and `2aa2069c8` preserve exact typed scalar values in the base-machine fragment and constrain controls under pending integer frames, with witnesses for rejected non-integer frame mutations. Arithmetic in that machine remains integer-only. No `BASE-*` obligation is complete; all 72 full theorem obligations remain planned. | Root reachability is recorded, but these fragments do not establish parser/exporter or Rust conformance, whole-language adequacy, artifact certification, G0b source freeze, or full G1 closure. Begin G0b only after consolidation acceptance and freeze the post-consolidation source. |
-| Float laws, constant-folding regression, and typed clock wait | Commits `32f52b839`, `c1f50d041`, `7fe558c5e`, `0ab68c5d0`, `ccc19d054`, and `711031963` add 47 inventoried fragment theorem roots, executable Boolean IEEE Float comparison laws, the typed signed epoch-millisecond `time.now()` request/wait/resume/order/mismatch fragment, and a source regression for runtime and constant-folded Float comparisons. `python3 formal/scripts/check-inventory.py` reports 89 owner sets, 47 Lean fragment roots, and 72 planned obligations; `python3 formal/tests/inventory/test_check_inventory.py` passes all 29 tests. These results validate the inventory checker and its cases, not Rust or clock behavior. | Clock accuracy and correspondence with real time are external assumptions; no Rust or OS clock conformance is claimed. Run the Float source regressions against the frozen post-consolidation source. All 72 full obligations remain planned, and no `BASE-*` obligation is complete. |
-| Generic finite runner trace validity and response laws | Commits `cf167d187` and `125a9394` prove that `runBaseHostFuel` produces a valid prefix trace and that valid traces preserve base-machine well-formedness. The new runner fragment proves that terminal runs ignore added fuel and response suffixes, waiting runs remain unchanged without a response, a supplied response resumes a wait, and response order determines the returned value. An omitted-response mutation witness shows that a consumed mismatched response cannot be removed from the trace while retaining the waiting-to-failure endpoints. The earlier two-request script still yields responses 2 then 3 and completes with 5; a Boolean response is labeled and rejected with a type-mismatch fault. The inventory names 57 fragment roots; its 29 Python tests remain empirical inventory-checker tests, and all 72 full obligations remain planned. | These proofs cover only the formal finite scripted runner. They do not prove source/whole-language soundness, Rust or OS conformance, concrete host behavior, or clock accuracy; clock correspondence remains external. No `BASE-*` obligation is complete. |
-| Raw decoder bounds | The proof source at `2aceba100` establishes successful `readWords?` length, successful payload length and extra-table bounds, and rejection of one concrete out-of-bounds payload range. The inventory records these as three `SPEC_PROVED` fragments, bringing the root count to 60; the checker still reports 89 owner sets and 72 planned obligations, with all 29 inventory tests retained. | These are independent Raw decoder fragments. G7a, complete decoder soundness, and Rust verifier conformance remain open. |
-| Finite delayed-effect pull sequences | Three `SPEC_PROVED` roots record that an abstract `DelayedWork` pull yields the ordered finite prefix and corresponding remainder, preserves each charge's creation and body sites, and preserves permission when the creation-context permission premise holds. The inventory names 63 roots; its 29 tests, 89 owner sets, and 72 planned obligations remain unchanged. | Only the permission result assumes the creation-context permission premise. These results establish no Rust checker or stream alias, delegation, or close conformance, and close neither EFF-LATENT nor EFF-SEMANTIC. |
-| Closed producer expression bridge | From base `9b200e3dd`, `ExpressionBridge` checks finite classified producer bodies at their own lexical call contexts, preserves checked handles through aliases, records delegated call/body paths, and retains tagged conditional alternatives. Concrete witnesses accept an outside-created producer, reject creation under `without net`, reject a missing alias, an unknown source form, and a restricted delegated/conditional arm, and show that a restricted consumer keeps the producer creation charge. `lake build Xsh.Effects.ExpressionBridge` and `lake build Xsh` pass; the inventory checker reports 89 owner sets, 77 fragment roots, and 72 planned obligations; all 29 inventory tests pass; the axiom allowlist passes for 5,329 project declarations, its negative controls pass, and `leanchecker --fresh Xsh` passes. | This is a closed checker/source fragment only. It does not prove Rust source classification, full stream execution, alias cursor runtime behavior, close/resource semantics, or conformance, and closes neither EFF-LATENT nor EFF-SEMANTIC. |
-| Finite delayed-effect observations | After bridge baseline `6d77ab06`, five `SPEC_PROVED` roots in `Xsh.Effects.Lexical` show that positional observation pairs preserve supplied emission order and retain creation site, body site, and required effect; creation permission and equality with a finite pull sequence require explicit obligation alignment; a listed checked-consumer obligation is permitted at its own context. The inventory names 82 fragment roots, 89 owner sets, and 72 planned obligations; all 29 inventory tests remain. | Emissions and classified obligations are caller-supplied. Structural `Expr` site labels cannot distinguish identical occurrences. These results do not execute producers, establish Rust conformance, or close full EFF-LATENT or EFF-SEMANTIC. |
-| Finite error capture | `Xsh.Effects.Capture` proves error removal, preservation of other effects, idempotence, and commutation with represented effect closure; clause interpretation is permutation- and duplicate-invariant. Empty-bound witnesses expose mutations that drop named effects or unresolved work, and a captured missing-contract graph retains its unresolved fact. The inventory checker reports 89 owner sets, 95 fragment roots, and 72 planned obligations; all 50 inventory tests and `lake build Xsh.Effects.Capture` pass. | These theorems concern represented finite summaries, closure, and graph edges only. They do not establish Rust checker classification or propagation, complete solver behavior, full EFF-CAPTURE, EFF-LATENT, or EFF-SEMANTIC semantics, or conformance. |
-| Checked integer outcome laws | Commit `23d677cd2` adds checked conversion exactness, total signed-range outcome laws for addition, subtraction, multiplication, division, and remainder, plus concrete mutation witnesses for wrapping addition and Euclidean remainder. The inventory records all 8 added public theorem roots, bringing it to 103 fragment roots while retaining 89 owner sets and 72 planned obligations. The inventory checker and all 50 Python inventory tests pass. | These are fragments over the independent Lean integer model only; they establish no Rust arithmetic conformance or checker integration. The inventory remains provisional with null source identity and no finite conformance cases. |
-| Nominal identity, provenance, and union membership | Commit `b3e08a564` adds `Xsh.Validation.Nominal`; the root now imports it and the inventory lists all 10 public theorem declarations, including the ID-collapse and provenance-erasure mutation witnesses. The inventory checker reports 89 owner sets, 113 fragment roots, and 72 planned obligations; all 50 Python inventory tests pass. Schema 2 remains provisional with null source identity and no finite conformance cases. | This finite model does not validate record schemas or `.require` inputs, prove union exhaustiveness, or establish source/Rust conformance or full G2. The single `lake build Xsh` invocation stopped before compilation because its relative config path was resolved beneath `.work/`; no axiom audit or fresh kernel check was run. |
-| Lexical relative-path boundary | Commits `74ff794f6` and `d5ea8c97d` add and refine `Xsh.Validation.RelPath`, and `Xsh.lean` imports it. The coverage inventory lists all 21 public theorem roots; its checker reports 89 owner sets, 134 fragment roots, and 72 planned obligations, and all 50 Python tests pass. `lake build Xsh` passes; the transitive axiom allowlist passes for 5,668 declarations; the prohibited-term scan and guarded fresh kernel check pass. Schema 2 remains provisional with null source identity and no finite conformance cases. | This is an independent byte-list model only. It does not establish Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2/VAL closure. |
-| Recursive `.require` validation fragment | Commits `047bf1e58` and `4b0e8748a` add `Xsh.Validation.RecursiveRequire`, and `Xsh.lean` imports it. The finite target grammar uses explicit predecessor fuel, validates required nested fields and list elements, accepts `null` for optional values, preserves extra uniquely named fields, and rejects duplicate record keys. Its 11 `SPEC_PROVED` roots cover nested success and rejection, exact value erasure and provenance, recoverable nonmutation, and mutations that skip nested checks or duplicate-key rejection. The inventory checker reports 89 owner sets, 145 fragment roots, and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` succeeds and the transitive axiom allowlist passes for 5,894 declarations. Schema 2 remains provisional, with null source identity and no finite conformance cases. | This is an independent finite model only. It establishes no Rust correspondence or full G2/VAL proof. |
-| List access and checked duration fragments | Commits `819512a71` and `cc08766a3` add `Xsh.Semantics.ListAccess` and `Xsh.Values.DurationOps`; the root imports both. The inventory records exactly 11 and 18 `SPEC_PROVED` roots respectively, bringing it to 232 roots across 89 owners. The inventory checker and all 50 Python tests pass; `lake build Xsh`, the transitive axiom allowlist for 6,434 declarations and its negative controls, the prohibited-term scan, and guarded fresh kernel check pass. Schema 2 remains provisional with null source identity, no finite conformance cases, and all 72 obligations planned. | List access does not model parser or diagnostic phases, store updates, String/Bytes slicing, or Rust behavior. Duration operations do not model parsing, evaluation, spans, compound assignment, or Rust behavior; the generalized mathematical-Int `time.millis` saturation case is unreachable from signed-64-bit `IntValue` inputs. These fragments close no full G1/G2/G3 obligation. |
-| Finite map-presence laws | Commit `8485996db` adds `Xsh.Values.MapPresence` with 12 `SPEC_PROVED` roots, and the root imports it. The finite ordinal-key model distinguishes a present `null` from an absent key and covers lookup, `.get`, presence, set, remove, and a mutation witness. The inventory now names 244 roots across 89 owners; all 50 Python inventory tests pass. Schema 2 remains provisional, `source_identity` is null, finite conformance cases are empty, and all 72 obligations remain planned. | The model does not cover key validation, comparators, ordering, iteration, JSON, diagnostic tags, runtime or Rust behavior, or full G1/G2/G3 closure. |
-| Call ordering, Unicode text slices, and primitive key order | Commits `84d36234f`, `86e49ff2d`, and `339bc0e0d` add 14, 11, and 11 `SPEC_PROVED` roots in `Xsh.Calls.ArgumentOrder`, `Xsh.Strings.Slice`, and `Xsh.Collections.KeyOrder`; the root imports each once. The call-layout model includes a parameter-sorting mutation that changes source events from `[21, 20]` to `[20, 21]`; the Unicode scalar-list model includes a byte-size-normalization mutation that changes its slice; and the key-order model includes a reversed-Boolean mutation witness. The inventory now names 280 roots across 89 owners; its checker and all 50 Python inventory tests pass. Schema 2 remains provisional with null `source_identity`, no finite conformance cases, and all 72 universal obligations planned. | Call ordering assumes resolved parameters, pre-evaluated event IDs, and checked spread fields. Unicode slicing models Lean `Char` sequences, not XSH UTF-8 storage. Key ordering proves reflexivity, antisymmetry, and transitivity but no totality theorem. These fragments do not establish runtime or Rust correspondence, or close any full G1/G2/G3 obligation. |
-| Result fallback and JSON path fragments | Commits `2fd9d978b` and `f01938e39` add 10 and 18 `SPEC_PROVED` roots in `Xsh.Results.Fallback` and `Xsh.Json.Path`; `formal/Xsh.lean` imports each module once. The fallback model covers lazy `??` selection for Result and optional inputs, original-error handler context, fallback-only call traces, nested chains, and an eager-call mutation witness. The JSON model covers finite Float leaves, string-key and nonnegative-index paths, nested read/update/removal, and an append-at-length mutation witness. The inventory checker reports 89 owner sets, 308 roots, and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` succeeds, the axiom allowlist passes for 7,251 project declarations, all three negative controls are rejected, the prohibited-term scan is clean, and `leanchecker --fresh Xsh` passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | Fallback traces record only selected tail calls and do not model general expression or operator evaluation, parsing/checking, cleanup, effects, or concrete runtime errors. JSON represents only String keys and excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, and runtime behavior. Neither fragment establishes Rust correspondence or full G1/G2/G3 closure. |
-| Native path components and enum wire conversion | The reviewed `05b9b45b` and `89c6ce365` proof commits add 14 roots in `Xsh.Paths.Components` and 17 in `Xsh.Enums.WireConversion`; `formal/Xsh.lean` imports each once. The path model reuses `RelPath.PathBytes` and its byte helpers but defines its own `splitOn`/`collectNames` scan, with roots for component identity, boundaries, preserved bytes, prefix/suffix queries, and a raw-byte prefix mutation. The enum model assumes unique, nonempty prepared mappings; uses `NominalId`; layers conversion over shared recursive `.require`; and proves that every map value is visited before publishing a converted value, with a skipped-map-validation mutation witness. The inventory reports 339 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 7,761 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional, `source_identity` is null, and finite conformance cases remain empty. | The path fragment does not establish Rust scanner or filesystem correspondence. Structural `.require` failures remain pathless; only the additional conversion pass carries `BlamePath`. Enum source declarations are assumed prepared and are not checked. Neither module establishes Rust conformance or full G1/G2/G3 closure. |
-| Checked record updates and finite Map literal evaluation | The reviewed `4e049dc2f` and `32328a1f7` proof commits add 12 roots each in `Xsh.Records.Update` and `Xsh.Maps.Literal`; `formal/Xsh.lean` imports each once. The update model covers single base evaluation, source-ordered replacement callbacks, failure short-circuiting without partial publication, snapshot-rooted nested updates, path overlap, and a shallow-update mutation. The Map model covers key-before-value evaluation, written entry/spread order, overlay replacement, short-circuiting, ordered present-key iteration, and a skipped-entry mutation. The inventory reports 363 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 8,279 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity`, no finite conformance cases, and all 72 obligations planned. | Record-update overlap mirrors the current checker's path-prefix rule, which `docs/SPEC.md` currently omits. Replacement values are supplied after checking; the fragment does not prove checker or Rust correspondence. Map literals use an already validated finite primitive key domain and abstract evaluator outcomes; they do not model arbitrary effects, parsing, key validation/coercion, or cross-domain conversion. Neither fragment establishes runtime or Rust correspondence or closes full G1/G2/G3 obligations. |
-
-
-| UTF-8 string search, Result propagation, and Set validation | Reviewed commits `075b3b71b`, `e3e25d986`, and `fc4061faa` add 11 roots in `Xsh.Strings.Search`, 12 in `Xsh.Results.Propagation`, and 10 in `Xsh.Validation.SetRequire`; `formal/Xsh.lean` imports each once. Search models first-match offsets over Lean's UTF-8 byte list, including empty needles and a scalar-index mutation witness. Propagation models nearest try/retry/function boundaries, plain-procedure failure unwinding, and returned Result data; compatible error embedding is an explicit premise. Set validation checks existing members and decoded-array members, preserves membership, iterates in primitive key order, and detects a deduplication mutation. The private `decoded_array_acceptance_iff_typed_nodup` helper is compiled proof support, not a coverage root. The inventory reports 396 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 8,776 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity`, no finite conformance cases, and all 72 obligations planned. | String search does not prove XSH storage/runtime, normalization, parsing, raw `Bytes` search, or Rust correspondence. Result propagation assumes a compatible error embedding and does not prove checking, cleanup, or effect behavior. Set validation assumes a finite ordered key table and predicate and excludes JSON parsing and diagnostic text. None establishes Rust correspondence or closes full G1/G2/G3 obligations. |
-| JSON compatibility and bounded List-comprehension execution | Reviewed commits `98cfd2b02697` and `71029bfedae5` add fourteen roots each in `Xsh.Json.Compatibility` and `Xsh.Semantics.ListExecution`; the latter retains the established List semantics path. Both proof files remain byte-identical to their reviewed sources. The root imports each module once. The inventory reports 424 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the transitive axiom allowlist accepts 9,324 project declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | JSON Set projection covers only ordered ordinal keys and emits their ordinals as JSON integers; it does not model general `Set[T]` serialization. Record and Map entries are assumed unique, Path values need explicit conversion, and JSON text encoding/parsing, diagnostics, runtime, and Rust correspondence are excluded. List execution uses abstract finite expressions and excludes parsing, effects, streams, cleanup, and runtime/Rust correspondence. Neither fragment establishes full G1/G2/G3 closure. |
-| Optional access and UTF-8 byte access | Reviewed commits `c727034ed` and `6bd4387525c2` add 12 roots each in `Xsh.Control.OptionalAccess` and `Xsh.Strings.ByteAccess`; both proof files remain byte-identical to those commits, and `Xsh.lean` imports each module once. OptionalAccess covers lazy callback ordering for field, method, index, and range hops plus Result propagation and an eager-argument mutation witness. ByteAccess covers `Str` byte lookup and UTF-8-boundary-checked slicing with an explicit byte length. The inventory reports 448 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. Full `lake build` passes; the transitive axiom allowlist accepts 9,479 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | OptionalAccess excludes effects, cleanup, and runtime parity. ByteAccess excludes omitted-length slicing, the `Bytes` API, bracket slicing, parsing, runtime errors, `UInt8` conversion, runtime evaluation, and Rust correspondence. Neither fragment establishes Rust conformance or closes full G1/G2/G3 obligations. |
-| Finite loop snapshots, POSIX path fields, and bounded JSON encoding | Reviewed commits `7202ab29f`, `878ad20ae`, and `fa5073974` add 12 roots each in `Xsh.Iteration.Snapshot`, `Xsh.Paths.Fields`, and `Xsh.Json.Encoding`; the proof files remain byte-identical to their reviewed sources, and `Xsh.lean` imports each module once. The inventory reports 484 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` passes; the transitive axiom allowlist passes and all three negative controls are rejected; the prohibited-term scan is clean and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | Snapshot covers finite eager captured values and excludes streams/pipelines, loop control, typechecking, and runtime correspondence. Path Fields is a native-byte POSIX lexical model and does not match all Rust-backed `Path.name`, `Path.ext`, or `Path.parent` edge cases such as `foo/.`, `foo/..`, or component normalization; it makes no XSH API/Rust correspondence claim. JSON Encoding is bounded compact tree encoding; it excludes Float formatting, pretty output, parsing, and I/O, and establishes no runtime or Rust correspondence. |
-
-| Finite loop control and lexical path normalization | Reviewed proof blobs from `2240fabf6` and `8e78cf370` add 12 roots each in `Xsh.Loops.ControlFlow` and `Xsh.Paths.Normalize`; both proof files are byte-identical to those sources, and `Xsh.lean` imports each once. The inventory reports 508 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` passes; the axiom allowlist accepts 10,160 declarations and all three negative controls are rejected; the prohibited-term scan and guarded fresh kernel check pass. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | Loop control models finite loop-local outcomes and traces; it excludes checker target validity, stage callbacks, divergence, effects, cleanup, streams, and runtime or Rust correspondence. Path normalization is a native-byte lexical stack abstraction; it excludes runtime NUL admission, cwd and filesystem resolution, symlinks and confinement, path fields, construction and interpolation, and runtime or Rust correspondence. Neither fragment closes a full G1/G2/G3 obligation. |
-
-| Collect-block publication and ordered match selection | Reviewed source commits `d5fb43ca` and `75a39dc11` add 12 roots each in `Xsh.Collect.Block` and `Xsh.Matches.Selection`; each proof file is byte-identical to its reviewed source, and `formal/Xsh.lean` imports each module once. Collect models finite yield/delegate event order, independent nested accumulators, normal publication, and kind-only preclassified escaping exits. Match selection models one subject evaluation and ordered abstract pattern decisions with supplied Boolean guard results and complete captures. The inventory reports 532 roots across 89 owners and 72 planned obligations; the inventory checker and all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 10,557 declarations and all three negative controls are rejected. The prohibited-term scan and guarded fresh kernel check pass. Schema 2 remains provisional with null `source_identity` and zero finite conformance cases. | Collect exits are already classified, retain only transfer kind, and exclude target identity, return/error payload, loop-local classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and runtime/Rust correspondence. Match uses abstract pattern results and a supplied Boolean guard; actual pattern matching, guard expression evaluation, type and exhaustiveness diagnostics, parsing, and runtime/Rust correspondence are excluded. Neither fragment closes a universal obligation. |
-
-| Lean batch integration | Reviewed commits `cd73dbf45`, `53301e4cf`, `8793555a3`, `fe8eb939c`, `e1bda02c1`, `f93a7d169`, and `1892b0b7b`, followed by corrected Integer commit `b7f28bd77`, were cherry-picked in that order. JSON encoding keeps its twelve root names while generalizing control-scalar escaping, Unicode preservation, and arbitrary object-field sorting; enum conversion now validates finite declarations and replaces seventeen old roots with twelve. Five modules add twelve roots each for Boolean short-circuit evaluation, raw `Bytes` access, effectful List splicing, ordered Set algebra, and bounded List matching. `Xsh.ByteCodecs.Integer` adds twelve roots for the independent integer pack/unpack definitions over widths 1, 2, 4, and 8, including lower-width unsigned limits, the signed width-eight limit, endian order, and offset-zero round trips. The root imports each module once. Static inventory checks and all 50 Python inventory tests pass; the inventory has 599 roots, 89 owner sets, and 72 planned obligations. Full `lake build` and the fresh kernel check pass; the transitive axiom allowlist accepts 11,614 project declarations, all three negative controls are rejected, and the prohibited-term scan is clean. Schema 2 stays provisional with null `source_identity`, empty finite-conformance cases, and no full universal obligation closed. | These are `SPEC_PROVED` fragments over independent mathematical models, not Rust conformance: JSON tree encoding excludes Float formatting, parsing, and I/O; `Bytes` is modeled as raw lists without UTF-8 decoding; Boolean and splice expressions use supplied outcomes rather than a general evaluator or checker; Set algebra uses ordinal keys and excludes first-insertion history; List matching supports only recursive scalar/List pattern forms; and Integer byte codecs use independent `IntValue`, `UIntValue`, and `List (Fin 256)` definitions. The Integer fragment does not prove runtime or Rust correspondence, including negative-offset validation. None establishes XSH runtime or Rust correspondence. Schema 2 stays provisional with null `source_identity`, empty finite-conformance cases, and no full universal obligation closed. |
-
-| Raw decoder schema and effects checker bridge | Reviewed source commits `7e3a3db5` and `dc25d4d0` were cherry-picked as `50d786e2b` and `da453be39`. `Xsh.IR.Raw.DecoderSoundness` adds 12 roots for the finite four-tag row schema, successful payload constraints, malformed-row rejection, and a dropped-guard mutation witness. `Xsh.Effects.CheckerBridge` adds 12 roots that project already classified `FactSet` summaries to body-site obligations and exercise lexical creation charging, aliases, delegation, and conditional arms. The root imports both modules once. The inventory checker and all 50 Python tests pass; the inventory has 623 roots across 89 owner sets and all 72 theorem obligations remain planned. The full Lake build and guarded fresh kernel check pass. The axiom allowlist accepts 11,850 project declarations; all three negative controls are rejected; the prohibited-term scan and diff check pass. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | The decoder is a finite model of four tag kinds, not full raw-IR coverage or Rust decoder/verifier correspondence and does not close G7a. The effects bridge consumes classified summaries with captures fixed to the empty fixture; it proves no Rust classifier, checker, or runtime correspondence and closes neither EFF-LATENT nor EFF-SEMANTIC. |
-| Observed scalar/integer machine foundation | Reviewed source commit `c7e25db9` was cherry-picked as `ba30fa948`. `Xsh.Semantics.Foundation.ObservedMachine` and `Xsh.Proofs.Foundation.ObservedMachine` add eight `SPEC_PROVED` roots for accepted evaluated BaseExpr configurations, observed preservation, terminal/typed-host-wait/labeled-step progress, runner non-stuckness, and arithmetic/timeNow witnesses; `formal/Xsh.lean` imports each module once. The inventory checker, all 51 inventory tests, the full Lake root build, the axiom allowlist (11,912 declarations), all three negative controls, prohibited-term scan, guarded fresh checker, and diff check pass. Coverage remains provisional at 631 roots across 89 owners with `source_identity: null`, zero finite conformance cases, and all 72 universal obligations planned. | A pending wait remains tied to its emitted typed request by `BaseHostTrace`. The fragment establishes no source, raw-IR/lowering, Rust, or concrete clock correspondence and closes no full BASE-* obligation or G1. |
-| Occurrence-labeled binding identity | Reviewed source commit `4b5a84d` was cherry-picked as `9817a7a49`; the root imports each identity, semantics, and proof module once, and the inventory adds exactly six `SPEC_PROVED` roots. They cover same-name declarations, occurrence labels, active-cell reads and writes, declaration mismatch, activation-only cell mismatch, and atomic wrong-type rejection. The checker reports 637 roots, 89 owners, and 72 planned obligations; all 51 inventory tests, the full Lake root build, fresh kernel check, axiom audit (12,096 declarations) and three negative controls, prohibited-term scan, and diff check pass. `source_identity` stays null with zero finite cases. | `OccurrenceId` is a label, not a lookup key; the examples prove no source-site table or uniqueness, whole lexical-shadowing semantics, source/lowering/Rust correspondence, or full G1/BASE closure. |
-
-| G1 and G3 formal fragments | Review commits `f390e8c0e` and `98e23d08` were cherry-picked as `0ac9b4efd` and `9a56be930`. The root and inventory add four G1 and thirteen G3 theorem roots. Cleanup commit `b9c323f3` deletes 20 comment blocks outside theorem contracts and retains eight public theorem contracts. At `b9c323f3`, the inventory checker and all 51 inventory tests pass. The full Lake build and guarded fresh check pass. The axiom audit accepts 12,429 project declarations and rejects all three negative controls. Coverage has 654 roots, 89 owners, and 72 planned obligations. `source_identity` is null and finite conformance has zero cases. | These roots prove facts about finite independent models only. They establish no source or Rust correspondence. They close no universal G1, BASE, EFF, or G3 obligation. |
-| Finite schema-width decoder fragment | Reviewed source commits `a70d2d89f` and `b6c92ef18` were cherry-picked as `0f6630913` and `550b3a1df`. `Xsh.IR.Raw.DecoderSoundness.FiniteSchema` adds nine `SPEC_PROVED` roots over an independent `Array (Option Nat)` ordinal-to-width schema and `List Word32` row model; the root import was already present once. The inventory reports 663 roots across 89 owners and 72 planned obligations; all 51 inventory tests pass. The targeted decoder build, full 81-job Lake build, and guarded fresh kernel check pass. The axiom audit accepts 12,498 declarations and all three negative controls are rejected. `source_identity` remains null with no finite conformance cases. | This model establishes no Rust `FullTag` or field-schema correspondence, covers no other raw IR structures or verifier behavior, and does not close universal G7a. |
-| Validation identity and persistent storage fragment | Reviewed source commit `57f2b75a5` was cherry-picked as `942de9e1a`; `Xsh.Validation.IdentityStorage` adds 22 `SPEC_PROVED` roots and is imported once by `Xsh`. The model covers finite Path byte lists, List/Stream, Set, Map, Optional, Result, and runtime payload shapes. Inventory reports 685 roots across 89 owners and 72 planned obligations; all 51 inventory tests pass. The target build, full 82-job Lake build, guarded fresh check, and axiom audit pass; the allowlist accepts 12,948 declarations and all three negative controls are rejected. `source_identity` remains null with no finite conformance cases. | `ValidationIdentity` is exact for validated-to-validated assignment. Set elements and Map keys are invariant; eligible Map values widen through `baseView`. Optional injection excludes Optional and Any sources; the rejection witness covers only Optional Path to Optional Any and Any to Optional Any. The Result field witness uses structural `baseView` only and does not prove full Any or Optional field conversion. Null, Record, Union, and omitted types are excluded. The sibling-path update requires distinct source and target variable handles and preserves the payload's `ResourceIdentity` value. The fragment establishes no source or Rust correspondence and closes no full G2 obligation. |
+- 2026-10-28: The owner revised the scope so the independent contract supports a second implementation, with Goose as the first intended experiment. SRC-ADMIT, TYPE-COMPLETE, TYPE-DIAG, CERT-FACTS, and IMPL-REFINE joined the plan as planned obligations, raising the count from 72 to 77. The pause and the source-freeze gate are unchanged.
 
 ## For the owner afterwards
 
-Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust/artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Continue the staggered foundations and close G0a controls; start G0b from the post-consolidation tree. Keep all 77 full theorem obligations planned until their complete proofs and required evidence pass.
+Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep all 77 full theorem obligations planned until their complete proofs and required evidence pass.
