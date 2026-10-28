@@ -2528,6 +2528,7 @@ impl Checker {
                             previous,
                             actual,
                             arena.arena.expr(branch.value).span,
+                            purpose == super::stmt::TailCheckingPurpose::ProcCompletion,
                         )
                     })
                 } else if let Some(merged) = merged {
@@ -2604,7 +2605,7 @@ impl Checker {
                 .is_some_and(|expectation| expectation.accepts_optional_branch(&else_ty));
         if infer_branches {
             inferred.map_or(else_ty.clone(), |previous| {
-                self.unify_inferred_returns(previous, else_ty, arena.arena.expr(else_value).span)
+                self.unify_inferred_returns(previous, else_ty, arena.arena.expr(else_value).span, purpose == super::stmt::TailCheckingPurpose::ProcCompletion)
             })
         } else if let Some(merged) = merged {
             merged
@@ -3136,7 +3137,7 @@ impl Checker {
                 && let Some(arm_expectation) = arm_expectation { self.expect_type(arm_expectation.context(), &actual, arena.arena.expr(arm.value).span); }
             if actual != Type::Unknown {
                 inferred = Some(if infer_branches {
-                    inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(arm.value).span))
+                    inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(arm.value).span, purpose == super::stmt::TailCheckingPurpose::ProcCompletion))
                 } else { merged.or(inferred).unwrap_or(actual) });
             }
             inferred_from_empty_list &= empty_list;

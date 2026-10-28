@@ -360,7 +360,7 @@ impl Checker {
                 for candidate in &candidates {
                     inferred = Some(match inferred {
                         None => candidate.ty.clone(),
-                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty.clone(), candidate.span),
+                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty.clone(), candidate.span, false),
                     });
                 }
                 let ty = inferred.unwrap_or(Type::Unknown);
@@ -815,7 +815,7 @@ impl Checker {
                 };
                 inferred = Some(match inferred {
                     None => ty,
-                    Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span),
+                    Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span, true),
                 });
             }
         }
@@ -860,9 +860,9 @@ impl Checker {
         Type::Result(Box::new(value), Box::new(error.clone()))
     }
 
-    pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
+    pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span, completion: bool) -> Type {
         if let Some(merged) = self.merge_scheme_callable_values(&left, &right) { return merged; }
-        match unify_return_shapes(&left, &right) {
+        match unify_return_shapes(&left, &right, completion) {
             Some(ty) => ty,
             None if matches!(left, Type::Invalid) || matches!(right, Type::Invalid) => {
                 Type::Invalid
@@ -872,15 +872,23 @@ impl Checker {
                     && !left_error.contains_inference()
                     && !right_error.contains_inference()
                 {
-                    return match self.unify_inferred_returns((**left_ok).clone(), (**right_ok).clone(), span) {
+                    let Some(error) = join_result_errors(left_error, right_error, completion) else {
+                        self.expect_type(&left, &right, span);
+                        return Type::Invalid;
+                    };
+                    return match self.unify_inferred_returns((**left_ok).clone(), (**right_ok).clone(), span, completion) {
                         Type::Invalid => Type::Invalid,
-                        ok => Type::Result(Box::new(ok), Box::new(join_error_types(left_error, right_error))),
+                        ok => Type::Result(Box::new(ok), Box::new(error)),
                     };
                 }
                 let diagnostics = self.diagnostics.len();
                 self.expect_type(&left, &right, span);
                 if self.diagnostics.len() != diagnostics { return Type::Invalid; }
                 self.type_constraints.resolve(&left).unwrap_or(Type::Invalid)
+            }
+            None if matches!((&left, &right), (Type::Result(left_ok, _), Type::Result(right_ok, _)) if unify_return_shapes(left_ok, right_ok, completion).is_some()) => {
+                self.expect_type(&left, &right, span);
+                Type::Invalid
             }
             None => {
                 if let Some(conflicts) = &mut self.return_conflicts {
@@ -959,7 +967,19 @@ fn return_type_is_concrete(ty: &Type) -> bool {
     }
 }
 
-pub(super) fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
+fn is_error_value_type(ty: &Type) -> bool {
+    matches!(ty, Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError | Type::ErrorFacet(_))
+}
+
+fn join_result_errors(left: &Type, right: &Type, completion: bool) -> Option<Type> {
+    if completion || left == right || matches!(left, Type::Unknown) || matches!(right, Type::Unknown)
+        || is_error_value_type(left) && is_error_value_type(right)
+    {
+        Some(join_error_types(left, right))
+    } else { None }
+}
+
+pub(super) fn unify_return_shapes(left: &Type, right: &Type, completion: bool) -> Option<Type> {
     if left == right {
         return Some(left.clone());
     }
@@ -978,29 +998,29 @@ pub(super) fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
         (Type::Optional(inner), other) | (other, Type::Optional(inner))
             if !matches!(other, Type::Optional(_)) =>
         {
-            Some(Type::Optional(Box::new(unify_return_shapes(inner, other)?)))
+            Some(Type::Optional(Box::new(unify_return_shapes(inner, other, completion)?)))
         }
         (Type::Record(left), Type::Record(right)) if left.keys().eq(right.keys()) => {
             Some(Type::Record(
                 left.iter()
-                    .map(|(name, ty)| Some((*name, unify_return_shapes(ty, &right[name])?)))
+                    .map(|(name, ty)| Some((*name, unify_return_shapes(ty, &right[name], completion)?)))
                     .collect::<Option<std::collections::BTreeMap<_, _>>>()?
                     .into(),
             ))
         }
         (Type::List(left), Type::List(right)) => {
-            Some(Type::List(Box::new(unify_return_shapes(left, right)?)))
+            Some(Type::List(Box::new(unify_return_shapes(left, right, completion)?)))
         }
         (Type::Map(lk, left), Type::Map(rk, right)) => Some(Type::Map(
-            Box::new(unify_return_shapes(lk, rk)?),
-            Box::new(unify_return_shapes(left, right)?),
+            Box::new(unify_return_shapes(lk, rk, completion)?),
+            Box::new(unify_return_shapes(left, right, completion)?),
         )),
         (Type::Optional(left), Type::Optional(right)) => {
-            Some(Type::Optional(Box::new(unify_return_shapes(left, right)?)))
+            Some(Type::Optional(Box::new(unify_return_shapes(left, right, completion)?)))
         }
         (Type::Result(left, le), Type::Result(right, re)) => Some(Type::Result(
-            Box::new(unify_return_shapes(left, right)?),
-            Box::new(join_error_types(le, re)),
+            Box::new(unify_return_shapes(left, right, completion)?),
+            Box::new(join_result_errors(le, re, completion)?),
         )),
         _ => None,
     }

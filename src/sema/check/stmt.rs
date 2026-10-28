@@ -7429,7 +7429,7 @@ impl Checker {
                         };
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| {
-                                self.unify_inferred_returns(previous, actual, stmt.span)
+                                self.unify_inferred_returns(previous, actual, stmt.span, purpose == TailCheckingPurpose::ProcCompletion)
                             })
                         } else if let Some(merged) = merged {
                             merged
@@ -7508,7 +7508,7 @@ impl Checker {
                         };
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| {
-                                self.unify_inferred_returns(previous, actual, stmt.span)
+                                self.unify_inferred_returns(previous, actual, stmt.span, purpose == TailCheckingPurpose::ProcCompletion)
                             })
                         } else if let Some(merged) = merged {
                             merged
@@ -7635,7 +7635,7 @@ impl Checker {
                     })
                 } else { None };
                 inferred = Some(if infer_branches {
-                    inferred.map_or(arm_ty.clone(), |previous| self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span)))
+                    inferred.map_or(arm_ty.clone(), |previous| self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span), purpose == TailCheckingPurpose::ProcCompletion))
                 } else { merged.or(inferred).unwrap_or(arm_ty) });
             }
             inferred_from_empty_list &= empty_list;

@@ -373,7 +373,7 @@ mod infer_return;
 
 pub(crate) fn join_guarded_output(left: &Type, right: &Type) -> Option<Type> {
     if left.contains_inference() || right.contains_inference() || left.contains_recovery() || right.contains_recovery() { return None; }
-    infer_return::unify_return_shapes(left, right)
+    infer_return::unify_return_shapes(left, right, true)
 }
 
 #[path = "check/inferred_variant.rs"]

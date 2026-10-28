@@ -3600,6 +3600,11 @@ component publishes no member scheme.
   variants of one family join to the family, and incompatible types join to
   `Error`. A plain value return uses its actual propagated error types when
   present; a body without propagated errors retains the default `Error`.
+  Only an inferred proc completion converts a non-`Error` payload to `Error`.
+  A `pure` function, and any branch join outside a proc completion, joins error
+  types only when every payload is an `Error`-typed value (an error variant, a
+  family, or `Error`); `Ok(1)` against `Err("declined")` there is
+  `check.type-mismatch`.
 - When a guarded field creates a Proc completion group, original `Result`
   returns and returned callable applications contribute their checked error
   types to the same join. A formal value `T` remains data when an invocation

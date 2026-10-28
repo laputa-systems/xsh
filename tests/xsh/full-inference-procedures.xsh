@@ -375,3 +375,32 @@ match counted(false, "kept") { Ok(value) => { print $value }
     stderr: ["[check.type-mismatch]"],
   )?
 }
+
+test test_full_inference_only_proc_completions_convert_error_payloads { |ctx|
+  for source in [
+    "pure branch(flag, value: Int) { if flag { Ok(value) } else { Err(\"declined\") } }\nlet outcome = branch(false, 1)\n",
+    "pure branch(flag, value) { if flag { Ok(value) } else { Err(\"declined\") } }\nlet outcome = branch(false, 1)\n",
+    "pure branch(flag, value: Int) { if flag { Ok(value) } else { Err(7) } }\nlet outcome = branch(false, 1)\n",
+  ] {
+    test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
+  }
+  test.expect(
+    ctx,
+    "proc local(flag) { let outcome = if flag { Ok(1) } else { Err(\"declined\") }\n print \"unreachable\" }\nlocal(true)?\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+  let output = test.run_xsh(
+    ctx,
+    r"""error Failure = Lost(message: Str)
+pure sorted(flag, value: Int) { if flag { Ok(value) } else { Err(Failure.Lost("lost")) } }
+proc converted(flag, value) { if flag { Ok(value) } else { Err("declined") } }
+match sorted(false, 1) { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+match converted(false, 1) { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "lost\ndeclined\n"
+}
