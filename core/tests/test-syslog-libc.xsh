@@ -13,9 +13,6 @@ proc compiled_client(ctx: TestContext, root: Path) [fs, process, env, error] -> 
   Ok(binary)
 }
 
-# Runs one scene inside new user and mount namespaces whose /dev is a private
-# tmpfs, so the C library's hard-coded /dev/log is the service under test and the
-# host's own is never touched. Returns null when the kernel refuses the namespaces.
 proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str], namespaces: List[Str] = ["user", "mnt"], map_root: Bool = true) [fs, process, env, error] -> Result[Scene?] {
   let root = test.temp_dir(ctx, name: name)?
   let client = compiled_client(ctx, root)?
@@ -93,10 +90,6 @@ test test_a_message_longer_than_the_libc_buffer_arrives_cut_by_the_client_librar
   assert payload.byte_len() > 900 and payload.byte_len() < 1024, f"{payload.byte_len()} bytes survived the client library"
 }
 
-# The C library's log socket blocks when the receiver's queue is full, so a
-# stalled receiver stalls every logging program, and the receiver loses nothing
-# to the kernel while the senders wait. This is why the service drains the socket
-# before it ever waits on its output.
 test test_a_stalled_receiver_blocks_a_musl_client_which_then_loses_nothing { |ctx|
   guard let scene = run_scene(ctx, "libc-stalled", "stalled", ["150"])? else {
     test.skip("the kernel refuses unprivileged user and mount namespaces")
