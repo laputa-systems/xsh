@@ -599,3 +599,19 @@ print "not reached"
   assert output.stdout == "7\n", output.stdout
   assert "bad (flag)" in output.stderr, output.stderr
 }
+
+test test_full_inference_generic_proc_builds_a_process_command_from_literals { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc announce(label, word: Str) [process, error, io] {
+  let status = process.run(process.command_argv("/bin/sh", ["sh", "-c", "echo $GREETING $0", word], env: {GREETING: "hello"}))?
+  print $status.ok
+  print $label
+}
+announce(1, "world")?
+announce("tag", "again")?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "hello world\ntrue\n1\nhello again\ntrue\ntag\n", output.stdout
+}

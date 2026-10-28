@@ -2870,6 +2870,7 @@ impl Checker {
                 );
                 return;
             }
+            let mut item_types = Vec::new();
             for item in arena.arena.list_elements(items) {
                 let actual = self.check_expr_arena(arena, source, item.value, None);
                 let item_ty = if let Some(splice_span) = item.splice_span {
@@ -2887,6 +2888,7 @@ impl Checker {
                 } else {
                     actual
                 };
+                item_types.push(item_ty.clone());
                 if item_ty == Type::Any {
                     self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
                 } else if !self.require_value_conversion(&item_ty, crate::sema::schemes::ValueConversion::ProcessWord, arena.arena.expr(item.value).span) {
@@ -2896,6 +2898,11 @@ impl Checker {
                         DiagnosticCode::CheckTypeMismatch,
                     );
                 }
+            }
+            if let Some(first) = item_types.first()
+                && item_types.iter().all(|ty| ty == first)
+            {
+                self.record_expr_type(expr.span, Type::List(Box::new(first.clone())));
             }
             return;
         }
