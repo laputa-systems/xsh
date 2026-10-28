@@ -11435,55 +11435,64 @@ mod checked_control_flow_fact_tests {
 mod checked_type_fact_tests {
     #[test]
     fn corpus_annotations_agree_with_binding_facts() {
-        std::thread::Builder::new()
-            .stack_size(64 * 1024 * 1024)
-            .spawn(|| {
-                let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-                let mut paths = Vec::new();
-                for dir in ["core", "dev", "examples", "showcase", "stdlib", "tests"] {
-                    let path = root.join(dir);
-                    super::super::indexed::tests::collect_xsh_paths(root, &path, &mut paths)
-                        .unwrap_or_else(|error| panic!("cannot collect {}: {error}", path.display()));
-                }
-                paths.sort();
-                let mut lowered = 0;
-                for path in paths {
-                    let name = path.to_string_lossy();
-                    let source = super::super::indexed::tests::read_xsh_source(&path)
-                        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-                    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
-                        &name,
-                        crate::loader::entry_source_from_text(&name, source.clone()),
-                        Vec::new(),
-                    );
-                    let source_id = sources.files()[0].id();
-                    let declarations = crate::sema::check::Checker::check_compact_declarations(
-                        &parsed.arena,
-                        &sources,
-                        source_id,
-                    );
-                    if !parsed.diagnostics.is_empty() || !declarations.diagnostics.is_empty() {
-                        continue;
-                    }
-                    lowered += usize::from(
-                        super::super::FullBuilder::build_compact(
-                            &parsed.arena,
-                            &declarations,
-                            &source,
-                            std::sync::Arc::new(sources),
-                            source_id,
-                        )
-                        .is_ok(),
-                    );
-                }
-                let mismatches = std::mem::take(
-                    &mut *super::CHECKED_TYPE_FACT_MISMATCHES.lock().unwrap(),
-                );
-                assert!(lowered > 300, "only {lowered} corpus programs lowered");
-                assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
-            })
-            .unwrap()
-            .join()
-            .unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut paths = Vec::new();
+        for dir in ["core", "dev", "examples", "showcase", "stdlib", "tests"] {
+            let path = root.join(dir);
+            super::super::indexed::tests::collect_xsh_paths(root, &path, &mut paths)
+                .unwrap_or_else(|error| panic!("cannot collect {}: {error}", path.display()));
+        }
+        paths.sort();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let lowered = std::sync::atomic::AtomicUsize::new(0);
+        let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..workers)
+                .map(|_| {
+                    std::thread::Builder::new()
+                        .stack_size(64 * 1024 * 1024)
+                        .spawn_scoped(scope, || {
+                            while let Some(path) = paths.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
+                                if lower_corpus_program(path) {
+                                    lowered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            }
+                        })
+                        .unwrap()
+                })
+                .collect();
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
+        let lowered = lowered.into_inner();
+        let mismatches = std::mem::take(&mut *super::CHECKED_TYPE_FACT_MISMATCHES.lock().unwrap());
+        assert!(lowered > 300, "only {lowered} corpus programs lowered");
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
+
+    fn lower_corpus_program(path: &std::path::Path) -> bool {
+        let name = path.to_string_lossy();
+        let source = super::super::indexed::tests::read_xsh_source(path)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            &name,
+            crate::loader::entry_source_from_text(&name, source.clone()),
+            Vec::new(),
+        );
+        let source_id = sources.files()[0].id();
+        let declarations =
+            crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        if !parsed.diagnostics.is_empty() || !declarations.diagnostics.is_empty() {
+            return false;
+        }
+        super::super::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            std::sync::Arc::new(sources),
+            source_id,
+        )
+        .is_ok()
     }
 }
