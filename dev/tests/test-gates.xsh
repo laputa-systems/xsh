@@ -2760,3 +2760,68 @@ main()?
   assert harness_calls.read_lines()?.len() == 1
   assert ! docker_marker.exists()?
 }
+
+test test_gate_status_tracks_laputa_scenario_evidence_after_the_external_run { |ctx|
+  test.timeout(ctx, 120s)
+  let repository = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "gate-status-laputa")?
+  for name in ["Cargo.toml", "rust-toolchain.toml", "xsht-config.ini"] { fp"{root}/{name}".write("") }
+  fp"{root}/dev".mkdir()
+  fp"{root}/target".mkdir()
+  fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
+  fp"{root}/target/x86_64-unknown-linux-musl/verification".mkdir()
+  for product in ["xsh", "xsht", "xshi"] {
+    fp"{root}/target/x86_64-unknown-linux-musl/verification/{product}".write("fixture\n", mode: 0o755)
+  }
+  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
+  fp"{root}/dev/musl-linker.sh".write("#!/bin/sh\n", mode: 0o755)
+  let laputa = test.temp_dir(ctx, name: "gate-status-laputa-root")?
+  let _ = run.capture --text git -C $laputa init --quiet
+  let cargo_home = test.temp_dir(ctx, name: "gate-status-cargo-home")?
+  fp"{cargo_home}/bin".mkdir(parents: true)
+  fp"{cargo_home}/bin/kache".write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  let python = (run.text which python3)?.trim()
+  fp"{root}/tools".mkdir()
+  fp"{root}/tools/python3".write(f"""#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = "--xsh" ]; then exit 0; fi
+  if [ "$arg" = "--observe" ]; then printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; exit 0; fi
+done
+exec '{python}' "$@"
+""", mode: 0o755)
+  fp"{root}/tools/docker".write(f"""#!{ctx.xsh_bin}
+if args[0] == "image" {{
+  if "--format" in args {{ print "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}
+  exit 0
+}}
+exit 0
+""", mode: 0o755)
+  init_gate_repository(root, repository)?
+  let inherited = env.get_or("PATH", "")?
+  let environment = {PATH: f"{root}/tools:{inherited}", CARGO_HOME: cargo_home,
+    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+    XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture"}
+  let id = "laputa/pm.make/plan"
+  let request = f"""["--case", "{id}", "--laputa-root", "{laputa}"]"""
+  let run_source = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  gates.execute(fixtures.linux_context(p"{root}")?, {request})?
+}}
+main()?
+"""
+  let status_source = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  gates.execute(fixtures.linux_context(p"{root}")?, ["--status", "--case", "{id}", "--laputa-root", "{laputa}"])?
+}}
+main()?
+"""
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
+  let _ = test.expect(ctx, run_source, status: 0, args: [], env: environment)?
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current"], args: [], env: environment)?
+  fp"{root}/Cargo.toml".write("edited\n")
+  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)"], args: [], env: environment)?
+}

@@ -1325,7 +1325,10 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
       return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
       return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
       return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
-      return
+      let bindings = bind_products(ctx, profile, [tests.Xsh, tests.Xsht], case_id, 30000000000)?
+      require_source(ctx, source, case_id, 30000000000)?
+      return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
+        [{path: tests.product_path(ctx, profile, binding.product).display(), digest: binding.digest, mode: binding.mode} for binding in bindings])
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
@@ -1428,7 +1431,8 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
       print f"Resource diagnostics (diagnostic only): {resource_text}"
       print "Performance: not measured"
       print "Full cohort: not run"
-      return
+      return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
+        [{path: xsh.display(), digest: product.digest, mode: product.mode}])
     }
     gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
     gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
@@ -1540,7 +1544,9 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
       print "Tokei source provenance: unqualified; P0: not qualified"
       print "Performance: not measured"
       print "Full cohort: not run"
-      return
+      return store_evidence(case_evidence_path(ctx, tokei_scenario_case_id), tokei_scenario_case_id, source,
+        [{path: xsh.display(), digest: xsh_product.digest, mode: xsh_product.mode},
+          {path: tokei_path, digest: tokei_product.digest, mode: tokei_product.mode}])
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: tokei_scenario_case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: tokei_scenario_case_id, cause: cause))

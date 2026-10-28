@@ -60,8 +60,8 @@ discarding its previous record, so a failed or interrupted run leaves it not run
 `cargo dev gate [PATH...] [--case ID] --status` lists the selected cases and
 reports each as current, stale or not run. Stale names the first mismatch: a
 changed source, a changed or missing product, or an unreadable record. Status
-only observes source and products; it starts no Docker, Cargo or tests. Alias
-and scenario cases store no record and report not run. A `--full` run stores a
+only observes source and products; it starts no Docker, Cargo or tests.
+Scenario and Laputa cases store their record when the external run passes. A `--full` run stores a
 source-bound record only after every step passes; until then status reports
 `Full: not run`, and a source edit afterwards reports it stale.
 
