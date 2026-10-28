@@ -589,3 +589,25 @@ print $c
   assert output.success, output.stderr
   assert output.stdout == "1\n2\n3\n"
 }
+
+test test_full_inference_comprehension_variable_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure scale(marker, value: Int) -> Int { value * 2 }
+pure doubled(words: List[Int], tag: Str) -> List[Int] { [scale(tag, word) for word in words] }
+pure positive(words: List[Int], tag: Str) -> List[Int] { [scale(tag, word) for word in words if word > 0] }
+pure named(words: List[Int], tag: Str) -> Map[Int, Int] { {word: scale(tag, word) for word in words} }
+let a = doubled([1, 2], "t")
+let b = positive([-1, 3], "t")
+let c = named([4], "t")
+let first = a[1]
+let only = b[0]
+let mapped = c[4]
+print $first
+print $only
+print $mapped
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4\n6\n8\n"
+}

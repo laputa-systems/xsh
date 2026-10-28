@@ -7193,6 +7193,14 @@ enum LocalImmutableLetWriter {
     Other,
 }
 
+fn comprehension_target_binds(target: &LoweredCompTarget, slot: usize) -> bool {
+    match target {
+        LoweredCompTarget::Discard => false,
+        LoweredCompTarget::Slot(bound) => *bound == slot,
+        LoweredCompTarget::Record { fields } => fields.iter().any(|(_, target, _)| comprehension_target_binds(target, slot)),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct DriverLocalLetSource {
     step: usize,
@@ -8717,7 +8725,7 @@ impl<'a> FullDecoder<'a> {
                 scoped_initializers.push(value.raw() as usize);
             }
         }
-        if scoped_initializers.is_empty() && (!temporary || self.is_pattern_condition_capture(slot, charge)?) {
+        if scoped_initializers.is_empty() && (!temporary || self.is_construct_bound_slot(slot, charge)?) {
             return Ok(None);
         }
         if self.is_parameter_or_capture_slot(slot, charge)? {
@@ -8755,7 +8763,7 @@ impl<'a> FullDecoder<'a> {
         Ok(Some(*initializer))
     }
 
-    fn is_pattern_condition_capture(
+    fn is_construct_bound_slot(
         &self,
         slot: usize,
         charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
@@ -8778,6 +8786,18 @@ impl<'a> FullDecoder<'a> {
                         charge(1)?;
                         for captured in branch?.2 {
                             if captured? == slot { return Ok(true); }
+                        }
+                    }
+                }
+                FullTag::ExprListComp | FullTag::ExprMapComp => {
+                    let qualifiers = match self.expression_view(instruction)? {
+                        schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
+                        _ => continue,
+                    };
+                    for qualifier in qualifiers {
+                        charge(1)?;
+                        if let decode::CompQualifierView::For { target, .. } = qualifier? {
+                            if comprehension_target_binds(&target.materialize()?, slot) { return Ok(true); }
                         }
                     }
                 }
@@ -34533,6 +34553,22 @@ assert nullable_name == null
         let mut forged = program.clone();
         let text = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Str).unwrap();
         replace_scheme_fixture_call_type(&mut forged, call, text);
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn full_verifier_rejects_a_forged_comprehension_call_binder() {
+        let program = fixture(
+            "comprehension-argument.xsh",
+            "pure scale(marker, value: Int) -> Int { value * 2 }\n\
+             pure doubled(words: List[Int], tag: Str) -> List[Int] { [scale(tag, word) for word in words] }\n\
+             let doubled_words = doubled([1, 2], \"t\")\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call(&program, "scale");
+        let mut forged = program.clone();
+        let int = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Int).unwrap();
+        replace_scheme_fixture_call_type(&mut forged, call, int);
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
