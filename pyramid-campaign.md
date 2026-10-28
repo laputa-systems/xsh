@@ -37,31 +37,32 @@ Branch decisions, 2026-10-28 (tip SHAs kept so any branch can be restored):
   equivalent to `f60a72f41`, and `campaign/pyramid-caller-migration`
   (`9614fc7c5`) and `campaign/pyramid-core-cases` (`ce2a3b836`), older
   snapshots of the integration line.
-- Ported by path, then retained: `campaign/pyramid-integration` (`c7b9b7b29`).
-  Two behaviors master lacked moved: the host-side Full validation before
-  replay starts Docker, and owned Docker pipe and scratch cleanup that no longer
-  masks the original failure. The standalone host controller, input and
-  product binding, Tokei and Laputa cases, resource accounting and focused
-  report modules are superseded by `dev/gates.xsh`, `dev/gate_source.py`,
-  `dev/gate_product.xsh` and the adapters on master and were not ported. Still
-  open from that branch: a stored-evidence status view (it needs retained
-  focused reports, which master discards) and the paired-bootstrap focused
-  timing comparison (it needs a public focused observation API and a quiet
-  host).
+- Ported by path from `campaign/pyramid-integration` (`c7b9b7b29`): Full
+  catalogue validation before replay starts Docker (`dc84bfc57`) and owned
+  Docker cleanup that keeps the original failure (`f0227139b`). Its host
+  controller, input and product binding, Tokei and Laputa cases, resource
+  accounting, and focused report modules were superseded by `dev/gates.xsh`,
+  `dev/gate_source.py`, `dev/gate_product.xsh`, and master's adapters. The
+  stale-evidence status view landed separately (`86bfe6a0c`, `56be6dce4`); the
+  paired timing comparison waits for the quiet window. The branch is deleted.
 - Deleted after review: `park/pyramid-tokei-scout` (`3164f644b`), whose
   focused json-n runner and source-observer lines are older forms of master's
   focused-workload path and `dev/gate_source.py`, and `park/pyramid-resources`
   (`c5a161317`), whose unverified-prebuilt-product reporting predates master's
   gate-prepared product binding.
-- Review, then port or delete: `park/pyramid-{core-cases,kbuild-case,laputa-case,
-  native-set}`, one preservation commit each on `dbdd0a80d`, and the small
-  residue of `campaign/pyramid-{catalogue,resources,workloads}` relative to the
-  integration line.
-- `campaign/pyramid-json-structured` (`76d36cc4f`) is being qualified as
-  `pyramid/json-structured`.
+- Deleted after review as superseded: `park/pyramid-core-cases` (`1be0bb781`),
+  `park/pyramid-kbuild-case` (`06e485aca`), `park/pyramid-laputa-case`
+  (`d66eed09d`), `park/pyramid-native-set` (`fcce250d7`, landed as `ed8193131`
+  and `9b0d52484`), and the residue of `campaign/pyramid-catalogue`
+  (`37bf94b65`), `-resources` (`74aba1609`), and `-workloads` (`bf30b227b`).
+  Merged `campaign/pyramid-port` and `campaign/pyramid-tokei-scout` are deleted.
+- The JSON slice from `campaign/pyramid-json-structured` (`76d36cc4f`) is on
+  `master` as `d51dfcc39`; its Linux correctness cases wait for host admission.
+- `.work/wt/pyramid-tokei-upstream`, the pinned upstream Tokei reference, stays.
+  Finish-line item 2 is complete.
 
-Next: qualify the parked JSON slice, then complete Pyramid source binding,
-workload evidence, and P0 before inference and Lean; see [the roadmap](docs/ROADMAP.md).
+Next: with a quiet host, run every catalogue Change case on `master` (item 1),
+the workload-family correctness cases (item 3), and the P0 baselines (item 4).
 
 Automatic discovery now reads staged, unstaged and untracked Git paths with
 NUL delimiters and rejects non-UTF-8 output. The Docker launcher scopes Git's
