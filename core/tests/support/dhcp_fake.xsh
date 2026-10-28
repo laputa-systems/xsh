@@ -21,7 +21,7 @@ use tests.support.dhcp_types as types
 ## One scripted happening. `kind` is one of: `frame` (deliver the base64 datagram
 ## in `text`), `arp` (deliver an ARP frame), `lost` (deliver a notification
 ## overrun), `changed` (deliver a link change), `ask` (a command: `stop`,
-## `down` or `up`), `carrier` (`up` or `down`), `recreate` (a new index),
+## `down` or `up`), `carrier` (`up` or `down`), `vanish` (the interface disappears until a `recreate`), `recreate` (a new index),
 ## `unplug_address` (remove the addresses behind the client's back),
 ## `fail_next` (fail the next network operation), `jump` (add `text`
 ## milliseconds to the boot clock without delivering anything in between) and
@@ -43,6 +43,7 @@ type KernelJson = {
   routes: List[network.Route],
   fail_at: Int,
   calls: Int,
+  missing: Bool,
 }
 
 ## Everything the fake world holds.
@@ -102,7 +103,7 @@ export pure world_of(link: client.Link, start: Int, rules: List[types.Rule], inb
     counts: responder.Counts(discover: 0, request: 0, decline: 0, release: 0, inform: 0),
     inbox:,
     sent: [],
-    kernel: KernelJson(ifindex: link.ifindex, name: link.name, mac: hex(link.mac), up: true, carrier: true, addresses: [], routes: [], fail_at: -1, calls: 0),
+    kernel: KernelJson(ifindex: link.ifindex, name: link.name, mac: hex(link.mac), up: true, carrier: true, addresses: [], routes: [], fail_at: -1, calls: 0, missing: false),
     conflicting: null,
     waits: 0,
     persisted: 0,
@@ -158,7 +159,7 @@ pure readiness(due_now: List[Happening]) -> client.Ready {
   client.Ready(
     dhcp: has_kind(due_now, ["frame"]),
     arp: has_kind(due_now, ["arp"]),
-    events: has_kind(due_now, ["changed", "lost", "carrier", "recreate", "unplug_address", "fail_next", "jump", "wall", "later"]),
+    events: has_kind(due_now, ["changed", "lost", "carrier", "vanish", "recreate", "unplug_address", "fail_next", "jump", "wall", "later"]),
     control: has_kind(due_now, ["ask"]),
   )
 }
@@ -210,7 +211,11 @@ proc fake_receive(ctx: client.Context) [fs, process, net, error] -> Result[List[
         delivered += [client.LinkChanged]
       }
       "recreate" => {
-        world = with_kernel(world, {...world.kernel, ifindex: world.kernel.ifindex + 10, addresses: [], routes: []})
+        world = with_kernel(world, {...world.kernel, ifindex: world.kernel.ifindex + 10, addresses: [], routes: [], missing: false})
+        delivered += [client.LinkChanged]
+      }
+      "vanish" => {
+        world = with_kernel(world, {...world.kernel, missing: true})
         delivered += [client.LinkChanged]
       }
       "unplug_address" => {
@@ -284,7 +289,9 @@ pure pcap_arp_claim(address: Int) -> Bytes {
 }
 
 proc fake_observe(ctx: client.Context) [fs, process, net, error] -> Result[network.Observation, Error] {
-  Ok(observed_in(load(ctx.settings)?))
+  let world = load(ctx.settings)?
+  return Err(error.failure("no such link")) when world.kernel.missing
+  Ok(observed_in(world))
 }
 
 pure injected_failure_spent(fail_at: Int, outcome: network.Outcome?) -> Int {
@@ -309,6 +316,7 @@ proc fake_apply(ctx: client.Context, change: client.Change) [fs, process, net, t
         routes: state.routes,
         fail_at: injected_failure_spent(world.kernel.fail_at, played.outcome),
         calls: played.kernel.calls,
+        missing: world.kernel.missing,
       )
       save(ctx.settings, {...world, kernel: reached})
       if let outcome = played.outcome {

@@ -252,6 +252,15 @@ test test_carrier_loss_and_return_revalidate_and_a_recreated_interface_reacquire
   assert counted(recreated.session, "sent_request_init_reboot") >= 1
 }
 
+test test_an_interface_that_vanishes_before_it_is_recreated_does_not_stop_the_client { |ctx|
+  let h = harness(ctx, "vanish")?
+  let rules = [script.always("discover", [offer_with(600)]), script.always("request", [ack_with(600)])]
+  let gone = play(h, rules, [after(5000, "vanish", ""), after(7000, "recreate", ""), after(12000, "ask", "stop")])?
+  assert counted(gone.session, "observe_failed") >= 1
+  assert gone.world.kernel.ifindex == 13
+  assert gone.world.kernel.addresses.len() == 1, "the lease is revalidated on the recreated device"
+}
+
 test test_an_address_removed_behind_the_clients_back_with_a_lost_notification_is_repaired { |ctx|
   let h = harness(ctx, "repair")?
   let rules = [script.always("discover", [offer_with(600)]), script.always("request", [ack_with(600)])]
