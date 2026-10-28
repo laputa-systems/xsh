@@ -1081,13 +1081,21 @@ main()?
 
 test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership {
   let ctx = fixtures.linux_context(/repo)?
+  let heavy = "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"
+  let module_tests = [line for line in fp"{fs.cwd()?}/core/tests/test-lsmem.xsh".read_text()?.split("\n") if line.starts_with("test ")]
+  var expected = ["test"]
+  for line in module_tests {
+    let id = f"core/tests/test-lsmem.xsh::{line.split(" ")[1]}"
+    expected += ["--exact-id", id] when id != heavy
+  }
+  assert expected.len() == 1 + 2 * (module_tests.len() - 1)
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], [], gates.Edit)?
   assert plan.tier == gates.Edit
   assert [entry.id for entry in plan.cases] == ["core/lsmem/correctness"]
   assert plan.products == [tests.Xsh, tests.Xsht]
   assert plan.unresolved.is_empty()
   match plan.cases[0].execution {
-    gates.RunCommand(spec) => assert spec.argv[1..] == ["test", "core/tests/test-lsmem.xsh"]
+    gates.RunCommand(spec) => assert spec.argv[1..] == expected
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("core correctness was not a native command")
   }
 }
@@ -1095,10 +1103,15 @@ test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership
 test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
   let ctx = fixtures.linux_context(/repo)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], [], gates.Change)?
-  assert [entry.id for entry in plan.cases] == ["core/lsmem/correctness", "core/lsmem/consumers"]
+  assert [entry.id for entry in plan.cases] == ["core/lsmem/correctness", "core/lsmem/heavy-inventory", "core/lsmem/consumers"]
   assert plan.products == [tests.Xsh, tests.Xsht]
   assert plan.unresolved.is_empty()
   match plan.cases[1].execution {
+    gates.RunCommand(spec) => assert spec.argv[1..] == ["test", "--exact-id", "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"]
+    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("the heavy lsmem case was not one exact native command")
+  }
+  assert plan.cases[1].tier == gates.Change
+  match plan.cases[2].execution {
     gates.RunCommand(spec) => assert spec.argv[1..] == [
       "test",
       "--exact-id", "core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory",

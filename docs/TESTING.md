@@ -118,14 +118,17 @@ unavailable counters are reported as such, and the case does not measure or
 qualify performance.
 
 The initial focused cases include `showcase/tokei/correctness` and
-`core/lsmem/correctness`. Each selects its existing native behavior module.
+`core/lsmem/correctness`. The first selects its native behavior module. The second selects the
+lsmem module without its 16 GiB layout test, which needs about 20 CPU-seconds and does not fit the
+Edit budget; a Change request adds that test as `core/lsmem/heavy-inventory`.
 At Edit tier, `src/sema/check/local_inference.rs` selects the exact
 `compiler/local-inference/correctness` tests; Change also retains its broader
 checker coverage. `src/sema/schemes.rs` similarly selects the exact
 `compiler/imported-inference/correctness` tests at Edit tier. Edits to
 `src/sema/inference_work.rs` select the exact
 `compiler/inference-work/correctness` Rust test.
-A Change request for `core/lsmem.xsh` also selects `core/lsmem/consumers`, an
+A Change request for `core/lsmem.xsh` also selects `core/lsmem/heavy-inventory` and
+`core/lsmem/consumers`, an
 `--exact-id` set of the tests in other modules that run the applet. The
 unprivileged gate lane skips the two namespace-dependent lsmem consumers, which need a
 private namespace context only a Rust test provides; an exact set cannot include a test

@@ -202,6 +202,32 @@ const cargo_caller_native_files = [
   "dev/tests/test-native-workflows.xsh",
 ]
 
+const lsmem_edit_test_ids = [
+  "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_s390_zvm_6g",
+  "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_version_identity",
+  "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_help_matches_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_sparse_memory_attributes_and_output_modes",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_columns_environment_and_explicit_output_precedence",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_short_option_aliases",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_configured_memory_and_memmap_summary",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_malformed_block_attributes",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_numeric_and_state_parsing_matches_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_required_block_size_wrong_types_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_firmware_inventory_can_differ_from_sysfs_blocks",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_firmware_integer_parsing_matches_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_leading_zero_block_ids_follow_reference_order",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_missing_block_size_is_an_error",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_nonnumeric_memory_entries_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_option_errors_match_reference",
+]
+
+const lsmem_heavy_test_ids = ["core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"]
+
 const lsmem_consumer_test_ids = [
   "core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory",
   "core/tests/test-util-linux-io-boundaries.xsh::test_util_linux_lsmem_preserves_raw_sysroot_argv",
@@ -748,8 +774,12 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     execution: RunCommand(native_gate(ctx, profile, "showcase/tests/test-tokei.xsh")))]
   entries += [CatalogCase(id: "core/lsmem/correctness", tier: Edit,
     limit: RuntimeSeconds(30), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
-    reasons: ["core/lsmem.xsh rooted memory inventory contract"],
-    execution: RunCommand(native_gate(ctx, profile, "core/tests/test-lsmem.xsh")))]
+    reasons: ["core/lsmem.xsh rooted memory inventory contract, without the 16 GiB layout that needs 20 CPU-seconds"],
+    execution: RunCommand(native_exact_ids_gate(ctx, profile, "core/lsmem/correctness", lsmem_edit_test_ids)))]
+  entries += [CatalogCase(id: "core/lsmem/heavy-inventory", tier: Change,
+    limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    reasons: ["the 16 GiB upstream memory layout, which alone exceeds the Edit budget"],
+    execution: RunCommand(native_exact_ids_gate(ctx, profile, "core/lsmem/heavy-inventory", lsmem_heavy_test_ids)))]
   entries += [CatalogCase(id: "core/lsmem/consumers", tier: Change,
     limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
     reasons: ["native tests outside test-lsmem.xsh that run the lsmem applet"],
@@ -1145,6 +1175,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       let id = if changed_path == "showcase/tokei.xsh" { "showcase/tokei/correctness" } else { "core/lsmem/correctness" }
       selected_ids += [id] when id not in selected_ids
       if changed_path == "core/lsmem.xsh" and tier == Change {
+        selected_ids += ["core/lsmem/heavy-inventory"] when "core/lsmem/heavy-inventory" not in selected_ids
         selected_ids += ["core/lsmem/consumers"] when "core/lsmem/consumers" not in selected_ids
       }
       continue
@@ -1217,7 +1248,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => continue
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
-    continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/consumers", cat_byte_stream_case_id, cat_full_module_case_id, cat_external_consumers_case_id,
+    continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/heavy-inventory", "core/lsmem/consumers", cat_byte_stream_case_id, cat_full_module_case_id, cat_external_consumers_case_id,
       "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/consolidation-harness", "verification/core-workloads", "verification/inference-workloads", "verification/frozen-witnesses", "verification/erase-sites", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
       native_leases_case_id]
     continue when entry.id in [case.id for case in source_edit_cases]
