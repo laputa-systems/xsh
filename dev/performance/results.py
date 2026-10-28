@@ -322,7 +322,7 @@ def reconcile_cargo(text, selected, *, child_status):
     return _reconcile('cargo', _reconcile_cargo, text, selected, child_status=child_status)
 
 
-def render_report(result):
+def render_report(result, *, outside_lane=0):
     counts = Counter(case['outcome'] for case in result['cases'].values())
     verdict = {0: 'passed', 1: 'failed', 2: 'incomplete', 130: 'cancelled'}[result['status']]
     def detail(value):
@@ -333,7 +333,8 @@ def render_report(result):
         unresolved.append('run: ' + detail(result['reason']))
     elif result['child_status'] != 0:
         unresolved.append(f'runner exited {result["child_status"]}')
-    coverage = 'complete' if result['coverage_complete'] else 'incomplete: ' + detail(result['coverage_reason'])
+    coverage = ('reduced (%d tests outside the lane)' % outside_lane if outside_lane and result['coverage_complete'] else
+                'complete' if result['coverage_complete'] else 'incomplete: ' + detail(result['coverage_reason']))
     lines = [f'Selected scope: {verdict} ({len(result["selected"])} cases; {result["runner"]})',
                       'Results: ' + (', '.join(f'{outcome}={counts[outcome]}' for outcome in OUTCOMES if counts[outcome]) or 'none reconciled'),
                       f'Child status: {result["child_status"]}',
@@ -380,6 +381,7 @@ def main():
     parser.add_argument('--runner', required=True, choices=('xsht', 'cargo'))
     parser.add_argument('--events', required=True, type=Path)
     parser.add_argument('--cases-json', type=Path)
+    parser.add_argument('--outside-lane', type=int, default=0)
     parser.add_argument('--child-status', type=int)
     parser.add_argument('--discover-cargo', action='store_true')
     parser.add_argument('--cargo-diagnostics', action='store_true')
@@ -420,7 +422,8 @@ def main():
         result = reconcile(event_text, selected, child_status=args.child_status)
         if read_error is not None:
             result['coverage_reason'] = read_error
-        print(render_report(result), end='')
+        _require(args.outside_lane >= 0, 'outside-lane count cannot be negative')
+        print(render_report(result, outside_lane=args.outside_lane), end='')
         return result['status']
     except (ValueError, OSError, UnicodeError) as error:
         print(f'Selected scope: incomplete\nReason: {json.dumps(str(error))}\nFull: not run', file=sys.stderr)

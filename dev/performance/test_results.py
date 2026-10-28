@@ -374,6 +374,21 @@ class ResultTests(unittest.TestCase):
             self.assertIn('incomplete', report)
             self.assertLessEqual(len(report.splitlines()), 8)
 
+    def test_a_reduced_run_does_not_claim_complete_coverage(self):
+        result = results.reconcile_xsht(encode(native_rows()), ['tests/a.xsh::case'], child_status=0)
+        full = results.render_report(result)
+        reduced = results.render_report(result, outside_lane=3)
+        self.assertIn('Coverage: complete', full)
+        self.assertIn('Coverage: reduced (3 tests outside the lane)', reduced)
+        self.assertNotIn('Coverage: complete', reduced)
+        stdout = StringIO()
+        argv = ['results', '--runner', 'xsht', '--events', '/events', '--cases-json', '/cases', '--child-status', '0',
+                '--outside-lane', '3']
+        with patch('sys.argv', argv), patch.object(results, '_case_file', return_value=['tests/a.xsh::case']), \
+                patch.object(results, '_event_file', return_value=encode(native_rows())), redirect_stdout(stdout):
+            self.assertEqual(results.main(), 0)
+        self.assertIn('Coverage: reduced (3 tests outside the lane)', stdout.getvalue())
+
     def test_native_required_scope_and_compact_report(self):
         result = results.reconcile_xsht(encode(native_rows()), ['tests/a.xsh::case'], child_status=0)
         self.assertEqual(result['status'], 0)

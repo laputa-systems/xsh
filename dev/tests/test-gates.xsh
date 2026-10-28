@@ -1236,6 +1236,17 @@ test test_a_reduced_run_says_so_in_its_verdict_line {
   assert gates.reduced_verdict(29) == "Selected scope: passed, reduced (29 tests outside the lane; see lane/root-native, lane/namespace-native)"
 }
 
+test test_one_native_file_partly_outside_the_lane_is_incomplete_by_case_id_as_by_path {
+  let ctx = fixtures.linux_context(fs.cwd()?)?
+  let by_path = gates.plan_paths(ctx, tests.Verification, ["core/tests/test-lslocks.xsh"], [], gates.Change)?
+  let by_case = gates.plan_paths(ctx, tests.Verification, [], ["native-core/tests/test-lslocks.xsh"], gates.Change)?
+  assert by_path.unresolved.len() == 1
+  assert by_case.unresolved == by_path.unresolved
+  assert [entry.id for entry in by_case.cases] == ["native-core/tests/test-lslocks.xsh"]
+  let suite = gates.plan_paths(ctx, tests.Verification, [], ["native-tests/xsh/stdlib"], gates.Change)?
+  assert suite.unresolved.is_empty()
+}
+
 test test_evidence_for_a_reduced_native_selection_is_not_labelled_current {
   let reduced = gates.evidence_label(gates.Reduced(3))?
   assert reduced.starts_with("reduced")

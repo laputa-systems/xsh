@@ -1279,7 +1279,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     let owned_root = ctx.root.resolve()?.display() + "/"
     return Err(PlanError.Invalid(detail: f"native case {id} escapes the owned source root")) when ! resolved_path.display().starts_with(owned_root)
     return Err(PlanError.Invalid(detail: f"native case {id} is not a file")) when resolved_path.metadata()?.kind != "file"
-    return Err(PlanError.Invalid(detail: unprivileged_lane_gap(file))) when ! lane_note(ctx, file)?.keep
+    let note = lane_note(ctx, file)?
+    return Err(PlanError.Invalid(detail: unprivileged_lane_gap(file))) when ! note.keep
+    for gap in note.unresolved { unresolved += [gap] when gap not in unresolved }
+    for scenario in note.scenarios { lane_scenarios += [scenario] when scenario not in lane_scenarios }
     if id not in [entry.id for entry in chosen] {
       for entry in catalogue(ctx, profile, Selection(areas: [], native_files: [file]), ["explicit native file selection"])? {
         chosen += [entry] when entry.id == id
@@ -2459,7 +2462,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           if ! selected_ids.is_empty() {
             let arguments = ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(),
               "--runner", result_runner ?? "", "--events", events.display(), "--child-status", f"{raw}",
-              "--cases-json", cases_file.display()]
+              "--cases-json", cases_file.display(), @if outside_lane > 0 { ["--outside-lane", f"{outside_lane}"] } else { [] }]
             let remaining = available_ns - (time.monotonic()? - case_started)
             if remaining < 1000000 {
               return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when failed_child
