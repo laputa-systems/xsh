@@ -196,10 +196,10 @@ def ensure_lease_files(base: Path) -> Path:
 
 
 @contextlib.contextmanager
-def acquire(paths: list[tuple[Path, int, tuple[int, int] | None]]):
+def acquire(paths: list[tuple[Path, int]]):
     descriptors = []
     try:
-        for path, mode, expected in paths:
+        for path, mode in paths:
             descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
             descriptors.append(descriptor)
             opened = os.fstat(descriptor)
@@ -207,8 +207,6 @@ def acquire(paths: list[tuple[Path, int, tuple[int, int] | None]]):
             identity = (opened.st_dev, opened.st_ino)
             if not stat.S_ISREG(opened.st_mode) or identity != (named.st_dev, named.st_ino):
                 raise ValueError(f"unsafe lease path: {path}")
-            if expected is not None and identity != expected:
-                raise ValueError(f"lease identity changed: {path}")
             try:
                 fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
             except BlockingIOError as error:
@@ -228,7 +226,6 @@ def acquire(paths: list[tuple[Path, int, tuple[int, int] | None]]):
 def _cargo_lease(
     root: Path,
     path: Path,
-    expected: tuple[int, int] | None,
     target: Path | None,
 ):
     if not _cargo_process_guard.acquire(blocking=False):
@@ -236,7 +233,7 @@ def _cargo_lease(
     try:
         target_identity = _cargo_target_identity(root, target) if target is not None else None
         mode = fcntl.LOCK_SH if target is not None else fcntl.LOCK_EX
-        with acquire([(path, mode, expected)]) as descriptors:
+        with acquire([(path, mode)]) as descriptors:
             descriptor = descriptors[0]
             if target is not None:
                 _acquire_parallel_cargo_ranges(descriptor, target_identity[1])
@@ -309,15 +306,15 @@ def campaign_leases(
     if cargo_target is not None and not cargo:
         raise ValueError("a parallel Cargo target requires the Cargo lease")
     infra = ensure_lease_files(original_root(root))
-    paths = [(infra / "final-performance.lock", fcntl.LOCK_SH, None)]
+    paths = [(infra / "final-performance.lock", fcntl.LOCK_SH)]
     if native:
-        paths.append((infra / "native-suite.lock", fcntl.LOCK_EX, None))
+        paths.append((infra / "native-suite.lock", fcntl.LOCK_EX))
     with acquire(paths) as descriptors:
         token = _native_descriptor.set((descriptors[1], paths[1][0]) if native else None)
         quarantine_token = _native_quarantine.set(None)
         try:
             if cargo:
-                with _cargo_lease(root, infra / "cargo.lock", None, cargo_target) as cargo_descriptor:
+                with _cargo_lease(root, infra / "cargo.lock", cargo_target) as cargo_descriptor:
                     yield (*descriptors, cargo_descriptor)
             else:
                 yield descriptors

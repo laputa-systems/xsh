@@ -16,7 +16,7 @@ from leases import LEASE_NAMES, campaign_leases, _cargo_held, _cargo_lease, requ
 
 
 def hold(path, mode, channel):
-    with acquire([(Path(path), mode, None)]):
+    with acquire([(Path(path), mode)]):
         channel.send("held")
         channel.recv()
     channel.send("released")
@@ -29,7 +29,7 @@ def interrupt_worker(signum, frame):
 def cargo_worker(path, root, target, channel):
     signal.signal(signal.SIGUSR1, interrupt_worker)
     try:
-        with _cargo_lease(Path(root), Path(path), None, Path(target)):
+        with _cargo_lease(Path(root), Path(path), Path(target)):
             channel.send("held")
             action = channel.recv()
             if action == "raise":
@@ -78,13 +78,9 @@ class LeaseTests(unittest.TestCase):
         self.addCleanup(cleanup)
         return worker, parent
 
-    def cargo_identity(self):
-        info = self.path.stat()
-        return info.st_dev, info.st_ino
-
     def attempt_cargo(self, root_index, target=True):
         path = self.roots[root_index] / ".work/target" if target else None
-        return _cargo_lease(self.roots[root_index], self.path, self.cargo_identity(), path)
+        return _cargo_lease(self.roots[root_index], self.path, path)
 
     def join_worker(self, worker):
         worker.join(5)
@@ -103,14 +99,14 @@ class LeaseTests(unittest.TestCase):
             self.assertTrue(parent.poll(5), "holder did not acquire lease")
             self.assertEqual(parent.recv(), "held")
             with self.assertRaises(LeaseBusy):
-                with acquire([(self.path, rejected, None)]):
+                with acquire([(self.path, rejected)]):
                     self.fail("contending worker entered")
             parent.send("release")
             self.assertTrue(parent.poll(5), "holder did not release lease")
             self.assertEqual(parent.recv(), "released")
             worker.join(5)
             self.assertEqual(worker.exitcode, 0)
-            with acquire([(self.path, rejected, None)]):
+            with acquire([(self.path, rejected)]):
                 self.assertEqual(self.path.read_bytes(), b"preserve")
         finally:
             if worker.is_alive():
@@ -131,30 +127,27 @@ class LeaseTests(unittest.TestCase):
     def test_partial_acquisition_releases_earlier_lease(self):
         missing = self.path.with_name("missing")
         with self.assertRaises(FileNotFoundError):
-            with acquire([(self.path, fcntl.LOCK_EX, None), (missing, fcntl.LOCK_EX, None)]):
+            with acquire([(self.path, fcntl.LOCK_EX), (missing, fcntl.LOCK_EX)]):
                 self.fail("missing lease accepted")
-        with acquire([(self.path, fcntl.LOCK_EX, None)]):
+        with acquire([(self.path, fcntl.LOCK_EX)]):
             pass
 
     def test_symlink_and_replaced_identity_are_rejected(self):
         link = self.path.with_name("link")
         link.symlink_to(self.path)
         with self.assertRaises(OSError):
-            with acquire([(link, fcntl.LOCK_SH, None)]):
+            with acquire([(link, fcntl.LOCK_SH)]):
                 self.fail("symlink accepted")
-        with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, (0, 0))]):
-                self.fail("wrong identity accepted")
 
     def test_unresolved_cleanup_prevents_dispatch(self):
         self.path.write_bytes(b"cleanup-unresolved: owned-container")
         with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+            with acquire([(self.path, fcntl.LOCK_SH)]):
                 self.fail("unresolved cleanup accepted")
 
     def test_quarantine_preserves_lease_inode_and_blocks_next_worker(self):
         identity = self.path.stat().st_ino
-        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+        with acquire([(self.path, fcntl.LOCK_EX)]) as descriptors:
             token = _native_descriptor.set((descriptors[0], self.path))
             try:
                 mark_cleanup_unresolved("container=owned")
@@ -164,12 +157,12 @@ class LeaseTests(unittest.TestCase):
         self.assertTrue(self.path.read_bytes().startswith(b"cleanup-unresolved: util-linux container=owned"))
         self.assertEqual(self.path.with_suffix(".cleanup-unresolved").read_bytes(), self.path.read_bytes())
         with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+            with acquire([(self.path, fcntl.LOCK_SH)]):
                 self.fail("quarantined lease accepted")
 
     def test_prepared_quarantine_clears_only_after_explicit_resolution(self):
         identity = self.path.stat().st_ino
-        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+        with acquire([(self.path, fcntl.LOCK_EX)]) as descriptors:
             token = _native_descriptor.set((descriptors[0], self.path))
             try:
                 prepare_cleanup_unresolved("focused container launch")
@@ -182,11 +175,11 @@ class LeaseTests(unittest.TestCase):
                 _native_descriptor.reset(token)
         self.assertEqual(self.path.read_bytes(), b"")
         self.assertFalse(self.path.with_suffix(".cleanup-unresolved").exists())
-        with acquire([(self.path, fcntl.LOCK_EX, None)]):
+        with acquire([(self.path, fcntl.LOCK_EX)]):
             pass
 
     def test_quarantine_marker_fsync_failure_leaves_dispatch_fence(self):
-        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+        with acquire([(self.path, fcntl.LOCK_EX)]) as descriptors:
             token = _native_descriptor.set((descriptors[0], self.path))
             try:
                 with patch("leases.os.fsync", side_effect=OSError("marker fsync failed")):
@@ -196,11 +189,11 @@ class LeaseTests(unittest.TestCase):
             finally:
                 _native_descriptor.reset(token)
         with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+            with acquire([(self.path, fcntl.LOCK_SH)]):
                 self.fail("partially prepared quarantine accepted")
 
     def test_lease_sentinel_write_failure_leaves_durable_marker_fence(self):
-        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+        with acquire([(self.path, fcntl.LOCK_EX)]) as descriptors:
             token = _native_descriptor.set((descriptors[0], self.path))
             try:
                 with patch("leases.os.pwrite", side_effect=OSError("lease sentinel write failed")):
@@ -210,11 +203,11 @@ class LeaseTests(unittest.TestCase):
             finally:
                 _native_descriptor.reset(token)
         with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+            with acquire([(self.path, fcntl.LOCK_SH)]):
                 self.fail("marker-only quarantine accepted")
 
     def test_quarantine_removal_failure_restores_dispatch_fence(self):
-        with acquire([(self.path, fcntl.LOCK_EX, None)]) as descriptors:
+        with acquire([(self.path, fcntl.LOCK_EX)]) as descriptors:
             token = _native_descriptor.set((descriptors[0], self.path))
             try:
                 prepare_cleanup_unresolved("focused cleanup verified")
@@ -227,7 +220,7 @@ class LeaseTests(unittest.TestCase):
             finally:
                 _native_descriptor.reset(token)
         with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+            with acquire([(self.path, fcntl.LOCK_SH)]):
                 self.fail("restored quarantine accepted")
 
     def test_build_dispatch_requires_held_cargo_guard(self):
@@ -298,7 +291,7 @@ class LeaseTests(unittest.TestCase):
     def test_dangling_cleanup_marker_prevents_dispatch(self):
         self.path.with_suffix(".cleanup-unresolved").symlink_to(self.path.with_name("missing"))
         with self.assertRaises(ValueError):
-            with acquire([(self.path, fcntl.LOCK_SH, None)]):
+            with acquire([(self.path, fcntl.LOCK_SH)]):
                 self.fail("dangling cleanup marker accepted")
 
     def test_parallel_cargo_admits_three_disjoint_outputs_and_rejects_a_fourth(self):
@@ -371,7 +364,7 @@ class LeaseTests(unittest.TestCase):
             spec.loader.exec_module(alias)
             with self.attempt_cargo(0):
                 with self.assertRaises(alias.LeaseBusy):
-                    with alias._cargo_lease(self.roots[1], self.path, self.cargo_identity(), None):
+                    with alias._cargo_lease(self.roots[1], self.path, None):
                         self.fail("aliased exclusive Cargo lease entered")
                 probe, probe_pipe = self.start_cargo_worker(0)
                 self.receive(probe_pipe, "busy")
