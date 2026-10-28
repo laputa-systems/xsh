@@ -2071,6 +2071,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     Field {
+        instruction: u32,
         mode: Option<crate::sema::wrapper_operation::WrapperMode>,
         name: String,
         span: Span,
@@ -7421,6 +7422,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     )?
                     && let Some(value) = super::lowered_record_field_value(base, &name)
                 {
+                    let value = if matches!(value, LoweredValue::Callable(_)) && execution.program().has_invocation(instruction) {
+                        super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?
+                    } else { value };
                     self.push_value(index, FrameValue::Value(value), next);
                     return Ok(());
                 }
@@ -7429,6 +7433,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     value_span,
                     FrameContinuation::Field {
+                        instruction,
                         mode,
                         name,
                         span: value_span,
@@ -7971,7 +7976,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
         }
         match next {
-            FrameContinuation::Field { mode, name, span, next } => match value {
+            FrameContinuation::Field { instruction, mode, name, span, next } => match value {
                 FrameValue::Value(base) => {
                     let base = match mode {
                         Some(crate::sema::wrapper_operation::WrapperMode::Optional) if matches!(base, LoweredValue::Null) => {
@@ -7989,6 +7994,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         _ => base,
                     };
                     let value = self.evaluator.indexed_field_value(base, &name, span)?;
+                    let value = if matches!(value, LoweredValue::Callable(_)) && self.calls[index].execution.program().has_invocation(instruction) {
+                        let execution = &self.calls[index].execution;
+                        super::materialize_indexed_callable(self.evaluator, execution, &self.calls[index].applications, instruction, value, span)?
+                    } else { value };
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),

@@ -3255,7 +3255,7 @@ fn verify_call_instantiations(
         if instruction >= store.tags.len()
             || !matches!(
                 store.tags[instruction],
-                FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprDynamicCall | FullTag::ExprCheckedValue
+                FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprDynamicCall | FullTag::ExprCheckedValue | FullTag::ExprField
             )
         {
             return Err(IrVerifyError::new("generic call instantiation has no direct call"));
@@ -3274,7 +3274,7 @@ fn verify_call_instantiations(
             .and_then(Option::as_ref)
             .ok_or_else(|| IrVerifyError::new("generic call target has no binder scope"))?;
         let scheme = store.scheme(scheme_id)?;
-        let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue);
+        let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue | FullTag::ExprField);
         if instantiation.arguments.operation_bindings.len != scheme.operations.len { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
         if instantiation.arguments.method_bindings.len != scheme.methods.len { return Err(IrVerifyError::new("generic call method binding is incomplete")); }
         if instantiation.arguments.application_bindings.len != scheme.applications.len {
@@ -5523,15 +5523,18 @@ fn checked_argument_type_inner(
                     return Ok(None);
                 };
                 ensure_closed_type(&base_type)?;
-                let Type::Record(fields) = base_type.into_unvalidated() else {
-                    return Ok(None);
-                };
-                let field = Name::intern(name);
-                let Some(field_type) = fields.get(&field) else {
-                    return Ok(None);
-                };
-                materialization.charge_clone(field_type)?;
-                return Ok(Some(CheckedArgumentType::Known(field_type.clone())));
+                match base_type.into_unvalidated() {
+                    Type::Record(fields) => {
+                        let field = Name::intern(name);
+                        let Some(field_type) = fields.get(&field) else {
+                            return Ok(None);
+                        };
+                        materialization.charge_clone(field_type)?;
+                        return Ok(Some(CheckedArgumentType::Known(field_type.clone())));
+                    }
+                    Type::Module(_) => {}
+                    _ => return Ok(None),
+                }
             }
         }
         _ => {}

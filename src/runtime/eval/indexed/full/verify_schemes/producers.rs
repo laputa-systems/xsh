@@ -2576,7 +2576,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         let owner = index.instruction_owner(instantiation.instruction as usize)?;
         if super::super::driver_owner_index(owner).is_none() && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_)) { continue; }
         let decoder = proof.owner(owner)?;
-        if matches!(store.tags[instantiation.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue) {
+        if matches!(store.tags[instantiation.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue | FullTag::ExprField) {
             let type_id = super::checked_expression_type_id(store, instantiation.instruction)
                 .ok_or_else(|| IrVerifyError::new("materialized callable has no checked producer type"))?;
             let ty = proof.contract_type(type_id)?;

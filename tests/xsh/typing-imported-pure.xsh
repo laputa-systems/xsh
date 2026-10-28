@@ -111,3 +111,63 @@ export let value = keep([])
   assert "branch.xsh:5" in result.stderr, result.stderr
   assert "[check.field-access]" not in result.stderr, result.stderr
 }
+
+test test_imported_callables_pass_directly_as_arguments_to_generic_callees { |ctx|
+  let modules = test.temp_dir(ctx, name: "typing-imported-callable-arguments")?
+  fp"{modules}/helpers.xsh".write("""##! Generic and ground helpers.
+## Returns its argument.
+export pure identity(value) { value }
+## Applies a callback twice.
+export pure twice(callback, value) { callback(callback(value)) }
+## Adds one.
+export pure increment(value: Int) -> Int { value + 1 }
+""")?
+  let output = test.run_xsh(ctx, r"""use helpers
+pure apply(callback, value) { callback(value) }
+assert helpers.twice(helpers.identity, 3) == 3
+assert helpers.twice(helpers.identity, "text") == "text"
+assert helpers.twice(helpers.increment, 3) == 5
+assert apply(helpers.identity, 7) == 7
+assert apply(helpers.identity, "kept") == "kept"
+assert apply(helpers.increment, 7) == 8
+print "direct"
+""", env: {XSH_MODULE_PATH: modules})?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "direct\n"
+  let rejected = test.run_xsh(ctx, "use helpers\npure apply(callback, value) { callback(value) }\nlet bad: Str = apply(helpers.increment, 1)\n", env: {XSH_MODULE_PATH: modules})?
+  assert rejected.status == 2, rejected.stderr
+  assert "[check.type-mismatch]" in rejected.stderr, rejected.stderr
+}
+
+test test_imported_callable_arguments_keep_their_module_environment { |ctx|
+  let modules = test.temp_dir(ctx, name: "typing-imported-callable-environment")?
+  fp"{modules}/state.xsh".write("""##! Exports that read module state.
+let offset = 10
+let label = "tag"
+## Adds the module offset.
+export pure shifted(value: Int) -> Int { value + offset }
+## Pairs a value with the module offset.
+export pure with_offset(value) { {value, offset} }
+## Pairs a value with the module label.
+export pure tagged(value) { {value, label} }
+## Applies a callback twice.
+export pure twice(callback, value) { callback(callback(value)) }
+## Applies a callback.
+export pure apply(callback, value) { callback(value) }
+""")?
+  let output = test.run_xsh(ctx, r"""use state
+pure relay(callback, value) { callback(value) }
+let shifted_twice = state.twice(state.shifted, 1)
+let first = state.apply(state.with_offset, 1)
+let text = relay(state.tagged, "x")
+let number = relay(state.tagged, 2)
+assert shifted_twice == 21
+assert first.offset == 10 and first.value == 1
+assert text.label == "tag" and text.value == "x"
+assert number.label == "tag" and number.value == 2
+assert relay(state.shifted, 5) == 15
+print "environment"
+""", env: {XSH_MODULE_PATH: modules})?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "environment\n"
+}

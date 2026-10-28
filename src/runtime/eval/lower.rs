@@ -9111,6 +9111,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let check = self.narrowed_optional_payload_check(id, slots);
                 let lowered_base = self.lower_producer_input_expr(base, slots, current_function, item_slot)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Field { base: lowered_base, name: name.as_str(), span });
+                if check.is_none()
+                    && let Some(checked @ Type::Callable(_)) = self.bodies.expr_types.get(&id)
+                    && let Some(target) = self.bodies.selected_function_calls.get(&id).copied()
+                    && target.name == name
+                {
+                    let key = self.function_index().checked_target_key(target)?;
+                    let mut scratch = self.scratch.borrow_mut();
+                    if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(id))
+                        && (!scratch.record_call_instantiation(value, instantiation.clone()) || !scratch.record_checked_call_target(value, key))
+                    { return None; }
+                    if !scratch.record_checked_expr_type(value, checked.clone(), false) { return None; }
+                }
                 Some(if let Some(check) = check { push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }) } else { value })
             }
             ArenaExprKind::NullSafeField { base, name } => {

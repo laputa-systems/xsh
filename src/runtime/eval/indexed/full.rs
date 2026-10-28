@@ -7520,7 +7520,8 @@ impl<'a> FullDecoder<'a> {
             } else { false };
             let class = if tag == FullTag::ExprParam
                 && self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok()
-                || tag == FullTag::ExprField && self.store.wrapper_site(self.owner, index as u32)?.is_some()
+                || tag == FullTag::ExprField && (self.store.wrapper_site(self.owner, index as u32)?.is_some()
+                    || self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok())
                 || binding_dependent_value || binding_dependent_index
             { schema::InPlaceClass::Scheduled } else { tag.in_place_class() };
             proof.borrow_mut().enter(index, tag.kind(), class);
@@ -10872,6 +10873,11 @@ impl<'a> FullDecoder<'a> {
                 };
                 source.ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source"))
             }
+            schema::ExprView::Field { .. } => match &self.producer_prefix {
+                Some(prefix) => prefix.immutable_function_reference_source(self, instruction)?
+                    .ok_or_else(|| IrVerifyError::new("materialized callable field has no imported function source")),
+                None => Err(IrVerifyError::new("materialized callable field has no producer proof")),
+            },
             _ => Err(IrVerifyError::new("materialized callable has no function reference producer")),
         }
     }
@@ -12600,6 +12606,11 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::Field { .. } => {
+                if matches!(ty, Type::Callable(_))
+                    && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+                {
+                    return self.function_reference_matches_callable(instruction, &ty);
+                }
                 let matches = if let Some(binding) = self.checked_binding_path(instruction, &mut |_| Ok(()))? {
                     match self.checked_binding_path_type(instruction, &binding, &mut |_| Ok(()))? {
                         Some(declared) => self.checked_declared_type_matches_narrowed_fact(
@@ -13369,7 +13380,7 @@ impl<'a> FullDecoder<'a> {
                     let schema::ExprView::FunctionRef { function, .. } = self.expression_view(instruction)? else { unreachable!() };
                     self.function_reference_contract(function)?.0
                 }
-                FullTag::ExprParam => {
+                FullTag::ExprParam | FullTag::ExprField => {
                     let function = match self.checked_callable_reference_source(instruction)? {
                         ImmutableCallableSource::Instruction(source) => {
                             let schema::ExprView::FunctionRef { function, .. } = self.expression_view(source)? else { unreachable!() };
@@ -19704,7 +19715,7 @@ impl FullVerifier {
                 || previous_checked_call_target.is_some_and(|previous| previous >= instruction)
                 || !matches!(
                     store.tags[instruction],
-                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam
+                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprField
                 )
                 || fact.function.index() >= store.functions.len()
             {
@@ -22264,7 +22275,7 @@ macro_rules! impl_build_id_codec {
                         builder.record_call_instantiation(instruction, &instantiation, scheme_guard_scope)?;
                         builder.record_checked_call_result(instruction, &result_type)?;
                     }
-                    (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue)) => {
+                    (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue | FullTag::ExprField)) => {
                         let instruction = instruction.ok_or_else(|| {
                             IrBuildError::format(
                                 "indexed_build_instruction",
@@ -53983,6 +53994,56 @@ pure apply() -> Int {
             "{}",
             error.message
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn imported_generic_callable_argument_is_bound_to_its_export_function() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).expect("system time should be after epoch").as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-imported-callable-argument-{stamp}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("lib.xsh"),
+            "##! Generic helpers.\n\
+             ## Returns its argument.\n\
+             export pure identity(value) { value }\n\
+             ## Applies a callback twice.\n\
+             export pure twice(callback, value) { callback(callback(value)) }\n",
+        )
+        .unwrap();
+        let script = root.join("main.xsh");
+        fs::write(&script, "use lib\nprint lib.twice(lib.identity, 3)\n").unwrap();
+        let (sources, parsed) = crate::loader::parse_script(&script.to_string_lossy()).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.arena.span_source_id.unwrap();
+        let source = sources.get(source_id).unwrap().text().to_string();
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions { reveal_types: true, embedded_bodies: true, ..crate::sema::check::CheckOptions::default() },
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let program = FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources), source_id).unwrap();
+        drop(parsed);
+        drop(declarations);
+        FullVerifier::verify(&program).unwrap();
+        let field = program.store.call_instantiations.iter()
+            .find(|instance| program.store.tags[instance.instruction as usize] == FullTag::ExprField)
+            .expect("the imported generic argument carries its instantiation on the field read")
+            .instruction;
+        let target = program.store.checked_call_targets.iter().position(|fact| fact.instruction == field)
+            .expect("the field read has its checked function target");
+        let other = program.store.checked_call_targets[target].function.index();
+        let wrong = program.store.functions.iter().enumerate()
+            .find(|(index, function)| *index != other && program.store.string(function.name).unwrap() == "twice")
+            .map(|(index, _)| IrFunctionId::new(index).unwrap())
+            .expect("the module has a second generic function");
+        let mut forged = program.clone();
+        forged.store.checked_call_targets[target].function = wrong;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "function reference has no checked scheme instance");
         fs::remove_dir_all(root).unwrap();
     }
 
