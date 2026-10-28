@@ -73,17 +73,20 @@ below is from that run.
 | Remaining single-site failures | Count | Reading |
 |---|---:|---|
 | Proc return annotation that selects the plain value contract, so callers see `T` and not `Result[T, Error]` | 20 of 23 `check.type-mismatch` returns | Source meaning, not missing inference. The other three need individual review. |
-| `check.ambiguous-overload` on a parameter | 22 | Cross-type overloads stay (see Retained annotations). Check the others for genuine ambiguity. |
+| `check.ambiguous-overload` on a parameter | 22 | Cross-type overloads on an unresolved receiver (see Retained annotations) are section 9 work. All 22 are of that kind. |
 | `compact.indexed-build` verification or lowering | 22 | Open implementation work; first reductions are in the log of `full-inference-campaign.md`. |
 
 Across every private parameter annotation in the 250 top-level `core/*.xsh`
-commands (4,731 sites), the same tool shows 4,141 (87.5%) erasable alone after
-those fixes. The 590 failures by first diagnostic are 124
-`check.ambiguous-overload`, 53 `check.type-mismatch`, about 200
-`compact.indexed-build` verification or lowering failures, 36 "registered
-method receiver needs an annotation", 25 "generic callable body requires
-immutable bindings…" from the generic-body whitelist, 38 "this function cannot
-be compiled yet" lowering limits, and a tail of smaller checker classes.
+commands (4,731 sites), the same tool shows 4,225 (89.3%) erasable alone on
+2026-10-28 (4,141 before the latest verifier fixes). The 506 failures by first
+diagnostic are 124 `check.ambiguous-overload`, 53 `check.type-mismatch`, 36
+"registered method receiver needs an annotation", 25 "generic callable body
+requires immutable bindings…" from the generic-body whitelist, 21 "generic call
+argument has no closed checked type", 19 "ground index has no collection
+contract", 16 `callable generalization failed: Build(RecoveryType)`, 16 "generic
+body is outside the supported parameter projection", 15 "generic argument
+temporary is not bound on a unique path", 14 "call argument has no checked
+type", and a tail of smaller checker classes.
 
 A `Set[Str]` local from `set.empty()` passed to a generic callee also fails
 verification with "generic call argument has no closed checked type". Open
