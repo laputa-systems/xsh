@@ -1262,6 +1262,48 @@ therefore open.
 
 G3 is not closed while either item is open.
 
+## Current-source annotation erasure (2026-10-28)
+
+`dev/performance/corpus/erase_sites.py` measures how many inventory sites a
+compiler lets a source tree drop. It erases each site alone, then every site
+that passed alone together, and prints counts and the first diagnostic of each
+failure. It writes no state file. `inventory.sh` produces the input table.
+Run its test directly with `python3 -B -m unittest test_erase_sites` from
+`dev/performance/corpus`; the gate plan does not select that directory.
+
+```sh
+python3 -B dev/performance/corpus/erase_sites.py SITES.tsv \
+  --root xsh=XSH_TREE --root laputa=LAPUTA_TREE --xsht XSHT \
+  --scratch .work/tmp/erase --kind parameter --kind return --kind local
+```
+
+On the four practical files (`core/wc.xsh`, `core/sort.xsh`, `core/awk.xsh`,
+Laputa `pm/generation.xsh`, 724 sites, 668 type annotations) the master
+compiler before this session's fixes accepted 572 of the 668 type erasures
+alone. After the fixes below it accepts 581. Jointly, `wc.xsh` and `awk.xsh`
+accept every site that passed alone, while `sort.xsh` and `pm/generation.xsh`
+still fail on interactions.
+
+| Remaining single-site failures | Count | Reading |
+|---|---:|---|
+| Proc return annotation that selects the plain value contract, so callers see `T` and not `Result[T, Error]` | 20 of 23 `check.type-mismatch` returns | Source meaning, not missing inference. The other three need individual review. |
+| `check.ambiguous-overload` on a parameter | 22 | Not yet checked for genuine ambiguity. |
+| `compact.indexed-build` verification or lowering | 22 | Open implementation work; first reductions listed in the campaign log. |
+
+Fixed during this measurement: a collect-item predicate no longer shares a
+source key with the operation at its span (it surfaced as a `ForeignVariable`
+diagnostic); a membership test against a ground container accepts a generic
+loop item; `exit` is allowed in a generic proc; and `if let` over an unresolved
+subject is an optional binding.
+
+The frozen original and reduced views no longer check with the current
+compiler. Rebuilt from the recorded revisions, their digests match, but the
+original XSH view fails with 441 errors from language changes since those
+sources (validated `RelPath` literals, record field access, proc `Result`
+inference). Reducing the frozen corpus therefore needs a source-qualified
+compiler pair built from the frozen revision, as the existing frozen adapter
+already requires. The frozen sources are not migrated.
+
 ## Capability and patch order
 
 The checkpoint's accepted implementation line is a set of bounded capabilities
