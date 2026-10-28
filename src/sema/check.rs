@@ -1965,6 +1965,7 @@ pub struct Checker {
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
+    callable_extents: BTreeMap<Span, Vec<Span>>,
     pipeline_hole_types: BTreeMap<Span, Type>,
     /// Collected on first use; a checker checks one program.
     return_inference_index: Option<Arc<infer_return::ReturnInferenceIndex>>,
@@ -2392,6 +2393,7 @@ impl Checker {
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),
+            callable_extents: BTreeMap::new(),
             pipeline_hole_types: BTreeMap::new(),
             return_inference_index: None,
             inferred_returns: None,

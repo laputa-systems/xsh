@@ -1440,6 +1440,7 @@ impl Checker {
                     assert!(previous.is_none(), "a call instantiation is published once");
                 }
                 Err(error) => {
+                    if self.covered_by_specific_error(site.source) { continue; }
                     let code = match &error {
                         crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnsupportedMethodFamily) => DiagnosticCode::CheckTypeMismatch,
                         crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::AmbiguousMethodFamily) => DiagnosticCode::CheckAmbiguousOverload,

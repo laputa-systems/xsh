@@ -4884,6 +4884,7 @@ impl Checker {
         pure: bool,
     ) {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
+        self.record_callable_extent(arena, def);
         let declaration = super::FunctionDeclarationId::new(
             self.effect_declaration_id(arena, def.body),
         );
@@ -5144,6 +5145,7 @@ impl Checker {
         def: &ArenaFunctionDef,
     ) {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
+        self.record_callable_extent(arena, def);
         let declaration = super::FunctionDeclarationId::new(self.effect_declaration_id(arena, def.body));
         if self.declaration_inference.pending(declaration).is_some_and(super::PendingFunctionSig::body_checked) { return; }
         self.record_callable_body_check_entry();

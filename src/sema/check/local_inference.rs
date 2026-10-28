@@ -162,7 +162,58 @@ impl Checker {
         self.expr_types.insert(span, ty);
     }
 
+    pub(super) fn record_callable_extent(&mut self, program: &ArenaProgram, def: &crate::syntax::arena::ArenaFunctionDef) {
+        let body = program.arena.span(program.arena.block(def.body).span);
+        let parameters = program.arena.params(def.params).iter().map(|parameter| program.arena.span(parameter.span)).collect();
+        self.callable_extents.insert(body, parameters);
+    }
+
+    pub(super) fn covered_by_specific_error(&self, span: Span) -> bool {
+        self.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == crate::diagnostic::Severity::Error
+                && diagnostic.message != "material type needs an annotation"
+                && diagnostic.labels.iter().any(|label| {
+                    label.style == crate::diagnostic::LabelStyle::Primary
+                        && label.span.source_id == span.source_id
+                        && label.span.start() <= span.start()
+                        && span.end() <= label.span.end()
+                })
+        })
+    }
+
+    fn drop_follow_on_material_types(&mut self, first_new: usize) {
+        let rejected = self.callable_extents.iter().filter(|(body, _)| {
+            self.diagnostics[..first_new].iter().any(|diagnostic| {
+                diagnostic.severity == crate::diagnostic::Severity::Error
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == crate::diagnostic::LabelStyle::Primary
+                            && label.span.source_id == body.source_id
+                            && body.start() <= label.span.start()
+                            && label.span.end() <= body.end()
+                    })
+            })
+        }).map(|(body, parameters)| (*body, parameters.clone())).collect::<Vec<_>>();
+        let follow_on = self.diagnostics.iter().enumerate().map(|(index, diagnostic)| {
+            index >= first_new
+                && diagnostic.message == "material type needs an annotation"
+                && diagnostic.labels.iter().filter(|label| label.style == crate::diagnostic::LabelStyle::Primary).any(|label| {
+                    self.covered_by_specific_error(label.span)
+                        || rejected.iter().any(|(body, parameters)| {
+                            label.span.source_id == body.source_id
+                                && (body.start() <= label.span.start() && label.span.end() <= body.end() || parameters.contains(&label.span))
+                        })
+                })
+        }).collect::<Vec<_>>();
+        let mut index = 0;
+        self.diagnostics.retain(|_| {
+            let keep = !follow_on[index];
+            index += 1;
+            keep
+        });
+    }
+
     pub(super) fn resolve_checked_types(&mut self) {
+        let first_new = self.diagnostics.len();
         if let Err(error) = self.type_constraints.complete_constructor_error_defaults(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[]) {
             self.error(Span::at(crate::source::SourceId::new(0), 0), &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
@@ -296,6 +347,7 @@ impl Checker {
             }
         }
         self.resolve_pending_call_instantiations();
+        self.drop_follow_on_material_types(first_new);
         self.validate_unresolved_error_result_receivers();
     }
 
