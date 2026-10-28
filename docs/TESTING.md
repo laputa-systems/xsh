@@ -559,21 +559,112 @@ Verification build, one core of a loaded 32-core host (load 20 to 70), x86_64 mu
 
 Time-based figures are not gates and were taken on a busy host; the perf-gate
 rule was not applied to them.
-||||||| parent of 174f84c (docs(core): describe dhcpc, the ifup and ifdown contract and the DHCP test lanes)
 ## DHCP client
 
 The DHCP client tests run a pure suite on any host (`test-dhcp-wire`,
 `-arp`, `-machine`, `-net`, `-store`, `-dns`, `-frame`, `-client`) and four
-namespace suites. `test-dhcp-route-identity`, `test-dhcp-world`,
-`test-dhcp-integration` and `test-dhcp-reference` create user, mount and
-network namespaces joined by a veth pair and never touch the host's links,
-resolvers or clocks; a kernel that refuses the namespaces skips them with the
-reason. The privileged Linux lane runs them as root, where the namespaces omit
-the user namespace so dnsmasq can drop its group privileges, and it has
-`dnsmasq` and `tcpdump` in `Dockerfile.test`: the reference suite compares the
-client against dnsmasq and a tcpdump capture and skips only where dnsmasq is
-absent. The in-process fake world (`tests/support/dhcp_fake.xsh`) is a
-test-only `ClientIo`; production networking cannot be redirected to it.
+namespace suites. `test-dhcp-route-identity`, `test-dhcp-world` and
+`test-dhcp-integration` create user, mount and network namespaces joined by a
+veth pair and never touch the host's links, resolvers or clocks; they are
+declared in the namespace group of `dev/gate_lane.xsh` and run by
+`lane/namespace-native`, and a kernel that refuses the namespaces skips them
+with the reason. `test-dhcp-reference` compares the client's wire library with
+dnsmasq and a tcpdump capture of the same exchange, including dnsmasq's own
+encoding of option 121. dnsmasq drops group privileges, which a user namespace
+forbids, so that suite needs real root, has no gate lane, and runs in the Linux
+test image (`Dockerfile.test` carries `dnsmasq` and `tcpdump`):
+
+```sh
+docker run --rm --privileged -v "$PWD":/work -w /work xsh-test \
+  PRODUCTS/xsht test test-dhcp-
+```
+
+It skips where dnsmasq or real root is absent. The in-process fake world
+(`tests/support/dhcp_fake.xsh`) is a test-only `ClientIo`; production
+networking cannot be redirected to it.
+
+Idle cost of a bound client (`test_a_bound_client_idles_without_polling_or_growth`,
+lease 3600 s, 20 s window, verification build, x86_64): 0 CPU ticks, 0
+voluntary and 0 involuntary context switches, 12 descriptors before and after,
+2 threads, resident set about 58.6 MB and flat. After a silent server returned,
+the first DISCOVER reached it 5.5 s after it started (the client was backing
+off) and the ACK followed the REQUEST by 13 ms. The test bounds CPU, wakeups,
+descriptors and memory generously and records nothing else.
+
+### DHCP virtual machine qualification
+
+`xinit/tests/fixtures/dhcp_vm_host.xsh` in the Laputa checkout boots a
+disposable QEMU guest (KVM, 512 MiB, 2 CPUs) from an initramfs holding a
+static musl `xsh` and the matching `core/` tree, with Laputa's Linux 7.2.9
+installer kernel, and drives it over QMP. The guest side is
+`dhcp_boot_guest.xsh` (init), `dhcp_clock_guest.xsh` (a bound 60 s lease
+against the scripted server in a private network namespace, sampling the
+monotonic, boot, wall and CMOS clocks every 100 ms) and `dhcp_network_guest.xsh`
+(a virtio-net device behind QEMU's user-mode DHCP server). Run from the Laputa
+root with `XSH_ROOT` holding `bin/xsh` and `core/`:
+
+```sh
+export XSH_MODULE_PATH=XSH_ROOT/core
+HOST="xsh xinit/tests/fixtures/dhcp_vm_host.xsh XSH_ROOT KERNEL SCRATCH"
+$HOST pause 45                        # QMP stop, 45 s, cont
+$HOST pause 45 -cpu host,-kvmclock    # the same without the paravirtual clock
+$HOST wall                            # guest wall clock steps +1 d, -2 d, +1 d
+$HOST nic                             # carrier flap and device re-enumeration
+```
+
+Results, QEMU 11.1.2, KVM, one run each, host load average 24 to 40 on 32 CPUs
+(perf gate deferred: host busy; the clock steps below are structural and do
+not depend on load, the latencies carry at least the 20 ms polling interval):
+
+| Run | Host stop to cont | Largest step between 100 ms samples: monotonic / boot / wall / RTC | Client |
+|---|---|---|---|
+| pause 20 s | 20.007 s | 104 / 103 / 104 ms / 20 s | renews at 30 s guest time as before; bound |
+| pause 45 s | 45.007 s | 102 / 103 / 102 ms / 45 s | the same; bound |
+| pause 80 s | 80.008 s | 103 / 103 / 103 ms / 81 s | the same, though the lease is only 60 s; bound |
+| pause 45 s, `-cpu host,-kvmclock` | 45.007 s | 45061 / 45062 / 45061 ms / 46 s | resumes at the lease's expiry, withdraws it, discovers and binds again |
+| wall steps | none | 105 / 105 / 172799899 ms / 1 s | T1 renewal 30.019 s after the REQUEST; never left bound |
+
+What this shows, and what it does not:
+
+- With QEMU's default paravirtual clock, a host `stop`/`cont` is invisible to
+  the guest's `CLOCK_MONOTONIC`, `CLOCK_BOOTTIME` and `CLOCK_REALTIME`: none
+  advanced by more than the sampling period. Only the CMOS clock, read with
+  `linux.hwclock`, saw the pause, at one-second resolution. `CLOCK_BOOTTIME`
+  counts time the guest kernel was suspended; it does not count time the
+  hypervisor withheld the CPU while hiding it from the guest clock, so it
+  cannot detect this pause. A lease that expired on a server outside the guest
+  during such a pause is therefore noticed only when the next renewal or
+  rebinding exchange fails or is refused.
+- Without the paravirtual clock the guest keeps time from the TSC and all three
+  clocks jump by the pause. `CLOCK_BOOTTIME` and `CLOCK_MONOTONIC` jumped alike
+  (45062 and 45061 ms), so the boot clock the client uses for lease age
+  treats such a jump as elapsed time, which is the right reading of a
+  suspend, and cannot tell it from a pause. The client acted on it: an
+  expired lease is withdrawn before any event is handled, and discovery began.
+- Which of these a deployment gets depends on its hypervisor and clock
+  configuration. The figures are for one QEMU, one kernel and one CPU model;
+  nothing here shows that every backend excludes or includes a pause, and the
+  client assumes neither.
+- Wall-clock steps of one day forward and two days back moved no deadline: the
+  largest monotonic and boot steps stayed at the sampling period and the T1
+  renewal came at 30.019 s on the boot clock.
+
+Network cases, one run (`nic`), guest boot clock, 20 ms polling:
+
+| Event | Guest ms |
+|---|---|
+| link present, carrier up | 3133 |
+| bound by the user-mode DHCP server (includes three ARP probes) | 10254 |
+| carrier lost (QMP `set_link`) / client reports `no_link` | 12272 / 12293 |
+| carrier back / `init_reboot` / bound | 15297 / 15318 / 15339 |
+| device removed from the PCI bus (interface gone) | 17413 |
+| device re-enumerated as a new interface (index 2 to 4) / bound | 18951 / 19017 |
+
+The kernel has no PCI hotplug driver, so QMP `device_del` cannot reach the
+guest; the guest removes and rescans the virtio-net device itself, which
+destroys and recreates the interface and changes its index. Not covered here:
+the scanner as PID 1, `logger`, log rotation and glibc clients belong to the
+syslog and `xinit` work, and aarch64 guests are not claimed.
 
 ## Interactive parity
 
