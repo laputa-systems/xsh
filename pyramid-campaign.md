@@ -22,16 +22,25 @@ Paused 2026-10-27. Resume: “Resume Pyramid, then inference, then Lean.”
 First command: `codex-campaign-closeout.py cancel`.
 Last accepted code revision: `75240d4f1`; selected checks were green, but P0
 and campaign acceptance remain open and time gates were deferred: host busy.
-`campaign/pyramid-json-structured` is parked: host checks and Linux small trace
-passed; rerun all three isolated Linux correctness cases before integration.
-Older unmerged branches `campaign/pyramid-{caller-migration,catalogue,core-cases,
-integration,native-results,resources,workloads}` and `scratch/pyramid-pilot-{baseline,lsmem}`
-are retained pending reconciliation; inspect commits and checks before integration.
-`park/pyramid-{core-cases,kbuild-case,laputa-case,native-set,resources,tokei-scout}`
-preserve unverified lane changes; review and qualify before integrating them.
-Their clean `.work/wt/pyramid-*` checkouts retain lane artifacts for review.
-Other registered worktrees belong to Deser, lint, qualification, or baseline work
-and remain with their existing owners. Protected Tokei and kernel inputs remain local.
+Branch decisions, 2026-10-28 (tip SHAs kept so any branch can be restored):
+
+- Deleted as superseded: `campaign/pyramid-native-results` (`22f94efc0`,
+  patch-equivalent to `3c6ed2b79`), `scratch/pyramid-pilot-baseline`
+  (`e61982c5d`) and `scratch/pyramid-pilot-lsmem` (`4f745f4a3`), both
+  equivalent to `f60a72f41`, and `campaign/pyramid-caller-migration`
+  (`9614fc7c5`) and `campaign/pyramid-core-cases` (`ce2a3b836`), older
+  snapshots of the integration line.
+- Port by path: `campaign/pyramid-integration` (`c7b9b7b29`). It merges an old
+  inference compiler, so only its Pyramid paths move: the gate host, inputs,
+  products and status modules, the Tokei, Laputa and focused-measurement cases,
+  and their tests.
+- Review, then port or delete: `park/pyramid-{core-cases,kbuild-case,laputa-case,
+  native-set,resources,tokei-scout}`, one preservation commit each on
+  `dbdd0a80d`, and the small residue of `campaign/pyramid-{catalogue,resources,
+  workloads}` relative to the integration line.
+- `campaign/pyramid-json-structured` (`76d36cc4f`) is being qualified as
+  `pyramid/json-structured`.
+
 Next: qualify the parked JSON slice, then complete Pyramid source binding,
 workload evidence, and P0 before inference and Lean; see [the roadmap](docs/ROADMAP.md).
 
