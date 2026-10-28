@@ -1173,6 +1173,8 @@ class AdapterDeadlineTests(unittest.TestCase):
                 primary = subprocess.TimeoutExpired(['docker', 'run'], seconds)
                 class Child:
                     returncode = 0
+                    stdout = None
+                    stderr = None
                     def communicate(self, *, timeout):
                         events.append(('communicate', timeout))
                         if timed_out:
@@ -1234,6 +1236,10 @@ class AdapterDeadlineTests(unittest.TestCase):
             class Child:
                 returncode = 0
 
+                stdout = None
+
+                stderr = None
+
                 def communicate(self, *, timeout):
                     return b'output', b''
 
@@ -1286,6 +1292,10 @@ class AdapterDeadlineTests(unittest.TestCase):
             class Child:
                 returncode = 0
 
+                stdout = None
+
+                stderr = None
+
                 def communicate(self, *, timeout):
                     raise primary
 
@@ -1332,6 +1342,10 @@ class AdapterDeadlineTests(unittest.TestCase):
             class Child:
                 returncode = 7
 
+                stdout = None
+
+                stderr = None
+
                 def communicate(self, *, timeout):
                     return b'child stdout', b'child stderr'
 
@@ -1359,6 +1373,8 @@ class AdapterDeadlineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=scratch) as directory:
             class Child:
                 returncode = 3
+                stdout = None
+                stderr = None
 
                 def communicate(self, *, timeout):
                     return b'partial output', b'partial diagnostic'
@@ -1391,6 +1407,10 @@ class AdapterDeadlineTests(unittest.TestCase):
             class Child:
                 returncode = 0
 
+                stdout = None
+
+                stderr = None
+
                 def communicate(self, *, timeout):
                     raise primary
 
@@ -1422,6 +1442,10 @@ class AdapterDeadlineTests(unittest.TestCase):
             class Child:
                 returncode = 0
 
+                stdout = None
+
+                stderr = None
+
                 def communicate(self, *, timeout):
                     raise interruption
 
@@ -1446,6 +1470,147 @@ class AdapterDeadlineTests(unittest.TestCase):
             self.assertIn('cleanup unresolved', '\n'.join(interruption.__notes__))
             self.assertIsInstance(interruption.cleanup_failure, check.DockerCleanupError)
             self.assertFalse(interruption.cleanup_failure.cleanup['resolved'])
+
+    def test_owned_pipe_descriptors_close_after_success_failure_timeout_and_cancellation(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        cleanup_failure = OSError('cleanup operation failed')
+        for primary, cleanup_raises in (
+                (None, False), (OSError('communication failed'), False),
+                (subprocess.TimeoutExpired(['docker', 'run'], 1), False),
+                (check.owned.SignalReceived(signal.SIGTERM), False),
+                (check.owned.SignalReceived(signal.SIGTERM), True), (None, True)):
+            with self.subTest(primary=primary, cleanup_raises=cleanup_raises), tempfile.TemporaryDirectory(dir=scratch) as directory:
+                pipes = []
+                for _ in range(2):
+                    reader, writer = os.pipe()
+                    os.close(writer)
+                    pipes.append(os.fdopen(reader, 'rb'))
+                descriptors = [pipe.fileno() for pipe in pipes]
+
+                class Child:
+                    stdout, stderr = pipes
+                    returncode = 17
+
+                    def communicate(self, *, timeout):
+                        if primary is not None:
+                            raise primary
+                        return b'output', b'error'
+
+                try:
+                    with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                            patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                            patch.object(check.owned, 'restore_signal_handlers'), \
+                            patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                            patch.object(check.owned, 'cleanup_container_process',
+                                         side_effect=cleanup_failure if cleanup_raises else None,
+                                         return_value={'resolved': True}), \
+                            patch.object(check.subprocess, 'Popen', return_value=Child()):
+                        if primary is None and not cleanup_raises:
+                            self.assertEqual(check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=1),
+                                             (17, b'output', b'error'))
+                        elif primary is None:
+                            with self.assertRaises(check.DockerCleanupError):
+                                check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=1)
+                        else:
+                            with self.assertRaises(type(primary)) as caught:
+                                check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=1)
+                            self.assertIs(caught.exception, primary)
+                    self.assertTrue(all(pipe.closed for pipe in pipes))
+                    for descriptor in descriptors:
+                        with self.assertRaises(OSError):
+                            os.fstat(descriptor)
+                    self.assertEqual(bool(list(Path(directory).iterdir())), cleanup_raises)
+                finally:
+                    for pipe in pipes:
+                        pipe.close()
+
+    def test_pipe_close_failure_keeps_cleanup_quarantine_unresolved(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        for primary in (None, subprocess.TimeoutExpired(['docker', 'run'], 1)):
+            with self.subTest(primary=primary), tempfile.TemporaryDirectory(dir=scratch) as directory:
+                close_failure = OSError('pipe close failed')
+                resolved = []
+
+                class Pipe:
+                    def close(self):
+                        raise close_failure
+
+                class Child:
+                    stdout = Pipe()
+                    stderr = None
+                    returncode = 0
+
+                    def communicate(self, *, timeout):
+                        if primary is not None:
+                            raise primary
+                        return b'output', b''
+
+                with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                        patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                        patch.object(check.owned, 'restore_signal_handlers'), \
+                        patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                        patch.object(check.owned, 'cleanup_container_process', return_value={'resolved': True}), \
+                        patch.object(check.subprocess, 'Popen', return_value=Child()):
+                    with self.assertRaises(type(primary) if primary is not None else check.DockerCleanupError) as caught:
+                        check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=1,
+                                             on_cleanup_verified=lambda: resolved.append(True))
+                if primary is not None:
+                    self.assertIs(caught.exception, primary)
+                    self.assertIs(primary.cleanup_failure.cleanup_error, close_failure)
+                else:
+                    self.assertIs(caught.exception.cleanup_error, close_failure)
+                self.assertEqual(resolved, [])
+                self.assertTrue(list(Path(directory).iterdir()))
+
+    def test_scratch_removal_failure_never_replaces_the_primary_failure(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        removal_failure = OSError('owned scratch not removable')
+        for primary in (subprocess.TimeoutExpired(['docker', 'run'], 1), check.owned.SignalReceived(signal.SIGTERM)):
+            with self.subTest(primary=primary), tempfile.TemporaryDirectory(dir=scratch) as directory:
+                class Child:
+                    stdout = None
+                    stderr = None
+                    returncode = 0
+
+                    def communicate(self, *, timeout):
+                        raise primary
+
+                with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                        patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                        patch.object(check.owned, 'restore_signal_handlers'), \
+                        patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                        patch.object(check.owned, 'cleanup_container_process', return_value={'resolved': True}), \
+                        patch.object(check.subprocess, 'Popen', return_value=Child()), \
+                        patch.object(check.shutil, 'rmtree', side_effect=removal_failure):
+                    with self.assertRaises(type(primary)) as caught:
+                        check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=1)
+                self.assertIs(caught.exception, primary)
+                self.assertTrue(any('owned scratch not removable' in note for note in primary.__notes__))
+                self.assertFalse(hasattr(primary, 'cleanup_failure'))
+
+    def test_scratch_removal_failure_is_raised_when_nothing_else_failed(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        removal_failure = OSError('owned scratch not removable')
+
+        class Child:
+            stdout = None
+            stderr = None
+            returncode = 0
+
+            def communicate(self, *, timeout):
+                return b'output', b''
+
+        with tempfile.TemporaryDirectory(dir=scratch) as directory, \
+                patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), \
+                patch.object(check.owned, 'install_signal_handlers', return_value={}), \
+                patch.object(check.owned, 'restore_signal_handlers'), \
+                patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), \
+                patch.object(check.owned, 'cleanup_container_process', return_value={'resolved': True}), \
+                patch.object(check.subprocess, 'Popen', return_value=Child()), \
+                patch.object(check.shutil, 'rmtree', side_effect=removal_failure):
+            with self.assertRaises(OSError) as caught:
+                check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=1)
+        self.assertIs(caught.exception, removal_failure)
 
 
 class BaselineTests(unittest.TestCase):

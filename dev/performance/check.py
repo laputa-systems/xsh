@@ -405,6 +405,18 @@ def _preserve_primary_cleanup(primary, cleanup_failure):
     primary.add_note(str(cleanup_failure))
 
 
+def _close_process_pipes(process):
+    failures = []
+    for name in ('stdout', 'stderr'):
+        pipe = getattr(process, name)
+        if pipe is not None:
+            try:
+                pipe.close()
+            except BaseException as error:
+                failures.append(error)
+    return failures
+
+
 def checked_docker(command, scratch, *, timeout_seconds, on_cleanup_verified: Callable[[], None] | None = None):
     directory = Path(tempfile.mkdtemp(prefix='adapter-', dir=scratch))
     cidfile = directory / 'container.cid'
@@ -443,6 +455,11 @@ def checked_docker(command, scratch, *, timeout_seconds, on_cleanup_verified: Ca
                 )
             except BaseException as error:
                 cleanup_error = error
+            for failure in _close_process_pipes(process):
+                if cleanup_error is None:
+                    cleanup_error = failure
+                else:
+                    cleanup_error.add_note(f'owned pipe close failed: {failure!r}')
             if cleanup_error is None and cleanup.get('resolved') is True and on_cleanup_verified is not None:
                 try:
                     on_cleanup_verified()
@@ -459,8 +476,18 @@ def checked_docker(command, scratch, *, timeout_seconds, on_cleanup_verified: Ca
             raise primary
         raise failure from cleanup_error
     cleanup_unresolved = cleanup.get('resolved') is not True
+    scratch_error = None
     if cleanup.get('resolved') is True:
-        shutil.rmtree(directory)
+        try:
+            shutil.rmtree(directory)
+        except BaseException as error:
+            scratch_error = error
+
+    def with_scratch_note(error):
+        if scratch_error is not None:
+            error.add_note(f'owned scratch removal failed at {directory}: {scratch_error!r}')
+        return error
+
     if primary is not None:
         if cleanup_unresolved:
             failure = _docker_cleanup_error(
@@ -474,7 +501,7 @@ def checked_docker(command, scratch, *, timeout_seconds, on_cleanup_verified: Ca
                 process, result, primary, cleanup, cleanup_error, resolution_error,
             )
             _preserve_primary_cleanup(primary, failure)
-        raise primary
+        raise with_scratch_note(primary)
     if resolution_error is not None:
         failure = _docker_cleanup_error(
             'container cleanup verified but cleanup quarantine resolution failed',
@@ -482,13 +509,15 @@ def checked_docker(command, scratch, *, timeout_seconds, on_cleanup_verified: Ca
         )
         if isinstance(resolution_error, (owned.SignalReceived, KeyboardInterrupt)):
             _preserve_primary_cleanup(resolution_error, failure)
-            raise resolution_error
-        raise failure from resolution_error
+            raise with_scratch_note(resolution_error)
+        raise with_scratch_note(failure) from resolution_error
     if cleanup_unresolved:
         raise _docker_cleanup_error(
             f'cleanup unresolved; owned cidfile retained at {cidfile}',
             process, result, primary, cleanup, cleanup_error, resolution_error,
         )
+    if scratch_error is not None:
+        raise scratch_error
     return result
 
 
