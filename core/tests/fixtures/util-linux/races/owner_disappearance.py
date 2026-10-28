@@ -18,16 +18,19 @@ PTRACE_GETEVENTMSG = 0x4201
 PTRACE_GET_SYSCALL_INFO = 0x420E
 PTRACE_O_TRACESYSGOOD = 1
 PTRACE_O_TRACEFORK = 2
+PTRACE_O_TRACECLONE = 8
 PTRACE_O_TRACEVFORK = 4
 PTRACE_O_TRACEEXEC = 16
 PTRACE_O_EXITKILL = 0x100000
 PTRACE_EVENT_FORK = 1
 PTRACE_EVENT_VFORK = 2
+PTRACE_EVENT_CLONE = 3
 PTRACE_EVENT_EXEC = 4
 SYSCALL_ENTRY = 1
 SYSCALL_EXIT = 2
 AUDIT_ARCH_X86_64 = 0xC000003E
 SYS_READ = 0
+WAIT_ALL_THREADS = 0x40000000
 MAX_SNAPSHOT = 65536
 MAX_CAPTURE = 8192
 CANCELLATION = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
@@ -132,6 +135,14 @@ def fork_tracee(words, output, errors, children):
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
+class Tracee:
+    def __init__(self, pid):
+        self.pid = pid
+        self.threads = {pid}
+        self.unattached = set()
+        self.held = None
+
+
 def wait_owned(pid, children):
     observed, status = os.waitpid(pid, 0)
     if observed != pid:
@@ -139,6 +150,15 @@ def wait_owned(pid, children):
     if os.WIFEXITED(status) or os.WIFSIGNALED(status):
         children.remove(pid)
     return status
+
+
+def wait_thread(tracee, children):
+    tid, status = os.waitpid(-tracee.pid, WAIT_ALL_THREADS)
+    if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+        tracee.threads.discard(tid)
+        if tid == tracee.pid:
+            children.remove(tid)
+    return tid, status
 
 
 def unexpected_fork(pid, children):
@@ -152,69 +172,101 @@ def unexpected_fork(pid, children):
     raise RuntimeError("lslocks observer encountered an unexpected process fork")
 
 
-def pause_after_holder_read(pid, errors, configuration, children):
-    status = wait_owned(pid, children)
+def consume_thread_lifecycle_stop(tracee, tid, status, children):
+    event = status >> 16
+    if event in {PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK}:
+        unexpected_fork(tid, children)
+    if event == PTRACE_EVENT_CLONE:
+        message = ctypes.c_ulong()
+        ptrace(PTRACE_GETEVENTMSG, tid, data=ctypes.byref(message))
+        if message.value not in tracee.threads:
+            tracee.threads.add(message.value)
+            tracee.unattached.add(message.value)
+        return True
+    if tid not in tracee.threads:
+        tracee.threads.add(tid)
+        return True
+    if tid in tracee.unattached and event == 0 and os.WSTOPSIG(status) == signal.SIGSTOP:
+        tracee.unattached.remove(tid)
+        return True
+    return False
+
+
+def pause_after_holder_read(tracee, errors, configuration, children):
+    status = wait_owned(tracee.pid, children)
     if not os.WIFSTOPPED(status) or os.WSTOPSIG(status) != signal.SIGSTOP:
         diagnostic = Path(errors).read_bytes().decode("utf-8", errors="backslashreplace")
         raise RuntimeError(f"tracee failed before PTRACE_TRACEME stop: {diagnostic}")
-    options = PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL
-    ptrace(PTRACE_SETOPTIONS, pid, data=options)
-    pending_read = None
-    snapshot = b""
-    delivered = 0
+    options = PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL
+    ptrace(PTRACE_SETOPTIONS, tracee.pid, data=options)
+    pending_reads = {}
+    snapshots = {}
+    ptrace(PTRACE_SYSCALL, tracee.pid, data=0)
     while True:
-        ptrace(PTRACE_SYSCALL, pid, data=delivered)
-        delivered = 0
-        status = wait_owned(pid, children)
+        tid, status = wait_thread(tracee, children)
         if not os.WIFSTOPPED(status):
-            raise RuntimeError("tracee exited before returning the owned /proc/locks row")
+            pending_reads.pop(tid, None)
+            if tid == tracee.pid:
+                raise RuntimeError("tracee exited before returning the owned /proc/locks row")
+            continue
+        if consume_thread_lifecycle_stop(tracee, tid, status, children):
+            ptrace(PTRACE_SYSCALL, tid, data=0)
+            continue
         event = status >> 16
         stopped = os.WSTOPSIG(status)
-        if event in {PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK}:
-            unexpected_fork(pid, children)
         if event == PTRACE_EVENT_EXEC:
-            pending_read = None
+            pending_reads.clear()
+            ptrace(PTRACE_SYSCALL, tid, data=0)
             continue
         if stopped != (signal.SIGTRAP | 0x80):
-            delivered = stopped
+            ptrace(PTRACE_SYSCALL, tid, data=stopped)
             continue
         information = SyscallInfo()
-        available = ptrace(PTRACE_GET_SYSCALL_INFO, pid, ctypes.sizeof(information), ctypes.byref(information))
+        available = ptrace(PTRACE_GET_SYSCALL_INFO, tid, ctypes.sizeof(information), ctypes.byref(information))
         if information.arch != AUDIT_ARCH_X86_64:
             raise RuntimeError("syscall observer requires x86_64 Linux tracees")
         if information.op == SYSCALL_ENTRY:
             if available < 80:
                 raise RuntimeError("kernel returned a truncated syscall entry record")
-            pending_read = (information.data[1], information.data[2]) if information.data[0] == SYS_READ else None
+            if information.data[0] == SYS_READ:
+                pending_reads[tid] = (information.data[1], information.data[2])
+            else:
+                pending_reads.pop(tid, None)
         elif information.op == SYSCALL_EXIT:
             if available < 33:
                 raise RuntimeError("kernel returned a truncated syscall exit record")
             count = ctypes.c_int64(information.data[0]).value
-            if pending_read is None or count <= 0:
-                continue
-            descriptor, address = pending_read
-            if os.readlink(f"/proc/{pid}/fd/{descriptor}") != "/proc/locks":
-                continue
-            if count > MAX_SNAPSHOT or len(snapshot) + count > MAX_SNAPSHOT:
-                raise ValueError("owned procfs lock snapshot exceeds 64 KiB")
-            snapshot += read_memory(pid, address, count)
-            row = holder_row(snapshot, configuration)
-            if row is not None:
-                return row
+            pending = pending_reads.pop(tid, None)
+            if pending is not None and count > 0:
+                descriptor, address = pending
+                if os.readlink(f"/proc/{tid}/fd/{descriptor}") == "/proc/locks":
+                    snapshot = snapshots.get(tid, b"")
+                    if count > MAX_SNAPSHOT or len(snapshot) + count > MAX_SNAPSHOT:
+                        raise ValueError("owned procfs lock snapshot exceeds 64 KiB")
+                    snapshot += read_memory(tid, address, count)
+                    snapshots[tid] = snapshot
+                    row = holder_row(snapshot, configuration)
+                    if row is not None:
+                        tracee.held = tid
+                        return row
+        ptrace(PTRACE_SYSCALL, tid, data=0)
 
 
-def finish_tracee(pid, children):
-    delivered = 0
+def finish_tracee(tracee, children):
+    ptrace(PTRACE_CONT, tracee.held, data=0)
     while True:
-        ptrace(PTRACE_CONT, pid, data=delivered)
-        status = wait_owned(pid, children)
-        if os.WIFEXITED(status) or os.WIFSIGNALED(status):
-            return os.waitstatus_to_exitcode(status)
+        tid, status = wait_thread(tracee, children)
+        if not os.WIFSTOPPED(status):
+            if tid == tracee.pid:
+                return os.waitstatus_to_exitcode(status)
+            continue
+        if consume_thread_lifecycle_stop(tracee, tid, status, children):
+            ptrace(PTRACE_CONT, tid, data=0)
+            continue
         event = status >> 16
-        if event in {PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK}:
-            unexpected_fork(pid, children)
-        delivered = 0 if event == PTRACE_EVENT_EXEC else os.WSTOPSIG(status)
-
+        stopped = os.WSTOPSIG(status)
+        delivered = 0 if event == PTRACE_EVENT_EXEC or stopped == (signal.SIGTRAP | 0x80) else stopped
+        ptrace(PTRACE_CONT, tid, data=delivered)
 
 def stop_children(children):
     for number in CANCELLATION:
@@ -226,10 +278,10 @@ def stop_children(children):
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        for pid in list(children):
-            status = wait_owned(pid, children)
-            if not (os.WIFEXITED(status) or os.WIFSIGNALED(status)):
-                raise RuntimeError("owned tracee did not terminate after SIGKILL")
+        while children:
+            tid, status = os.waitpid(-1, WAIT_ALL_THREADS)
+            if tid in children and (os.WIFEXITED(status) or os.WIFSIGNALED(status)):
+                children.remove(tid)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
 
@@ -251,9 +303,9 @@ def observe(configuration):
             for label in ["reference", "candidate"]:
                 output = os.path.join(directory, label + ".stdout")
                 errors = os.path.join(directory, label + ".stderr")
-                pid = fork_tracee(configuration[label], output, errors, children)
-                tracees[label] = (pid, output, errors)
-                rows[label] = pause_after_holder_read(pid, errors, configuration, children)
+                tracee = Tracee(fork_tracee(configuration[label], output, errors, children))
+                tracees[label] = (tracee, output, errors)
+                rows[label] = pause_after_holder_read(tracee, errors, configuration, children)
             emit({"holder_pid": configuration["holder_pid"], "inode": configuration["inode"],
                   "reference_row": rows["reference"], "candidate_row": rows["candidate"]})
             signal.setitimer(signal.ITIMER_REAL, 5)
@@ -264,8 +316,8 @@ def observe(configuration):
             if holder_row(Path("/proc/locks").read_bytes(), configuration) is not None:
                 raise RuntimeError("owned lock still exists at the collection barrier")
             captures = {}
-            for label, (pid, output, errors) in tracees.items():
-                captures[label] = {"returncode": finish_tracee(pid, children),
+            for label, (tracee, output, errors) in tracees.items():
+                captures[label] = {"returncode": finish_tracee(tracee, children),
                                    "stdout_b64": capture(output), "stderr_b64": capture(errors)}
             emit(captures)
         except BaseException as failure:
