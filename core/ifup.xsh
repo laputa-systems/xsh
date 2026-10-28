@@ -1,4 +1,8 @@
 #!/bin/xsh
+use lib.dhcp_client as client
+use lib.dhcp_live as live
+use lib.dhcp_wire as wire
+
 error IfupError = Usage : Usage | Config | Hook | State
 
 type Interface = {
@@ -16,18 +20,6 @@ type Interface = {
 type Config = {auto: List[Str], interfaces: List[Interface]}
 
 type InterfaceSelection = {physical: Str, logical: Str}
-
-# Minimal IPv4 DHCP client (RFC 2131), modeled on busybox udhcpc but pared down
-# to the DISCOVER/OFFER/REQUEST/ACK handshake. The broadcast UDP socket is
-# provided by the linux.dhcp_* primitives; everything else is plain byte work.
-const DHCP_MAGIC = [99, 130, 83, 99]
-const DHCP_DISCOVER = 1
-const DHCP_OFFER = 2
-const DHCP_REQUEST = 3
-const DHCP_ACK = 5
-const DHCP_HEADER_LEN = 240
-const DHCP_RETRIES = 5
-const DHCP_TIMEOUT_MS = 3000
 
 pure empty_interface() -> Interface {
   let pre_up = []
@@ -332,258 +324,30 @@ proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
   Err(IfupError.Config(f"unknown interface {logical}"))
 }
 
-pure hex_nibble(code: Int) -> Int {
-  return code - 48 when 48 <= code <= 57
-
-  return code - 87 when 97 <= code <= 102
-
-  return code - 55 when 65 <= code <= 70
-
-  0
-}
-
-pure parse_mac(mac: Str) -> List[Int] {
-  [hex_nibble(part.byte_at(0) ?? -1) * 16 + hex_nibble(part.byte_at(1) ?? -1) for part in mac.split(":") if part != ""]
-}
-
-type DhcpLease = {
-  valid: Bool,
-  message_type: Int,
-  yiaddr: List[Int],
-  netmask: Str,
-  gateway: Str,
-  dns: List[Str],
-  server_id: List[Int],
-}
-
-pure empty_lease() -> DhcpLease {
-  let yiaddr = []
-  let dns_servers = []
-  let server_id = []
-
-  {
-    valid: false,
-    message_type: 0,
-    yiaddr,
-    netmask: "",
-    gateway: "",
-    dns: dns_servers,
-    server_id,
-  }
-}
-
-pure ints_to_ip(octets: List[Int]) -> Str {
-  guard octets.len() == 4 else {
-    return ""
-  }
-
-  f"{octets[0]}.{octets[1]}.{octets[2]}.{octets[3]}"
-}
-
-proc read_ip_octets(packet: Bytes, offset: Int) [error] -> Result[List[Int]] {
-  [
-    bytes.unpack_be(packet, 1, offset)?,
-    bytes.unpack_be(packet, 1, offset + 1)?,
-    bytes.unpack_be(packet, 1, offset + 2)?,
-    bytes.unpack_be(packet, 1, offset + 3)?,
-  ]
-}
-
-# Build a BOOTREQUEST. requested_ip/server_id are 4-byte lists for REQUEST and
-# empty for DISCOVER; the broadcast flag asks the server to broadcast its reply,
-# which is required while the interface still has no address.
-proc dhcp_packet(
-  msg_type: Int,
-  xid: Int,
-  mac: List[Int],
-  requested_ip: List[Int],
-  server_id: List[Int],
-) [error] -> Result[Bytes] {
-  var chunks = []
-  chunks += [bytes.from_ints([1, 1, 6, 0])?]
-  chunks += [bytes.pack_be(xid, 4)?]
-  chunks += [bytes.from_ints([0, 0])?]
-  chunks += [bytes.from_ints([128, 0])?]
-  chunks += [bytes.zero(16)?]
-  chunks += [bytes.from_ints(mac)?]
-  chunks += [bytes.zero(16 - mac.len())?]
-  chunks += [bytes.zero(192)?]
-  chunks += [bytes.from_ints(DHCP_MAGIC)?]
-  var options = [53, 1, msg_type, 61, 7, 1].extend(mac)
-
-  if requested_ip.len() == 4 {
-    options = [@options, 50, 4, @requested_ip]
-  }
-
-  if server_id.len() == 4 {
-    options = [@options, 54, 4, @server_id]
-  }
-
-  options = options.extend([55, 5, 1, 3, 6, 15, 28]).push(255)
-  chunks += [bytes.from_ints(options)?]
-  bytes.concat(chunks)
-}
-
-proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
-  let total = packet.len()
-
-  return empty_lease() when total < DHCP_HEADER_LEN
-
-  if bytes.unpack_be(packet, 1, 0)? != 2 or bytes.unpack_be(packet, 4, 4)? != xid {
-    return empty_lease()
-  }
-
-  let yiaddr = read_ip_octets(packet, 16)?
-  var message_type = 0
-  var netmask = ""
-  var gateway = ""
-  var server_id = []
-  var pos = DHCP_HEADER_LEN
-
-  let dns_servers = collect {
-    while pos < total {
-      let tag = bytes.unpack_be(packet, 1, pos)?
-
-      if tag == 0 {
-        pos = pos + 1
-        continue
-      }
-
-      break when tag == 255
-      let len = bytes.unpack_be(packet, 1, pos + 1)?
-      let value = pos + 2
-
-      if tag == 53 {
-        message_type = bytes.unpack_be(packet, 1, value)?
-      } else if tag == 1 {
-        netmask = ints_to_ip(read_ip_octets(packet, value)?)
-      } else if tag == 3 {
-        gateway = ints_to_ip(read_ip_octets(packet, value)?)
-      } else if tag == 54 {
-        server_id = read_ip_octets(packet, value)?
-      } else if tag == 6 {
-        var offset = 0
-
-        while offset + 4 <= len {
-          yield ints_to_ip(read_ip_octets(packet, value + offset)?)
-          offset = offset + 4
-        }
-      }
-
-      pos = value + len
+proc configure_dhcp(physical: Str, wait_seconds: Int, verbose: Bool) [fs, process, net, env, time, error, io] {
+  let settings = live.settings_from_environment(physical)?
+  guard let held = live.lock_interface(settings)? else {
+    report_action(verbose, f"dhcp {physical}: a supervised client owns the interface")
+    live.set_admin_down(settings, false)
+    ctx f"{physical}: the client holds the interface lock but its control socket does not answer" {
+      live.ask(settings, "up")
     }
-  }
-
-  {
-    valid: true,
-    message_type,
-    yiaddr,
-    netmask,
-    gateway,
-    dns: dns_servers,
-    server_id,
-  }
-}
-
-# Drive the handshake on `physical` and return the acknowledged lease.
-proc dhcp_request_lease(physical: Str, verbose: Bool) [fs, process, time, error, io] -> Result[DhcpLease] {
-  var mac = []
-
-  for iface in linux.interfaces()? {
-    if iface.name == physical {
-      mac = parse_mac(iface.mac)
+    let state = live.await_state(settings, ["init", "selecting", "requesting", "probing", "bound", "renewing", "rebinding", "init_reboot", "declined", "no_link"], wait_seconds * 1000)?
+    guard let reached = state else {
+      return Err(IfupError.State(f"{physical}: the supervised client did not answer within {wait_seconds}s"))
     }
+    report_action(verbose, f"dhcp {physical}: client state {reached}")
+    return
   }
-
-  if mac.len() != 6 {
-    return Err(IfupError.State(f"{physical}: could not read MAC address for DHCP"))
-  }
-
+  fs.unlock(held)
   report_action(verbose, f"link_up {physical}")
   linux.link_up(physical)
-  let xid = time.now() % 4294967296
-  let none = []
-  report_action(verbose, f"dhcp_socket {physical}")
-  let fd = linux.dhcp_socket(physical)?
-  defer linux.dhcp_close(fd)
-  var offer = empty_lease()
-  var attempt = 0
-
-  while attempt < DHCP_RETRIES and ! offer.valid {
-    report_action(verbose, f"dhcp_send {physical} discover")
-    linux.dhcp_send(fd, dhcp_packet(DHCP_DISCOVER, xid, mac, none, none)?)
-    report_action(verbose, f"dhcp_recv {physical} timeout={DHCP_TIMEOUT_MS}ms")
-    let reply = linux.dhcp_recv(fd, DHCP_TIMEOUT_MS)?
-
-    if ! reply.is_empty() {
-      let parsed = parse_dhcp_reply(reply, xid)?
-
-      if parsed.valid and parsed.message_type == DHCP_OFFER {
-        offer = parsed
-      }
-    }
-
-    attempt = attempt + 1
+  report_action(verbose, f"dhcp_once {physical}")
+  let session = live.supervise(settings, .OneShot(wait_seconds * 1000), null)?
+  guard let lease = session.machine.lease else {
+    return Err(IfupError.State(f"{physical}: no DHCP lease"))
   }
-
-  return Err(IfupError.State(f"{physical}: no DHCP offer received")) unless offer.valid
-
-  var lease = empty_lease()
-  attempt = 0
-
-  while attempt < DHCP_RETRIES and ! lease.valid {
-    report_action(verbose, f"dhcp_send {physical} request")
-    linux.dhcp_send(fd, dhcp_packet(DHCP_REQUEST, xid, mac, offer.yiaddr, offer.server_id)?)
-    report_action(verbose, f"dhcp_recv {physical} timeout={DHCP_TIMEOUT_MS}ms")
-    let reply = linux.dhcp_recv(fd, DHCP_TIMEOUT_MS)?
-
-    if ! reply.is_empty() {
-      let parsed = parse_dhcp_reply(reply, xid)?
-
-      if parsed.valid and parsed.message_type == DHCP_ACK {
-        lease = parsed
-      }
-    }
-
-    attempt = attempt + 1
-  }
-
-  if ! lease.valid {
-    return Err(IfupError.State(f"{physical}: DHCP request was not acknowledged"))
-  }
-
-  lease
-}
-
-proc write_resolv_conf(servers: List[Str]) [fs, error] {
-  return when servers.is_empty()
-
-  var body = ""
-
-  for server in servers {
-    body = f"""{body}nameserver {server}
-"""
-  }
-
-  p"/etc/resolv.conf".write(body)
-}
-
-proc configure_dhcp(physical: Str, verbose: Bool) [fs, process, time, error, io] {
-  let lease = dhcp_request_lease(physical, verbose)?
-  let address = ints_to_ip(lease.yiaddr)
-
-  return Err(IfupError.State(f"{physical}: DHCP lease had no address")) when address == ""
-
-  let netmask = if lease.netmask == "" { "255.255.255.0" } else { lease.netmask }
-  report_action(verbose, f"set_ipv4_address {physical} {address} {netmask}")
-  linux.set_ipv4_address(physical, address, netmask)
-
-  if lease.gateway != "" {
-    report_action(verbose, f"add_default_ipv4_route {physical} {lease.gateway}")
-    linux.add_default_ipv4_route(lease.gateway, interface: physical)
-  }
-
-  write_resolv_conf(lease.dns)
+  report_action(verbose, f"dhcp {physical}: {wire.ip_text(lease.address)}")
 }
 
 proc configure_static(physical: Str, stanza: Interface, verbose: Bool) [process, error, io] {
@@ -602,7 +366,7 @@ proc configure_static(physical: Str, stanza: Interface, verbose: Bool) [process,
   }
 }
 
-proc configure_interface(config: Config, state_path: Path, physical: Str, logical: Str, verbose: Bool) [fs, process, time, error, io] {
+proc configure_interface(config: Config, state_path: Path, physical: Str, logical: Str, wait_seconds: Int, verbose: Bool) [fs, process, time, error, io] {
   return when state_path.exists() and state_has_iface(state_path.read_text()?, physical)
 
   let stanza = find_stanza(config, logical)?
@@ -623,7 +387,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
       linux.link_up(physical)
     }
     "static" => configure_static(physical, stanza, verbose)
-    "dhcp" => configure_dhcp(physical, verbose)
+    "dhcp" => configure_dhcp(physical, wait_seconds, verbose)
     else => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
@@ -647,9 +411,9 @@ pure split_iface_arg(arg: Str) -> InterfaceSelection {
   {physical: arg, logical: arg}
 }
 
-type IfupOptions = {all: Bool, verbose: Bool, operands: List[Str]}
+type IfupOptions = {all: Bool, verbose: Bool, patience: Str?, operands: List[Str]}
 
-proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
+proc main(...argv: List[Str]) [fs, process, net, env, time, error, io] {
   let opts: IfupOptions = cli.applet(
     argv,
     {
@@ -661,12 +425,16 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
         form: "-v --verbose",
         default: false,
       },
+      patience: {
+        form: "--wait SECONDS",
+      },
       operands: {
         form: "...INTERFACE",
       },
     },
   )?
-  let {all, verbose, operands} = opts
+  let {all, verbose, patience, operands} = opts
+  let wait_seconds = if let text = patience { text as Int } else { 10 }
 
   if ! all and operands.is_empty() {
     return Err(IfupError.Usage("ifup: expected -a or interface name"))
@@ -677,12 +445,12 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
 
   if all {
     for name in config.auto {
-      configure_interface(config, state_path, name, name, verbose)
+      configure_interface(config, state_path, name, name, wait_seconds, verbose)
     }
   }
 
   for operand in operands {
     let selection = split_iface_arg(operand)
-    configure_interface(config, state_path, selection.physical, selection.logical, verbose)
+    configure_interface(config, state_path, selection.physical, selection.logical, wait_seconds, verbose)
   }
 }

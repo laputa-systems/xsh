@@ -1,4 +1,6 @@
 #!/bin/xsh
+use lib.dhcp_live as live
+
 error IfdownError = Usage : Usage | Config | Hook | State
 
 type Interface = {
@@ -307,34 +309,25 @@ proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
   state_path.write_atomic(new_lines.join("\n"))
 }
 
-proc teardown_dhcp(physical: Str, verbose: Bool) [fs, process, error, io] {
-  let interfaces = linux.interfaces()?
-  var address = ""
-
-  for iface in interfaces {
-    if iface.name == physical {
-      for addr in iface.addresses {
-        if addr.family == "inet" and address == "" {
-          address = addr.addr
-        }
-      }
+proc teardown_dhcp(physical: Str, wait_seconds: Int, verbose: Bool) [fs, process, net, env, time, error, io] {
+  let settings = live.settings_from_environment(physical)?
+  guard let held = live.lock_interface(settings)? else {
+    report_action(verbose, f"dhcp {physical}: a supervised client owns the interface")
+    live.set_admin_down(settings, true)
+    ctx f"{physical}: the client holds the interface lock but its control socket does not answer" {
+      live.ask(settings, "down")
     }
-  }
-
-  let routes = linux.routes()?
-
-  for route in routes {
-    if route.dst == "default" and route.dev == physical and "." in route.gateway {
-      report_action(verbose, f"del_default_ipv4_route {physical} {route.gateway}")
-      linux.del_default_ipv4_route(route.gateway, interface: physical)
+    let state = live.await_state(settings, ["admin_down"], wait_seconds * 1000)?
+    guard state == "admin_down" else {
+      return Err(IfdownError.State(f"{physical}: the supervised client did not release within {wait_seconds}s (state {state ?? "unknown"})"))
     }
+    report_action(verbose, f"dhcp {physical}: released")
+    return
   }
-
-  if address != "" {
-    report_action(verbose, f"flush_ipv4_addresses {physical}")
-    linux.flush_ipv4_addresses(physical)
-  }
-
+  fs.unlock(held)
+  report_action(verbose, f"dhcp_release {physical}")
+  let done = live.release_offline(settings)?
+  report_action(verbose, f"dhcp {physical}: {done}")
   report_action(verbose, f"link_down {physical}")
   linux.link_down(physical)
 }
@@ -358,7 +351,7 @@ proc teardown_static(physical: Str, stanza: Interface, verbose: Bool) [fs, proce
   linux.link_down(physical)
 }
 
-proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str, verbose: Bool) [fs, process, error, io] {
+proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str, wait_seconds: Int, verbose: Bool) [fs, process, net, env, time, error, io] {
   guard state_path.exists() else {
     return
   }
@@ -394,7 +387,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
       linux.link_down(physical)
     }
     "static" => teardown_static(physical, stanza, verbose)
-    "dhcp" => teardown_dhcp(physical, verbose)
+    "dhcp" => teardown_dhcp(physical, wait_seconds, verbose)
     else => return Err(IfdownError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
@@ -418,7 +411,7 @@ pure split_iface_arg(arg: Str) -> InterfaceSelection {
   {physical: arg, logical: arg}
 }
 
-type IfdownOptions = {all: Bool, verbose: Bool, operands: List[Str]}
+type IfdownOptions = {all: Bool, verbose: Bool, patience: Str?, operands: List[Str]}
 
 stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[InterfaceSelection] {
   guard state_path.exists() else {
@@ -436,7 +429,7 @@ stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Interface
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Str]) [fs, process, net, env, time, error, io] {
   let opts: IfdownOptions = cli.applet(
     argv,
     {
@@ -448,12 +441,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         form: "-v --verbose",
         default: false,
       },
+      patience: {
+        form: "--wait SECONDS",
+      },
       operands: {
         form: "...INTERFACE",
       },
     },
   )?
-  let {all, verbose, operands} = opts
+  let {all, verbose, patience, operands} = opts
+  let wait_seconds = if let text = patience { text as Int } else { 10 }
 
   if ! all and operands.is_empty() {
     return Err(IfdownError.Usage("ifdown: expected -a or interface name"))
@@ -464,12 +461,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if all {
     for item in state_configured_ifaces(state_path) {
-      deconfigure_interface(config, state_path, item.physical, item.logical, verbose)
+      deconfigure_interface(config, state_path, item.physical, item.logical, wait_seconds, verbose)
     }
   }
 
   for operand in operands {
     let selection = split_iface_arg(operand)
-    deconfigure_interface(config, state_path, selection.physical, selection.logical, verbose)
+    deconfigure_interface(config, state_path, selection.physical, selection.logical, wait_seconds, verbose)
   }
 }

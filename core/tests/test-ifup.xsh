@@ -12,7 +12,13 @@ proc run_ifupdown(
 ) [fs, process, error] -> AppletRun {
   test.linux_fake(ctx, {log: linux_log})
   let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
-  let overlay = {XSH_IFUP_INTERFACES: interfaces.display(), XSH_IFUP_STATE: state.display()}
+  let overlay = {
+    XSH_IFUP_INTERFACES: interfaces.display(),
+    XSH_IFUP_STATE: state.display(),
+    XSH_DHCPC_LEASE_DIR: fp"{interfaces.parent()}/lease".display(),
+    XSH_DHCPC_RUN_DIR: fp"{interfaces.parent()}/run".display(),
+    XSH_DHCPC_RESOLV_DIR: fp"{interfaces.parent()}/etc".display(),
+  }
   test.run_script(ctx, source, argv, overlay, b"", name)?
 }
 
@@ -69,11 +75,12 @@ test test_ifup_all_applies_auto_static_and_hooks { |ctx|
   assert "eth0=eth0" in state.read_text()?
 }
 
-test test_ifup_dhcp_runs_discovery { |ctx|
+test test_ifup_dhcp_never_starts_a_second_acquisition_beside_a_running_owner { |ctx|
   let root = test.temp_dir(ctx, name: "ifup-dhcp")?
   let interfaces = fp"{root}/interfaces"
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
+  fp"{root}/run".mkdir()
 
   interfaces.write(
     """auto eth0
@@ -81,18 +88,16 @@ iface eth0 inet dhcp
 """,
   )
 
-  let output = run_ifupdown(ctx, "ifup", ["-a"], interfaces, state, linux_log)
+  let owner = fs.lock(fp"{root}/run/eth0.lock")?
+  let output = run_ifupdown(ctx, "ifup", ["-a", "--wait", "1"], interfaces, state, linux_log)
+  fs.unlock(owner)
 
-  # The fake has no DHCP server, so discovery wires the sockets then fails cleanly.
   assert ! output.success
-  let linux_text = linux_log.read_text()?
-  assert "\"op\":\"link_up\"" in linux_text
-  assert "\"op\":\"dhcp_socket\"" in linux_text
-  assert "\"interface\":\"eth0\"" in linux_text
-  assert "\"op\":\"dhcp_send\"" in linux_text
-  assert "\"op\":\"dhcp_recv\"" in linux_text
-  assert "\"op\":\"dhcp_close\"" in linux_text
-  assert "no DHCP offer" in output.stderr
+  assert "the client holds the interface lock" in output.stderr, output.stderr
+  assert ! fp"{root}/lease/eth0.lease".exists()? and ! fp"{root}/run/eth0.control".exists()?, "no second client opened its state"
+  assert ! state.exists()?, "an interface that did not come up is not recorded"
+  let linux_text = if linux_log.exists() { linux_log.read_text()? } else { "" }
+  assert "link_up" not in linux_text
 }
 
 test test_ifup_state_skips_configured_interface { |ctx|

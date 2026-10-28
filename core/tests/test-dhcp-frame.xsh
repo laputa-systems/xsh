@@ -86,3 +86,34 @@ test test_an_offloaded_udp_checksum_does_not_reject_a_frame {
   let partial = good() |> patched(_, 40, b"\xde\xad")
   assert verdict(partial) == "accepted"
 }
+
+pure udp_sum_ok(frame: Bytes) -> Bool {
+  let source = bytes.unpack_be(frame, 4, 26) ?? 0
+  let destination = bytes.unpack_be(frame, 4, 30) ?? 0
+  let length = bytes.unpack_be(frame, 2, 38) ?? 0
+  var sum = source / 65536 + source % 65536 + destination / 65536 + destination % 65536 + 17 + length
+  var index = 34
+  while index + 1 < 34 + length {
+    sum += (frame.byte_at(index) ?? 0) * 256 + (frame.byte_at(index + 1) ?? 0)
+    index += 2
+  }
+  if index < 34 + length {
+    sum += (frame.byte_at(index) ?? 0) * 256
+  }
+  while sum > 65535 {
+    sum = sum.bit_and(65535) + sum / 65536
+  }
+  sum == 65535
+}
+
+test test_a_built_frame_matches_the_independent_builder_and_carries_valid_checksums {
+  let built = frame_codec.udp_frame(BROADCAST, MAC, 0, 4294967295, 68, 67, payload())
+  let reference = pcap.udp_frame(BROADCAST, MAC, 0, 4294967295, 68, 67, payload())
+  assert built[..40] == reference[..40] and built[42..] == reference[42..], "only the UDP checksum differs"
+  assert udp_sum_ok(built) and pcap.dissect(built).ip?.checksum_ok == true
+  assert built.len() == 14 + 20 + 8 + payload().len()
+  let odd = frame_codec.udp_frame(BROADCAST, MAC, SERVER, 4294967295, 67, 68, payload()[..299])
+  assert udp_sum_ok(odd) and pcap.dissect(odd).udp?.payload == payload()[..299]
+  let sent = frame_codec.datagram(built, b"\x02\x00\x00\x00\x00\x09")?
+  assert sent.source == 0 and sent.destination == 4294967295 and sent.payload == payload()
+}

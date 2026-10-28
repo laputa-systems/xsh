@@ -113,3 +113,27 @@ export pure reject_reason(reject: FrameReject) -> Str {
     FrameReject.WrongHardware => "frame_wrong_hardware"
   }
 }
+
+pure be16(value: Int) -> Bytes {
+  bytes.pack_be(value, 2) ?? b""
+}
+
+pure be32(value: Int) -> Bytes {
+  bytes.pack_be(value, 4) ?? b""
+}
+
+## Builds an Ethernet frame carrying one UDP datagram over IPv4 with correct
+## header and UDP checksums, TTL 64 and the don't-fragment flag clear. A client
+## that has no address sends its messages this way, because a UDP socket would
+## put another interface's address in the source field.
+export pure udp_frame(destination_mac: Bytes, source_mac: Bytes, source: Int, destination: Int, source_port: Int, destination_port: Int, payload: Bytes) -> Bytes {
+  let udp_length = UDP_HEADER + payload.len()
+  let unchecked_udp = bytes.concat([be16(source_port), be16(destination_port), be16(udp_length), be16(0), payload])
+  let pseudo = fold(source / 65536 + source % 65536 + destination / 65536 + destination % 65536 + PROTOCOL_UDP + udp_length)
+  let udp_sum = 65535 - fold(sum_words(unchecked_udp, 0, unchecked_udp.len(), pseudo))
+  let udp = bytes.concat([unchecked_udp[..6], be16(if udp_sum == 0 { 65535 } else { udp_sum }), unchecked_udp[8..]])
+  let unchecked_ip = bytes.concat([b"\x45\x00", be16(IPV4_MINIMUM_HEADER + udp.len()), be16(0), be16(0), b"\x40\x11", be16(0), be32(source), be32(destination)])
+  let ip_sum = 65535 - fold(sum_words(unchecked_ip, 0, unchecked_ip.len(), 0))
+  let ip = bytes.concat([unchecked_ip[..10], be16(ip_sum), unchecked_ip[12..]])
+  bytes.concat([destination_mac, source_mac, b"\x08\x00", ip, udp])
+}

@@ -12,7 +12,13 @@ proc run_ifupdown(
 ) [fs, process, error] -> AppletRun {
   test.linux_fake(ctx, {log: linux_log})
   let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
-  let overlay = {XSH_IFUP_INTERFACES: interfaces.display(), XSH_IFUP_STATE: state.display()}
+  let overlay = {
+    XSH_IFUP_INTERFACES: interfaces.display(),
+    XSH_IFUP_STATE: state.display(),
+    XSH_DHCPC_LEASE_DIR: fp"{interfaces.parent()}/lease".display(),
+    XSH_DHCPC_RUN_DIR: fp"{interfaces.parent()}/run".display(),
+    XSH_DHCPC_RESOLV_DIR: fp"{interfaces.parent()}/etc".display(),
+  }
   test.run_script(ctx, source, argv, overlay, b"", name)?
 }
 
@@ -89,13 +95,13 @@ test test_ifdown_runs_hooks { |ctx|
   assert "post-down:post-down" in hooks
 }
 
-test test_ifdown_dhcp_sends_release { |ctx|
+test test_ifdown_dhcp_fails_loudly_and_keeps_the_record_when_the_owner_does_not_answer { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-dhcp-release")?
   let interfaces = fp"{root}/interfaces"
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
+  fp"{root}/run".mkdir()
 
-  # Write a DHCP stanza and pre-seed the state file so ifdown finds it.
   interfaces.write(
     """auto eth0
 iface eth0 inet dhcp
@@ -103,16 +109,16 @@ iface eth0 inet dhcp
   )
 
   state.write("eth0=eth0")
+  let owner = fs.lock(fp"{root}/run/eth0.lock")?
+  let output = run_ifupdown(ctx, "ifdown", ["eth0", "--wait", "1"], interfaces, state, linux_log)
+  fs.unlock(owner)
 
-  # The fake has no real DHCP, so the RELEASE send will log but not actually
-  # reach a server.  This is fine — we just verify the primitive was called.
-  let output = run_ifupdown(ctx, "ifdown", ["eth0"], interfaces, state, linux_log)
-
-  assert output.success, output.stderr
-  let linux_text = linux_log.read_text()?
-  assert "\"op\":\"link_down\"" in linux_text
-  assert "\"op\":\"flush_ipv4_addresses\"" in linux_text
-  assert "\"op\":\"del_default_ipv4_route\"" in linux_text
+  assert ! output.success
+  assert "the client holds the interface lock" in output.stderr, output.stderr
+  assert state.read_text()? == "eth0=eth0", "the interface stays recorded until the client releases"
+  assert fp"{root}/run/eth0.admin-down".exists()?, "the operator's intent survives a client restart"
+  let linux_text = if linux_log.exists() { linux_log.read_text()? } else { "" }
+  assert "flush_ipv4_addresses" not in linux_text and "del_default_ipv4_route" not in linux_text and "link_down" not in linux_text
 }
 
 test test_ifdown_skips_unconfigured_interface { |ctx|

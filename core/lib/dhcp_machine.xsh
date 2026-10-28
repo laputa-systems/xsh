@@ -204,8 +204,9 @@ export type Machine = {
   last_now: Int,
 }
 
-## One transition: the next machine, the effects in order, and a stable name
-## for an event the machine ignored or a repair it made ("" for none).
+## One transition: the next machine, the effects in order, and stable names,
+## joined with ";", for an event the machine ignored or a repair it made ("" for
+## none).
 export type Step = {machine: Machine, effects: List[Effect], note: Str}
 
 
@@ -935,6 +936,6 @@ export pure transition(machine: Machine, event: Event, now: Int) -> Step {
   }
   let handled = dispatch(aged.machine, event, now)
   let effects = aged.effects.extend(handled.effects)
-  let note = if handled.note == "" { aged.note } else { handled.note }
+  let note = if aged.note == "" { handled.note } else if handled.note == "" { aged.note } else { f"{aged.note};{handled.note}" }
   finish(machine, step_of(handled.machine, effects, note), now)
 }

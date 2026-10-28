@@ -1,6 +1,7 @@
 use core.lib.dhcp_machine as machine
 use core.lib.dhcp_net as network
 use core.lib.dhcp_wire as wire
+use core.tests.support.dhcp_kernel as kernel_model
 
 const IFINDEX = 3
 const MAC = b"\x02\x00\x00\x00\x00\x01"
@@ -55,17 +56,7 @@ pure owned_of(addresses: List[network.Address], routes: List[network.Route]) -> 
 }
 
 pure op_names(operations: List[network.Operation]) -> List[Str] {
-  [operation_name(operation) for operation in operations]
-}
-
-pure operation_name(operation: network.Operation) -> Str {
-  match operation {
-    network.BringUp => "up"
-    network.AddAddress(item) => f"+addr {wire.ip_text(item.address)}"
-    network.RemoveAddress(item) => f"-addr {wire.ip_text(item.address)}"
-    network.AddRoute(item) => f"+route {wire.ip_text(item.gateway)}"
-    network.RemoveRoute(item) => f"-route {wire.ip_text(item.gateway)}"
-  }
+  [kernel_model.operation_name(operation) for operation in operations]
 }
 
 test test_a_fresh_lease_adds_the_address_then_the_default_route {
@@ -266,63 +257,8 @@ test test_netlink_requests_encode_the_exact_kernel_messages {
   assert with_destination.payload[12..20] == b"\x08\x00\x01\x00\x0a\x01\x00\x00"
 }
 
-type Kernel = {observed: network.Observation, fail_at: Int, calls: Int}
-
-pure drop_connected(routes: List[network.Route], address: network.Address) -> List[network.Route] {
-  [item for item in routes if ! (item.protocol == 2 and item.destination == address.address - address.address % 256)]
-}
-
-pure simulate(kernel: Kernel, operation: network.Operation) -> Kernel {
-  let state = kernel.observed
-  let next = match operation {
-    network.BringUp => {...state, up: true}
-    network.AddAddress(item) => {...state, addresses: state.addresses.push(item), routes: state.routes.push(connected(item.address))}
-    network.RemoveAddress(item) => {...state, addresses: [held for held in state.addresses if held != item], routes: drop_connected(state.routes, item)}
-    network.AddRoute(item) => {...state, routes: state.routes.push(item)}
-    network.RemoveRoute(item) => {...state, routes: [held for held in state.routes if held != item]}
-  }
-  {...kernel, observed: next, calls: kernel.calls + 1}
-}
-
-type Journal = {ledgers: List[network.Ledger], kernel: Kernel, outcome: network.Outcome?, mutations: List[Str]}
-
-pure play(desired: machine.Lease?, owned: network.Owned, kernel: Kernel, drift: Bool) -> Journal {
-  var move = network.begin_walk(desired, METRIC, owned)
-  var state = kernel
-  var ledgers = []
-  var mutations = []
-  var observations = 0
-  repeat 60 times {
-    match move.action {
-      network.Finished(outcome) => {
-        return {ledgers: ledgers, kernel: state, outcome: outcome, mutations: mutations}
-      }
-      network.DoObserve => {
-        observations += 1
-        let seen = if drift and observations == 2 { {...state.observed, addresses: state.observed.addresses.push(host(FOREIGN))} } else { state.observed }
-        state = {...state, observed: seen}
-        move = network.advance(move.walk, .Observed(seen))
-      }
-      network.DoPersist(ledger) => {
-        ledgers += [ledger]
-        move = network.advance(move.walk, network.Persisted)
-      }
-      network.DoMutate(operation) => {
-        if state.fail_at == state.calls {
-          move = network.advance(move.walk, .MutationFailed(f"injected failure at {operation_name(operation)}"))
-        } else {
-          mutations += [operation_name(operation)]
-          state = simulate(state, operation)
-          move = network.advance(move.walk, network.Mutated)
-        }
-      }
-    }
-  }
-  {ledgers: ledgers, kernel: state, outcome: null, mutations: mutations}
-}
-
 test test_a_reconciliation_logs_intent_applies_confirms_and_records_ownership {
-  let journal = play(lease(ADDRESS, ROUTER), network.empty_owned(IFINDEX), {observed: link([], [], true), fail_at: -1, calls: 0}, false)
+  let journal = kernel_model.play(lease(ADDRESS, ROUTER), METRIC, network.empty_owned(IFINDEX), kernel_model.Kernel(observed: link([], [], true), fail_at: -1, calls: 0), false)
   guard let outcome = journal.outcome else {
     assert false, "the reconciliation did not finish"
     return
@@ -339,15 +275,15 @@ test test_a_reconciliation_logs_intent_applies_confirms_and_records_ownership {
 }
 
 test test_reapplying_a_converged_interface_mutates_nothing {
-  let kernel = Kernel(observed: link([host(ADDRESS)], [connected(ADDRESS), default_via(ROUTER)], true), fail_at: -1, calls: 0)
-  let journal = play(lease(ADDRESS, ROUTER), owned_of([host(ADDRESS)], [default_via(ROUTER)]), kernel, false)
+  let kernel = kernel_model.Kernel(observed: link([host(ADDRESS)], [connected(ADDRESS), default_via(ROUTER)], true), fail_at: -1, calls: 0)
+  let journal = kernel_model.play(lease(ADDRESS, ROUTER), METRIC, owned_of([host(ADDRESS)], [default_via(ROUTER)]), kernel, false)
   assert journal.mutations.is_empty() and journal.ledgers.is_empty()
   assert journal.outcome?.settled == .Converged
 }
 
 test test_a_failed_operation_leaves_the_intent_recorded_and_the_next_run_converges {
-  let start = Kernel(observed: link([], [], true), fail_at: 1, calls: 0)
-  let first = play(lease(ADDRESS, ROUTER), network.empty_owned(IFINDEX), start, false)
+  let start = kernel_model.Kernel(observed: link([], [], true), fail_at: 1, calls: 0)
+  let first = kernel_model.play(lease(ADDRESS, ROUTER), METRIC, network.empty_owned(IFINDEX), start, false)
   guard let partial = first.outcome else {
     assert false, "the reconciliation did not finish"
     return
@@ -362,15 +298,15 @@ test test_a_failed_operation_leaves_the_intent_recorded_and_the_next_run_converg
   assert first.ledgers[0].owned.routes == [default_via(ROUTER)], "the intent names the route that was never added"
   assert partial.owned == first.ledgers[0].owned
 
-  let resumed = play(lease(ADDRESS, ROUTER), partial.owned, {...first.kernel, fail_at: -1}, false)
+  let resumed = kernel_model.play(lease(ADDRESS, ROUTER), METRIC, partial.owned, {...first.kernel, fail_at: -1}, false)
   assert resumed.mutations == ["+route 192.168.1.1"], "only the missing operation is repeated"
   assert resumed.outcome?.settled == .Converged
   assert resumed.kernel.observed.addresses == [host(ADDRESS)]
 }
 
 test test_a_stale_observation_replans_from_the_fresh_one {
-  let kernel = Kernel(observed: link([], [], true), fail_at: -1, calls: 0)
-  let journal = play(lease(ADDRESS, ROUTER), network.empty_owned(IFINDEX), kernel, true)
+  let kernel = kernel_model.Kernel(observed: link([], [], true), fail_at: -1, calls: 0)
+  let journal = kernel_model.play(lease(ADDRESS, ROUTER), METRIC, network.empty_owned(IFINDEX), kernel, true)
   guard let outcome = journal.outcome else {
     assert false, "the reconciliation did not finish"
     return
@@ -383,8 +319,8 @@ test test_a_stale_observation_replans_from_the_fresh_one {
 
 test test_withdrawal_after_nak_keeps_foreign_state_through_the_whole_walk {
   let foreign = {address: FOREIGN, prefix: 24, broadcast: 0}
-  let kernel = Kernel(observed: link([foreign, host(ADDRESS)], [connected(ADDRESS), static_route(), default_via(ROUTER)], true), fail_at: -1, calls: 0)
-  let journal = play(null, owned_of([host(ADDRESS)], [default_via(ROUTER)]), kernel, false)
+  let kernel = kernel_model.Kernel(observed: link([foreign, host(ADDRESS)], [connected(ADDRESS), static_route(), default_via(ROUTER)], true), fail_at: -1, calls: 0)
+  let journal = kernel_model.play(null, METRIC, owned_of([host(ADDRESS)], [default_via(ROUTER)]), kernel, false)
   assert journal.mutations == ["-route 192.168.1.1", "-addr 192.168.1.100"]
   assert journal.kernel.observed.addresses == [foreign]
   assert static_route() in journal.kernel.observed.routes
@@ -392,8 +328,8 @@ test test_withdrawal_after_nak_keeps_foreign_state_through_the_whole_walk {
 }
 
 test test_conflicts_end_the_walk_without_touching_the_occupant {
-  let occupied = Kernel(observed: link([host(ADDRESS)], [connected(ADDRESS)], true), fail_at: -1, calls: 0)
-  let journal = play(lease(ADDRESS, ROUTER), network.empty_owned(IFINDEX), occupied, false)
+  let occupied = kernel_model.Kernel(observed: link([host(ADDRESS)], [connected(ADDRESS)], true), fail_at: -1, calls: 0)
+  let journal = kernel_model.play(lease(ADDRESS, ROUTER), METRIC, network.empty_owned(IFINDEX), occupied, false)
   assert journal.outcome?.settled == .Conflicted
   assert journal.mutations.len() == 1 and journal.mutations[0] == "+route 192.168.1.1"
 }

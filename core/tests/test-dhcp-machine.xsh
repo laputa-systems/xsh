@@ -287,7 +287,7 @@ test test_a_late_ack_after_expiry_never_extends_the_lease {
   let xid = ses.machine.xid
   ses = feed(ses, .OnReceived(message(reply(5, xid))?), (lease.expire_at ?? 0) + 5)
   assert state_of(ses) == "selecting" and ses.machine.lease == null
-  assert ses.note == "ignored_stale_xid"
+  assert ses.note == "lease_expired;ignored_stale_xid"
   assert only_actions(ses.effects) == ["deconfigure:expired", "forget", "send:discover"]
 }
 
