@@ -42,6 +42,45 @@ proc snapshot(target: Path) [fs, process, net, error] {
   target.write(json.encode({state: dump.state, links: [{name: link.name, ifindex: link.ifindex, flags: link.flags} for link in dump.links], addresses: [{ifindex: item.ifindex, address: item.local ?? item.address ?? "", prefix: item.prefix_length, label: item.label} for item in dump.addresses if item.family == "inet"], routes: [{destination: route.destination, prefix: route.destination_prefix_length, gateway: route.gateway, ifindex: route.output_ifindex, table: route.table, tos: route.tos, priority: route.priority, protocol: route.protocol, scope: route.scope} for route in dump.routes if route.family == "inet"]})?)
 }
 
+type Sample = {ticks: Int, rss_kb: Int, voluntary_switches: Int, involuntary_switches: Int, fds: Int, threads: Int}
+
+pure status_value(text: Str, key: Str) -> Result[Int, Error] {
+  for line in text.lines() {
+    if line.starts_with(f"{key}:") {
+      return Ok(line.split(":")[1].trim().split(" ")[0] as Int)
+    }
+  }
+  Ok(0)
+}
+
+proc sample_process(pid: Int) [fs, error] -> Result[Sample, Error] {
+  let stat = fp"/proc/{pid}/stat".read_text()?
+  let fields = stat.split(") ")[1].split(" ")
+  let status = fp"/proc/{pid}/status".read_text()?
+  var voluntary = 0
+  var involuntary = 0
+  for task in fs.children(fp"/proc/{pid}/task")? {
+    let task_status = fp"{task.path}/status".read_text()?
+    voluntary += status_value(task_status, "voluntary_ctxt_switches")?
+    involuntary += status_value(task_status, "nonvoluntary_ctxt_switches")?
+  }
+  Sample(
+    ticks: fields[11] as Int + fields[12] as Int,
+    rss_kb: status_value(status, "VmRSS")?,
+    voluntary_switches: voluntary,
+    involuntary_switches: involuntary,
+    fds: [child for child in fs.children(fp"/proc/{pid}/fd")?].len(),
+    threads: status_value(status, "Threads")?,
+  )
+}
+
+proc measure(job: world.Job, window_ms: Int, target: Path) [fs, time, error] {
+  let before = sample_process(job.group)?
+  time.sleep(window_ms * 1ms)
+  let after = sample_process(job.group)?
+  target.write(json.encode({window_ms: window_ms, before: before, after: after})?)
+}
+
 proc run_fixture(action: Str, args: List[Str]) [process, net, error] {
   match action {
     "link_add_dummy" => fixture.link_add_dummy(args[0], args[1])
@@ -133,6 +172,10 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net
       fixture.link_add_veth_into(world.CLIENT_INTERFACE, world.SERVER_INTERFACE, world.CLIENT_MAC, world.SERVER_MAC, handle)
       let relink = world.run_support(setup, true, "dhcp_server_link", [world.SERVER_INTERFACE, world.SERVER_ADDRESS, f"{world.SERVER_PREFIX}"], fp"{dir}/recreate.log")?
       fp"{dir}/recreate.status".write(f"{relink.shell_code()?}\n")
+    }
+    "measure" => {
+      guard let job = table.get(step.name ?? "client") else { return Err(error.failure("no such job to measure")) }
+      measure(job, step.ms ?? 10000, fp"{dir}/measure-{step.name ?? "client"}.json")?
     }
     "sleep" => time.sleep((step.ms ?? 0) * 1ms)
     "wait_for" => wait_for(fp"{dir}/{required(step.file, "file", step.do)?}", step.text ?? "", step.ms ?? 5000)

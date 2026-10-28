@@ -320,3 +320,33 @@ test test_the_client_recovers_after_a_silent_server_returns { |ctx|
   let bound = json.read(fp"{dir}/bound.json")?.require(Snapshot)?
   assert "192.168.50.100" in [item.address for item in bound.addresses]
 }
+
+type Sample = {ticks: Int, rss_kb: Int, voluntary_switches: Int, involuntary_switches: Int, fds: Int, threads: Int}
+
+type Measurement = {window_ms: Int, before: Sample, after: Sample}
+
+test test_a_bound_client_idles_without_polling_or_growth { |ctx|
+  let file = write_rules(ctx, bound_rules())?
+  guard let dir = scenario.execute(
+    ctx,
+    "idle-cost",
+    [
+      scenario.server_xsh(file),
+      scenario.wait_for("server.requests", "", 5000),
+      scenario.write("etc/resolv.static", ""),
+      scenario.client("client", client_args([])),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 20000),
+      scenario.sleep(3000),
+      scenario.measure("client", 20000),
+      scenario.kill("client", "TERM"),
+      scenario.sleep(500),
+    ],
+  )? else { return }
+  let measured = json.read(fp"{dir}/measure-client.json")?.require(Measurement)?
+  let cpu_ms = (measured.after.ticks - measured.before.ticks) * 10
+  let wakeups = measured.after.voluntary_switches - measured.before.voluntary_switches + measured.after.involuntary_switches - measured.before.involuntary_switches
+  assert cpu_ms <= 100, f"{cpu_ms} ms of CPU in {measured.window_ms} ms"
+  assert wakeups <= 20, f"{wakeups} context switches in {measured.window_ms} ms"
+  assert measured.after.fds == measured.before.fds, "no descriptor leaks while idle"
+  assert measured.after.rss_kb <= measured.before.rss_kb + 512, "no memory growth while idle"
+}

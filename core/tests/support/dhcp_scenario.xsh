@@ -137,3 +137,9 @@ export pure copy(source: Str, target: Str) -> types.Step {
 export pure server_stop(name: Str) -> types.Step {
   {...step("server_stop"), name: name, signal: "KILL"}
 }
+
+## Samples the CPU time, resident memory, context switches and descriptors of
+## the job `name` before and after `ms` milliseconds into `measure-NAME.json`.
+export pure measure(name: Str, ms: Int) -> types.Step {
+  {...step("measure"), name: name, ms: ms}
+}
