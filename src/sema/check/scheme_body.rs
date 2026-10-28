@@ -57,7 +57,7 @@ pub(super) fn supports_generalized_body(
         && matches!(program.arena.stmt(tail).kind, ArenaStmtKind::Command(_));
     let terminal_unit_statement = matches!(program.arena.stmt(tail).kind,
         ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. }
-            | ArenaStmtKind::Defer(..) | ArenaStmtKind::Assert { .. });
+            | ArenaStmtKind::Defer(..) | ArenaStmtKind::Assert { .. } | ArenaStmtKind::Exit(_));
     let terminal_proc_statement = owner_kind == crate::sema::types::CallableKind::Proc
         && matches!(completion, BodyCompletion::Procedure) && !super::stmt::proc_tail_requires_value_checking(program, tail);
     let prefix = if terminal_command || terminal_unit_statement || terminal_proc_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
@@ -189,6 +189,11 @@ pub(super) fn supports_generalized_body(
                 let mut children = Vec::new();
                 program.arena.for_each_stmt_child(statement, crate::syntax::arena::SugarView::Core, |child| children.push(child));
                 if !command_children_are_available(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, node.span, children, nested_completion) { return false; }
+            }
+            ArenaStmtKind::Exit(status) => {
+                if owner_kind == crate::sema::types::CallableKind::Pure
+                    || !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, status)
+                { return false; }
             }
             ArenaStmtKind::Continue => {}
             _ => return false,

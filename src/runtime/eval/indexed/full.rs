@@ -34257,6 +34257,45 @@ assert nullable_name == null
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
+    #[test]
+    fn full_verifier_rejects_forged_generic_exit_status_fact() {
+        let program = fixture(
+            "generic-exit-status.xsh",
+            "proc stop(kind, code: Int) [process] {\n  let label = \"stopped\"\n  exit code\n}\n\
+             proc caller() [process, error] { stop(1, 2)? }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let stop = scheme_fixture_root_function(&program, "stop");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[stop].contract else { panic!("stop has a generic scheme") };
+        let decoder = function_view_decoder(&program.store, stop);
+        let abort = program.store.function_instruction_range(stop).unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprAbort)
+            .expect("stop exits the script");
+        let schema::ExprView::Abort { status, .. } = decoder.expression_view(abort).unwrap() else { unreachable!() };
+        let mut body_facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let status_fact = body_facts.clone()
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression && fact.instruction == status.raw()
+            })
+            .expect("the exit status has its authenticated expression fact");
+        let text_fact = body_facts
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                    && fact.ty().is_some_and(|ty| {
+                        let node = program.store.scheme_types[ty.index()];
+                        node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == crate::runtime::eval::indexed::semantic::TypeTag::Str
+                    })
+            })
+            .expect("stop's facts include its Str literal");
+        let mut forged = program.clone();
+        let (status_value, text_value) = (forged.store.scheme_body_facts[status_fact].value, forged.store.scheme_body_facts[text_fact].value);
+        forged.store.scheme_body_facts[status_fact].value = text_value;
+        forged.store.scheme_body_facts[text_fact].value = status_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",

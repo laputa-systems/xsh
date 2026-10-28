@@ -3129,6 +3129,11 @@ fn verify_body_expression(
             }
             output
         }
+        schema::ExprView::Abort { status, .. } => {
+            let status = child(status, budget)?;
+            if status.closed_ground_type().is_none_or(|ty| !ty.matches_expected(&Type::Int)) { return Err(IrVerifyError::new("generic exit status has no Int producer")); }
+            SchemeType::Ground(Type::Unit)
+        }
         schema::ExprView::FsTempDir { .. } => {
             SchemeType::Ground(commands::native_call(decoder, crate::modules::RuntimeOp::FsTempDir, &[], budget)?)
         }

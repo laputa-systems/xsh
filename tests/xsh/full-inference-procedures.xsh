@@ -438,3 +438,47 @@ test test_full_inference_pure_effect_rejection_reports_one_diagnostic { |ctx|
     assert output.stderr.split("err[").len() == 2, f"{name}: {output.stderr}"
   }
 }
+
+test test_full_inference_generic_proc_may_exit_the_script { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc require_name(kind, name: Str) [io, process] {
+  if name == "" {
+    eprint f"missing name for {kind}"
+    exit 2
+  }
+  print f"{kind}: {name}"
+}
+proc finish(kind) [io, process] {
+  print f"finishing {kind}"
+  exit 3
+}
+require_name("user", "root")
+require_name(7, "ok")
+finish("last")
+print "not reached"
+""",
+  )?
+  assert output.status == 3, output.stderr
+  assert output.stdout == "user: root\n7: ok\nfinishing last\n", output.stdout
+}
+
+test test_full_inference_generic_proc_exit_reports_its_status_from_a_branch { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc require_name(kind, name: Str) [io, process] {
+  if name == "" {
+    eprint f"missing name for {kind}"
+    exit 2
+  }
+  print f"{kind}: {name}"
+}
+require_name("user", "root")
+require_name(7, "")
+print "not reached"
+""",
+  )?
+  assert output.status == 2, output.stderr
+  assert output.stdout == "user: root\n", output.stdout
+  assert "missing name for 7" in output.stderr, output.stderr
+}

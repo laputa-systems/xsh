@@ -3514,7 +3514,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 lowered_types.insert(value, SchemeType::Ground(Type::Unit));
                 Some(value)
             }
-            ArenaStmtKind::Command(_)
+            ArenaStmtKind::Command(_) | ArenaStmtKind::Exit(_)
                 if self.bodies.statement_positions.get(&statement) == Some(&crate::sema::check::StatementPosition::Statement) => {
                 self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Unit);
@@ -3815,6 +3815,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
                 },
                 ArenaStmtKind::Break { value: None } => BuildStmtRow::Break,
+                ArenaStmtKind::Exit(status) => {
+                    let status = self.lower_scheme_expression(status, slots, current_function, facts, visited, lowered_types, body)?;
+                    let value = push_build_row!(self, expr, BuildExprRow::Abort { status, span: node.span });
+                    lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                    BuildStmtRow::Expr { value, span: node.span }
+                }
                 ArenaStmtKind::Continue => BuildStmtRow::Continue,
                 ArenaStmtKind::Yield(ArenaExprOrRun::Expr(expression)) if self.bodies.collect_yields.contains_key(&statement) => {
                     let lowered = self.lower_scheme_collect_yield(statement, expression, control::CollectYieldKind::Item, slots, current_function, facts, visited, lowered_types, body)?;
