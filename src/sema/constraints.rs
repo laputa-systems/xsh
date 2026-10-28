@@ -1658,7 +1658,7 @@ impl TypeConstraints {
                 .collect::<Result<Vec<_>, _>>()?;
             let result = self.instantiate_scheme_type(&method.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
             methods.push(self.register_method_family(scope, super::schemes::MethodFamilyRequirement {
-                family: method.family, receiver, argument_slots: method.argument_slots.clone(), arguments, result,
+                kind: method.kind, receiver, argument_slots: method.argument_slots.clone(), arguments, result,
             }, None, origin)?);
         }
         let mut wrappers_by_ordinal = vec![None; requirements.wrappers.len()];

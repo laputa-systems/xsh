@@ -143,7 +143,7 @@ impl TypeConstraints {
         let root = self.representative_root(id)?;
         for id in self.methods.watchers.get(&ApplicationDependency::Type(root)).into_iter().flatten() {
             let entry = self.methods.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-            if !matches!(crate::modules::api_spec().method_family_result(entry.requirement.family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { continue; }
+            if !matches!(crate::modules::api_spec().method_requirement_result(entry.requirement.kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { continue; }
             if let crate::sema::types::Type::Inference(result) = self.resolve(&entry.requirement.result)?
                 && self.representative_root(result)? == root { return Ok(true); }
         }
@@ -155,7 +155,7 @@ impl TypeConstraints {
         let root = self.representative_root(id)?;
         for id in self.methods.watchers.get(&ApplicationDependency::Type(root)).into_iter().flatten() {
             let entry = self.methods.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-            if entry.owner != owner || !crate::modules::api_spec().method_family_returns_paths(entry.requirement.family) { continue; }
+            if entry.owner != owner || !crate::modules::api_spec().method_requirement_returns_paths(entry.requirement.kind) { continue; }
             if let crate::sema::types::Type::Inference(result) = self.resolve(&entry.requirement.result)?
                 && self.representative_root(result)? == root { return Ok(true); }
         }
@@ -174,8 +174,8 @@ impl TypeConstraints {
                 let arguments = entry.requirement.arguments.iter().map(|ty| this.resolve(ty)).collect::<Result<Vec<_>, _>>()?;
                 if receiver.contains_inference() || arguments.iter().any(crate::sema::types::Type::contains_inference) { continue; }
                 let api = crate::modules::api_spec();
-                let crate::modules::signature::MethodFamilySelection::Selected(selected) = api.select_method_family(entry.requirement.family, &receiver, &entry.requirement.argument_slots, &arguments) else {
-                    return Err(MethodConstraintError::Unsupported { family: entry.requirement.family, receiver });
+                let crate::modules::signature::MethodFamilySelection::Selected(selected) = api.select_method_requirement(entry.requirement.kind, &receiver, &entry.requirement.argument_slots, &arguments) else {
+                    return Err(MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver });
                 };
                 let (_, _, signature) = api.registered_method(selected).ok_or(ConstraintResolutionError::ForeignVariable)?;
                 this.constrain_inner(&entry.requirement.result, &signature.sig.return_ty, entry.span, false, 0, changes)
@@ -183,7 +183,7 @@ impl TypeConstraints {
                         expected, actual, contribution: entry.span, initializer: None, established: None, resolution_error,
                     }))?;
                 if this.resolve(&entry.requirement.result)? != signature.sig.return_ty {
-                    return Err(MethodConstraintError::Unsupported { family: entry.requirement.family, receiver });
+                    return Err(MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver });
                 }
             }
             Ok(())
@@ -312,8 +312,8 @@ fn select_registered_method(
     if receiver.contains_recovery() || arguments.iter().any(crate::sema::types::Type::contains_recovery) {
         return Ok(MethodSelection::Recovery);
     }
-    match crate::modules::api_spec().select_method_family(
-        requirement.family,
+    match crate::modules::api_spec().select_method_requirement(
+        requirement.kind,
         &receiver,
         &requirement.argument_slots,
         &arguments,
@@ -331,7 +331,7 @@ fn generalize_method_family(
     generalization: &mut Generalization,
 ) -> Result<MethodFamilyRequirement<SchemeType>, super::SchemeOperationError> {
     Ok(MethodFamilyRequirement {
-        family: requirement.family,
+        kind: requirement.kind,
         receiver: constraints.generalize_type(&requirement.receiver, environment_level, generalization, 0)?,
         argument_slots: requirement.argument_slots.clone(),
         arguments: requirement.arguments.iter()
@@ -345,7 +345,7 @@ fn generalize_method_family(
 pub(crate) enum MethodConstraintError {
     Resolution(ConstraintResolutionError),
     Constraint(super::ConstraintConflict),
-    Unsupported { family: xsh_registry::signature::MethodFamilyId, receiver: crate::sema::types::Type },
+    Unsupported { kind: super::super::schemes::MethodRequirementKind, receiver: crate::sema::types::Type },
 }
 
 impl From<ConstraintResolutionError> for MethodConstraintError {
@@ -357,7 +357,7 @@ impl std::fmt::Display for MethodConstraintError {
         match self {
             Self::Resolution(error) => write!(formatter, "method type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "method requires {}, found {}", error.expected, error.actual),
-            Self::Unsupported { family, receiver } => write!(formatter, "{family:?} has no canonical result for {receiver}"),
+            Self::Unsupported { kind, receiver } => write!(formatter, "{kind} has no canonical result for {receiver}"),
         }
     }
 }
@@ -378,7 +378,7 @@ mod tests {
             let peer = constraints.fresh_at_level(span, 1);
             constraints.constrain(&anchor, &peer, span).unwrap();
             let id = constraints.register_method_family(super::super::CallableApplicationScope::Invocation, MethodFamilyRequirement {
-                family: xsh_registry::signature::MethodFamilyId::PathParent,
+                kind: crate::sema::schemes::MethodRequirementKind::Family(xsh_registry::signature::MethodFamilyId::PathParent),
                 receiver: receiver.clone(), result: result.clone(), argument_slots: Vec::new(), arguments: Vec::new(),
             }, None, span).unwrap();
             constraints.solve_callable_applications().unwrap();

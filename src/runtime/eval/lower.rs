@@ -5597,7 +5597,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else {
                         return self.block_scheme_lowering_expr(expression);
                     };
-                    if !crate::modules::api_spec().method_family_members(requirement.family).all(|(_, _, family_name, _)| family_name == name.as_str()) {
+                    if !crate::modules::api_spec().method_requirement_members(requirement.kind).all(|(_, _, family_name, _)| family_name == name.as_str()) {
                         return self.block_scheme_lowering_expr(expression);
                     }
                     let receiver = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;

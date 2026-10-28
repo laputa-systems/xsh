@@ -569,6 +569,57 @@ print $named
   assert output.stdout == "1\n2\n"
 }
 
+test test_full_inference_byte_access_is_a_generic_method_over_text_and_bytes { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }
+pure relay(source) { byte_or_none(source, 1) }
+let text = byte_or_none("abc", 1)
+let data = byte_or_none(b"abc", 2)
+let past = byte_or_none("abc", 9)
+let relayed_text = relay("xyz")
+let relayed_data = relay(b"xyz")
+print $text
+print $data
+print $past
+print $relayed_text
+print $relayed_data
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "98\n99\n-1\n121\n121\n"
+}
+
+test test_full_inference_replace_is_a_generic_method_over_text_and_regex { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure swap(subject, pattern, replacement) { subject.replace(pattern, with: replacement) }
+pure dashes(subject) { swap(subject, subject, "+") }
+let text = swap("a-b-c", "-", "+")
+let pattern_result = swap(rx"[-]", "a-b-c", "+")
+let relayed = dashes("same")
+print $text
+print $pattern_result
+print $relayed
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "a+b+c\na+b+c\n+\n"
+}
+
+test test_full_inference_byte_access_without_a_unique_signature_is_rejected { |ctx|
+  let cases = [
+    {name: "receiver without the method", source: "pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }\nlet value = byte_or_none([1, 2], 0)\n"},
+    {name: "argument of the wrong type", source: "pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }\nlet value = byte_or_none(\"abc\", \"x\")\n"},
+    {name: "replacement pattern of the other receiver", source: "pure swap(subject, pattern) { subject.replace(pattern, with: \"+\") }\nlet value = swap(\"abc\", rx\"b\")\n"},
+  ]
+  for {name, source} in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, name
+    assert "err[check." in output.stderr, f"{name}: {output.stderr}"
+  }
+}
+
 test test_full_inference_slice_of_a_typed_value_is_a_generic_argument { |ctx|
   let output = test.run_xsh(
     ctx,

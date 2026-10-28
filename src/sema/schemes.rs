@@ -148,9 +148,39 @@ pub(crate) struct CallableRequirements {
     pub(crate) guard_calls: Vec<Arc<super::guarded_requirements::GuardCallRequirement>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum MethodRequirementKind {
+    Family(xsh_registry::signature::MethodFamilyId),
+    Overloaded(xsh_registry::signature::OverloadedMethodId),
+}
+
+impl MethodRequirementKind {
+    pub(crate) fn members(self) -> &'static [xsh_registry::signature::RegisteredMethodId] {
+        match self {
+            Self::Family(family) => xsh_registry::signature::api_spec().method_family_member_ids(family),
+            Self::Overloaded(overloaded) => xsh_registry::signature::api_spec().overloaded_method_member_ids(overloaded),
+        }
+    }
+
+    pub(crate) fn admits(self, method: xsh_registry::signature::RegisteredMethodId) -> bool {
+        self.members().contains(&method)
+    }
+}
+
+impl std::fmt::Display for MethodRequirementKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Family(family) => write!(formatter, "{family:?}"),
+            Self::Overloaded(overloaded) => formatter.write_str(
+                xsh_registry::signature::api_spec().overloaded_method_name(*overloaded).expect("a retained overloaded method requirement names a registered method"),
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct MethodFamilyRequirement<T> {
-    pub(crate) family: xsh_registry::signature::MethodFamilyId,
+    pub(crate) kind: MethodRequirementKind,
     pub(crate) receiver: T,
     pub(crate) argument_slots: Vec<u32>,
     pub(crate) arguments: Vec<T>,
@@ -457,7 +487,7 @@ impl TypeScheme {
             (crate::sema::types::CallableKind::Proc, SchemeType::Result(ok, _)) => **ok == SchemeType::Ground(Type::Path),
             _ => false,
         };
-        header && self.callable().requirements().methods.iter().any(|method| method.result == *actual && crate::modules::api_spec().method_family_returns_paths(method.family))
+        header && self.callable().requirements().methods.iter().any(|method| method.result == *actual && crate::modules::api_spec().method_requirement_returns_paths(method.kind))
     }
 
     pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation<SchemeType>> {
@@ -1149,11 +1179,8 @@ impl CallInstantiation {
         if method_bindings.len() != scope.requirements.methods.len()
             || method_bindings.iter().zip(&scope.requirements.methods).any(|(binding, method)| match binding {
                 SealedMethodBinding::Forwarded(ordinal) => caller_methods.get(*ordinal as usize)
-                    .is_none_or(|caller| caller.family != method.family),
-                SealedMethodBinding::Selected(id) => xsh_registry::signature::api_spec()
-                    .registered_method(*id)
-                    .is_none_or(|(receiver, name, overload, _)| xsh_registry::signature::api_spec()
-                        .method_family_id(receiver, name, overload) != Some(method.family)),
+                    .is_none_or(|caller| caller.kind != method.kind),
+                SealedMethodBinding::Selected(id) => !method.kind.admits(*id),
             })
         { return Err(SchemeBuildError::UnresolvedMethodFamily); }
         if wrapper_bindings.len() != scope.requirements.wrappers.len()

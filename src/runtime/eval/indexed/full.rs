@@ -6669,7 +6669,7 @@ impl<'p> FullExecution<'p> {
         for argument in encoded_arguments {
             arguments.push(verify_schemes::instantiate_bound_type(self.store(), *argument, &invocation.substitution, &mut budget, 0)?);
         }
-        match crate::modules::api_spec().select_method_family(method.family, &receiver, slots, &arguments) {
+        match crate::modules::api_spec().select_method_requirement(method.kind, &receiver, slots, &arguments) {
             crate::modules::signature::MethodFamilySelection::Selected(method) => Ok(Some(method)),
             crate::modules::signature::MethodFamilySelection::Unsupported => Err(IrVerifyError::new("verified method family has no canonical runtime member")),
             crate::modules::signature::MethodFamilySelection::Ambiguous => Err(IrVerifyError::new("verified method family has ambiguous runtime members")),
@@ -11460,27 +11460,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 return Self::registered_method_receiver(validated.base(), name);
             }
-            Type::Result(_, _) => crate::modules::MethodReceiver::Result,
-            Type::EnvPathList => crate::modules::MethodReceiver::EnvPathList,
-            Type::Path => crate::modules::MethodReceiver::Path,
-            Type::Int | Type::UInt => crate::modules::MethodReceiver::Int,
-            Type::Float => crate::modules::MethodReceiver::Float,
-            Type::Stream(_) => crate::modules::MethodReceiver::Stream,
-            Type::List(_) => crate::modules::MethodReceiver::List,
-            Type::Set(_) => crate::modules::MethodReceiver::Set,
-            Type::Map(_, _) => crate::modules::MethodReceiver::Map,
-            Type::ErasedRecord | Type::Record(_) | Type::Module(_) => {
-                crate::modules::MethodReceiver::Record
-            }
-            Type::Str => crate::modules::MethodReceiver::Str,
-            Type::Bytes => crate::modules::MethodReceiver::Bytes,
-            Type::Status => crate::modules::MethodReceiver::Status,
-            Type::ProcessHandle => crate::modules::MethodReceiver::ProcessHandle,
-            Type::NetJob => crate::modules::MethodReceiver::NetJob,
-            Type::FsRoot => crate::modules::MethodReceiver::FsRoot,
-            Type::Digest => crate::modules::MethodReceiver::Digest,
-            Type::Regex => crate::modules::MethodReceiver::Regex,
-            _ => return None,
+            other => crate::modules::signature::method_receiver_for_type(other)?,
         };
         crate::modules::api_spec()
             .method_overloads(candidate, name)
@@ -40614,7 +40594,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             ("pure read(row) -> Int { var copied: Int = row.value; copied = \"wrong\"; copied }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
             ("pure make(value: Int) -> List[Int] { [value] }\npure read(row) -> List[UInt] { make(row.value) }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
             ("pure item(value: Path) -> Path { value }\npure read(row) -> Result[Str] { item(row.path).read_text() }\n", crate::diagnostic::DiagnosticCode::CheckPureEffect),
-            ("pure read(row) { row.value.byte_at(0) }\nlet caller = read({value: b\"x\"})\n", crate::diagnostic::DiagnosticCode::CheckAmbiguousOverload),
+            ("pure read(row) { row.value.keys() }\nlet caller = read({value: b\"x\"})\n", crate::diagnostic::DiagnosticCode::CheckAmbiguousOverload),
         ] {
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pure-limit.xsh", crate::loader::entry_source_from_text("generic-pure-limit.xsh", source.to_string()), Vec::new());
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);

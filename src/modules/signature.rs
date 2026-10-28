@@ -1,3 +1,4 @@
+use crate::sema::schemes::MethodRequirementKind;
 use crate::sema::types::{ModuleExportType, Type};
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
@@ -224,21 +225,29 @@ impl ApiSpec {
         Some((receiver.receiver, method.name, method.overloads.get(overload)?))
     }
 
-    pub(crate) fn method_family_members<'a>(
+    pub(crate) fn overloaded_method_id(&self, name: &str) -> Option<registry::OverloadedMethodId> {
+        registry::api_spec().overloaded_method_id(name)
+    }
+
+    pub(crate) fn overloaded_method_name(&self, id: registry::OverloadedMethodId) -> Option<&'static str> {
+        registry::api_spec().overloaded_method_name(id)
+    }
+
+    pub(crate) fn method_requirement_members<'a>(
         &'a self,
-        family: registry::MethodFamilyId,
+        kind: MethodRequirementKind,
     ) -> impl Iterator<Item = (registry::RegisteredMethodId, MethodReceiver, &'static str, &'a MethodSig)> + 'a {
-        registry::api_spec().method_family_member_ids(family).iter().copied().filter_map(|id| {
+        kind.members().iter().copied().filter_map(|id| {
             self.registered_method(id).map(|(receiver, name, signature)| (id, receiver, name, signature))
         })
     }
 
-    pub(crate) fn method_family_member_count(&self, family: registry::MethodFamilyId) -> usize {
-        registry::api_spec().method_family_member_ids(family).len()
+    pub(crate) fn method_requirement_member_count(&self, kind: MethodRequirementKind) -> usize {
+        kind.members().len()
     }
 
-    pub(crate) fn method_family_result(&self, family: registry::MethodFamilyId) -> Option<MethodFamilyResult> {
-        let mut members = self.method_family_members(family);
+    pub(crate) fn method_requirement_result(&self, kind: MethodRequirementKind) -> Option<MethodFamilyResult> {
+        let mut members = self.method_requirement_members(kind);
         let (_, _, name, first) = members.next()?;
         let mut uniform = true;
         let mut selected = first.sig.params.is_empty() && first.sig.pure && first.sig.effects.is_empty()
@@ -250,18 +259,18 @@ impl ApiSpec {
                 && candidate.receiver_ty.as_ref() == Some(&candidate.sig.return_ty);
         }
         if uniform { Some(MethodFamilyResult::UniformGround(first.sig.return_ty.clone())) }
-        else if selected { Some(MethodFamilyResult::SelectedSignature) }
+        else if selected && matches!(kind, MethodRequirementKind::Family(_)) { Some(MethodFamilyResult::SelectedSignature) }
         else { None }
     }
 
-    pub(crate) fn method_family_returns_paths(&self, family: registry::MethodFamilyId) -> bool {
-        matches!(self.method_family_result(family), Some(MethodFamilyResult::SelectedSignature))
-            && self.method_family_members(family).all(|(_, _, _, member)| member.sig.return_ty == Type::Path || member.sig.return_ty == Type::rel_path())
+    pub(crate) fn method_requirement_returns_paths(&self, kind: MethodRequirementKind) -> bool {
+        matches!(self.method_requirement_result(kind), Some(MethodFamilyResult::SelectedSignature))
+            && self.method_requirement_members(kind).all(|(_, _, _, member)| member.sig.return_ty == Type::Path || member.sig.return_ty == Type::rel_path())
     }
 
-    pub(crate) fn select_method_family(
+    pub(crate) fn select_method_requirement(
         &self,
-        family: registry::MethodFamilyId,
+        kind: MethodRequirementKind,
         receiver_type: &Type,
         argument_slots: &[u32],
         arguments: &[Type],
@@ -273,7 +282,7 @@ impl ApiSpec {
         {
             return MethodFamilySelection::Unsupported;
         }
-        let Some((_, _, name, _)) = self.method_family_members(family).next() else { return MethodFamilySelection::Unsupported; };
+        let Some((_, _, name, _)) = self.method_requirement_members(kind).next() else { return MethodFamilySelection::Unsupported; };
         let mut actual = receiver_type;
         let domain = loop {
             match actual {
@@ -287,8 +296,8 @@ impl ApiSpec {
             }
         };
         let mut selected = None;
-        for (id, receiver, _, signature) in self.method_family_members(family) {
-            if domain.map_or_else(|| !method_receiver_accepts(receiver, actual), |domain| receiver != domain) { continue; }
+        for (id, receiver, _, signature) in self.method_requirement_members(kind) {
+            if domain.map_or_else(|| method_receiver_for_type(actual) != Some(receiver), |domain| receiver != domain) { continue; }
             let mut supplied = BTreeSet::new();
             let mut fits = true;
             for (argument, &slot) in arguments.iter().zip(argument_slots) {
@@ -338,16 +347,28 @@ pub(crate) enum MethodFamilyResult {
     SelectedSignature,
 }
 
-fn method_receiver_accepts(receiver: MethodReceiver, ty: &Type) -> bool {
-    use MethodReceiver as R;
-    use Type as T;
-    matches!((receiver, ty),
-        (R::List, T::List(_))
-            | (R::Map, T::Map(_, _))
-            | (R::Set, T::Set(_))
-            | (R::Bytes, T::Bytes)
-            | (R::Str, T::Str)
-            | (R::Path, T::Path))
+pub(crate) fn method_receiver_for_type(ty: &Type) -> Option<MethodReceiver> {
+    Some(match ty {
+        Type::Result(_, _) => MethodReceiver::Result,
+        Type::EnvPathList => MethodReceiver::EnvPathList,
+        Type::Path => MethodReceiver::Path,
+        Type::Int | Type::UInt => MethodReceiver::Int,
+        Type::Float => MethodReceiver::Float,
+        Type::Stream(_) => MethodReceiver::Stream,
+        Type::List(_) => MethodReceiver::List,
+        Type::Set(_) => MethodReceiver::Set,
+        Type::Map(_, _) => MethodReceiver::Map,
+        Type::ErasedRecord | Type::Record(_) | Type::Module(_) => MethodReceiver::Record,
+        Type::Str => MethodReceiver::Str,
+        Type::Bytes => MethodReceiver::Bytes,
+        Type::Status => MethodReceiver::Status,
+        Type::ProcessHandle => MethodReceiver::ProcessHandle,
+        Type::NetJob => MethodReceiver::NetJob,
+        Type::FsRoot => MethodReceiver::FsRoot,
+        Type::Digest => MethodReceiver::Digest,
+        Type::Regex => MethodReceiver::Regex,
+        _ => return None,
+    })
 }
 
 #[derive(Clone, Debug)]

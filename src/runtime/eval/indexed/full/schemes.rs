@@ -607,8 +607,7 @@ pub(super) use crate::sema::schemes::SealedMethodBinding as FullMethodBinding;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub(super) struct FullSchemeMethod {
-    pub(super) family: xsh_registry::signature::MethodFamilyId,
-    pub(super) reserved: [u8; 3],
+    pub(super) kind: crate::sema::schemes::MethodRequirementKind,
     pub(super) receiver: SchemeTypeId,
     pub(super) argument_slots: IrRange,
     pub(super) arguments: IrRange,
@@ -1063,8 +1062,7 @@ impl FullBuilder {
             }
             let arguments = super::table_range(arguments_start, self.store.scheme_method_arguments.len())?;
             self.store.scheme_methods.push(FullSchemeMethod {
-                family: method.family,
-                reserved: [0; 3],
+                kind: method.kind,
                 receiver,
                 argument_slots,
                 arguments,

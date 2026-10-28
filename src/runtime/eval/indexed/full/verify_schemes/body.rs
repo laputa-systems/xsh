@@ -3822,7 +3822,7 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
         wrong_name.store.extra[words.start + 1] = normal_name;
         reject(wrong_name, "actual method name");
         let mut wrong_family = program.clone();
-        wrong_family.store.scheme_methods[method_index].family = xsh_registry::signature::MethodFamilyId::PathNormalize;
+        wrong_family.store.scheme_methods[method_index].kind = crate::sema::schemes::MethodRequirementKind::Family(xsh_registry::signature::MethodFamilyId::PathNormalize);
         reject(wrong_family, "retained method family");
         let mut wrong_result = program.clone();
         let result_type = program.store.scheme_methods[method_index].result;
@@ -3873,6 +3873,58 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
             FullVerifier::verify(&wrong_literal).expect_err("a Bool cannot stand for the Regex argument").message,
             "generic call argument does not match its checked parameter slot",
         );
+    }
+
+    #[test]
+    fn overloaded_method_requirements_authenticate_their_registry_members() {
+        use crate::sema::schemes::MethodRequirementKind;
+        use xsh_registry::signature::OverloadedMethodId;
+        let program = prepare("pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }\nlet text = byte_or_none(\"abc\", 1)\nlet data = byte_or_none(b\"abc\", 1)\n");
+        let api = crate::modules::api_spec();
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        assert_eq!(scheme.methods.len, 1);
+        let method_index = scheme.methods.start as usize;
+        let byte_at = api.overloaded_method_id("byte_at").unwrap();
+        assert_eq!(program.store.scheme_methods[method_index].kind, MethodRequirementKind::Overloaded(byte_at));
+        let reject = |mut changed: FullProgram, label: &str| -> String {
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+            error.message
+        };
+        let mut out_of_table = program.clone();
+        out_of_table.store.scheme_methods[method_index].kind = MethodRequirementKind::Overloaded(OverloadedMethodId::from_raw(u16::MAX));
+        assert_eq!(reject(out_of_table, "member outside the registry table"), "scheme method names no overloaded registry method");
+        let replace = api.overloaded_method_id("replace").unwrap();
+        assert_ne!(replace, byte_at);
+        let mut other_name = program.clone();
+        other_name.store.scheme_methods[method_index].kind = MethodRequirementKind::Overloaded(replace);
+        reject(other_name, "another overloaded method name");
+        let mut other_family = program.clone();
+        other_family.store.scheme_methods[method_index].kind = MethodRequirementKind::Family(xsh_registry::signature::MethodFamilyId::Length);
+        reject(other_family, "a family in place of the overloaded name");
+        let calls = program.store.call_instantiations.iter().filter(|call| {
+            call.arguments.method_bindings.len == 1
+                && program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)
+        }).collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        let selected = calls.iter().map(|call| match program.store.call_method_bindings[call.arguments.method_bindings.start as usize] {
+            super::super::super::schemes::FullMethodBinding::Selected(member) => member,
+            other => panic!("a ground call selects its member: {other:?}"),
+        }).collect::<Vec<_>>();
+        assert_ne!(selected[0], selected[1]);
+        let member_of = |receiver| api.method_requirement_members(MethodRequirementKind::Overloaded(byte_at)).find(|(_, domain, _, _)| *domain == receiver).unwrap().0;
+        assert!(selected.contains(&member_of(crate::modules::MethodReceiver::Str)) && selected.contains(&member_of(crate::modules::MethodReceiver::Bytes)));
+        let mut swapped = program.clone();
+        let binding = calls[0].arguments.method_bindings.start as usize;
+        swapped.store.call_method_bindings[binding] = super::super::super::schemes::FullMethodBinding::Selected(selected[1]);
+        assert!(reject(swapped, "the other receiver's member").contains("canonical input signature"));
+        let foreign = xsh_registry::signature::api_spec().overloaded_method_member_ids(replace)[0];
+        let mut foreign_member = program.clone();
+        foreign_member.store.call_method_bindings[binding] = super::super::super::schemes::FullMethodBinding::Selected(foreign);
+        assert!(reject(foreign_member, "a member of another method name").contains("canonical input signature"));
     }
 
     #[test]
@@ -3946,7 +3998,7 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
         wrong_result.store.scheme_types[result_type.index()].first = program.store.scheme_types[path_type.index()].first;
         let error = FullVerifier::verify(&wrong_result).unwrap_err();
         assert!(error.message.contains("canonical result"), "{error:?}");
-        let member = crate::modules::api_spec().method_family_members(xsh_registry::signature::MethodFamilyId::PathParent).find(|(_, domain, _, _)| *domain == crate::modules::MethodReceiver::Path).unwrap().0;
+        let member = crate::modules::api_spec().method_requirement_members(crate::sema::schemes::MethodRequirementKind::Family(xsh_registry::signature::MethodFamilyId::PathParent)).find(|(_, domain, _, _)| *domain == crate::modules::MethodReceiver::Path).unwrap().0;
         let mut wrong_member = program.clone();
         wrong_member.store.in_place.take();
         assert!(wrong_member.store.in_place.get().is_none());

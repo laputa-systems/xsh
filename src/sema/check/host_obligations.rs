@@ -1,6 +1,7 @@
 use super::{ArenaCallArg, ArenaProgram, Checker, DiagnosticCode, HostCallSource, MethodReceiver, MethodSig, Span, Type, api_spec};
 use crate::sema::arguments::{ExpandedArgument, StaticArgumentBinding};
 use crate::sema::builtin_templates::BuiltinInstantiation;
+use crate::sema::schemes::MethodRequirementKind;
 use crate::sema::constraints::{ConstraintConflict, ConstraintResolutionError, TypeConstraints};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::OnceLock;
@@ -165,17 +166,20 @@ impl HostMethodCandidates {
         self.candidates.iter().all(|candidate| candidate.signature.sig.return_ty == *result).then_some(result)
     }
 
-    fn method_family_requirement(&self, name: &str) -> Option<(xsh_registry::signature::MethodFamilyId, Vec<u32>, Type, &'static MethodSig)> {
+    fn method_requirement(&self, name: &str) -> Option<(MethodRequirementKind, Vec<u32>, Type, &'static MethodSig)> {
         let first = *self.candidates.first()?;
-        let family = api_spec().method_family_id(first.receiver, name, first.signature)?;
-        let policy = api_spec().method_family_result(family)?;
+        let kind = match api_spec().method_family_id(first.receiver, name, first.signature) {
+            Some(family) => MethodRequirementKind::Family(family),
+            None => MethodRequirementKind::Overloaded(api_spec().overloaded_method_id(name)?),
+        };
+        let policy = api_spec().method_requirement_result(kind)?;
         let result = match &policy {
             crate::modules::signature::MethodFamilyResult::UniformGround(result) => result.clone(),
             crate::modules::signature::MethodFamilyResult::SelectedSignature => self.result.clone(),
         };
         let mut slots = None;
         for candidate in &self.candidates {
-            if api_spec().method_family_id(candidate.receiver, name, candidate.signature) != Some(family)
+            if matches!(kind, MethodRequirementKind::Family(family) if api_spec().method_family_id(candidate.receiver, name, candidate.signature) != Some(family))
                 || matches!(&policy, crate::modules::signature::MethodFamilyResult::UniformGround(result) if candidate.signature.sig.return_ty != *result)
                 || candidate.signature.sig.pure != first.signature.sig.pure
                 || candidate.signature.sig.effects != first.signature.sig.effects
@@ -190,7 +194,7 @@ impl HostMethodCandidates {
             }
             slots = Some(candidate_slots);
         }
-        Some((family, slots?, result, first.signature))
+        Some((kind, slots?, result, first.signature))
     }
 
     fn constrain_candidate(
@@ -222,8 +226,8 @@ impl HostMethodCandidates {
     }
 
     fn select(&mut self, constraints: &mut TypeConstraints, name: &str) -> Result<bool, ConstraintResolutionError> {
-        let selected_family = self.method_family_requirement(name).and_then(|(family, slots, _, _)| {
-            matches!(api_spec().method_family_result(family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)).then_some((family, slots))
+        let selected_kind = self.method_requirement(name).and_then(|(kind, slots, _, _)| {
+            matches!(api_spec().method_requirement_result(kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)).then_some((kind, slots))
         });
         let mut matching = Vec::new();
         for candidate in std::mem::take(&mut self.candidates) {
@@ -249,13 +253,13 @@ impl HostMethodCandidates {
                 matching.push(candidate);
             }
         }
-        let mut deferred_result = selected_family.is_some();
-        if let Some((family, slots)) = &selected_family {
+        let mut deferred_result = selected_kind.is_some();
+        if let Some((kind, slots)) = &selected_kind {
             let receiver = constraints.resolve(&self.receiver)?;
             let arguments = self.arguments.iter().map(|argument| constraints.resolve(&argument.ty)).collect::<Result<Vec<_>, _>>()?;
             if !receiver.contains_inference() && !arguments.iter().any(Type::contains_inference) {
                 deferred_result = false;
-                match api_spec().select_method_family(*family, &receiver, slots, &arguments) {
+                match api_spec().select_method_requirement(*kind, &receiver, slots, &arguments) {
                     crate::modules::signature::MethodFamilySelection::Selected(id) => {
                         let (domain, _, signature) = api_spec().registered_method(id).expect("selected method remains registered");
                         matching.retain(|candidate| candidate.receiver == domain && std::ptr::eq(candidate.signature, signature));
@@ -401,14 +405,14 @@ impl Checker {
                     && !obligation.receiver.contains_any()
                     && !obligation.receiver.contains_recovery()
                     && obligation.arguments.iter().all(|argument| !argument.ty.contains_any() && !argument.ty.contains_recovery())
-            }).and_then(|_| obligation.method_family_requirement(&continuation.name).map(|(_, _, result, _)| result));
+            }).and_then(|_| obligation.method_requirement(&continuation.name).map(|(_, _, result, _)| result));
             if let Some(owner) = continuation.owner
                 && matches!(continuation.source, HostCallSource::Expression(_))
-                && let Some((family, argument_slots, result, _)) = obligation.method_family_requirement(name)
-                && matches!(api_spec().method_family_result(family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature))
+                && let Some((kind, argument_slots, result, _)) = obligation.method_requirement(name)
+                && matches!(api_spec().method_requirement_result(kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature))
             {
                 let requirement = crate::sema::schemes::MethodFamilyRequirement {
-                    family, receiver: obligation.receiver.clone(), argument_slots,
+                    kind, receiver: obligation.receiver.clone(), argument_slots,
                     arguments: obligation.arguments.iter().map(|argument| argument.ty.clone()).collect(), result,
                 };
                 if let Err(error) = self.type_constraints.register_method_family(self.constraint_scope_at(owner, span), requirement, Some(span), span) {
@@ -462,7 +466,7 @@ impl Checker {
             {
                 if let Some(owner) = owner
                     && matches!(&obligation.continuation.source, HostCallSource::Expression(_))
-                    && let Some((family, argument_slots, result, representative)) = obligation.candidates.method_family_requirement(&obligation.continuation.name)
+                    && let Some((kind, argument_slots, result, representative)) = obligation.candidates.method_requirement(&obligation.continuation.name)
                     && !obligation.candidates.receiver.contains_any()
                     && !obligation.candidates.receiver.contains_recovery()
                     && obligation.candidates.arguments.iter().all(|argument| !argument.ty.contains_any() && !argument.ty.contains_recovery())
@@ -482,7 +486,7 @@ impl Checker {
                     let result_matches = body_result.is_ok() && expected_result.as_ref().is_none_or(Result::is_ok);
                     if result_matches {
                         let requirement = crate::sema::schemes::MethodFamilyRequirement {
-                            family,
+                            kind,
                             receiver: obligation.candidates.receiver.clone(),
                             argument_slots,
                             arguments: obligation.candidates.arguments.iter().map(|argument| argument.ty.clone()).collect(),

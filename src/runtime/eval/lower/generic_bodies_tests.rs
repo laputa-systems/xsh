@@ -5754,7 +5754,7 @@ test imported_path_method_results {
         let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         for family in [xsh_registry::signature::MethodFamilyId::PathParent, xsh_registry::signature::MethodFamilyId::PathNormalize] {
-            let scheme = checked.function_schemes.values().find(|scheme| scheme.callable().requirements().methods.iter().any(|method| method.family == family)).unwrap();
+            let scheme = checked.function_schemes.values().find(|scheme| scheme.callable().requirements().methods.iter().any(|method| method.kind == crate::sema::schemes::MethodRequirementKind::Family(family))).unwrap();
             let crate::sema::schemes::SchemeType::Parameter(receiver) = &scheme.params()[0].ty else { panic!("the exported receiver remains a caller-independent parameter") };
             let crate::sema::schemes::SchemeType::Parameter(result) = scheme.return_type() else { panic!("the exported result retains its canonical member relationship") };
             assert_ne!(receiver, result);

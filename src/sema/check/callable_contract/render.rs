@@ -337,7 +337,11 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
             format!("{slot}: {}", render_scheme_type(argument, names, identities, context))
         }).collect::<Vec<_>>().join(", ");
         let result = render_scheme_type(&method.result, names, identities, context);
-        parts.push(format!("method-family({:?}, receiver={receiver}, args=[{arguments}]) -> {result}", method.family));
+        let label = match method.kind {
+            crate::sema::schemes::MethodRequirementKind::Family(_) => format!("method-family({}", method.kind),
+            crate::sema::schemes::MethodRequirementKind::Overloaded(_) => format!("method-overload({}", method.kind),
+        };
+        parts.push(format!("{label}, receiver={receiver}, args=[{arguments}]) -> {result}"));
     }
     for predicate in &requirements.effect_predicates {
         use crate::sema::effects::EffectPredicate;

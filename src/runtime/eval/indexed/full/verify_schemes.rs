@@ -535,7 +535,9 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
 
         mark_range(pack_scope.operations, &store.scheme_operations, &mut operation_coverage, "scheme operation range is invalid or overlaps")?;
         for method in mark_range(pack_scope.methods, &store.scheme_methods, &mut method_coverage, "scheme method range is invalid or overlaps")? {
-            if method.reserved != [0; 3] { return Err(IrVerifyError::new("scheme method metadata is invalid")); }
+            if let crate::sema::schemes::MethodRequirementKind::Overloaded(overloaded) = method.kind
+                && crate::modules::api_spec().overloaded_method_name(overloaded).is_none()
+            { return Err(IrVerifyError::new("scheme method names no overloaded registry method")); }
             let slots = mark_range(method.argument_slots, &store.scheme_method_slots, &mut method_slot_coverage, "scheme method argument slot range is invalid or overlaps")?;
             let arguments = mark_range(method.arguments, &store.scheme_method_arguments, &mut method_argument_coverage, "scheme method argument range is invalid or overlaps")?;
             if slots.len() != arguments.len() || slots.iter().copied().collect::<BTreeSet<_>>().len() != slots.len() {

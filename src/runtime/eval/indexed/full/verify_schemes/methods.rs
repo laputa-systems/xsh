@@ -1,10 +1,10 @@
 use super::{FullStore, SchemeScope, SchemeInstantiationBudget, IrVerifyError, bounded, BTreeSet, body_types_equal, FullScheme};
 use super::applications::ApplicationSubstitution;
 use super::super::schemes::{FullMethodBinding, FullSchemeMethod};
-use crate::sema::schemes::{MethodFamilyRequirement, SchemeType};
+use crate::sema::schemes::{MethodFamilyRequirement, MethodRequirementKind, SchemeType};
 use crate::sema::types::Type;
 use crate::syntax::node::Effect;
-use xsh_registry::signature::{MethodFamilyId, RegisteredMethodId};
+use xsh_registry::signature::RegisteredMethodId;
 
 enum MethodSelection {
     Selected(RegisteredMethodId),
@@ -21,9 +21,6 @@ pub(super) fn decode(
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<MethodFamilyRequirement<SchemeType>, IrVerifyError> {
     budget.charge(1)?;
-    if encoded.reserved != [0; 3] {
-        return Err(IrVerifyError::new("scheme method metadata is invalid"));
-    }
     let slots = bounded(encoded.argument_slots, &store.scheme_method_slots, "scheme method argument slot range is invalid")?;
     let arguments = bounded(encoded.arguments, &store.scheme_method_arguments, "scheme method argument range is invalid")?;
     if slots.len() != arguments.len() || slots.iter().copied().collect::<BTreeSet<_>>().len() != slots.len() {
@@ -31,7 +28,7 @@ pub(super) fn decode(
     }
     budget.charge(2 + arguments.len())?;
     Ok(MethodFamilyRequirement {
-        family: encoded.family,
+        kind: encoded.kind,
         receiver: substitution.ty(store, scope, encoded.receiver, budget)?,
         argument_slots: slots.to_vec(),
         arguments: arguments.iter().map(|argument| substitution.ty(store, scope, *argument, budget)).collect::<Result<_, _>>()?,
@@ -48,7 +45,7 @@ pub(super) fn authenticates_result_evidence(
 ) -> Result<bool, IrVerifyError> {
     let requirement = decode(store, scope, encoded, substitution, budget)?;
     validate_requirement_for_binding(&requirement, budget)?;
-    if !matches!(crate::modules::api_spec().method_family_result(requirement.family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(false); }
+    if !matches!(crate::modules::api_spec().method_requirement_result(requirement.kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(false); }
     if matches!(substitution, ApplicationSubstitution::Ground(_)) {
         let MethodSelection::Selected(selected) = select(&requirement, budget)? else { return Err(IrVerifyError::new("method output evidence has no canonical input selection")); };
         let (_, _, signature) = crate::modules::api_spec().registered_method(selected).ok_or_else(|| IrVerifyError::new("method output evidence has no registered member"))?;
@@ -72,7 +69,7 @@ pub(super) fn owns_selected_result(
         let requirement = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
         if !body_types_equal(actual, &requirement.result) { continue; }
         validate_requirement_for_binding(&requirement, budget)?;
-        if matches!(crate::modules::api_spec().method_family_result(requirement.family), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(true); }
+        if matches!(crate::modules::api_spec().method_requirement_result(requirement.kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(true); }
     }
     Ok(false)
 }
@@ -111,8 +108,8 @@ pub(super) fn written_path_return_matches(
         let requirement = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
         if !body_types_equal(payload, &requirement.result) { continue; }
         validate_requirement_for_binding(&requirement, budget)?;
-        budget.charge(crate::modules::api_spec().method_family_member_count(requirement.family))?;
-        if crate::modules::api_spec().method_family_returns_paths(requirement.family) { return Ok(true); }
+        budget.charge(crate::modules::api_spec().method_requirement_member_count(requirement.kind))?;
+        if crate::modules::api_spec().method_requirement_returns_paths(requirement.kind) { return Ok(true); }
     }
     Ok(false)
 }
@@ -214,7 +211,7 @@ fn validate_requirement_for_binding(
     reject_any_or_recovery(std::iter::once(&requirement.receiver)
         .chain(requirement.arguments.iter())
         .chain(std::iter::once(&requirement.result)), budget)?;
-    family_contract(requirement.family, budget)?;
+    family_contract(requirement.kind, budget)?;
     Ok(())
 }
 
@@ -224,13 +221,13 @@ fn validate_requirement(
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
     validate_requirement_for_binding(requirement, budget)?;
-    let (family_name, return_type, _, _) = family_contract(requirement.family, budget)?;
+    let (family_name, return_type, _, _) = family_contract(requirement.kind, budget)?;
     let result_matches = match return_type {
         crate::modules::signature::MethodFamilyResult::UniformGround(return_type) => body_types_equal(&requirement.result, &SchemeType::Ground(return_type)),
         crate::modules::signature::MethodFamilyResult::SelectedSignature => match &requirement.result {
             SchemeType::Parameter(_) => true,
-            SchemeType::Ground(actual) => crate::modules::api_spec().method_family_members(requirement.family).any(|(_, _, _, member)| *actual == member.sig.return_ty),
-            SchemeType::Validated(_, _) => requirement.result.closed_ground_type().is_some_and(|actual| crate::modules::api_spec().method_family_members(requirement.family).any(|(_, _, _, member)| actual == member.sig.return_ty)),
+            SchemeType::Ground(actual) => crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, _, _, member)| *actual == member.sig.return_ty),
+            SchemeType::Validated(_, _) => requirement.result.closed_ground_type().is_some_and(|actual| crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, _, _, member)| actual == member.sig.return_ty)),
             _ => false,
         },
     };
@@ -238,9 +235,9 @@ fn validate_requirement(
         return Err(IrVerifyError::new("generic method family disagrees with its canonical result contract"));
     }
     let api = crate::modules::api_spec();
-    budget.charge(api.method_family_member_count(requirement.family))?;
+    budget.charge(api.method_requirement_member_count(requirement.kind))?;
     let mut possible = false;
-    for (_, domain, _, signature) in api.method_family_members(requirement.family) {
+    for (_, domain, _, signature) in api.method_requirement_members(requirement.kind) {
         budget.charge(1)?;
         possible |= receiver_may_match(domain, &requirement.receiver)
             && argument_layout_may_match(&signature.sig.params, &requirement.argument_slots, &requirement.arguments);
@@ -250,16 +247,16 @@ fn validate_requirement(
 }
 
 fn family_contract(
-    family: MethodFamilyId,
+    kind: MethodRequirementKind,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(&'static str, crate::modules::signature::MethodFamilyResult, bool, Vec<Effect>), IrVerifyError> {
     let api = crate::modules::api_spec();
-    let mut members = api.method_family_members(family);
+    let mut members = api.method_requirement_members(kind);
     let Some((_, _, name, first)) = members.next() else {
         return Err(IrVerifyError::new("generic method family has no canonical members"));
     };
     budget.charge(1)?;
-    let return_type = api.method_family_result(family).ok_or_else(|| IrVerifyError::new("generic method family has inconsistent canonical result contracts"))?;
+    let return_type = api.method_requirement_result(kind).ok_or_else(|| IrVerifyError::new("generic method family has inconsistent canonical result contracts"))?;
     if let crate::modules::signature::MethodFamilyResult::UniformGround(ty) = &return_type { budget.charge_clone(ty)?; }
     let pure = first.sig.pure;
     let effects = first.sig.effects.to_vec();
@@ -287,16 +284,8 @@ fn receiver_may_match(receiver: crate::modules::MethodReceiver, ty: &SchemeType)
 
 fn receiver_type_matches(receiver: crate::modules::MethodReceiver, ty: &Type) -> bool {
     use crate::modules::MethodReceiver as R;
-    use Type as T;
-    if receiver == R::RelPath && matches!(ty, T::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath) { return true; }
-    let ty = ty.unvalidated();
-    matches!((receiver, ty),
-        (R::List, T::List(_))
-            | (R::Map, T::Map(_, _))
-            | (R::Set, T::Set(_))
-            | (R::Bytes, T::Bytes)
-            | (R::Str, T::Str)
-            | (R::Path, T::Path))
+    if receiver == R::RelPath && matches!(ty, Type::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath) { return true; }
+    crate::modules::signature::method_receiver_for_type(ty.unvalidated()) == Some(receiver)
 }
 
 fn argument_layout_may_match(
@@ -335,9 +324,9 @@ fn select(
         let Some(argument) = argument.closed_ground_type() else { return Ok(MethodSelection::Unresolved) };
         arguments.push(argument);
     }
-    budget.charge(crate::modules::api_spec().method_family_member_count(requirement.family))?;
-    Ok(match crate::modules::api_spec().select_method_family(
-        requirement.family,
+    budget.charge(crate::modules::api_spec().method_requirement_member_count(requirement.kind))?;
+    Ok(match crate::modules::api_spec().select_method_requirement(
+        requirement.kind,
         &receiver,
         &requirement.argument_slots,
         &arguments,
@@ -352,7 +341,7 @@ fn requirements_equal(
     left: &MethodFamilyRequirement<SchemeType>,
     right: &MethodFamilyRequirement<SchemeType>,
 ) -> bool {
-    left.family == right.family
+    left.kind == right.kind
         && left.argument_slots == right.argument_slots
         && body_types_equal(&left.receiver, &right.receiver)
         && left.arguments.iter().zip(&right.arguments).all(|(left, right)| body_types_equal(left, right))

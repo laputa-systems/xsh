@@ -634,7 +634,7 @@ impl BoundEquivalence<'_> {
             && left.operations.iter().zip(&right.operations).all(|(left, right)| left.same_kind(right) && left.types().zip(right.types()).all(|(left, right)| self.ty(left, right)))
             && left.methods.len() == right.methods.len()
             && left.methods.iter().zip(&right.methods).all(|(left, right)| {
-                left.family == right.family
+                left.kind == right.kind
                     && left.argument_slots == right.argument_slots
                     && left.arguments.len() == right.arguments.len()
                     && self.ty(&left.receiver, &right.receiver)
@@ -1537,7 +1537,7 @@ mod tests {
             let source = format!("pure describe(values) {{ {expression} }}\n");
             let constrained = root_schema_contract(&source);
             assert_eq!(constrained.scheme().callable().requirements().methods.len(), 1);
-            assert_eq!(constrained.scheme().callable().requirements().methods[0].family, family);
+            assert_eq!(constrained.scheme().callable().requirements().methods[0].kind, crate::sema::schemes::MethodRequirementKind::Family(family));
             let renamed = root_schema_contract(&format!("pure unrelated(value) {{ [value] }}\n{source}"));
             let unbounded = root_schema_contract(&format!("pure describe(values) {{ let _ = values; {constant} }}\n"));
             assert!(constrained.equivalent_to(&renamed));
@@ -1549,7 +1549,7 @@ mod tests {
         let write = root_schema_contract(r#"proc describe(value) { p"unused".write(value) }"#);
         assert_eq!(write.scheme().callable().requirements().methods.len(), 1);
         let method = &write.scheme().callable().requirements().methods[0];
-        assert_eq!(method.family, MethodFamilyId::PathWrite);
+        assert_eq!(method.kind, crate::sema::schemes::MethodRequirementKind::Family(MethodFamilyId::PathWrite));
         assert_eq!(method.argument_slots, vec![0]);
         assert!(write.to_string().contains("method-family(PathWrite, receiver=Path, args=[0: T0])"));
     }
