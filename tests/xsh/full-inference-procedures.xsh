@@ -504,3 +504,48 @@ print "not reached"
   assert output.status == 5, output.stderr
   assert output.stdout == "first: ready\nsecond: loaded\n", output.stdout
 }
+
+test test_full_inference_proc_ending_in_a_returning_loop_has_no_unit_completion { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc spin(limit: Int) {
+  var count = 0
+  loop {
+    count += 1
+    if count > limit { return count }
+  }
+}
+proc scan(limit: Int) {
+  var at = 0
+  while true {
+    at += 2
+    if at > limit { return at }
+  }
+}
+let first = spin(3)?
+let second = scan(5)?
+print $first
+print $second
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4\n6\n"
+}
+
+test test_full_inference_proc_with_a_breaking_loop_still_completes_with_unit { |ctx|
+  test.expect(
+    ctx,
+    r"""proc spin(limit: Int) {
+  var count = 0
+  loop {
+    count += 1
+    if count > limit { return count }
+    break when count > 10
+  }
+}
+let first = spin(3)?
+""",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "completions of proc `spin`"],
+  )?
+}

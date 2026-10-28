@@ -6968,6 +6968,10 @@ impl Checker {
                     .iter()
                     .all(|arm| self.return_inference_block_returns(arena, arm.block))
             }
+            ArenaStmtKind::Loop { block } => !block_control_flow(arena, block, &FlowFacts::AST_ONLY).breaks_target,
+            ArenaStmtKind::While { condition, block } if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) => {
+                !block_control_flow(arena, block, &FlowFacts::AST_ONLY).breaks_target
+            }
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::Export(_)
             | ArenaStmtKind::TypeDef(_)
@@ -6989,7 +6993,6 @@ impl Checker {
             }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
-            | ArenaStmtKind::Loop { .. }
             | ArenaStmtKind::Guard { .. }
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Break { .. }
