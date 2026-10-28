@@ -48,10 +48,15 @@ Branch decisions, 2026-10-28 (tip SHAs kept so any branch can be restored):
   focused reports, which master discards) and the paired-bootstrap focused
   timing comparison (it needs a public focused observation API and a quiet
   host).
+- Deleted after review: `park/pyramid-tokei-scout` (`3164f644b`), whose
+  focused json-n runner and source-observer lines are older forms of master's
+  focused-workload path and `dev/gate_source.py`, and `park/pyramid-resources`
+  (`c5a161317`), whose unverified-prebuilt-product reporting predates master's
+  gate-prepared product binding.
 - Review, then port or delete: `park/pyramid-{core-cases,kbuild-case,laputa-case,
-  native-set,resources,tokei-scout}`, one preservation commit each on
-  `dbdd0a80d`, and the small residue of `campaign/pyramid-{catalogue,resources,
-  workloads}` relative to the integration line.
+  native-set}`, one preservation commit each on `dbdd0a80d`, and the small
+  residue of `campaign/pyramid-{catalogue,resources,workloads}` relative to the
+  integration line.
 - `campaign/pyramid-json-structured` (`76d36cc4f`) is being qualified as
   `pyramid/json-structured`.
 
