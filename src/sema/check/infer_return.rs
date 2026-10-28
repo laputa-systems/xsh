@@ -563,6 +563,15 @@ impl Checker {
             self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
             return;
         }
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() != Some(CallableKind::Pure) { continue; }
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let Some(returned) = self.function_return_types.get(&body).cloned() else { continue; };
+            self.update_pending_return_type(program, def, returned);
+        }
         self.generalize_recursive_component(program, &definitions);
         self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
     }

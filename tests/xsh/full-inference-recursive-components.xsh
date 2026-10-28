@@ -179,3 +179,24 @@ let text = store("wrong", 2)?
     stderr: ["[check.type-mismatch]"],
   )?
 }
+
+test test_full_inference_recursive_pure_indexes_a_generic_receiver { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure total(items, count) {
+  if count == 0 { 0 } else { items[0] + total(items, count - 1) }
+}
+pure weigh(items, count) {
+  if count == 0 { 0.0 } else { items[0] * 0.5 + weigh(items, count - 1) }
+}
+let integers = total([1, 2, 3], 2)
+let floats = weigh([1.0, 2.0], 2)
+assert integers == 2
+assert floats == 1.0
+print $integers
+print $floats
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n1\n"
+}
