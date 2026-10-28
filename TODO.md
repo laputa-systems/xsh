@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 53
+Next: 55
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -73,6 +73,30 @@ out of scope.
 - **Coordination:** XSH-36 owns the resource contracts; Laputa LAP-36 supplies the xinit/PID 1 consumer, and LAP-34 owns its first hermetic lifecycle replay.
 - **Fix with:** lifecycle-concurrency
 - **Effort:** M
+
+### XSH-53 · P2 · Run a supervised local syslog receiver written in XSH
+
+- **Area:** Operability
+- **Where:** `core/syslogd.xsh`, `core/lib/syslog_*.xsh`, `src/modules/unix.rs`, `src/modules/time.rs`, `src/modules/linux/net_prims/sockets.rs`, `src/runtime/process.rs`, `crates/xsh-registry/`, `core/tests/`, Laputa `xinit/`
+- **Problem:** No local `/dev/log` receiver exists. A foreground service cannot yet be written: a blocked `unix.poll_fd` ignores `SIGTERM` (probed, needs `SIGKILL`), there is no multi-descriptor wait, no suspend-aware clock, `recvfrom` hides the real datagram length and leaves `SCM_RIGHTS` descriptors for the script to close. AF_UNIX datagram queue overflow is invisible to the receiver (probed). New APIs are outside the G0 admission list; this work runs under the owner's campaign authorization.
+- **Recommendation:** Follow [the design](docs/rfc/XSH-53-supervised-dhcp-and-syslog.md): increments S1 to S8 in order (`unix.poll_fds`, `time.boottime`, `recvfrom` metadata and owned descriptors, then the parser, limits, socket lifecycle and real-client suite in XSH, then the `xinit` companion). This lane owns S1 and S2, which the DHCP lane consumes. S9 (`/dev/kmsg`) waits for the owner.
+- **Acceptance:** Per-increment acceptance in the design. In short: `SIGTERM` stops an idle service with zero idle wakeups; a real musl `syslog(3)` sender, concurrent uids, malformed, oversized, binary, multiline and truncated messages, unexpected descriptors with descriptor exhaustion, floods, full/gone/rotated sinks, restart over a stale socket, a live competing receiver and readiness not preceding bind all run (not skip) in the privileged Linux gate lane; one record is one escaped line; kernel credentials and self-reported fields stay separate; no wall-clock claim. Loss is documented, not hidden.
+- **Coordination:** XSH-35 gains the boottime clock; XSH-36 gains received-descriptor ownership; XSH-39 consumes `poll_fds` instead of defining its own wait; XSH-54 consumes S1 and S2. The `xinit` changes (X1 to X5) are under Laputa `xinit/` only; installing the services as packages is not part of this work.
+- **Design:** [XSH-53](docs/rfc/XSH-53-supervised-dhcp-and-syslog.md)
+- **Fix with:** isolate-effects
+- **Effort:** L
+
+### XSH-54 · P2 · Run a supervised DHCPv4 lease client written in XSH
+
+- **Area:** Operability
+- **Where:** `core/dhcpc.xsh`, `core/lib/dhcp_*.xsh`, `core/ifup.xsh`, `core/ifdown.xsh`, `core/lib/nettools_fixture.xsh`, `src/modules/linux/real/netlink.rs`, `src/modules/linux/real/net.rs`, `src/modules/fs.rs`, `crates/xsh-registry/`, `core/tests/`, Laputa `xinit/tests/`
+- **Problem:** `ifup` acquires one lease with fixed retries, no lease time, no renewal or NAK handling, a parser that dies on one malformed option, broadcast-only sends and a direct write to `/etc/resolv.conf`; `ifdown` flushes every address on the interface and never releases. DHCP packet construction also lives in Rust (`build_dhcp_release`). `network_dump` routes omit `tos`, so route identity is incomplete (blocks Laputa LAP-32).
+- **Recommendation:** Follow [the design](docs/rfc/XSH-53-supervised-dhcp-and-syslog.md): D1 to D8 in order (`tos`, wire library, rooted atomic publication, pure state machine, lease store and ownership, resolver coordinator, client loop with `ifup`/`ifdown` contract and removal of the `linux.dhcp_*` primitives, namespace integration), then D10 on VMs. D2 to D6 need no new runtime and may start at once; D7 waits for XSH-53's S1 and S2. D9 (option 121) waits for the owner.
+- **Acceptance:** Per-increment acceptance in the design. In short: acquisition, unicast renewal, broadcast rebinding, NAK, expiry and INIT-REBOOT against a controlled server with short leases; duplicate, out-of-order, unrelated and malformed replies never kill the client; only addresses and routes in the owned record are ever removed and foreign and Tailscale-like state survives; a foreign `resolv.conf` or symlink is never replaced; remembered leases are revalidated; link flap, interface recreation, crash restart, concurrent `ifup`, lost notifications and partial mutation failure reconcile from observation; VM pause and clock steps measured and documented. Tests run, not skip, in the privileged Linux gate lane.
+- **Coordination:** XSH-38 owns the general typed network library; `core/lib/dhcp_net.xsh` is its first consumer and must not fork its records. XSH-37 gains the `FsRoot.write_atomic` replacement policy. Laputa LAP-32 consumes `tos`; Laputa's roadmap R2 still recommends evaluating an existing DHCP client and is outside this repository's scope to edit.
+- **Design:** [XSH-53](docs/rfc/XSH-53-supervised-dhcp-and-syslog.md)
+- **Fix with:** isolate-effects
+- **Effort:** L
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
