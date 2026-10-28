@@ -1169,6 +1169,21 @@ test test_privileged_native_case_runs_the_root_and_namespace_groups_alone {
   }
 }
 
+test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
+  let ctx = fixtures.linux_context(fs.cwd()?)?
+  let gap = "core/tests/test-syslog-libc.xsh has no test the unprivileged Linux lane can run; lane/privileged-native runs the ones that need root or namespaces"
+  let plan = gates.plan_paths(ctx, tests.Verification, ["core/tests/test-syslog-libc.xsh"], [], gates.Change)?
+  assert plan.cases.is_empty()
+  assert plan.unresolved == [gap]
+  match gates.plan_paths(ctx, tests.Verification, [], ["native-core/tests/test-syslog-libc.xsh"], gates.Change) {
+    Ok(_) => test.fail("a native file with no unprivileged lane test was offered as a case")
+    Err(error) => assert error.message == "PlanError.Invalid"
+  }
+  let mixed = gates.plan_paths(ctx, tests.Verification, ["tests/xsh/stdlib/linux_namespaces.xsh"], [], gates.Change)?
+  assert [entry.id for entry in mixed.cases] == ["native-tests/xsh/stdlib/linux_namespaces.xsh"]
+  assert mixed.unresolved.is_empty()
+}
+
 test test_catalogue_preserves_documentation_verification_and_products {
   let ctx = fixtures.linux_context(/repo)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["docs/TESTING.md"], [], gates.Change)?

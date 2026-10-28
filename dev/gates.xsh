@@ -1174,8 +1174,12 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
     match select([changed_path]) {
       Ok(owned) => {
-        known_paths += [changed_path]
-        unresolved += [f"no Change case owns {changed_path}; its shared core coverage is the explicit {core_suite_scenario_id} scenario"] when Core in owned.areas
+        if owned.native_files == [changed_path] and outside_unprivileged_lane(ctx, changed_path)? {
+          unresolved += [unprivileged_lane_gap(changed_path)]
+        } else {
+          known_paths += [changed_path]
+          unresolved += [f"no Change case owns {changed_path}; its shared core coverage is the explicit {core_suite_scenario_id} scenario"] when Core in owned.areas
+        }
       }
       Err(_) => unresolved += [f"unknown verification owner: {changed_path}"]
     }
@@ -1217,6 +1221,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     let owned_root = ctx.root.resolve()?.display() + "/"
     return Err(PlanError.Invalid(detail: f"native case {id} escapes the owned source root")) when ! resolved_path.display().starts_with(owned_root)
     return Err(PlanError.Invalid(detail: f"native case {id} is not a file")) when resolved_path.metadata()?.kind != "file"
+    return Err(PlanError.Invalid(detail: unprivileged_lane_gap(file))) when outside_unprivileged_lane(ctx, file)?
     if id not in [entry.id for entry in chosen] {
       for entry in catalogue(ctx, profile, Selection(areas: [], native_files: [file]), ["explicit native file selection"])? {
         chosen += [entry] when entry.id == id
@@ -2023,6 +2028,18 @@ pure lane_excluded_tests() -> List[Str] {
     excluded += exclusion.tests
   }
   excluded
+}
+
+proc outside_unprivileged_lane(ctx: context.Context, file: Str) [fs, error] -> Result[Bool, Error] {
+  return false when ctx.target.os != "linux"
+  let excluded = [id for id in lane_excluded_tests() if id.starts_with(f"{file}::")]
+  return false when excluded.is_empty()
+  let declared = [line for line in fp"{ctx.root}/{file}".read_text()?.split("\n") if line.starts_with("test ")]
+  declared.len() == excluded.len()
+}
+
+pure unprivileged_lane_gap(file: Str) -> Str {
+  f"{file} has no test the unprivileged Linux lane can run; {privileged_native_case_id} runs the ones that need root or namespaces"
 }
 
 pure as_native_user(account: NativeUser?, spec: contract.CommandSpec) -> contract.CommandSpec {

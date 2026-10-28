@@ -150,7 +150,8 @@ incomplete, so a native test the unprivileged lane cannot run is not selected th
 default container, and the `namespace_tests` group needs user, mount and PID namespaces. The
 explicit `lane/privileged-native` scenario runs both groups as root in a container that
 lifts the seccomp profile and `/proc` masking and adds `CAP_SYS_ADMIN`, with no device
-access and no other capability. It must be selected alone. The remaining groups name a
+access and no other capability. It must be selected alone. A native file whose every test
+is declared outside the unprivileged lane is a reported gap that names this scenario, not a case. The remaining groups name a
 platform, an external fixture that only a Rust test provides, supplementary groups, a host
 resource, or a test whose subject is the skip outcome; no gate lane runs them. A new native test that skips in the gate lane needs an entry in one of those
 groups, and `dev/tests/test-gates.xsh` checks that every entry names a test that exists.
