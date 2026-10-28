@@ -5875,7 +5875,12 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Index { base, index, .. } => {
-                let source = self.need_context(&decoder, base.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground index has no collection contract"))?;
+                let Some(source) = self.need_context(&decoder, base.raw() as usize)? else {
+                    if matches!(self.store.sealed_operation_site(owner, instruction as u32)?, Some(super::super::schemes::FullSealedOperation::Index { .. }))
+                        && matches!(self.scoped_expression_type(&decoder, instruction)?.and_then(|ty| ty.closed_ground_type()), Some(actual) if actual.matches_expected(&expected))
+                    { return Ok(()); }
+                    return Err(IrVerifyError::new("ground index has no collection contract"));
+                };
                 let key = match source.unvalidated() {
                     Type::Map(key, _) => (**key).clone(),
                     Type::List(_) => Type::Int,

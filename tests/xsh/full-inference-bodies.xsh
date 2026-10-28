@@ -611,3 +611,27 @@ print $mapped
   assert output.success, output.stderr
   assert output.stdout == "4\n6\n8\n"
 }
+
+test test_full_inference_ordered_generic_index_reads_in_a_condition { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure compare(left, right: List[Int]) -> Int {
+  return -1 when left[0] < right[0]
+  var at = left.len() - 1
+  while at >= 0 {
+    if left[at] > right[at] { return 1 }
+    at -= 1
+  }
+  0
+}
+let smaller = compare([1, 2], [2, 2])
+let larger = compare([3, 5], [3, 4])
+let equal = compare([1, 2], [1, 2])
+print $smaller
+print $larger
+print $equal
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "-1\n1\n0\n"
+}

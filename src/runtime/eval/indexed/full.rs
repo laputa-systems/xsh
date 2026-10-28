@@ -34572,6 +34572,41 @@ assert nullable_name == null
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
+    #[test]
+    fn full_verifier_rejects_a_forged_generic_index_in_a_condition() {
+        let program = fixture(
+            "generic-index-condition.xsh",
+            "pure compare(left, right: List[Int]) -> Int {\n  if left[0] < right[0] { -1 } else { 1 }\n}\n\
+             let result = compare([1], [2])\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let function = scheme_fixture_root_function(&program, "compare");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[function].contract else { panic!("compare has a generic scheme") };
+        let decoder = function_view_decoder(&program.store, function);
+        let index = program.store.function_instruction_range(function).unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprIndex)
+            .expect("the generic receiver is indexed");
+        let _ = &decoder;
+        let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let read = facts.clone().find(|candidate| {
+            let fact = program.store.scheme_body_facts[*candidate];
+            fact.kind() == schemes::FullSchemeBodyFactKind::Expression && fact.instruction as usize == index
+        }).expect("the index has its authenticated fact");
+        let boolean = facts.clone().find(|candidate| {
+            let fact = program.store.scheme_body_facts[*candidate];
+            fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                && fact.ty().is_some_and(|ty| {
+                    let node = program.store.scheme_types[ty.index()];
+                    node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == crate::runtime::eval::indexed::semantic::TypeTag::Bool
+                })
+        }).expect("the comparison has a Bool fact");
+        let mut forged = program.clone();
+        let (read_value, boolean_value) = (forged.store.scheme_body_facts[read].value, forged.store.scheme_body_facts[boolean].value);
+        forged.store.scheme_body_facts[read].value = boolean_value;
+        forged.store.scheme_body_facts[boolean].value = read_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",
