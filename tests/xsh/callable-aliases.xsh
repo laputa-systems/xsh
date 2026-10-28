@@ -288,3 +288,29 @@ print ${bounded()[0]}
 2
 """
 }
+
+test test_long_callable_alias_chain_verifies_its_producers { |ctx|
+  var lines = ["pure identity(value) { value }", "let alias_0 = identity"]
+  for index in range(1, 64) {
+    lines += [f"let alias_{index} = alias_{index - 1}"]
+  }
+  lines += ["print alias_63(42)"]
+  let result = test.run_xsh(ctx, lines.join("\n") + "\n")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "42\n"
+}
+
+test test_long_callable_alias_chain_keeps_every_branch_producer { |ctx|
+  var lines = ["pure identity(value) { value }", "pure other(value) { value }", "let spare = other", "let alias_0 = identity"]
+  for index in range(1, 64) {
+    if index % 16 == 0 {
+      lines += [f"let alias_{index} = if true {{ alias_{index - 1} }} else {{ spare }}"]
+    } else {
+      lines += [f"let alias_{index} = alias_{index - 1}"]
+    }
+  }
+  lines += ["print alias_63(42)"]
+  let result = test.run_xsh(ctx, lines.join("\n") + "\n")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "42\n"
+}

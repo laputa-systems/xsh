@@ -1031,6 +1031,21 @@ struct ProducerTargets {
     parameters: BTreeSet<(usize, Vec<FunctionProjection>)>,
 }
 
+impl ProducerTargets {
+    fn absorb(&mut self, other: &ProducerTargets) {
+        self.functions.extend(other.functions.iter().copied());
+        self.opaque |= other.opaque;
+        self.parameters.extend(other.parameters.iter().cloned());
+    }
+}
+
+struct OpenCallableProducer {
+    key: (u32, usize),
+    height: usize,
+    reachable: ProducerTargets,
+    revisited: bool,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum CallableProducer {
     Binding(u32),
@@ -2403,6 +2418,8 @@ pub(super) struct ProducerProof<'a> {
     scheme_applications: BTreeSet<(u32, usize)>,
     scheme_captures: BTreeSet<(u32, usize)>,
     incoming: BTreeMap<usize, Vec<usize>>,
+    callable_targets: BTreeMap<(u32, usize), ProducerTargets>,
+    callable_target_incoming_reads: BTreeSet<usize>,
     budget: SchemeInstantiationBudget,
 }
 
@@ -2830,7 +2847,7 @@ impl ConditionalProducerType {
 
 impl<'a> ProducerProof<'a> {
     pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>) -> Self {
-        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), callable_targets: BTreeMap::new(), callable_target_incoming_reads: BTreeSet::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
         if index.demand == crate::runtime::eval::ProducerDemand::Needed {
             for call in &store.checked_call_targets {
                 if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
@@ -4229,9 +4246,44 @@ impl<'a> ProducerProof<'a> {
         let mut parameters = BTreeSet::new();
         let mut targets = BTreeSet::new();
         let mut has_contract_source = false;
-        while let Some((owner, source, mut path)) = pending.pop() {
+        let memoize = purpose == ProducerTargetPurpose::Callable && summary.is_none();
+        let mut total = ProducerTargets::default();
+        let mut open: Vec<OpenCallableProducer> = Vec::new();
+        loop {
+            let expansion = ProducerTargets {
+                functions: std::mem::take(&mut targets),
+                opaque: std::mem::take(&mut has_contract_source),
+                parameters: std::mem::take(&mut parameters),
+            };
+            total.absorb(&expansion);
+            if let Some(innermost) = open.last_mut() { innermost.reachable.absorb(&expansion); }
+            while let Some(finished) = open.pop_if(|producer| pending.len() <= producer.height) {
+                if let Some(parent) = open.last_mut() { parent.reachable.absorb(&finished.reachable); }
+                if !finished.revisited {
+                    self.budget.charge(1 + finished.reachable.functions.len() + finished.reachable.parameters.len())?;
+                    self.callable_targets.insert(finished.key, finished.reachable);
+                }
+            }
+            let Some((owner, source, mut path)) = pending.pop() else { break };
             self.budget.charge(1 + path.len())?;
-            if !visited.insert((owner, source, path.clone())) { continue; }
+            let memo_key = match source {
+                CallableProducer::Expression(expression) if memoize && path.is_empty() => Some((owner, expression)),
+                _ => None,
+            };
+            if let Some(known) = memo_key.and_then(|key| self.callable_targets.get(&key)) {
+                self.budget.charge(1 + known.functions.len() + known.parameters.len())?;
+                targets.extend(known.functions.iter().copied());
+                parameters.extend(known.parameters.iter().cloned());
+                has_contract_source |= known.opaque;
+                continue;
+            }
+            if !visited.insert((owner, source, path.clone())) {
+                for producer in &mut open { producer.revisited = true; }
+                continue;
+            }
+            if let Some(key) = memo_key {
+                open.push(OpenCallableProducer { key, height: pending.len(), reachable: ProducerTargets::default(), revisited: false });
+            }
             let decoder = self.owner(owner)?;
             let instruction = match source {
                 CallableProducer::Binding(binding) => {
@@ -4530,6 +4582,7 @@ impl<'a> ProducerProof<'a> {
                             if parameter_type.is_some_and(|ty| ty.contains_typed_callable()) { has_contract_source = true; }
                             let parameter_flags = bounded(self.store.functions[function].params, &self.store.params, "callable parameter range is invalid")?
                                 .get(parameter).ok_or_else(|| IrVerifyError::new("callable parameter is out of bounds"))?.flags;
+                            self.callable_target_incoming_reads.insert(function);
                             self.budget.charge(self.incoming.get(&function).map_or(0, Vec::len))?;
                             for caller in self.incoming.get(&function).cloned().unwrap_or_default() {
                                 let caller_owner = self.index.instruction_owner(caller)?;
@@ -4823,8 +4876,8 @@ impl<'a> ProducerProof<'a> {
                 _ => return Err(IrVerifyError::new(format!("ground callable has no resolved lexical function identity for {:?}", self.store.tags[instruction]))),
             }
         }
-        if purpose == ProducerTargetPurpose::Callable && targets.is_empty() && !has_contract_source { return Err(IrVerifyError::new("ground callable has no executable function target")); }
-        Ok(ProducerTargets { functions: targets, opaque: has_contract_source, parameters })
+        if purpose == ProducerTargetPurpose::Callable && total.functions.is_empty() && !total.opaque { return Err(IrVerifyError::new("ground callable has no executable function target")); }
+        Ok(total)
     }
 
     fn call_arguments(&mut self, decoder: &FullDecoder<'a>, function: usize, arguments: &[ProducerArgument]) -> Result<(), IrVerifyError> {
@@ -5432,7 +5485,13 @@ impl<'a> ProducerProof<'a> {
                     })?;
                 for target in targets {
                     let incoming = self.incoming.entry(target).or_default();
-                    if !incoming.contains(&instruction) { incoming.push(instruction); }
+                    if !incoming.contains(&instruction) {
+                        incoming.push(instruction);
+                        if self.callable_target_incoming_reads.contains(&target) {
+                            self.callable_targets.clear();
+                            self.callable_target_incoming_reads.clear();
+                        }
+                    }
                     if matches!(self.store.functions[target].contract, FullCallableContract::Ground(_)) {
                         self.ground_function(target)?;
                         self.call_arguments(&decoder, target, &arguments)?;

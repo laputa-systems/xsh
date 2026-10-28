@@ -1285,3 +1285,18 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
     assert parsed == 12
   } else { |failure| test.fail(failure.message) }
 }
+
+test test_long_callback_forwarding_chain_verifies_its_producers { |ctx|
+  var lines = [
+    "type Unary = pure(value: Int) -> Int",
+    "pure increment(value: Int) -> Int { value + 1 }",
+    "pure compose_0(callback: Unary, value: Int) -> Int { callback(value) }",
+  ]
+  for index in range(1, 64) {
+    lines += [f"pure compose_{index}(callback: Unary, value: Int) -> Int {{ callback(compose_{index - 1}(callback, value)) }}"]
+  }
+  lines += ["print compose_63(increment, 0)"]
+  let result = test.run_xsh(ctx, lines.join("\n") + "\n")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "64\n"
+}
