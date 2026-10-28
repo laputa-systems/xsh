@@ -98,3 +98,4 @@ RUN apk add --no-cache python3 \
 RUN apk add --no-cache e2fsprogs-extra curl \
     && ln -sf /bin/bash /bin/sh \
     && chmod 711 /root
+RUN apk add --no-cache dnsmasq tcpdump
