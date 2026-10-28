@@ -395,12 +395,17 @@ proc remove_registry(ctx: context.Context, registry: Path) [fs, process, error, 
   registry.remove(missing_ok: true)?
 }
 
+proc registry_prefix() [fs, error] -> Result[Str, Error] {
+  f"gate-containers-{p"/proc/sys/kernel/hostname".read_text()?.trim()}-"
+}
+
 ## The directory where this run records the cidfile of every container it starts, so one cancellation hook can
-## find them all. It is named for the process and its start time, so a reused pid cannot claim another run's directory.
-export proc owned_container_dir(ctx: context.Context) [process, error] -> Result[Path, Error] {
+## find them all. It is named for the host, the process and its start time: a reused pid cannot claim another run's
+## directory, and a run in a container, which cannot see host pids, never mistakes a host run's registry for a dead one.
+export proc owned_container_dir(ctx: context.Context) [fs, process, error] -> Result[Path, Error] {
   let me = process.current_pid()?
   let started = [entry.start_time_ms for entry in process.list()? if entry.pid == me]
-  fp"{ctx.root}/.work/tmp/gate-containers-{me}-{started.get(0) ?? 0}"
+  fp"{ctx.root}/.work/tmp/{registry_prefix()?}{me}-{started.get(0) ?? 0}"
 }
 
 ## Removes every container this run started and verifies each removal, then forgets the registry. An unverifiable
@@ -409,14 +414,15 @@ export proc remove_owned_containers(ctx: context.Context) [fs, process, error, i
   remove_registry(ctx, owned_container_dir(ctx)?)
 }
 
-## Removes the containers of runs that no longer exist: a registry whose process is gone, or whose pid now belongs
-## to a process that started at another time.
+## Removes the containers of runs on this host that no longer exist: a registry whose process is gone, or whose pid now
+## belongs to a process that started at another time.
 export proc sweep_stale_containers(ctx: context.Context) [fs, process, error, io, time] -> Result[Unit, Error] {
   let tmp = fp"{ctx.root}/.work/tmp"
   return when ! tmp.exists()?
   let live = [f"{entry.pid}-{entry.start_time_ms}" for entry in process.list()?]
+  let prefix = registry_prefix()?
   for entry in fs.children(tmp)? {
-    if entry.name.starts_with("gate-containers-") and entry.name["gate-containers-".byte_len()..] not in live {
+    if entry.name.starts_with(prefix) and entry.name[prefix.byte_len()..] not in live {
       match remove_registry(ctx, entry.path) {
         Ok(_) => {}
         Err(_) => {}

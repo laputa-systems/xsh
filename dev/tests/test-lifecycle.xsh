@@ -1222,16 +1222,20 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 let tmp = fp"{{ctx.root}}/.work/tmp"
-let dead = fp"{{tmp}}/gate-containers-999999-1"
+let host = p"/proc/sys/kernel/hostname".read_text()?.trim()
+let dead = fp"{{tmp}}/gate-containers-{{host}}-999999-1"
 dead.mkdir(parents: true)?
 fp"{{dead}}/gate-lane-1.cid".write("{id}")?
+let foreign = fp"{{tmp}}/gate-containers-another-host-999999-1"
+foreign.mkdir(parents: true)?
+fp"{{foreign}}/gate-lane-1.cid".write("{id}")?
 let own = docker.owned_container_dir(ctx)?
 own.mkdir(parents: true)?
 docker.sweep_stale_containers(ctx)?
-print f"dead={{dead.exists()?}} own={{own.exists()?}}"
+print f"dead={{dead.exists()?}} own={{own.exists()?}} foreign={{foreign.exists()?}}"
 """,
     status: 0,
-    stdout: ["dead=false own=true"],
+    stdout: ["dead=false own=true foreign=true"],
     args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
