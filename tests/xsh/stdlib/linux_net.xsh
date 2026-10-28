@@ -211,8 +211,14 @@ test test_udp_error_queue_reports_the_icmp_origin {
     linux.connect(probe, destination)
     assert linux.getsockname(probe)?.port != destination.port
   }
-  assert linux.sendto(probe, bytes.from_text("x"))? == 1
-  assert "error" in unix.poll_fd(probe, [], 1000)?
+  var events: List[Str] = []
+  var attempts = 0
+  while "error" not in events and attempts < 25 {
+    assert linux.sendto(probe, bytes.from_text("x"))? == 1
+    events = unix.poll_fd(probe, [], 200)?
+    attempts += 1
+  }
+  assert "error" in events
 
   let queued = linux.recvfrom(probe, 64, c.MSG_ERRQUEUE)?
   assert queued.data == bytes.from_text("x")

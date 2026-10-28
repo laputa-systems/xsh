@@ -19,6 +19,7 @@ assert fs.cwd()? == Path(args[0])
 assert process.session_id()? == args[1].parse_int()?
 print "initial scan"
 eprint "worker stderr"
+io.flush_stdout()?
 let _ = process.new_session()?
 cd / {
   assert process.session_id()? == process.current_pid()?
