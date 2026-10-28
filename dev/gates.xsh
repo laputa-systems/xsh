@@ -2,6 +2,7 @@
 use context
 use cargo_steps
 use gate_execution
+use gate_lane
 use docker
 use docs as documentation
 use stage as stages
@@ -121,6 +122,7 @@ export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
   let output = if status { InspectStatus } else if machine { InspectJson } else if inspect { InspectText } else { Execute }
   let selected_laputa_ids = [id for id in case_ids if id in laputa_case_ids]
   let selected_core_workloads = [item for item in focused_core_workloads if item.id in case_ids]
+  return Err(PlanError.Invalid(detail: f"{privileged_native_case_id} must be selected alone")) when privileged_native_case_id in case_ids and (case_ids.len() != 1 or ! paths.is_empty())
   return Err(PlanError.Invalid(detail: "core workload correctness must be selected alone")) when ! selected_core_workloads.is_empty() and case_ids.len() != 1
   return Err(PlanError.Invalid(detail: "Laputa and json-n correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and focused_json_case_id in case_ids
   return Err(PlanError.Invalid(detail: "Laputa and Tokei correctness must be selected separately")) when ! selected_laputa_ids.is_empty() and tokei_scenario_case_id in case_ids
@@ -637,6 +639,7 @@ const laputa_root_case_id = "laputa/pm.root/compose"
 const laputa_inventory_case_id = "laputa/pm.plan/inventory"
 const laputa_world_case_id = "laputa/world/host-plan"
 const laputa_case_ids = [laputa_case_id, laputa_kbuild_case_id, laputa_kbuild_graph_case_id, laputa_kbuild_make_case_id, laputa_reuse_case_id, laputa_root_case_id, laputa_inventory_case_id, laputa_world_case_id]
+const privileged_native_case_id = "lane/privileged-native"
 const cat_byte_stream_case_id = "core/cat/byte-stream"
 const cat_full_module_case_id = "core/cat/full-module"
 const cat_external_consumers_case_id = "core/cat/external-consumers"
@@ -746,6 +749,10 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
     reasons: ["exact native tests that exercise cat and its external consumers"],
     execution: RunCommand(native_exact_ids_gate(ctx, profile, cat_external_consumers_case_id, cat_external_consumer_test_ids)))]
+  entries += [CatalogCase(id: privileged_native_case_id, tier: Scenario,
+    limit: RuntimeSeconds(300), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
+    reasons: ["native tests that need root or user, mount and PID namespaces, run as root in a namespace-capable container"],
+    execution: RunCommand(native_exact_ids_gate(ctx, profile, "lane/privileged-native", [@gate_lane.root_tests, @gate_lane.namespace_tests])))]
   for case in source_edit_cases {
     entries += [CatalogCase(id: case.id, tier: Edit,
       limit: RuntimeSeconds(120), products: [tests.Xsh, tests.Xsht], prerequisite_ids: [],
@@ -1649,7 +1656,8 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   if ctx.target.os == "linux" {
     var forwarded = ["--source-digest", source ?? "", "--tier", tier_name(tier), @paths]
     for id in ids { forwarded += ["--case", id] }
-    return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded)?)
+    let confinement = if privileged_native_case_id in ids { docker.Namespaces } else { docker.Default }
+    return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded, confinement: confinement)?)
   }
   execute_plan(ctx, profile, plan, paths, source)
 }
@@ -1963,6 +1971,51 @@ proc inspect_evidence(ctx: context.Context, plan: CatalogPlan) [fs, process, env
   print f"Full: {evidence_label(full)?}"
 }
 
+type NativeUser = {uid: Int, gid: Int, home: Path, temp: Path}
+
+proc native_user(ctx: context.Context) [fs, process, env, error, io] -> Result[NativeUser?, Error] {
+  return null when ctx.target.os != "linux" or unix.id()?.euid != 0
+  let uid = env.get("HOST_UID")?.trim() as Int
+  let gid = env.get("HOST_GID")?.trim() as Int
+  guard uid > 0 and gid >= 0 else {
+    return Err(stages.StageError.Failed(stage: "native-user", target: ctx.target.triple,
+      detail: "native tests require a non-root host UID and GID"))
+  }
+  let scratch = fp"{ctx.root}/.work/tmp/native-tests-{uid}-{gid}"
+  let home = fp"{scratch}/home"
+  let temp = fp"{scratch}/tmp"
+  stages.execute(stages.command("native-user-scratch", ctx.target.triple, "setpriv",
+    ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--clear-groups", "/bin/mkdir", "-p", "-m", "700",
+      scratch.display(), home.display(), temp.display()], ctx.root, {}))
+  NativeUser(uid: uid, gid: gid, home: home, temp: temp)
+}
+
+pure lane_excluded_tests() -> List[Str] {
+  var excluded: List[Str] = [@gate_lane.root_tests, @gate_lane.namespace_tests]
+  for exclusion in gate_lane.lane_exclusions {
+    excluded += exclusion.tests
+  }
+  excluded
+}
+
+pure as_native_user(account: NativeUser?, spec: contract.CommandSpec) -> contract.CommandSpec {
+  if let owner = account {
+    {...spec, executable: "setpriv",
+      argv: ["setpriv", f"--reuid={owner.uid}", f"--regid={owner.gid}", "--clear-groups", @spec.argv],
+      environment: {HOME: owner.home.display(), TMPDIR: owner.temp.display(),
+        XDG_CACHE_HOME: fp"{owner.home}/.cache".display()}}
+  } else {
+    spec
+  }
+}
+
+proc hand_to_native_user(ctx: context.Context, account: NativeUser?, directory: Path) [process, error, io] -> Result[Unit, Error] {
+  if let owner = account {
+    stages.execute(stages.command("native-user-scratch-owner", ctx.target.triple, "chown",
+      ["chown", f"{owner.uid}:{owner.gid}", directory.display()], ctx.root, {}))
+  }
+}
+
 proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan, paths: List[Str], expected_source: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   var first_limit_ns = automatic_budget_ns(plan.tier)
   for entry in plan.cases {
@@ -1983,6 +2036,8 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
   let source_ns = time.monotonic()? - source_started
   print "compilation: preparing selected executable products outside the runtime budget"
   tests.run_commands(tests.product_builds(ctx, profile, plan.products)?)
+  var native: NativeUser? = null
+  var native_prepared = false
   let binding_started = time.monotonic()?
   let products = bind_products(ctx, profile, plan.products, "products", initial_ns - source_ns)?
   var binding_ns = source_ns + time.monotonic()? - binding_started
@@ -2076,13 +2131,21 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       let events = fp"{scratch.host_path()?}/native-events.jsonl"
       let cases_file = fp"{scratch.host_path()?}/selected-cases.json"
       let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
+      let native_command = command.executable == xsht
+      if native_command {
+        if ! native_prepared {
+          native = native_user(ctx)?
+          native_prepared = true
+        }
+        hand_to_native_user(ctx, native, scratch.host_path()?)?
+      }
       if command.executable == xsht and command.argv.len() == 3 and command.argv[1] == "test" {
         let output = fp"{scratch.host_path()?}/native-ids"
         let discovery_ns = available_ns - (time.monotonic()? - case_started)
         return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when discovery_ns < 1000000
-        let discovery = process.command_argv(command.executable,
-          [command.executable, "test", "--list-json", command.argv[2]], cwd: command.cwd,
-          env: command.environment, stdout: output, timeout: time.millis(gate_execution.limit_ms(seconds, discovery_ns)?))
+        let listing = as_native_user(native, {...command, argv: [command.executable, "test", "--list-json", command.argv[2]]})
+        let discovery = process.command_argv(listing.executable, listing.argv, cwd: listing.cwd,
+          env: listing.environment, stdout: output, timeout: time.millis(gate_execution.limit_ms(seconds, discovery_ns)?))
         let status = match process.run(discovery) {
           Ok(status) => status
           Err(cause) => match cause {
@@ -2115,7 +2178,13 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when "::" not in id or command.argv[2] not in id or id in seen
           seen += [id]
         }
-        selected_ids = seen
+        let in_lane = if ctx.target.os == "linux" { [id for id in seen if id not in lane_excluded_tests()] } else { seen }
+        print f"lane scope: {seen.len() - in_lane.len()} of {seen.len()} native tests need a capability the unprivileged Linux lane lacks; they are not selected" when in_lane.len() != seen.len()
+        if in_lane.is_empty() and ! seen.is_empty() {
+          print f"lane scope: every selected native test is outside the unprivileged Linux lane; request --case {privileged_native_case_id} for the ones a namespace-capable container can run"
+        }
+        return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when in_lane.is_empty()
+        selected_ids = in_lane
         result_runner = "xsht"
       } else if command.executable == xsht and command.argv.len() == 4 and command.argv[1] == "test" and command.argv[2] == "--exact" {
         selected_ids = [command.argv[3]]
@@ -2189,7 +2258,8 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       let execution_ns = available_ns - (time.monotonic()? - case_started)
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when execution_ns < 1000000
       let limit = gate_execution.limit_ms(seconds, execution_ns)?
-      let outcome = gate_execution.execute(selected_command, limit, output: if result_runner == "cargo" { events } else { null })?
+      let launched = if native_command and entry.id != privileged_native_case_id { as_native_user(native, selected_command) } else { selected_command }
+      let outcome = gate_execution.execute(launched, limit, output: if result_runner == "cargo" { events } else { null })?
       match outcome {
         gate_execution.Finished(status) => {
           let raw = status.shell_code()?

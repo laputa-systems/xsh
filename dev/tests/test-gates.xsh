@@ -1,5 +1,6 @@
 use docker
 use fixtures
+use gate_lane
 use gates
 use gate_execution
 use internal as container_internal
@@ -1085,6 +1086,46 @@ test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
   }
   match gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], ["core/lsmem/consumers"], gates.Edit) {
     Ok(_) => test.fail("Edit accepted a Change-only case")
+    Err(error) => assert error.message == "PlanError.Invalid"
+  }
+}
+
+test test_lane_scope_tables_name_declared_tests_once {
+  let root = fs.cwd()?
+  var declared: List[Str] = [@gate_lane.root_tests, @gate_lane.namespace_tests]
+  for exclusion in gate_lane.lane_exclusions {
+    declared += exclusion.tests
+  }
+  var seen: List[Str] = []
+  for id in declared {
+    assert id not in seen, f"{id} is declared twice"
+    seen += [id]
+    let parts = id.split("::")
+    assert parts.len() == 2, f"{id} is not FILE::TEST"
+    let source = fp"{root}/{parts[0]}".read_text()?
+    assert "test " + parts[1] + " {" in source, f"{id} names no native test"
+  }
+}
+
+test test_privileged_native_case_runs_the_root_and_namespace_groups_alone {
+  let ctx = fixtures.linux_context(/repo)?
+  let plan = gates.plan_paths(ctx, tests.Verification, [], ["lane/privileged-native"], gates.Change)?
+  assert [entry.id for entry in plan.cases] == ["lane/privileged-native"]
+  assert plan.cases[0].tier == gates.Scenario
+  match plan.cases[0].execution {
+    gates.RunCommand(spec) => {
+      var expected = ["test"]
+      for id in [@gate_lane.root_tests, @gate_lane.namespace_tests] { expected += ["--exact-id", id] }
+      assert spec.argv[1..] == expected
+    }
+    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("the privileged case was not one exact native command")
+  }
+  match gates.parse_request(["--case", "lane/privileged-native", "--case", "test-api"]) {
+    Ok(_) => test.fail("the privileged case was accepted beside another case")
+    Err(error) => assert error.message == "PlanError.Invalid"
+  }
+  match gates.parse_request(["--case", "lane/privileged-native", "docs/TESTING.md"]) {
+    Ok(_) => test.fail("the privileged case was accepted beside a path")
     Err(error) => assert error.message == "PlanError.Invalid"
   }
 }

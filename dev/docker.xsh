@@ -105,6 +105,11 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
   image
 }
 
+## The container confinement a lifecycle operation requests. Namespaces lifts the default seccomp profile and
+## /proc masking and adds CAP_SYS_ADMIN, which native tests that create user, mount and PID namespaces need;
+## it grants no device access and no other capability.
+export enum Confinement { Default, Namespaces }
+
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
 ## The inner lifecycle creates a new context, so target and profile travel in
 ## the container environment rather than relying on host process inheritance.
@@ -121,6 +126,7 @@ export pure internal_argv(
   git_common_dir: Path? = null,
   shared_lease_dir: Path? = null,
   host_link_tools: HostLinkTools? = null,
+  confinement: Confinement = Default,
 ) -> Result[List[Str], Error] {
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
   let lease_mount = if shared_lease_dir == null { [] } else { ["-v", f"{shared_lease_dir}:{shared_lease_dir}"] }
@@ -177,6 +183,11 @@ export pure internal_argv(
     argv += ["--privileged"]
   }
 
+  match confinement {
+    Default => {}
+    Namespaces => { argv += ["--security-opt", "seccomp=unconfined", "--security-opt", "systempaths=unconfined", "--cap-add", "SYS_ADMIN"] }
+  }
+
   if stress_repeat.trim() != "" {
     argv += ["-e", f"XSH_OS_STRESS_REPEAT={stress_repeat}"]
   }
@@ -231,6 +242,7 @@ proc internal_command(
   operation: Str,
   privileged: Bool,
   extra: List[Str],
+  confinement: Confinement = Default,
 ) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
   if linux_test_operation(operation) {
     internal_target_dir(ctx, operation).mkdir(parents: true)?
@@ -284,6 +296,7 @@ proc internal_command(
     git_common_dir: common_git,
     shared_lease_dir: shared_lease_dir,
     host_link_tools: available_link_tools,
+    confinement: confinement,
   )?
   stages.command(
       f"docker-{operation}",
@@ -301,8 +314,8 @@ export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool,
 }
 
 ## Returns the owned container launch status without replacing its raw child code.
-export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str]) [fs, process, env, error, io] -> Result[Status, Error] {
-  let spec = internal_command(ctx, operation, privileged, extra)?
+export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io] -> Result[Status, Error] {
+  let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement)?
   print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
   process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))
 }

@@ -133,6 +133,19 @@ to 30 seconds and Change runtime to 300 seconds across selected automatic cases.
 Each automatic command also has its declared case limit. Explicit Scenario cases use their
 declared per-case limit and do not increase any automatic case's budget.
 
+Native cases run as the host user inside the gate container, with a private home and
+temporary directory under `.work/tmp`, as the Full native run does. The container itself
+keeps Docker's default seccomp profile and capabilities. Required skips still make a case
+incomplete, so a native test the unprivileged lane cannot run is not selected there.
+`dev/gate_lane.xsh` declares those tests by exact ID. The `root_tests` group needs root in the
+default container, and the `namespace_tests` group needs user, mount and PID namespaces. The
+explicit `lane/privileged-native` scenario runs both groups as root in a container that
+lifts the seccomp profile and `/proc` masking and adds `CAP_SYS_ADMIN`, with no device
+access and no other capability. It must be selected alone. The remaining groups name a
+platform, an external fixture that only a Rust test provides, supplementary groups, a host
+resource, or a test whose subject is the skip outcome; no gate lane runs them. A new native test that skips in the gate lane needs an entry in one of those
+groups, and `dev/tests/test-gates.xsh` checks that every entry names a test that exists.
+
 Compilation runs outside the runtime budget and is reported as a separate stage.
 Before Linux gate execution, Docker resolves the configured test image to an
 immutable image ID. An unavailable image or a digest that resolves to a
