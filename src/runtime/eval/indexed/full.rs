@@ -34520,6 +34520,22 @@ assert nullable_name == null
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
+    #[test]
+    fn full_verifier_rejects_a_forged_comparison_argument_binder() {
+        let program = fixture(
+            "comparison-argument.xsh",
+            "pure show(flag, tag: Int) -> Int { tag }\n\
+             pure bigger(left: Int, right: Int) -> Int { show(left > right, 2) }\n\
+             let result = bigger(4, 2)\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call(&program, "show");
+        let mut forged = program.clone();
+        let text = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Str).unwrap();
+        replace_scheme_fixture_call_type(&mut forged, call, text);
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",

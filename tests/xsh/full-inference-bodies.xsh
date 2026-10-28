@@ -569,3 +569,23 @@ print $list_width
   assert output.success, output.stderr
   assert output.stdout == "3\n2\n"
 }
+
+test test_full_inference_comparison_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Spec = {conv: Str}
+pure show(flag, tag: Int) -> Int { tag }
+pure upper_case(spec: Spec) -> Int { show(spec.conv == "X", 1) }
+pure bigger(left: Int, right: Int) -> Int { show(left > right and right != 0, 2) }
+pure listed(items: List[Int], wanted: Int) -> Int { show(wanted in items, 3) }
+let a = upper_case({conv: "X"})
+let b = bigger(4, 2)
+let c = listed([1, 2], 2)
+print $a
+print $b
+print $c
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n2\n3\n"
+}

@@ -5524,6 +5524,13 @@ fn checked_argument_type_inner(
                     .map(|ty| Some(CheckedArgumentType::Known(ty)));
             }
         }
+        schema::ExprView::Binary {
+            op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne | crate::syntax::node::BinaryOp::Lt
+                | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge
+                | crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn
+                | crate::syntax::node::BinaryOp::And | crate::syntax::node::BinaryOp::Or,
+            ..
+        } => return Ok(Some(CheckedArgumentType::Known(Type::Bool))),
         schema::ExprView::Slice { base, .. } => {
             if let Some(CheckedArgumentType::Known(base_type)) = checked_argument_type(
                 store,
