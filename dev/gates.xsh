@@ -530,8 +530,8 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
         plan += [rust_gate(ctx, profile, "test-route-witness-cli", [@xsht_target, "route_witness"])?] when Tooling not in selection.areas
         plan += [native_exact_gate(ctx, profile, "route-witness-env", "tests/xsh/stdlib/env.xsh::test_route_witness_prefix_names_are_ordinary_environment_entries")] when "tests/xsh/stdlib/env.xsh" not in selection.native_files
       },
-      Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar", [@xsht_target, "desugar::"])?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
-      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_syntax_exclusions, @tests.xsht_integration_exclusions])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
+      Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar", [@xsht_target, "desugar::", "--", "--skip", desugar_corpus_test])?, rust_gate(ctx, profile, "test-desugar-corpus", [@xsht_target, desugar_corpus_test, "--", "--exact"])?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
+      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_syntax_exclusions, @tests.xsht_integration_exclusions, "--skip", lint_format_corpus_filter, "--skip", desugar_corpus_test])?, rust_gate(ctx, profile, "test-lint-format-corpus", [@xsht_target, lint_format_corpus_filter, "--", "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
       Api => plan += [rust_gate(ctx, profile, "test-libxsh-api", [@root_target, "libxsh_api"])?, rust_gate(ctx, profile, "test-registry", ["-p", "xsh-registry", "--lib"], debug: true)?, rust_gate(ctx, profile, "test-signatures", [@root_lib, "modules::signature"], debug: true)?, rust_gate(ctx, profile, "test-api", [@xsht_target, "api::"])?, native_gate(ctx, profile, "tests/xsh/api-tool.xsh"), stages.command("check-api-snippets", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "check", "docs/snippets/api"], ctx.root, {})],
       Stdlib => plan += [rust_gate(ctx, profile, "test-stdlib-catalog", [@root_lib, "stdlib::tests::every_catalog_module_parses_checks_and_lowers"], debug: true)?, native_gate(ctx, profile, "tests/xsh/stdlib")],
       Memory => plan += [rust_gate(ctx, profile, "test-frontend-memory", [@root_lib, "frontend_stats::tests"], debug: true)?, stages.command("frontend-memory-report", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "frontend-stats", "--json", "tests/fixtures/frontend-indexed"], ctx.root, {})],
@@ -623,10 +623,23 @@ pure tier_name(tier: Tier) -> Str {
   match tier { Edit => "edit", Change => "change", Scenario => "scenario" }
 }
 
+const desugar_corpus_test = "desugar::the_desugared_corpus_checks_and_tests_like_the_corpus"
+const lint_format_corpus_filter = "lint_format_invariance::"
+
+pure area_scenario_seconds(stage: Str) -> Int? {
+  match stage {
+    "test-soundness" => 1200
+    "test-desugar-corpus" => 1800
+    "test-lint-format-corpus" => 1800
+    "native-core/tests" => 3600
+    else => null
+  }
+}
+
 pure declared_case(spec: contract.CommandSpec, products: List[tests.Product], reasons: List[Str]) -> CatalogCase {
-  let scenario = spec.stage == soundness_scenario_id
-  {id: spec.stage, tier: if scenario { Scenario } else { Change },
-    limit: RuntimeSeconds(if scenario { 1200 } else { 300 }), products: products,
+  let scenario_seconds = area_scenario_seconds(spec.stage)
+  {id: spec.stage, tier: if scenario_seconds != null { Scenario } else { Change },
+    limit: RuntimeSeconds(scenario_seconds ?? 300), products: products,
     prerequisite_ids: [], reasons: reasons, execution: RunCommand(spec)}
 }
 
@@ -697,6 +710,7 @@ pure laputa_products(case_id: Str) -> List[tests.Product] {
 type ProductObservation = {digest: Str, mode: Int}
 
 const soundness_scenario_id = "test-soundness"
+const core_suite_scenario_id = "native-core/tests"
 
 pure soundness_owners(areas: List[Area]) -> Bool {
   ! [area for area in areas if area in [Checker, Lowering, Runtime, RouteWitness, Syntax, Grammar, Soundness]].is_empty()
@@ -1151,8 +1165,18 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += [constraint_solver_case_id] when constraint_solver_case_id not in selected_ids
       continue
     }
+    if changed_path.starts_with("core/") and changed_path.ends_with(".xsh") and changed_path.split("/").len() == 2 {
+      let applet_tests = f"core/tests/test-{changed_path[5..changed_path.byte_len() - 4]}.xsh"
+      if fp"{ctx.root}/{applet_tests}".exists()? {
+        known_paths += [applet_tests]
+        continue
+      }
+    }
     match select([changed_path]) {
-      Ok(_) => known_paths += [changed_path]
+      Ok(owned) => {
+        known_paths += [changed_path]
+        unresolved += [f"no Change case owns {changed_path}; its shared core coverage is the explicit {core_suite_scenario_id} scenario"] when Core in owned.areas
+      }
       Err(_) => unresolved += [f"unknown verification owner: {changed_path}"]
     }
   }
@@ -1200,7 +1224,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
   }
   let resolved = resolve_selection(chosen, selected_ids, explicit_ids, tier)?
-  let scenarios = if soundness_owners(selection.areas) and soundness_scenario_id not in explicit_ids { [soundness_scenario_id] } else { [] }
+  var scenarios: List[Str] = if soundness_owners(selection.areas) and soundness_scenario_id not in explicit_ids { [soundness_scenario_id] } else { [] }
+  for spec in lane_plan(ctx, profile, selection)? {
+    scenarios += [spec.stage] when area_scenario_seconds(spec.stage) != null and spec.stage not in explicit_ids and spec.stage not in scenarios
+  }
   {...resolved, unresolved: unresolved, available_scenarios: scenarios}
 }
 

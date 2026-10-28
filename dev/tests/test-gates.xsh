@@ -1090,6 +1090,45 @@ test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
   }
 }
 
+test test_core_change_selects_the_applet_module_and_reports_shared_paths_as_gaps {
+  let ctx = fixtures.linux_context(fs.cwd()?)?
+  let ls_plan = gates.plan_paths(ctx, tests.Verification, ["core/ls.xsh"], [], gates.Change)?
+  assert [entry.id for entry in ls_plan.cases] == ["native-core/tests/test-ls.xsh"]
+  assert ls_plan.unresolved.is_empty()
+  for shared in ["core/lib/accounts.xsh", "core/blkid.xsh"] {
+    let plan = gates.plan_paths(ctx, tests.Verification, [shared], [], gates.Change)?
+    assert plan.cases.is_empty()
+    assert plan.unresolved == [f"no Change case owns {shared}; its shared core coverage is the explicit native-core/tests scenario"]
+    assert plan.available_scenarios == ["native-core/tests"]
+  }
+  let suite = gates.plan_paths(ctx, tests.Verification, ["core/lib/accounts.xsh"], ["native-core/tests"], gates.Change)?
+  assert [entry.id for entry in suite.cases] == ["native-core/tests"]
+  assert suite.cases[0].tier == gates.Scenario
+  assert suite.cases[0].limit == gates.RuntimeSeconds(3600)
+}
+
+test test_corpus_wide_xsht_tests_are_scenarios_outside_the_change_cases {
+  let ctx = fixtures.linux_context(/repo)?
+  let sugar = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/desugar.rs"], [], gates.Change)?
+  assert "test-desugar-corpus" not in [entry.id for entry in sugar.cases]
+  assert "test-desugar-corpus" in sugar.available_scenarios
+  let desugar = [entry for entry in sugar.cases |> where .id == "test-desugar"]
+  assert desugar.len() == 1
+  match desugar[0].execution {
+    gates.RunCommand(spec) => assert "--skip" in spec.argv and "desugar::the_desugared_corpus_checks_and_tests_like_the_corpus" in spec.argv
+    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("test-desugar was not a command")
+  }
+  let corpus = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/desugar.rs"], ["test-desugar-corpus"], gates.Change)?
+  let selected = [entry for entry in corpus.cases |> where .id == "test-desugar-corpus"]
+  assert selected.len() == 1
+  assert selected[0].tier == gates.Scenario
+  assert selected[0].limit == gates.RuntimeSeconds(1800)
+
+  let tooling = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/cli/files.rs"], [], gates.Change)?
+  assert "test-lint-format-corpus" not in [entry.id for entry in tooling.cases]
+  assert "test-lint-format-corpus" in tooling.available_scenarios
+}
+
 test test_lane_scope_tables_name_declared_tests_once {
   let root = fs.cwd()?
   var declared: List[Str] = [@gate_lane.root_tests, @gate_lane.namespace_tests]
@@ -2527,7 +2566,7 @@ test test_cat_change_selects_its_module_and_exact_external_consumers {
 }
 
 test test_uniq_edit_selects_record_grouping_and_stream_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(fs.cwd()?)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/uniq.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/uniq/records"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -2543,11 +2582,12 @@ test test_uniq_edit_selects_record_grouping_and_stream_contracts {
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("uniq records case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/uniq.xsh"], [], gates.Change)?
-  assert "native-core/tests" in [entry.id for entry in change.cases]
+  assert [entry.id for entry in change.cases] == ["native-core/tests/test-uniq.xsh"]
+  assert change.unresolved.is_empty()
 }
 
 test test_find_edit_selects_traversal_and_path_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(fs.cwd()?)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/find.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/find/traversal"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -2563,11 +2603,12 @@ test test_find_edit_selects_traversal_and_path_contracts {
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("find traversal case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/find.xsh"], [], gates.Change)?
-  assert "native-core/tests" in [entry.id for entry in change.cases]
+  assert [entry.id for entry in change.cases] == ["native-core/tests/test-find.xsh"]
+  assert change.unresolved.is_empty()
 }
 
 test test_sort_edit_selects_ordering_and_spill_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(fs.cwd()?)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/sort.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/sort/ordering"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -2583,11 +2624,12 @@ test test_sort_edit_selects_ordering_and_spill_contracts {
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("sort ordering case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/sort.xsh"], [], gates.Change)?
-  assert "native-core/tests" in [entry.id for entry in change.cases]
+  assert [entry.id for entry in change.cases] == ["native-core/tests/test-sort.xsh"]
+  assert change.unresolved.is_empty()
 }
 
 test test_xargs_edit_selects_process_and_stream_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(fs.cwd()?)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/xargs.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/xargs/processes"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -2604,11 +2646,12 @@ test test_xargs_edit_selects_process_and_stream_contracts {
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("xargs processes case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/xargs.xsh"], [], gates.Change)?
-  assert "native-core/tests" in [entry.id for entry in change.cases]
+  assert [entry.id for entry in change.cases] == ["native-core/tests/test-xargs.xsh"]
+  assert change.unresolved.is_empty()
 }
 
 test test_awk_edit_selects_record_and_program_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(fs.cwd()?)?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/awk.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/awk/records"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -2624,7 +2667,8 @@ test test_awk_edit_selects_record_and_program_contracts {
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("awk records case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/awk.xsh"], [], gates.Change)?
-  assert "native-core/tests" in [entry.id for entry in change.cases]
+  assert [entry.id for entry in change.cases] == ["native-core/tests/test-awk.xsh"]
+  assert change.unresolved.is_empty()
 }
 
 test test_json_edit_selects_structured_data_contracts {

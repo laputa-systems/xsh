@@ -133,6 +133,15 @@ to 30 seconds and Change runtime to 300 seconds across selected automatic cases.
 Each automatic command also has its declared case limit. Explicit Scenario cases use their
 declared per-case limit and do not increase any automatic case's budget.
 
+Corpus-wide checks are Scenario cases, not part of the component Change contract.
+`native-core/tests` runs the whole core suite, about 9,800 native tests, within 3600
+seconds. `test-desugar-corpus` checks and runs every sugared native test file twice, once as
+written and once desugared, within 1800 seconds. `test-lint-format-corpus` formats and lints
+the repository corpus within 1800 seconds. Change selects `test-desugar` and
+`test-tooling` without them, and a Change request for a shared core path reports that no
+Change case owns it and lists `native-core/tests` as an available scenario. A Change request
+for `core/NAME.xsh` selects the `core/tests/test-NAME.xsh` module when it exists.
+
 Native cases run as the host user inside the gate container, with a private home and
 temporary directory under `.work/tmp`, as the Full native run does. The container itself
 keeps Docker's default seccomp profile and capabilities. Required skips still make a case
