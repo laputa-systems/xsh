@@ -594,7 +594,7 @@ proc dispatch_manual(ctx: context.Context, profile: tests.TestProfile, request: 
 
 proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   full_evidence_path(ctx).remove(missing_ok: true)?
-  let source = bind_source(ctx, full_evidence_id, 30000000000)?
+  let source = try { bind_source(ctx, full_evidence_id, 30000000000)? }
   for entry in plan.cases {
     match entry.execution {
       ManualPreparation(preparation) => tests.run_commands([preparation.command])
@@ -606,8 +606,15 @@ proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       ManualFull | Alias => {}
     }
   }
-  require_source(ctx, source, full_evidence_id, 30000000000)?
-  store_evidence(full_evidence_path(ctx), full_evidence_id, source, [])?
+  match source {
+    Ok(bound) => {
+      match try { require_source(ctx, bound, full_evidence_id, 30000000000)? } {
+        Ok(_) => store_evidence(full_evidence_path(ctx), full_evidence_id, bound, [])?
+        Err(_) => print "Full evidence not recorded: source changed during the run"
+      }
+    }
+    Err(failure) => print f"Full evidence not recorded: {failure.message}"
+  }
 }
 
 pure tier_name(tier: Tier) -> Str {
