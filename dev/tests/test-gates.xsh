@@ -3149,7 +3149,7 @@ main()?
   let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)"], args: [], env: environment)?
 }
 
-test test_container_ownership_repair_returns_gate_evidence_to_the_host_user { |ctx|
+test test_container_ownership_repair_returns_gate_evidence_to_the_host_user_and_is_verified { |ctx|
   let root = test.temp_dir(ctx, name: "ownership-repair")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -3157,12 +3157,19 @@ test test_container_ownership_repair_returns_gate_evidence_to_the_host_user { |c
   fp"{tools}/chown".write("""#!/bin/sh
 printf '%s\\n' "$@" > "$CHOWN_ARGS"
 """, mode: 0o755)
+  fp"{tools}/find".write("#!/bin/sh\nprintf '%s' \"$STRAY\"\n", mode: 0o755)
   let checkout = fp"{root}/checkout"
   fp"{checkout}/.work/gate/cases".mkdir(parents: true)
   let gate_ctx = fixtures.linux_context(checkout, "verification")?
-  env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log}) {
-    container_internal.repair_mounted_outputs(gate_ctx)?
+  env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: ""}) {
+    docker.repair_mounted_outputs(gate_ctx)?
   }
   assert log.read_lines()? == ["-R", "1000:1000", gate_ctx.target_dir.display(), fp"{checkout}/.work/gate".display()]
+  env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: "/work/target/x"}) {
+    match docker.repair_mounted_outputs(gate_ctx) {
+      Ok(_) => test.fail("a file still owned by root was reported repaired")
+      Err(error) => assert error.message == "OwnershipError.Unrepaired"
+    }
+  }
 }
 

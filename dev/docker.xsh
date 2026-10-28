@@ -13,6 +13,9 @@ export error ImageError = InvalidIdentity(detail: Str) | Unavailable(raw_status:
 ## A container the gate started could not be shown to be gone.
 export error ContainerError = InvalidIdentity(detail: Str) | Survived(id: Str) | Unverified(id: Str, detail: Str)
 
+## The mounted outputs still held a file the host user does not own after a repair.
+export error OwnershipError = Unrepaired(file: Str, command: Str)
+
 proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
   return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
   return null when ctx.target.triple != "x86_64-unknown-linux-musl"
@@ -333,6 +336,33 @@ proc internal_command(
 ## Runs one container-internal lifecycle operation through the stage diagnostics.
 export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str]) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.execute(internal_command(ctx, operation, privileged, extra)?)
+}
+
+## Returns ownership of the mounted target tree and gate evidence to the host user, then looks for a file that is still
+## owned by anyone else. After a cancellation the hook repairs first and leaves a marker, because the deferred repair
+## would run its chown as a child of a script that is already being cancelled; the deferred call skips on the marker.
+export proc repair_mounted_outputs(ctx: context.Context, after_cancellation: Bool = false) [fs, process, env, error, io] -> Result[Unit, Error] {
+  let uid = env.get_or("HOST_UID", "")?.trim()
+  let gid = env.get_or("HOST_GID", "")?.trim()
+
+  return when uid == "" or gid == ""
+  let marker = fp"{ctx.root}/.work/tmp/ownership-repaired-{process.current_pid()?}"
+  if ! after_cancellation and marker.exists()? {
+    marker.remove(missing_ok: true)?
+    return
+  }
+  let gate_evidence = fp"{ctx.root}/.work/gate"
+  let outputs = [output.display() for output in if gate_evidence.exists()? { [ctx.target_dir, gate_evidence] } else { [ctx.target_dir] }]
+  stages.execute(
+    stages.command("container-ownership-repair", ctx.target.triple, "chown", ["chown", "-R", f"{uid}:{gid}", @outputs], ctx.root, {}),
+  )
+  let stray = run.capture --text find @outputs ! -uid $uid -print -quit
+  let first = stray.stdout.trim()
+  return Err(OwnershipError.Unrepaired(file: first, command: f"chown -R {uid}:{gid} {outputs.join(" ")}")) when first != ""
+  if after_cancellation {
+    stages.ensure_dir(fp"{ctx.root}/.work/tmp")
+    marker.write("repaired")?
+  }
 }
 
 type DockerAnswer = {ok: Bool, timed_out: Bool, stderr: Str}

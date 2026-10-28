@@ -1098,6 +1098,8 @@ if args[0] == "rm" {{ marker.write("x")? }}
 exit 0
 """,
   )
+  fp"{tools}/chown".write(f"#!/bin/sh\nstate=before-cleanup; [ -e {cleaned} ] && state=after-cleanup\nprintf 'chown|%s\\n' \"$state\" >> {log}\n", mode: 0o755)
+  fp"{tools}/find".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let adapter = fp"{root}/adapter.sh"
   adapter.write(f"""#!/bin/sh
 trap 'sleep 1; echo cleaned > {cleaned}; exit 143' TERM
@@ -1129,7 +1131,7 @@ proc main() [fs, process, env, time, error, io] {{
   let search_path = f"{tools}:{env.get_or("PATH", "")?}"
   let module_path = fp"{repository}/dev".display()
   let xsh = ctx.xsh_bin
-  env PATH=$search_path XSH_MODULE_PATH=$module_path {
+  env PATH=$search_path XSH_MODULE_PATH=$module_path HOST_UID=1000 HOST_GID=1000 {
     let child = spawn run $xsh $script ?
     var waited = 0
     while ! ready.exists()? and waited < 100 {
@@ -1145,6 +1147,16 @@ proc main() [fs, process, env, time, error, io] {{
   let calls = log.read_lines()?
   assert f"rm|-f|{id}|after-cleanup" in calls
   assert f"rm|-f|{id}|before-cleanup" not in calls
+  assert "chown|after-cleanup" in calls
+  var chown_at = -1
+  var rm_at = -1
+  var position = 0
+  for line in calls {
+    chown_at = position when line.starts_with("chown|")
+    rm_at = position when line.starts_with("rm|")
+    position += 1
+  }
+  assert chown_at >= 0 and rm_at > chown_at
 }
 
 test test_an_unverifiable_removal_is_reported_with_the_id_and_the_manual_command { |ctx|

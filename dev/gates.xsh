@@ -1760,8 +1760,9 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
 ## defers. It forwards the signal to the process groups this run started, so a docker client hands it to the
 ## container's own hook, and waits up to grace_ms for them to exit. The runtime would kill a child group 150 ms after
 ## forwarding, which is too soon for the Python adapters to remove their containers and release the shared leases.
-## Only then does it remove the containers this run started and verify each removal, as a backstop that kills nothing
-## that could still clean up. The host grace must exceed the grace of the hook inside the container.
+## It then repairs the ownership of the mounted outputs, which the deferred repair cannot do once cancellation has begun,
+## and last removes the containers this run started and verifies each removal, as a backstop that kills nothing that
+## could still clean up. The host grace must exceed the grace of the hook inside the container.
 export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int = 30000) [fs, process, error, io, time] {
   let me = process.current_pid()?
   let owned = [entry for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
@@ -1778,6 +1779,11 @@ export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int =
     let alive = [entry.pid for entry in process.list()? if entry.pid in owned_pids and entry.status != "Z"]
     break when alive.is_empty()
     time.sleep(100ms)
+  }
+  match docker.repair_mounted_outputs(ctx, after_cancellation: true) {
+    Ok(_) => {}
+    Err(docker.OwnershipError.Unrepaired {file: file, command: command}) => print f"ownership repair is unverified ({file} is not owned by the host user); repair it by hand with: {command}"
+    Err(cause) => print f"ownership repair could not run: {cause.message}"
   }
   match docker.remove_owned_containers(ctx) {
     Ok(_) => {}
