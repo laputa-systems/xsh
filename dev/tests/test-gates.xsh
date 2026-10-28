@@ -2197,6 +2197,22 @@ test test_frozen_witness_tool_changes_select_their_contract_tests {
   }
 }
 
+test test_annotation_erasure_tool_changes_select_their_contract_tests {
+  let context = fixtures.linux_context(/repo)?
+  for changed_path in ["dev/performance/corpus/erase_sites.py", "dev/performance/corpus/test_erase_sites.py"] {
+    let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
+    assert [entry.id for entry in selected.cases] == ["verification/erase-sites"]
+    assert selected.products.is_empty()
+    assert selected.unresolved.is_empty()
+    match selected.cases[0].execution {
+      gates.RunCommand(spec) => assert spec.argv == ["python3", "-B", "-m", "unittest", "dev.performance.corpus.test_erase_sites"]
+      else => test.fail("the erasure case was not a Python command")
+    }
+  }
+  let other = gates.plan_paths(context, tests.Verification, ["dev/performance/corpus/inventory.sh"], [], gates.Change)?
+  assert other.unresolved.len() == 1
+}
+
 test test_frontend_disposal_scenarios_select_exact_runtime_controls {
   let context = fixtures.linux_context(/repo)?
   for id in ["compiler/frontend-disposal/schemes", "compiler/frontend-disposal/compact-entry"] {

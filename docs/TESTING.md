@@ -250,7 +250,8 @@ Constraint-solver production changes select a reference-oracle test at Edit
 tier and retain the checker gate at Change tier.
 Changes to inference workload generators and measurement tooling select their
 Python contract tests.
-Frozen-witness tooling changes select its Python contract tests. Other inference
+Frozen-witness tooling changes select its Python contract tests, and annotation-erasure
+tooling changes select `verification/erase-sites`. Other inference
 corpus paths report unresolved until their external inputs and verification
 owners are declared.
 The explicit `performance/core-wc-{small,medium,large}/correctness` scenarios

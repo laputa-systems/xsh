@@ -846,6 +846,12 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     execution: RunCommand(stages.command("verification/frozen-witnesses", ctx.target.triple, "python3",
       ["python3", "-B", "-m", "unittest", "dev.performance.corpus.test_frozen_witnesses"], ctx.root,
       {TMPDIR: fp"{ctx.root}/.work/tmp", PYTHONPATH: fp"{ctx.root}/dev/performance/corpus"})))]
+  entries += [CatalogCase(id: "verification/erase-sites", tier: Change,
+    limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
+    reasons: ["annotation erasure measurement tooling contracts"],
+    execution: RunCommand(stages.command("verification/erase-sites", ctx.target.triple, "python3",
+      ["python3", "-B", "-m", "unittest", "dev.performance.corpus.test_erase_sites"], ctx.root,
+      {TMPDIR: fp"{ctx.root}/.work/tmp", PYTHONPATH: fp"{ctx.root}/dev/performance/corpus"})))]
   entries += [CatalogCase(id: "verification/inference-workloads", tier: Change,
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
     reasons: ["inference workload generation and measurement contracts"],
@@ -1092,6 +1098,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += ["verification/frozen-witnesses"] when "verification/frozen-witnesses" not in selected_ids
       continue
     }
+    if changed_path in ["dev/performance/corpus/erase_sites.py", "dev/performance/corpus/test_erase_sites.py"] {
+      selected_ids += ["verification/erase-sites"] when "verification/erase-sites" not in selected_ids
+      continue
+    }
     if changed_path.starts_with("dev/performance/corpus/") {
       unresolved += [f"inference corpus verification requires explicit external inputs: {changed_path}"]
       continue
@@ -1212,7 +1222,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
     continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/consumers", cat_byte_stream_case_id, cat_full_module_case_id, cat_external_consumers_case_id,
-      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/consolidation-harness", "verification/core-workloads", "verification/inference-workloads", "verification/frozen-witnesses", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
+      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/consolidation-harness", "verification/core-workloads", "verification/inference-workloads", "verification/frozen-witnesses", "verification/erase-sites", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
       native_leases_case_id]
     continue when entry.id in [case.id for case in source_edit_cases]
     continue when entry.tier == Scenario
