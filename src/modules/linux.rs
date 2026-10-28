@@ -183,7 +183,7 @@ pub(crate) use api::{module_plan, modprobe};
 pub(crate) use unsupported::{module_plan, modprobe};
 pub(crate) use imp::{
     add_default_ipv4_route, blkid, block_devices, chroot, del_default_ipv4_route, depmod,
-    dhcp_close, dhcp_recv, dhcp_send, dhcp_send_release, dhcp_socket, disk_usage, dmesg,
+    disk_usage, dmesg,
     file_attrs, file_version, file_project, set_file_project, flush_ipv4_addresses, fsck, halt, hwclock, insmod, interfaces,
     is_mountpoint, kill_all, link_down, link_up, loop_attach, loop_detach, loop_list, meminfo,
     mknod, mkswap, modinfo, modinfo_path, modules, mount, mount_all, network_dump, open_files,

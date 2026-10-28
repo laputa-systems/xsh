@@ -21,7 +21,6 @@ test test_linux_fake_covers_module_surface { |ctx|
   linux.flush_ipv4_addresses("eth0")
   linux.add_default_ipv4_route("192.0.2.1", interface: "eth0")
   linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")
-  linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")
   let interfaces = linux.interfaces()?.collect()
   assert interfaces[0].name == "eth0"
   assert interfaces[0].addresses[0].family == "inet"
@@ -119,7 +118,6 @@ test test_linux_fake_covers_module_surface { |ctx|
   assert "\"op\":\"link_down\"" in log_text
   assert "\"op\":\"flush_ipv4_addresses\"" in log_text
   assert "\"op\":\"del_default_ipv4_route\"" in log_text
-  assert "\"op\":\"dhcp_send_release\"" in log_text
   assert "\"op\":\"read_device\"" in log_text
   assert "\"op\":\"kill_all\"" in log_text
   assert "\"op\":\"poweroff\"" in log_text

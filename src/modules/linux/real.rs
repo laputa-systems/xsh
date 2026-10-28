@@ -183,8 +183,8 @@ pub(crate) use fs::{
 pub(crate) use kernel::{dmesg, meminfo, modules, parse_meminfo};
 pub(crate) use mount::{mount, mount_all, root_device, swapoff_all, swapon_all, umount_all};
 pub(crate) use net::{
-    add_default_ipv4_route, del_default_ipv4_route, dhcp_close, dhcp_recv, dhcp_send,
-    dhcp_send_release, dhcp_socket, flush_ipv4_addresses, link_down, link_up, set_ipv4_address,
+    add_default_ipv4_route, del_default_ipv4_route, flush_ipv4_addresses, link_down, link_up,
+    set_ipv4_address,
 };
 pub(crate) use netlink::{interfaces, network_dump, routes};
 pub(crate) use parity::{

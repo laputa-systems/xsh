@@ -1527,49 +1527,6 @@ impl Evaluator {
         Ok(ControlFlow::Continue(value))
     }
 
-    pub(super) fn eval_lowered_linux_dhcp_send_release_values(
-        &mut self, values: NativeArgumentValues, span: Span,
-    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let value = {
-            let server_id = lowered_str_arg_owned(
-                values.get(2).cloned(),
-                "",
-                "linux.dhcp_send_release",
-                span,
-            )?;
-            let address = lowered_str_arg_owned(
-                values.get(1).cloned(),
-                "",
-                "linux.dhcp_send_release",
-                span,
-            )?;
-            let interface = lowered_str_arg_owned(
-                values.first().cloned(),
-                "",
-                "linux.dhcp_send_release",
-                span,
-            )?;
-            if !self.linux_fake_active() {
-                lowered_runtime_result(
-                    linux_module::dhcp_send_release(&interface, &address, &server_id, span),
-                    span,
-                )?
-            } else {
-                self.linux_fake_log(
-                    "dhcp_send_release",
-                    &[
-                        ("interface", interface),
-                        ("address", address),
-                        ("server_id", server_id),
-                    ],
-                    span,
-                )?;
-                lowered_result_ok(LoweredValue::Unit)
-            }
-        };
-        Ok(ControlFlow::Continue(value))
-    }
-
     pub(super) fn eval_lowered_linux_write_device_values(
         &mut self, mut values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {

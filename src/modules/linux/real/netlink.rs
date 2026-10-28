@@ -598,34 +598,6 @@ pub(crate) fn routes(span: Span) -> Result<Value, RuntimeError> {
     ))))
 }
 
-/// The six-byte hardware address of `interface` in the caller's network
-/// namespace, for building link-layer frames.
-pub(crate) fn interface_hardware_address(interface: &str) -> io::Result<[u8; 6]> {
-    let snapshot = collect_snapshot(&[DumpKind::Links]);
-    if let Some(issue) = snapshot.blocking_issue(&["socket", "link"]) {
-        return Err(issue.to_io_error());
-    }
-    let link = snapshot
-        .links
-        .iter()
-        .find(|link| link.name.as_deref().and_then(|name| text_bytes(name).ok()).as_deref() == Some(interface))
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("no interface named {interface}"),
-            )
-        })?;
-    link.address
-        .as_deref()
-        .and_then(|address| <[u8; 6]>::try_from(address).ok())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("interface {interface} has no six-byte hardware address"),
-            )
-        })
-}
-
 const RT_TABLE_MAIN: u32 = 254;
 const RTM_F_CLONED: u32 = 0x200;
 const RTN_BLACKHOLE: u8 = 6;

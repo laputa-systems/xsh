@@ -92,31 +92,6 @@ pub(crate) fn del_default_ipv4_route(
     Ok(unsupported(span))
 }
 
-pub(crate) fn dhcp_socket(_interface: &str, span: Span) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
-pub(crate) fn dhcp_send(_fd: i64, _payload: &[u8], span: Span) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
-pub(crate) fn dhcp_recv(_fd: i64, _timeout_ms: i64, span: Span) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
-pub(crate) fn dhcp_close(_fd: i64, span: Span) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
-pub(crate) fn dhcp_send_release(
-    _interface: &str,
-    _address: &str,
-    _server_id: &str,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
 pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }

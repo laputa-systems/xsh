@@ -2509,55 +2509,6 @@ fn linux_module() -> ModuleSig {
             ),
         ),
         (
-            "dhcp_socket",
-            sig(
-                vec![param("interface", Type::Str)],
-                result(Type::Int),
-                false,
-                RuntimeOp::LinuxDhcpSocket,
-            ),
-        ),
-        (
-            "dhcp_send",
-            sig(
-                vec![param("fd", Type::Int), param("payload", Type::Bytes)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::LinuxDhcpSend,
-            ),
-        ),
-        (
-            "dhcp_recv",
-            sig(
-                vec![param("fd", Type::Int), param("timeout_ms", Type::Int)],
-                result(Type::Bytes),
-                false,
-                RuntimeOp::LinuxDhcpRecv,
-            ),
-        ),
-        (
-            "dhcp_close",
-            sig(
-                vec![param("fd", Type::Int)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::LinuxDhcpClose,
-            ),
-        ),
-        (
-            "dhcp_send_release",
-            sig(
-                vec![
-                    param("interface", Type::Str),
-                    param("address", Type::Str),
-                    param("server_id", Type::Str),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::LinuxDhcpSendRelease,
-            ),
-        ),
-        (
             "interfaces",
             sig(
                 Vec::new(),

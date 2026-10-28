@@ -4694,9 +4694,9 @@ The file-backed operations `bytes.resize`, `bytes.read_at`, `bytes.write_at`,
 on in-memory bytes require no host effect.
 
 These calls require both `process` and `net`: `linux.socket`, `connect`,
-`bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,
-`dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `set_ipv4_address`,
-`flush_ipv4_addresses`, `add_default_ipv4_route`, `del_default_ipv4_route`,
+`bind`, `listen`, `accept`, `sendto`, `recvfrom`, `link_up`, `link_down`,
+`set_ipv4_address`, `flush_ipv4_addresses`, `add_default_ipv4_route`,
+`del_default_ipv4_route`,
 and `unix.read_fd`, `write_fd`, `notify_ready`. The private configuration
 helpers create `AF_INET` sockets. A runtime family or raw descriptor cannot
 prove that communication stays local, so generic socket and descriptor calls

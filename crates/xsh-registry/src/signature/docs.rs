@@ -1079,14 +1079,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The operation mutates host-global networking state and requires the corresponding platform privilege.",
             &["linux", "network", "privileged"],
         )),
-        (
-            "linux",
-            "dhcp_socket" | "dhcp_send" | "dhcp_recv" | "dhcp_close" | "dhcp_send_release",
-        ) => Some((
-            "Performs one stage of the Linux DHCP socket lifecycle.",
-            "The handle and packet flow are caller-owned; the operation is platform-specific and privilege-sensitive.",
-            &["linux", "dhcp", "network", "privileged"],
-        )),
         ("linux", "write_device" | "read_device" | "root_device" | "block_devices") => Some((
             "Reads or changes Linux block-device state.",
             "Device paths address host-global resources and may require privilege; no implicit device discovery is performed.",

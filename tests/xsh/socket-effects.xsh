@@ -8,10 +8,6 @@ const socket_calls = [
   "linux.accept(0)",
   "linux.sendto(0, b\"payload\")",
   "linux.recvfrom(0, 16)",
-  "linux.dhcp_socket(\"eth0\")",
-  "linux.dhcp_send(0, b\"payload\")",
-  "linux.dhcp_recv(0, 100)",
-  "linux.dhcp_send_release(\"eth0\", \"192.0.2.1\", \"192.0.2.2\")",
   "unix.read_fd(0, 16)",
   "unix.write_fd(0, b\"payload\")",
   "unix.notify_ready(0)",
@@ -67,7 +63,7 @@ test test_socket_commands_require_net { |ctx|
     "linux.connect 0 ({family: \"inet\", address: \"127.0.0.1\", port: 80})",
     "linux.bind 0 ({family: \"inet\", address: \"127.0.0.1\", port: 80})",
     "linux.link_up \"eth0\"",
-    "linux.dhcp_send 0 (b\"payload\")",
+    "linux.flush_ipv4_addresses \"eth0\"",
   ] {
     check_source(ctx, f"proc probe() [process, error] {{ {call} }}", 2)
     check_source(ctx, f"proc probe() [process, net, error] {{ {call} }}", 0)
@@ -109,7 +105,6 @@ test test_socket_metadata_and_release_keep_the_process_effect { |ctx|
     let _ = linux.getsockopt_bytes(0, 0, 0, 16)
     let _ = linux.set_socket_timeout(0, 0, 1)
     let _ = linux.ioctl(0, 0, b"", 0)
-    let _ = linux.dhcp_close(0)
     let _ = unix.close_fd(0)
     let _ = unix.notify_close(0)
     let _ = unix.poll_fd(0, [])

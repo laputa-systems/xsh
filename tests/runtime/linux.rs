@@ -292,7 +292,6 @@ copy.write(b"------")?
     }
   }
 
-  test.error_kind(linux.dhcp_socket("bad/interface"), "linux-dhcp-socket")?
   test.error_kind(linux.link_up("bad/interface"), "linux-link-up")?
   test.error_kind(linux.set_ipv4_address("lo", "not-an-ip", "255.255.255.0"), "linux-set-ipv4-address")?
   test.error_kind(linux.add_default_ipv4_route("not-an-ip"), "linux-add-default-ipv4-route")?

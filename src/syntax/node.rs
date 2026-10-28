@@ -79,8 +79,7 @@ impl Effect {
                 "sample" if module == "linux" => &[Self::Fs],
                 "uptime_seconds" if module == "unix" && cfg!(target_os = "linux") => &[Self::Fs],
                 "socket" | "connect" | "bind" | "listen" | "accept" | "sendto"
-                | "recvfrom" | "dhcp_socket" | "dhcp_send" | "dhcp_recv"
-                | "dhcp_send_release" | "link_up" | "link_down" | "set_ipv4_address"
+                | "recvfrom" | "link_up" | "link_down" | "set_ipv4_address"
                 | "flush_ipv4_addresses" | "add_default_ipv4_route" | "del_default_ipv4_route"
                     if module == "linux" => &[Self::Process, Self::Net],
                 "read_fd" | "write_fd" | "notify_ready" | "poll_fds" if module == "unix" => {

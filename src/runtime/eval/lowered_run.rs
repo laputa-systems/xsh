@@ -6278,49 +6278,6 @@ impl Evaluator {
             }
             callable; RuntimeOp::LinuxAddDefaultIpv4Route if values.len() == 1 || values.len() == 2 => return self.eval_lowered_linux_add_default_ipv4_route_values(values, span),
             callable; RuntimeOp::LinuxDelDefaultIpv4Route if values.len() == 2 => return self.eval_lowered_linux_del_default_ipv4_route_values(values, span),
-            callable; RuntimeOp::LinuxDhcpSocket if values.len() == 1 => {
-                let interface = lowered_str_arg_owned(values.pop(), "", "linux.dhcp_socket", span)?;
-                if !self.linux_fake_active() {
-                    lowered_runtime_result(linux_module::dhcp_socket(&interface, span), span)?
-                } else {
-                    self.linux_fake_log("dhcp_socket", &[("interface", interface)], span)?;
-                    lowered_result_ok(LoweredValue::Int(-1))
-                }
-            }
-            callable; RuntimeOp::LinuxDhcpSend if values.len() == 2 => {
-                let fd = lowered_int_arg(values.first().cloned(), "linux.dhcp_send", span)?;
-                let payload = lowered_bytes_arg(&values[1], "linux.dhcp_send", span)?;
-                if !self.linux_fake_active() {
-                    lowered_runtime_result(linux_module::dhcp_send(fd, payload, span), span)?
-                } else {
-                    self.linux_fake_log(
-                        "dhcp_send",
-                        &[("bytes", payload.len().to_string())],
-                        span,
-                    )?;
-                    lowered_result_ok(LoweredValue::Unit)
-                }
-            }
-            callable; RuntimeOp::LinuxDhcpRecv if values.len() == 2 => {
-                let fd = lowered_int_arg(values.first().cloned(), "linux.dhcp_recv", span)?;
-                let timeout = lowered_int_arg(values.get(1).cloned(), "linux.dhcp_recv", span)?;
-                if !self.linux_fake_active() {
-                    lowered_runtime_result(linux_module::dhcp_recv(fd, timeout, span), span)?
-                } else {
-                    self.linux_fake_log("dhcp_recv", &[("timeout_ms", timeout.to_string())], span)?;
-                    lowered_result_ok(LoweredValue::Bytes(Vec::new().into()))
-                }
-            }
-            callable; RuntimeOp::LinuxDhcpClose if values.len() == 1 => {
-                let fd = lowered_int_arg(values.pop(), "linux.dhcp_close", span)?;
-                if !self.linux_fake_active() {
-                    lowered_runtime_result(linux_module::dhcp_close(fd, span), span)?
-                } else {
-                    self.linux_fake_log("dhcp_close", &[("fd", fd.to_string())], span)?;
-                    lowered_result_ok(LoweredValue::Unit)
-                }
-            }
-            callable; RuntimeOp::LinuxDhcpSendRelease if values.len() == 3 => return self.eval_lowered_linux_dhcp_send_release_values(values, span),
             callable; RuntimeOp::MimeParse if values.len() == 1 => {
                 let value = lowered_str_arg_owned(values.pop(), "", "mime.parse", span)?;
                 match mime_module::parse(&value, span) {
