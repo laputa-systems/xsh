@@ -2187,6 +2187,12 @@ test test_inference_corpus_changes_do_not_select_unrelated_native_tests {
   }
 }
 
+test test_an_adapter_stopped_by_sigint_or_sigterm_is_cancelled_not_failed {
+  assert gates.workload_cancelled(130)
+  assert gates.workload_cancelled(143)
+  for raw in [0, 1, 2, 137] { assert ! gates.workload_cancelled(raw) }
+}
+
 test test_frozen_witness_tool_changes_select_their_contract_tests {
   let context = fixtures.linux_context(/repo)?
   for changed_path in ["dev/performance/corpus/frozen_witnesses.py", "dev/performance/corpus/test_frozen_witnesses.py"] {

@@ -1405,7 +1405,7 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
   match gate_execution.execute(command, 330000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when workload_cancelled(raw)
       return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
       return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
       let bindings = bind_products(ctx, profile, laputa_products(case_id), case_id, 30000000000)?
@@ -1470,7 +1470,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
   match gate_execution.execute(command, 330000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when workload_cancelled(raw)
       return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
       return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
       let report = try {
@@ -1564,7 +1564,7 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
   match gate_execution.execute(command, 330000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: tokei_scenario_case_id, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Cancelled(case_id: tokei_scenario_case_id, raw_status: raw)) when workload_cancelled(raw)
       return Err(ExecutionError.Incomplete(case_id: tokei_scenario_case_id, raw_status: raw)) when raw == 2
       return Err(ExecutionError.Failed(case_id: tokei_scenario_case_id, raw_status: raw)) when raw != 0
       var count_summary = ""
@@ -1732,6 +1732,11 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded, confinement: confinement)?)
   }
   execute_plan(ctx, profile, plan, paths, source)
+}
+
+## An adapter that stops on SIGINT exits 130 and on SIGTERM exits 143; both are cancellation, not failure.
+export pure workload_cancelled(raw: Int) -> Bool {
+  raw == 130 or raw == 143
 }
 
 pure automatic_budget_ns(tier: Tier) -> Int {
