@@ -2418,7 +2418,10 @@ fn verify_body_expression(
                 budget.charge_scheme_clone(ty)?;
                 ty.clone()
             } else {
-                let narrowed = if matches!(ty, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))) {
+                let narrowed = if matches!(ty, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_)))
+                    || matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
+                        && !matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
+                {
                     budget.charge_scheme_clone(actual)?;
                     budget.charge_scheme_clone(ty)?;
                     match (actual.closed_ground_type(), ty.closed_ground_type()) {

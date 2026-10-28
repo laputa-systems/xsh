@@ -509,3 +509,26 @@ print $on_linux
   assert output.success, output.stderr
   assert output.stdout == "true\nfalse\n"
 }
+
+test test_full_inference_null_test_narrows_an_optional_read_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure clip(name: Str, cut: Int?, marker) {
+  if cut != null { name.byte_slice(0, length: cut) } else { name }
+}
+pure width(cut: Int?, marker) {
+  if cut == null { 0 } else { cut + 1 }
+}
+let clipped = clip("abcdef", 2, "m")
+let whole = clip("abcdef", null, 7)
+let some = width(4, "m")
+let none = width(null, "m")
+print $clipped
+print $whole
+print $some
+print $none
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "ab\nabcdef\n5\n0\n"
+}

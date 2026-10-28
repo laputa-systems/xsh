@@ -10867,13 +10867,15 @@ impl<'a> FullDecoder<'a> {
         prefix: Option<&verify_schemes::ProducerPrefixContext<'_>>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        if !matches!(expected, Type::Record(_)) || actual == expected { return Ok(false); }
+        if actual == expected { return Ok(false); }
         let mut stored = actual;
         while let Type::Optional(payload) = stored {
             charge(1)?;
             stored = payload;
         }
-        if !matches!(stored, Type::Record(_)) || actual.contains_inference() || actual.contains_recovery()
+        let record_read = matches!(expected, Type::Record(_)) && matches!(stored, Type::Record(_));
+        let payload_read = matches!(actual, Type::Optional(payload) if payload.as_ref() == expected) && !expected.may_hold_resource();
+        if !(record_read || payload_read) || actual.contains_inference() || actual.contains_recovery()
         { return Ok(false); }
         if let Some(prefix) = prefix {
             return prefix.guarded_record_read_matches_type(self, instruction, actual, expected, charge);
@@ -34400,6 +34402,42 @@ assert nullable_name == null
         let (boolean_value, platform_value) = (forged.store.scheme_body_facts[boolean].value, forged.store.scheme_body_facts[platform].value);
         forged.store.scheme_body_facts[boolean].value = platform_value;
         forged.store.scheme_body_facts[platform].value = boolean_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn full_verifier_rejects_a_narrowed_optional_read_without_a_null_test() {
+        let program = fixture(
+            "narrowed-optional-read.xsh",
+            "pure keep(cut: Int?, marker) {\n  let one = 1\n  if cut != null { cut } else { one }\n}\n\
+             pure bare(cut: Int?, marker) {\n  let one = 1\n  let _ = one\n  cut\n}\n\
+             let kept = keep(3, \"m\")\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let function = scheme_fixture_root_function(&program, "bare");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[function].contract else { panic!("bare has a generic scheme") };
+        let decoder = function_view_decoder(&program.store, function);
+        let tail = program.store.function_instruction_range(function).unwrap()
+            .filter(|instruction| program.store.tags[*instruction] == FullTag::ExprParam && matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0))))
+            .last()
+            .expect("bare reads its optional parameter");
+        let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let read = facts.clone().find(|index| {
+            let fact = program.store.scheme_body_facts[*index];
+            fact.kind() == schemes::FullSchemeBodyFactKind::Expression && fact.instruction as usize == tail
+        }).expect("the read has its authenticated fact");
+        let int_fact = facts.clone().find(|index| {
+            let fact = program.store.scheme_body_facts[*index];
+            fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                && fact.ty().is_some_and(|ty| {
+                    let node = program.store.scheme_types[ty.index()];
+                    node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == crate::runtime::eval::indexed::semantic::TypeTag::Int
+                })
+        }).expect("bare has an Int fact");
+        let mut forged = program.clone();
+        let (read_value, int_value) = (forged.store.scheme_body_facts[read].value, forged.store.scheme_body_facts[int_fact].value);
+        forged.store.scheme_body_facts[read].value = int_value;
+        forged.store.scheme_body_facts[int_fact].value = read_value;
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
