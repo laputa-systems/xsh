@@ -1396,7 +1396,7 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
       let bindings = bind_products(ctx, profile, [tests.Xsh, tests.Xsht], case_id, 30000000000)?
       require_source(ctx, source, case_id, 30000000000)?
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
-        [{path: tests.product_path(ctx, profile, binding.product).display(), digest: binding.digest, mode: binding.mode} for binding in bindings])
+        [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in bindings])
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
@@ -1500,7 +1500,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
       print "Performance: not measured"
       print "Full cohort: not run"
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
-        [{path: xsh.display(), digest: product.digest, mode: product.mode}])
+        [evidence_product(ctx, xsh.display(), product.digest, product.mode)])
     }
     gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
     gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
@@ -1613,8 +1613,8 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
       print "Performance: not measured"
       print "Full cohort: not run"
       return store_evidence(case_evidence_path(ctx, tokei_scenario_case_id), tokei_scenario_case_id, source,
-        [{path: xsh.display(), digest: xsh_product.digest, mode: xsh_product.mode},
-          {path: tokei_path, digest: tokei_product.digest, mode: tokei_product.mode}])
+        [evidence_product(ctx, xsh.display(), xsh_product.digest, xsh_product.mode),
+          evidence_product(ctx, tokei_path, tokei_product.digest, tokei_product.mode)])
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: tokei_scenario_case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: tokei_scenario_case_id, cause: cause))
@@ -1961,15 +1961,18 @@ proc require_source(ctx: context.Context, source: Str, case_id: Str, available_n
   return Err(ExecutionError.SourceChanged(case_id: case_id)) when bind_source(ctx, case_id, available_ns)? != source
 }
 
-type EvidenceProduct = {path: Str, digest: Str, mode: Int}
+## A product a case ran against. Paths under the target directory are stored relative to it, because the
+## container and the host mount that directory at different absolute paths.
+export type EvidenceProduct = {path: Str, digest: Str, mode: Int, under_target: Bool}
 type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int}
 
 ## What the recorded evidence for a case says about the current source and products.
-export enum EvidenceState { Current(Int), Reduced(Int, Int), Stale(Str), NotRun }
+export enum EvidenceState { Current(Int), Reduced(Int), Stale(Str), NotRun }
 
 const full_evidence_id = "full"
 
-pure case_evidence_path(ctx: context.Context, id: Str) -> Path {
+## The record a case writes when it passes.
+export pure case_evidence_path(ctx: context.Context, id: Str) -> Path {
   fp"{ctx.root}/.work/gate/cases/{id.replace("%", with: "%25").replace("/", with: "%2F")}.json"
 }
 
@@ -1977,14 +1980,30 @@ pure full_evidence_path(ctx: context.Context) -> Path {
   fp"{ctx.root}/.work/gate/full.json"
 }
 
-proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], outside_lane: Int = 0) [fs, time, error] -> Result[Unit, Error] {
+## Binds an observed product to where either side of the container boundary can find it again.
+export pure evidence_product(ctx: context.Context, location: Str, digest: Str, mode: Int) -> EvidenceProduct {
+  let prefix = ctx.target_dir.display() + "/"
+  if location.starts_with(prefix) {
+    {path: location[prefix.byte_len()..], digest: digest, mode: mode, under_target: true}
+  } else {
+    {path: location, digest: digest, mode: mode, under_target: false}
+  }
+}
+
+pure evidence_product_path(ctx: context.Context, product: EvidenceProduct) -> Str {
+  if product.under_target { f"{ctx.target_dir}/{product.path}" } else { product.path }
+}
+
+## Writes the record for a case that passed.
+export proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], outside_lane: Int = 0) [fs, time, error] -> Result[Unit, Error] {
   let directory = record_path.parent()
   if ! directory.exists()? { directory.mkdir(parents: true)? }
   let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now(), outside_lane: outside_lane}
   record_path.write_atomic(json.encode(record)?)
 }
 
-proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error]) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
+## Compares a stored record with the current source and products.
+export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error]) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
   return NotRun when ! record_path.exists()?
   let loaded = try { json.decode(record_path.read_text()?)?.require(EvidenceRecord)? }
   let record = match loaded {
@@ -1997,13 +2016,14 @@ proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_so
     Err(cause) => { return Stale(f"source unavailable: {cause.message}") }
   }
   for product in record.products {
-    let observed = try { bind_product(ctx, product.path, product.path, id, 30000000000)? }
+    let location = evidence_product_path(ctx, product)
+    let observed = try { bind_product(ctx, location, location, id, 30000000000)? }
     match observed {
-      Ok(value) => { return Stale(f"product changed: {product.path}") when value.digest != product.digest or value.mode != product.mode }
-      Err(cause) => { return Stale(f"product unavailable: {product.path}: {cause.message}") }
+      Ok(value) => { return Stale(f"product changed: {location}") when value.digest != product.digest or value.mode != product.mode }
+      Err(cause) => { return Stale(f"product unavailable: {location}: {cause.message}") }
     }
   }
-  return Reduced(record.recorded_ms, record.outside_lane) when record.outside_lane > 0
+  return Reduced(record.outside_lane) when record.outside_lane > 0
   Current(record.recorded_ms)
 }
 
@@ -2011,7 +2031,7 @@ proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_so
 export proc evidence_label(state: EvidenceState) [time, error] -> Result[Str, Error] {
   match state {
     Current(recorded_ms) => f"current (passed {time.format(recorded_ms * 1000000, "%Y-%m-%d %H:%M:%S", utc: true)?} UTC)"
-    Reduced(recorded_ms, outside) => f"reduced (passed {time.format(recorded_ms * 1000000, "%Y-%m-%d %H:%M:%S", utc: true)?} UTC with {outside} tests outside the lane)"
+    Reduced(outside) => f"reduced (passed with {outside} tests outside the lane)"
     Stale(reason) => f"stale ({reason})"
     NotRun => "not run"
   }
@@ -2404,10 +2424,10 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
     }
     match entry.execution {
       RunCommand(_) | DocumentationCheck => {
-        var bound = [{path: tests.product_path(ctx, profile, binding.product).display(), digest: binding.digest, mode: binding.mode} for binding in products]
+        var bound = [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in products]
         if let executable = harness {
           let observed = harness_bindings.get(executable)?
-          bound += [{path: executable, digest: observed.digest, mode: observed.mode}]
+          bound += [evidence_product(ctx, executable, observed.digest, observed.mode)]
         }
         store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, outside_lane: outside_lane)?
       }

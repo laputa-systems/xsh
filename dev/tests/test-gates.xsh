@@ -1220,10 +1220,50 @@ test test_a_partly_excluded_native_module_is_reported_with_counts_and_its_scenar
 }
 
 test test_evidence_for_a_reduced_native_selection_is_not_labelled_current {
-  let reduced = gates.evidence_label(gates.Reduced(1700000000000, 3))?
+  let reduced = gates.evidence_label(gates.Reduced(3))?
   assert reduced.starts_with("reduced")
   assert "3 tests outside the lane" in reduced
   assert gates.evidence_label(gates.Current(1700000000000))?.starts_with("current")
+}
+
+test test_evidence_recorded_in_the_container_is_current_on_the_host { |ctx|
+  let repository = fs.cwd()?
+  let container = test.temp_dir(ctx, name: "evidence-container")?
+  let host = test.temp_dir(ctx, name: "evidence-host")?
+  let relative = "target/x86_64-unknown-linux-musl/verification/xsh"
+  for root in [container, host] {
+    fp"{root}/dev".mkdir()
+    fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
+    fp"{root}/target/x86_64-unknown-linux-musl/verification".mkdir(parents: true)?
+    fp"{root}/{relative}".write("fixture\n", mode: 0o755)
+  }
+  let environment = {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: ""}
+  let record = fp"{host}/record.json"
+  let store = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  let container = fixtures.linux_context(p"{container}")?
+  let digest = hash.sha256(p"{container}/{relative}")?.hex()
+  let product = gates.evidence_product(container, p"{container}/{relative}".display(), digest, 0o755)
+  gates.store_evidence(p"{record}", "check-compile", "source", [product])?
+}}
+main()?
+"""
+  let _ = test.expect(ctx, store, status: 0, args: [], env: environment)?
+  fp"{container}/{relative}".unlink()?
+  let observe = f"""
+use gates
+use fixtures
+proc main() [fs, process, env, time, error, io] {{
+  let host = fixtures.linux_context(p"{host}")?
+  print gates.evidence_label(gates.evidence_state(host, p"{record}", "check-compile", Ok("source"))?)?
+}}
+main()?
+"""
+  let _ = test.expect(ctx, observe, status: 0, stdout: ["current (passed"], args: [], env: environment)?
+  fp"{host}/{relative}".write("changed\n", mode: 0o755)
+  let _ = test.expect(ctx, observe, status: 0, stdout: ["stale (product changed"], args: [], env: environment)?
 }
 
 test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
