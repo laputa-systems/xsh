@@ -87,3 +87,20 @@ the checkout during the run and passes on a quiet tree. Of the skips, 72 are the
 lane's tests; the other 79 need root, external network or TLS fixtures, or
 tools absent from the image.
 
+Laputa `make verify` with the candidate's release seed (`b268b5007`, clean,
+x86_64) found no XSH defect. It found eight Laputa ones, now fixed through
+Laputa `9485988`: the mirror's git dependency lost between fetch and build,
+installer modules shadowing `/usr/bin/trust`, a partition table in a shape
+`linux.write_partition_table` stopped accepting on 2026-10-06, a fixed CI
+disk too small for the target root, a root partition ending in an unusable
+ext4 group, `ca-certificates` missing from the target root, PM fixture
+repositories without the trust sources, and the dwl proof cancelling its
+compositor before the screenshot. After a clean rebuild of all 84 packages
+(kernel `3c602079…`), `check`, `test`, `profile-build`, `profile-test`
+(`qemu-dwl-foot`), `mirror-test` and the no-op rebuild pass. The installer
+partitions, installs and boots the target, then fails its SSH smoke check:
+the target's login shell is `/bin/xshi`, which the default seed builds as the
+documented stub, so remote commands cannot run. `mirror-test` also needs a
+host `jq`. Criterion 3 is met; criterion 4 waits on the login-shell decision
+and one uninterrupted `make verify`.
+
