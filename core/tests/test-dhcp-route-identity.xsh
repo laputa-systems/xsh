@@ -16,7 +16,7 @@ proc main() [fs, process, net, io, error] {{
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let child_env = {LC_ALL: "C", XSH_EXECUTION_PHRASE: "", XSH_MODULE_PATH: ctx.core_dir.display()}
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), child.display()], root, child_env, b"", out, err, timeout: 60s)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, child], root, child_env, b"", out, err, timeout: 60s)
   match linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) {
     Ok(status) => {
       guard status.shell_code()? == 0 else {
