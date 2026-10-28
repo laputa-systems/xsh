@@ -666,6 +666,14 @@ test test_namespace_confinement_swaps_only_the_seccomp_profile {
   assert [word for word in plain if word.starts_with("seccomp=")].len() == 0
 }
 
+test test_gate_docker_argv_names_a_cidfile_so_the_container_can_be_removed_by_id {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], cidfile: p"/repo/.work/tmp/x/container.cid")?
+  assert "--cidfile" in argv and "/repo/.work/tmp/x/container.cid" in argv
+  let without = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
+  assert "--cidfile" not in without
+}
+
 test test_gate_docker_argv_mounts_the_shared_lease_directory_read_write {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], git_common_dir: p"/common/.git", shared_lease_dir: p"/common/.work/consolidation/infra")?

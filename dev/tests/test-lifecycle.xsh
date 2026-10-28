@@ -781,3 +781,86 @@ match install.linux_install(ctx) {{
     },
   )?
 }
+
+test test_a_gate_build_resolves_the_image_from_the_build_not_the_tag { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-iidfile")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let built = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let retagged = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  write_fake_tool(
+    fp"{tools}/docker",
+    ctx.xsh_bin,
+    f"""if args[0] == "build" {{
+  var index = 0
+  while index < args.len() {{
+    if args[index] == "--iidfile" {{ Path(args[index + 1]).write("{built}")? }}
+    index += 1
+  }}
+  exit 0
+}}
+if args[0] == "image" {{
+  print "{retagged}"
+  exit 0
+}}
+exit 1
+""",
+  )
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+print docker.resolve_image(ctx)?
+""",
+    status: 0,
+    stdout: [built],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", DOCKER_PLATFORM: "linux/amd64"},
+  )?
+}
+
+test test_an_owned_container_that_outlives_its_client_is_removed_by_id_and_verified { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-cidfile")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let log = fp"{root}/calls"
+  let gone = fp"{root}/gone"
+  let cidfile = fp"{root}/container.cid"
+  cidfile.write(id)
+  write_fake_tool(
+    fp"{tools}/docker",
+    ctx.xsh_bin,
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+log.write(previous + args.join("|") + "\\n")?
+if args[0] == "container" and args[1] == "inspect" {{ exit if p"{gone}".exists()? {{ 1 }} else {{ 0 }} }}
+if args[0] == "rm" and env.get_or("KEEP", "")? == "" {{ p"{gone}".write("x")? }}
+exit 0
+""",
+  )
+  let source = f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+match docker.remove_owned_container(ctx, p"{cidfile}") {{
+  Ok(_) => print "removed"
+  Err(error) => print ${{error.message}}
+}}
+"""
+  test.expect(ctx, source, status: 0, stdout: ["removed"], args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"})?
+  assert f"rm|-f|{id}" in log.read_lines()?
+  gone.remove()?
+  log.remove()?
+  test.expect(ctx, source, status: 0, stdout: ["ContainerError.Survived"], args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", KEEP: "1"})?
+}

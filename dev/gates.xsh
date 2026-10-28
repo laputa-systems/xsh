@@ -1368,37 +1368,17 @@ proc bind_laputa_source(ctx: context.Context, root: Str, case_id: Str) [fs, proc
 }
 
 proc gate_image(ctx: context.Context, case_id: Str) [fs, process, env, time, error, io] -> Result[Str, Error] {
-  stages.ensure_dir(fp"{ctx.root}/.work/tmp")
-  let scratch = fs.tempdir_in(fp"{ctx.root}/.work/tmp")?
-  let output = fp"{scratch.host_path()?}/image"
-  let ensured = try { docker.ensure_image(ctx)? }
-  let image = match ensured {
-    Ok(value) => value
-    Err(ProcessError.Canceled {..}) => { return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: 130)) }
+  let resolved = try { docker.resolve_image(ctx)? }
+  match resolved {
+    Ok(identity) => identity
+    Err(ProcessError.Canceled {..}) => Err(ExecutionError.Cancelled(case_id: case_id, raw_status: 130))
+    Err(docker.ImageError.Cancelled {raw_status: raw}) => Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw))
     Err(stages.StageError.Failed {detail: detail, ..}) => {
       return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: 130)) when detail == "exit 130" or detail == "signal 2"
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0))
+      Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0))
     }
-    Err(_) => { return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0)) }
-  }
-  let command = stages.command(f"{case_id}-image", ctx.target.triple, "docker",
-    ["docker", "image", "inspect", "--format", "{{.Id}}", image], ctx.root, {})
-  match gate_execution.execute(command, 15000, output: output)? {
-    gate_execution.Finished(status) => {
-      let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw != 0
-      let identity = output.read_text()?.trim()
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when ! identity.starts_with("sha256:") or identity.byte_len() != 71
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when image.starts_with("sha256:") and identity != image
-      for digit in identity[7..].split("") {
-        return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when digit not in "0123456789abcdef"
-      }
-      identity
-    }
-    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
-    gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
-    gate_execution.CouldNotExecute(cause) => Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause))
+    Err(docker.ImageError.Unavailable {raw_status: raw}) => Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw))
+    Err(_) => Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0))
   }
 }
 

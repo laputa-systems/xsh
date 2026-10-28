@@ -2516,7 +2516,14 @@ if args[0] == "build" {{
   let log = p"{build_calls}"
   let existing = if log.exists()? {{ log.read_text()? }} else {{ "" }}
   log.write(existing + "build\\n")?
-  exit env.get_or("IMAGE_SETUP_STATUS", "0")? as Int
+  let status = env.get_or("IMAGE_SETUP_STATUS", "0")? as Int
+  exit status when status != 0
+  var index = 0
+  while index < args.len() {{
+    if args[index] == "--iidfile" {{ Path(args[index + 1]).write("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")? }}
+    index += 1
+  }}
+  exit 0
 }}
 if args[0] == "image" {{
   let setup_status = env.get_or("IMAGE_SETUP_STATUS", "0")? as Int

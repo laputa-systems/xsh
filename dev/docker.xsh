@@ -10,6 +10,9 @@ export type HostLinkTools = {mold: Path, kache: Path}
 ## Docker could not identify the immutable image for gate execution.
 export error ImageError = InvalidIdentity(detail: Str) | Unavailable(raw_status: Int) | Cancelled(raw_status: Int)
 
+## A container the gate started could not be shown to be gone.
+export error ContainerError = InvalidIdentity(detail: Str) | Survived(id: Str)
+
 proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
   return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
   return null when ctx.target.triple != "x86_64-unknown-linux-musl"
@@ -61,6 +64,17 @@ pure internal_target_dir(ctx: context.Context, operation: Str) -> Path {
   }
 }
 
+pure image_build(ctx: context.Context, image: Str, selected_platform: Str, extra: List[Str]) -> contract.CommandSpec {
+  stages.command(
+    "docker-image-build",
+    ctx.target.triple,
+    "docker",
+    ["docker", "build", "--provenance=false", @extra, "--platform", selected_platform, "-t", image, "-f", "Dockerfile.test", "."],
+    ctx.root,
+    {},
+  )
+}
+
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
 export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Result[Str, Error] {
   let image = image_name()?
@@ -79,30 +93,41 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
       ),
     )
   } else {
-    stages.execute(
-      stages.command(
-        "docker-image-build",
-        ctx.target.triple,
-        "docker",
-        [
-          "docker",
-          "build",
-          "--provenance=false",
-          "--platform",
-          selected_platform,
-          "-t",
-          image,
-          "-f",
-          "Dockerfile.test",
-          ".",
-        ],
-        ctx.root,
-        {},
-      ),
-    )
+    stages.execute(image_build(ctx, image, selected_platform, []))
   }
 
   image
+}
+
+pure valid_image_identity(identity: Str) -> Bool {
+  return false when ! identity.starts_with("sha256:") or identity.byte_len() != 71
+  for digit in identity[7..].split("") {
+    return false when digit not in "0123456789abcdef"
+  }
+  true
+}
+
+## Resolves the immutable ID of the test image. Unless XSH_TEST_IMAGE_BUILD is 0 the image is built first and its ID
+## is read from the build, so a retag between the build and a lookup cannot change it.
+export proc resolve_image(ctx: context.Context) [fs, process, env, error, io] -> Result[Str, Error] {
+  let image = image_name()?
+  if env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim() == "0" {
+    let inspection = run.capture --text docker image inspect --format "{{.Id}}" $image
+    let raw = inspection.status.shell_code()?
+    return Err(ImageError.Cancelled(raw_status: raw)) when raw == 130
+    return Err(ImageError.Unavailable(raw_status: raw)) when raw != 0
+    let identity = inspection.stdout.trim()
+    return Err(ImageError.InvalidIdentity(detail: "Docker returned an invalid image ID")) when ! valid_image_identity(identity)
+    return Err(ImageError.InvalidIdentity(detail: "Docker resolved a different image ID")) when image.starts_with("sha256:") and identity != image
+    return identity
+  }
+  stages.ensure_dir(fp"{ctx.root}/.work/tmp")
+  let scratch = fs.tempdir_in(fp"{ctx.root}/.work/tmp")?
+  let iidfile = fp"{scratch.host_path()?}/image.iid"
+  stages.execute(image_build(ctx, image, platform(ctx)?, ["--iidfile", iidfile.display()]))
+  let identity = iidfile.read_text()?.trim()
+  return Err(ImageError.InvalidIdentity(detail: "Docker returned an invalid image ID")) when ! valid_image_identity(identity)
+  identity
 }
 
 ## The container confinement a lifecycle operation requests. Namespaces replaces Docker's default seccomp profile
@@ -128,6 +153,7 @@ export pure internal_argv(
   shared_lease_dir: Path? = null,
   host_link_tools: HostLinkTools? = null,
   confinement: Confinement = Default,
+  cidfile: Path? = null,
 ) -> Result[List[Str], Error] {
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
   let lease_mount = if shared_lease_dir == null { [] } else { ["-v", f"{shared_lease_dir}:{shared_lease_dir}"] }
@@ -178,6 +204,10 @@ export pure internal_argv(
   # nodes, so /tmp must allow execution while denying device access.
   if operation == "test-linux" or operation == "test-linux-ci" or operation == "test-linux-split" or operation == "test-linux-ci-split" {
     argv += ["--tmpfs", "/tmp:rw,nodev,exec,mode=1777"]
+  }
+
+  if let file = cidfile {
+    argv += ["--cidfile", file.display()]
   }
 
   if privileged {
@@ -244,29 +274,12 @@ proc internal_command(
   privileged: Bool,
   extra: List[Str],
   confinement: Confinement = Default,
+  cidfile: Path? = null,
 ) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
   if linux_test_operation(operation) {
     internal_target_dir(ctx, operation).mkdir(parents: true)?
   }
-  let gate_operation = operation in ["gate-lane", "gate-full"]
-  let configured_image = if gate_operation and env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim() == "0" {
-    image_name()?
-  } else {
-    ensure_image(ctx)?
-  }
-  let image = if gate_operation {
-    let inspection = run.capture --text docker image inspect --format "{{.Id}}" $configured_image
-    let raw = inspection.status.shell_code()?
-    return Err(ImageError.Cancelled(raw_status: raw)) when raw == 130
-    return Err(ImageError.Unavailable(raw_status: raw)) when raw != 0
-    let identity = inspection.stdout.trim()
-    return Err(ImageError.InvalidIdentity(detail: "Docker returned an invalid image ID")) when ! identity.starts_with("sha256:") or identity.byte_len() != 71
-    for digit in identity[7..].split("") {
-      return Err(ImageError.InvalidIdentity(detail: "Docker returned an invalid image ID")) when digit not in "0123456789abcdef"
-    }
-    return Err(ImageError.InvalidIdentity(detail: "Docker resolved a different image ID")) when configured_image.starts_with("sha256:") and identity != configured_image
-    identity
-  } else { configured_image }
+  let image = if operation in ["gate-lane", "gate-full"] { resolve_image(ctx)? } else { ensure_image(ctx)? }
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
@@ -298,6 +311,7 @@ proc internal_command(
     shared_lease_dir: shared_lease_dir,
     host_link_tools: available_link_tools,
     confinement: confinement,
+    cidfile: cidfile,
   )?
   stages.command(
       f"docker-{operation}",
@@ -314,9 +328,37 @@ export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool,
   stages.execute(internal_command(ctx, operation, privileged, extra)?)
 }
 
-## Returns the owned container launch status without replacing its raw child code.
-export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io] -> Result[Status, Error] {
-  let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement)?
+## Removes a container the gate started, by the ID its cidfile recorded, and verifies it is gone. A client that is
+## cancelled can leave the container running; this never touches a container the gate did not start.
+export proc remove_owned_container(ctx: context.Context, cidfile: Path) [fs, process, error, io, time] -> Result[Unit, Error] {
+  return when ! cidfile.exists()?
+  let id = cidfile.read_text()?.trim()
+  guard id.byte_len() == 64 else { return Err(ContainerError.InvalidIdentity(detail: "the cidfile does not hold a container ID")) }
+  for digit in id.split("") {
+    return Err(ContainerError.InvalidIdentity(detail: "the cidfile does not hold a container ID")) when digit not in "0123456789abcdef"
+  }
+  var attempt = 0
+  while attempt < 8 {
+    let inspection = run.capture --text docker container inspect --format "{{.Id}}" $id
+    return when ! inspection.status.ok
+    if attempt == 0 {
+      stages.execute(stages.command("docker-container-remove", ctx.target.triple, "docker", ["docker", "rm", "-f", id], ctx.root, {}))
+    }
+    time.sleep(time.millis(250))
+    attempt += 1
+  }
+  Err(ContainerError.Survived(id: id))
+}
+
+## Returns the owned container launch status without replacing its raw child code. The container is named by a
+## cidfile, and whatever way the client ended, a container that is still present is removed and its removal verified.
+export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io, time] -> Result[Status, Error] {
+  stages.ensure_dir(fp"{ctx.root}/.work/tmp")
+  let scratch = fs.tempdir_in(fp"{ctx.root}/.work/tmp")?
+  let cidfile = fp"{scratch.host_path()?}/container.cid"
+  let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile)?
   print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
-  process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))
+  let outcome = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
+  remove_owned_container(ctx, cidfile)?
+  outcome
 }
