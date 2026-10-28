@@ -321,6 +321,7 @@ struct Route {
     family: u8,
     destination_length: u8,
     source_length: u8,
+    tos: u8,
     table: u32,
     protocol: u8,
     scope: u8,
@@ -1035,6 +1036,7 @@ fn parse_route(payload: &[u8]) -> Result<Route, &'static str> {
         family: payload[0],
         destination_length: payload[1],
         source_length: payload[2],
+        tos: payload[3],
         table: u32::from(payload[4]),
         protocol: payload[5],
         scope: payload[6],
@@ -1322,6 +1324,7 @@ fn route_value(route: Route) -> Value {
             optional_int(route.input_ifindex.map(i64::from)),
         ),
         ("table", Value::Int(i64::from(route.table))),
+        ("tos", Value::Int(i64::from(route.tos))),
         ("priority", optional_int(route.priority.map(i64::from))),
         ("route_type", Value::Int(i64::from(route.route_type))),
         ("protocol", Value::Int(i64::from(route.protocol))),
@@ -2213,6 +2216,60 @@ proc main() [fs, error, io] {\n\
         ));
         for field in ["links", "addresses", "routes", "rules"] {
             assert!(matches!(value.get(field), Some(Value::List(rows)) if rows.len() == 1));
+        }
+    }
+
+    fn route_with_tos(destination_length: u8, tos: u8) -> Vec<u8> {
+        let mut route = vec![
+            libc::AF_INET as u8,
+            destination_length,
+            0,
+            tos,
+            254,
+            2,
+            253,
+            1,
+            0,
+            0,
+            0,
+            0,
+        ];
+        if destination_length != 0 {
+            append_attribute(&mut route, 1, &[192, 0, 2, 0]);
+        }
+        append_attribute(&mut route, 4, &4_u32.to_ne_bytes());
+        route
+    }
+
+    fn route_tos_field(route: Route) -> i64 {
+        let Value::Record(value) = route_value(route) else {
+            panic!("route must be a record");
+        };
+        let Some(Value::Int(tos)) = value.get("tos") else {
+            panic!("route record must carry an integer tos");
+        };
+        *tos
+    }
+
+    #[test]
+    fn routes_differing_only_in_tos_decode_to_distinct_records() {
+        for destination_length in [24, 0] {
+            let plain = parse_route(&route_with_tos(destination_length, 0)).expect("tos 0");
+            let tos = parse_route(&route_with_tos(destination_length, 8)).expect("tos 8");
+            assert_eq!(plain.destination_length, destination_length);
+            assert_eq!(plain.table, tos.table);
+            assert_eq!(plain.output_ifindex, tos.output_ifindex);
+            assert_eq!(plain.destination, tos.destination);
+            assert_eq!(route_tos_field(plain), 0);
+            assert_eq!(route_tos_field(tos), 8);
+        }
+    }
+
+    #[test]
+    fn truncated_route_headers_stay_rejected_with_tos_decoding() {
+        let full = route_with_tos(24, 8);
+        for length in 0..12 {
+            assert!(parse_route(&full[..length]).is_err(), "length {length}");
         }
     }
 

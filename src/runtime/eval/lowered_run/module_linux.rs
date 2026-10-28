@@ -1380,6 +1380,7 @@ impl Evaluator {
                     (Arc::from("output_ifindex"), LoweredValue::Int(2)),
                     (Arc::from("input_ifindex"), LoweredValue::Null),
                     (Arc::from("table"), LoweredValue::Int(254)),
+                    (Arc::from("tos"), LoweredValue::Int(0)),
                     (Arc::from("priority"), LoweredValue::Int(100)),
                     (Arc::from("route_type"), LoweredValue::Int(1)),
                     (Arc::from("protocol"), LoweredValue::Int(3)),

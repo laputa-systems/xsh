@@ -111,6 +111,16 @@ export proc route_add_type4(destination: Str, prefix: Int, kind: Int) [process, 
   send(c.RTM_NEWROUTE, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), bytes.concat([header, attr(1, raw)]))
 }
 
+## Adds an IPv4 link-scope unicast route through an interface with an explicit TOS.
+export proc route_add_tos4(destination: Str, prefix: Int, tos: Int, name: Str) [process, net, error] {
+  let c = linux.net_constants()
+  let raw = nettools.ipv4_parse(destination) ?? b""
+  let header = bytes.concat([bytes.from_ints([c.AF_INET, prefix, 0, tos, 254, 3, 253, 1])?, bytes.zero(4)?])
+  var attributes = [attr(4, bytes.pack_le(index_of(name), 4)?)]
+  if prefix > 0 { attributes = [attr(1, raw)].extend(attributes) }
+  send(c.RTM_NEWROUTE, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), bytes.concat([header, bytes.concat(attributes)]))
+}
+
 ## Runs `script` once per command line under the namespace this process owns.
 ## `argv` is the xsh binary, the script, then command lines separated by `--`
 ## words; each line's output is printed as a transcript block that a test

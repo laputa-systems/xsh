@@ -817,6 +817,7 @@ pub fn linux_network_route_type() -> Type {
         ("output_ifindex", Type::Optional(Box::new(Type::Int))),
         ("input_ifindex", Type::Optional(Box::new(Type::Int))),
         ("table", Type::Int),
+        ("tos", Type::Int),
         ("priority", Type::Optional(Box::new(Type::Int))),
         ("route_type", Type::Int),
         ("protocol", Type::Int),

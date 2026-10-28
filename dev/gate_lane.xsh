@@ -42,6 +42,7 @@ export const namespace_tests = [
   "core/tests/test-arp.xsh::test_arp_sets_and_deletes_entries",
   "core/tests/test-df.xsh::test_df_matches_filesystem_capacity_counters_on_private_tmpfs",
   "core/tests/test-df.xsh::test_df_operand_is_measured_when_mount_table_is_unreadable",
+  "core/tests/test-dhcp-route-identity.xsh::test_network_dump_distinguishes_routes_that_differ_only_in_tos",
   "core/tests/test-ethtool.xsh::test_channels_are_read_and_changed_on_a_veth_pair",
   "core/tests/test-ethtool.xsh::test_command_line_forms_and_json",
   "core/tests/test-ethtool.xsh::test_driver_information_matches_the_reference_layout",
