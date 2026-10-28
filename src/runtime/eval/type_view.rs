@@ -471,6 +471,11 @@ mod tests {
     use crate::symbol::SymbolOwner;
     use std::sync::Arc;
 
+    #[cfg(target_os = "linux")]
+    #[global_allocator]
+    static ALLOCATOR: CountingAllocator<mimalloc::MiMalloc> = CountingAllocator::new(mimalloc::MiMalloc);
+
+    #[cfg(not(target_os = "linux"))]
     #[global_allocator]
     static ALLOCATOR: CountingAllocator = CountingAllocator::new(std::alloc::System);
 
