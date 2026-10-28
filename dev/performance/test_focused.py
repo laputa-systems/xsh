@@ -207,6 +207,7 @@ class FocusedTests(unittest.TestCase):
                 fixtures=fixture_root,
                 output=scratch / 'report.json',
                 image_id=self.TEST_IMAGE_ID,
+                platform='linux/arm64',
                 source_digest='c' * 64,
                 product_digest=check.owned_digest(product),
                 product_mode=0o755,
@@ -218,6 +219,7 @@ class FocusedTests(unittest.TestCase):
         return {
             'schema': 1,
             'image_id': config.image_id,
+            'platform': config.platform,
             'source_root': str(config.source_root),
             'commit': config.commit,
             'tree': config.tree,
@@ -273,6 +275,7 @@ class FocusedTests(unittest.TestCase):
             self.assertIn(f'type=bind,src={config.xsh},dst={config.xsh},readonly', mounts)
             self.assertNotIn('-v', command)
             self.assertIn(config.image_id, command)
+            self.assertEqual(command[command.index('--platform') + 1], 'linux/arm64')
             self.assertIn('run.invoke', command[command.index('-c') + 1])
             if mutate:
                 mutate()
@@ -815,7 +818,7 @@ class FocusedTests(unittest.TestCase):
             config_value = self.config_value(config)
             self.assertEqual(
                 set(config_value),
-                {'schema', 'image_id', 'source_root', 'commit', 'tree', 'xsh', 'scratch', 'measurement',
+                {'schema', 'image_id', 'platform', 'source_root', 'commit', 'tree', 'xsh', 'scratch', 'measurement',
                  'gate_binding'},
             )
             config_path.write_text(json.dumps(config_value))

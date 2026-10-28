@@ -98,6 +98,7 @@ class TokeiScenarioTests(unittest.TestCase):
         return {
             'schema': 1,
             'image_id': 'sha256:' + 'a' * 64,
+            'platform': 'linux/arm64',
             'source_root': str(self.source),
             'corpus_root': str(self.source),
             'commit': self.revision,
@@ -159,6 +160,7 @@ class TokeiScenarioTests(unittest.TestCase):
             tokei=self.tokei,
             scratch=self.root,
             image_id='sha256:' + 'a' * 64,
+            platform='linux/arm64',
         )
         owner = self._lease_owner()
         admission = {'command': ['perf-gate-ready'], 'exit_code': 0, 'stdout': '', 'stderr': ''}
@@ -168,6 +170,7 @@ class TokeiScenarioTests(unittest.TestCase):
             observed_admission = tokei_scenario._observe(config, self.projection, xsh_report, tokei_report, work, owner)
 
         argv = docker.call_args.args[0]
+        self.assertEqual(argv[argv.index('--platform') + 1], 'linux/arm64')
         self.assertIn('--network', argv)
         self.assertIn('none', argv)
         self.assertIn('--read-only', argv)
@@ -190,7 +193,7 @@ class TokeiScenarioTests(unittest.TestCase):
         work = self.root / 'work'
         work.mkdir()
         config = mock.Mock(source_root=self.source, xsh=self.xsh, tokei=self.tokei,
-                           scratch=self.root, image_id='sha256:' + 'a' * 64)
+                           scratch=self.root, image_id='sha256:' + 'a' * 64, platform='linux/amd64')
         owner = self._lease_owner()
         with mock.patch.object(tokei_scenario.focused, '_admission',
                                side_effect=check.CheckError('focused resource admission unavailable')), \
@@ -274,7 +277,7 @@ class TokeiScenarioTests(unittest.TestCase):
         work = self.root / 'work'
         work.mkdir()
         config = mock.Mock(source_root=self.source, xsh=self.xsh, tokei=self.tokei,
-                           scratch=self.root, image_id='sha256:' + 'a' * 64)
+                           scratch=self.root, image_id='sha256:' + 'a' * 64, platform='linux/amd64')
         with mock.patch.object(tokei_scenario.focused, '_admission', return_value={'exit_code': 0}), \
                 mock.patch.object(tokei_scenario.focused, '_verify_image_id'), \
                 mock.patch.object(tokei_scenario.check, 'checked_docker', side_effect=self._run_fake_docker):
@@ -300,7 +303,7 @@ class TokeiScenarioTests(unittest.TestCase):
         work = self.root / 'work'
         work.mkdir()
         config = mock.Mock(source_root=self.source, xsh=self.xsh, tokei=self.tokei,
-                           scratch=self.root, image_id='sha256:' + 'a' * 64)
+                           scratch=self.root, image_id='sha256:' + 'a' * 64, platform='linux/amd64')
         with mock.patch.object(tokei_scenario.focused, '_admission', return_value={'exit_code': 0}), \
                 mock.patch.object(tokei_scenario.focused, '_verify_image_id'), \
                 mock.patch.object(tokei_scenario.check, 'checked_docker', side_effect=self._run_fake_docker):

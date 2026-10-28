@@ -1454,6 +1454,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
   let config = {
     schema: 1,
     image_id: image,
+    platform: ctx.target.docker_platform,
     source_root: ctx.root.display(),
     commit: commit,
     tree: tree,
@@ -1539,6 +1540,7 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
   let config = {
     schema: 1,
     image_id: image,
+    platform: ctx.target.docker_platform,
     source_root: ctx.root.display(),
     corpus_root: corpus_root,
     commit: commit,

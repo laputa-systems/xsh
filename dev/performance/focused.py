@@ -53,6 +53,7 @@ class _FocusedConfig:
     fixtures: Path
     output: Path
     image_id: str
+    platform: str
     source_digest: str
     product_digest: str
     product_mode: int
@@ -82,7 +83,7 @@ def _mount_spec(path, readonly):
 
 
 def _parse_config(value):
-    check.fields(value, ('schema', 'image_id', 'source_root', 'commit', 'tree', 'xsh', 'scratch', 'measurement',
+    check.fields(value, ('schema', 'image_id', 'platform', 'source_root', 'commit', 'tree', 'xsh', 'scratch', 'measurement',
                          'gate_binding'),
                  'focused config')
     check.require(type(value['schema']) is int and value['schema'] == 1, 'unsupported focused config schema')
@@ -101,6 +102,8 @@ def _parse_config(value):
         isinstance(value['image_id'], str) and re.fullmatch('sha256:[0-9a-f]{64}', value['image_id']),
         'focused image_id must be an explicit full sha256 digest',
     )
+    check.require(isinstance(value['platform'], str) and re.fullmatch('linux/(amd64|arm64)', value['platform']),
+                  'focused platform must be linux/amd64 or linux/arm64')
     binding = value['gate_binding']
     check.fields(binding, ('source_digest', 'product_digest', 'product_mode'), 'focused gate binding')
     for name in ('source_digest', 'product_digest'):
@@ -117,6 +120,7 @@ def _parse_config(value):
         fixtures=measurement['fixtures'],
         output=measurement['output'],
         image_id=value['image_id'],
+        platform=value['platform'],
         source_digest=binding['source_digest'],
         product_digest=binding['product_digest'],
         product_mode=binding['product_mode'],
@@ -442,7 +446,7 @@ def _valid_resource_observation(value, *, complete):
 
 def _observe(config, case, work, lease_owner):
     command = [
-        'docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--read-only',
+        'docker', 'run', '--rm', '--init', '--platform', config.platform, '--network', 'none', '--read-only',
         '--cpus=2', '--memory=4g', '--memory-swap=4g', '--user', f'{os.getuid()}:{os.getgid()}',
     ]
     for path in dict.fromkeys((config.source_root, config.xsh, config.fixtures, work)):

@@ -103,6 +103,7 @@ class _Config:
     scratch: Path
     output: Path
     image_id: str
+    platform: str
     source_digest: str
     xsh_digest: str
     xsh_mode: int
@@ -111,7 +112,7 @@ class _Config:
 
 
 def _parse_config(value):
-    check.fields(value, ('schema', 'image_id', 'source_root', 'corpus_root', 'commit', 'tree',
+    check.fields(value, ('schema', 'image_id', 'platform', 'source_root', 'corpus_root', 'commit', 'tree',
                          'xsh', 'tokei', 'scratch', 'output', 'gate_binding'), 'Tokei scenario config')
     check.require(type(value['schema']) is int and value['schema'] == 1,
                   'unsupported Tokei scenario config schema')
@@ -131,6 +132,8 @@ def _parse_config(value):
     check.require(isinstance(value['image_id'], str)
                   and re.fullmatch('sha256:[0-9a-f]{64}', value['image_id']),
                   'Tokei scenario image ID must be a full sha256 digest')
+    check.require(isinstance(value['platform'], str) and re.fullmatch('linux/(amd64|arm64)', value['platform']),
+                  'Tokei scenario platform must be linux/amd64 or linux/arm64')
     binding = value['gate_binding']
     check.fields(binding, ('source_digest', 'xsh_digest', 'xsh_mode', 'tokei_digest', 'tokei_mode'),
                  'Tokei scenario gate binding')
@@ -144,7 +147,7 @@ def _parse_config(value):
         source_root=paths['source_root'], corpus_root=paths['corpus_root'],
         commit=value['commit'], tree=value['tree'], xsh=paths['xsh'], tokei=paths['tokei'],
         scratch=paths['scratch'], output=paths['output'], image_id=value['image_id'],
-        source_digest=binding['source_digest'], xsh_digest=binding['xsh_digest'],
+        platform=value['platform'], source_digest=binding['source_digest'], xsh_digest=binding['xsh_digest'],
         xsh_mode=binding['xsh_mode'], tokei_digest=binding['tokei_digest'],
         tokei_mode=binding['tokei_mode'],
     )
@@ -171,7 +174,7 @@ def _mount(path, readonly):
 
 def _observe(config, projection, xsh_report, tokei_report, work, lease_owner):
     command = [
-        'docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none',
+        'docker', 'run', '--rm', '--init', '--platform', config.platform, '--network', 'none',
         '--read-only', '--cpus=2', '--memory=4g', '--memory-swap=4g',
         '--user', f'{os.getuid()}:{os.getgid()}',
     ]
