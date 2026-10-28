@@ -2193,6 +2193,20 @@ test test_an_adapter_stopped_by_sigint_or_sigterm_is_cancelled_not_failed {
   for raw in [0, 1, 2, 137] { assert ! gates.workload_cancelled(raw) }
 }
 
+test test_compile_only_cases_do_not_report_a_runtime_budget {
+  let ctx = fixtures.linux_context(/repo)?
+  let plan = gates.plan_paths(ctx, tests.Verification, ["Cargo.toml"], [], gates.Change)?
+  let compile = [entry for entry in plan.cases |> where .id == "check-compile"]
+  assert compile.len() == 1
+  let report = gates.limit_report(compile[0])
+  assert report.timeout_seconds == null
+  assert report.limit_owner == "compilation"
+  let timed = [entry for entry in plan.cases |> where .id == "test-api"]
+  assert timed.len() == 1
+  let timed_report = gates.limit_report(timed[0])
+  assert timed_report.timeout_seconds == 300 and timed_report.limit_owner == "runtime"
+}
+
 test test_frozen_witness_tool_changes_select_their_contract_tests {
   let context = fixtures.linux_context(/repo)?
   for changed_path in ["dev/performance/corpus/frozen_witnesses.py", "dev/performance/corpus/test_frozen_witnesses.py"] {

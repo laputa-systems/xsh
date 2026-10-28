@@ -1291,9 +1291,28 @@ pure required_runtime_seconds(limit: CaseLimit) -> Result[Int, Error] {
   }
 }
 
+pure compiles_only(execution: CaseExecution) -> Bool {
+  match execution {
+    RunCommand(spec) => spec.executable == "cargo" and spec.argv[1] in ["build", "check"]
+    DocumentationCheck | Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => false
+  }
+}
+
+## What a plan reports as a case's limit.
+export type LimitReport = {timeout_seconds: Int?, limit_owner: Str}
+
+## A case that only compiles runs outside every runtime budget.
+export pure limit_report(entry: CatalogCase) -> LimitReport {
+  if compiles_only(entry.execution) {
+    {timeout_seconds: null, limit_owner: "compilation"}
+  } else {
+    {timeout_seconds: runtime_seconds(entry.limit), limit_owner: limit_owner(entry.limit)}
+  }
+}
+
 proc inspect_plan(plan: CatalogPlan, machine: Bool) [error, io] {
   let cases = [
-    {id: entry.id, tier: tier_name(entry.tier), timeout_seconds: runtime_seconds(entry.limit), limit_owner: limit_owner(entry.limit),
+    {id: entry.id, tier: tier_name(entry.tier), timeout_seconds: limit_report(entry).timeout_seconds, limit_owner: limit_report(entry).limit_owner,
       reasons: entry.reasons, prerequisite_ids: entry.prerequisite_ids,
       products: [product_name(product) for product in entry.products], argv: case_argv(entry.execution)}
     for entry in plan.cases
