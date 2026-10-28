@@ -18,7 +18,8 @@ import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-ERROR_CODE = re.compile(r"^err\[([a-z.-]+)\]", re.MULTILINE)
+DETAILED = ("check.local-inference", "compact.indexed-build")
+ERROR_CODE = re.compile(r"^err\[([a-z.-]+)\]: (.*)$", re.MULTILINE)
 
 
 def read_sites(inventory):
@@ -40,8 +41,8 @@ def check(xsht, root, path, timeout):
         result = subprocess.run([xsht, "check", path], cwd=root, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return "timeout", []
-    codes = ERROR_CODE.findall(result.stderr.decode(errors="replace"))
-    return ("pass" if result.returncode == 0 else "fail"), codes
+    errors = ERROR_CODE.findall(result.stderr.decode(errors="replace"))
+    return ("pass" if result.returncode == 0 else "fail"), [f"{code}: {message[:90]}" if code in DETAILED else code for code, message in errors]
 
 
 def erase(data, edits):

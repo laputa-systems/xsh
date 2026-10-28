@@ -13,6 +13,9 @@ text = open(sys.argv[2]).read()
 if ": Str" not in text:
     sys.stderr.write("err[check.type-mismatch]: type mismatch\\n")
     sys.exit(2)
+if "UNSUPPORTED" in text:
+    sys.stderr.write("err[check.local-inference]: generic callable body requires something\\n")
+    sys.exit(2)
 if "BROKEN" in text:
     sys.stderr.write("err[check.parse]: broken\\n")
     sys.exit(2)
@@ -69,6 +72,14 @@ class EraseSitesTests(unittest.TestCase):
         self.assertEqual(joint[("p", "main.xsh")][:2], (2, "pass"))
         self.assertEqual((self.root / "main.xsh").read_text(), SOURCE)
         self.assertIn("p/main.xsh: 2 sites, pass", summary)
+
+    def test_local_inference_failures_are_grouped_by_their_message(self):
+        source = SOURCE + "UNSUPPORTED\n"
+        (self.root / "main.xsh").write_text(source)
+        x_start = source.index(": Int")
+        singles, joint, summary = self.run_tool([(x_start, x_start + 5)])
+        self.assertEqual(singles[0][2], ["check.local-inference: generic callable body requires something"])
+        self.assertIn("check.local-inference: generic callable body requires something", summary)
 
 
 if __name__ == "__main__":
