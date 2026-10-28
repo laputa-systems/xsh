@@ -88,3 +88,41 @@ export proc execute(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, p
     }
   }
 }
+
+## Starts the supervised client with `args` (`{dir}` stands for the scenario
+## directory) as the job `name`.
+export pure client(name: Str, args: List[Str]) -> types.Step {
+  {...step("client"), name: name, args: args}
+}
+
+## Runs the applet `file` (such as `ifup`) with `args` to completion; its
+## output and status land in `NAME.out` and `NAME.status`.
+export pure run_applet(file: Str, name: Str, args: List[Str]) -> types.Step {
+  {...step("applet"), file: file, name: name, args: args}
+}
+
+## Writes `text` to the scenario file `file`.
+export pure write(file: Str, text: Str) -> types.Step {
+  {...step("write"), file: file, text: text}
+}
+
+## Runs a fixture action (`link_add_dummy`, `address_add4`, ...) in the client
+## namespace.
+export pure fixture(action: Str, args: List[Str]) -> types.Step {
+  {...step("fixture"), file: action, args: args}
+}
+
+## Deletes and recreates the veth pair, which gives the client end a new index.
+export pure recreate() -> types.Step {
+  step("recreate")
+}
+
+## Signals the job `name`.
+export pure kill(name: Str, signal: Str) -> types.Step {
+  {...step("kill"), name: name, signal: signal}
+}
+
+## Takes the client end down (`down`) or up (`up`).
+export pure link(state: Str) -> types.Step {
+  {...step("link"), text: state}
+}

@@ -12,6 +12,10 @@ use tests.support.dhcp_world as world
 
 type Jobs = Map[Str, world.Job]
 
+pure expand(items: List[Str], base: Path) -> List[Str] {
+  [item.replace("{dir}", with: base.display()) for item in items]
+}
+
 proc required(value: Str?, what: Str, action: Str) [error] -> Result[Str, Error] {
   if let present = value {
     Ok(present)
@@ -36,6 +40,18 @@ proc wait_for(target: Path, needle: Str, timeout_ms: Int) [fs, time, error] {
 proc snapshot(target: Path) [fs, process, net, error] {
   let dump = linux.network_dump()?
   target.write(json.encode({state: dump.state, links: [{name: link.name, ifindex: link.ifindex, flags: link.flags} for link in dump.links], addresses: [{ifindex: item.ifindex, address: item.local ?? item.address ?? "", prefix: item.prefix_length, label: item.label} for item in dump.addresses if item.family == "inet"], routes: [{destination: route.destination, prefix: route.destination_prefix_length, gateway: route.gateway, ifindex: route.output_ifindex, table: route.table, tos: route.tos, priority: route.priority, protocol: route.protocol, scope: route.scope} for route in dump.routes if route.family == "inet"]})?)
+}
+
+proc run_fixture(action: Str, args: List[Str]) [process, net, error] {
+  match action {
+    "link_add_dummy" => fixture.link_add_dummy(args[0], args[1])
+    "link_up" => fixture.link_up(args[0])
+    "link_down" => fixture.link_down(args[0])
+    "address_add4" => fixture.address_add4(args[0], args[1], args[2] as Int, args[3], args[4])
+    "route_add_type4" => fixture.route_add_type4(args[0], args[1] as Int, args[2] as Int)
+    "route_add_tos4" => fixture.route_add_tos4(args[0], args[1] as Int, args[2] as Int, args[3])
+    else => return Err(error.failure(f"unknown fixture action {action}"))
+  }
 }
 
 proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net, time, error] -> Result[Jobs, Error] {
@@ -89,11 +105,33 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net
     }
     "client" => {
       let name = step.name ?? "client"
-      table = table.set(name, world.start(setup, false, fp"{setup.core}/dhcpc.xsh", step.args, fp"{dir}/{name}.log")?)
+      table = table.set(name, world.start(setup, false, fp"{setup.core}/dhcpc.xsh", expand(step.args, dir), fp"{dir}/{name}.log")?)
     }
     "probe" => {
       let status = world.run_support(setup, false, "dhcp_probe", [world.CLIENT_INTERFACE, world.CLIENT_MAC, fp"{dir}/probe.json".display(), step.text ?? "12345"], fp"{dir}/probe.log")?
       fp"{dir}/probe.status".write(f"{status.shell_code()?}\n")
+    }
+    "applet" => {
+      let script = required(step.file, "file", step.do)?
+      let tag = step.name ?? script
+      let status = world.run_program(setup, fp"{setup.core}/{script}.xsh", expand(step.args, dir), fp"{dir}/{tag}.out")?
+      fp"{dir}/{tag}.status".write(f"{status.shell_code()?}\n")
+    }
+    "write" => {
+      let target = fp"{dir}/{required(step.file, "file", step.do)?}"
+      if ! target.parent().exists() {
+        target.parent().mkdir()
+      }
+      target.write(step.text ?? "")
+    }
+    "fixture" => run_fixture(required(step.file, "file", step.do)?, step.args)
+    "recreate" => {
+      fixture.link_delete(world.CLIENT_INTERFACE)
+      let handle = unix.open_fd(setup.server_ns)?
+      defer unix.close_fd(handle)
+      fixture.link_add_veth_into(world.CLIENT_INTERFACE, world.SERVER_INTERFACE, world.CLIENT_MAC, world.SERVER_MAC, handle)
+      let relink = world.run_support(setup, true, "dhcp_server_link", [world.SERVER_INTERFACE, world.SERVER_ADDRESS, f"{world.SERVER_PREFIX}"], fp"{dir}/recreate.log")?
+      fp"{dir}/recreate.status".write(f"{relink.shell_code()?}\n")
     }
     "sleep" => time.sleep((step.ms ?? 0) * 1ms)
     "wait_for" => wait_for(fp"{dir}/{required(step.file, "file", step.do)?}", step.text ?? "", step.ms ?? 5000)

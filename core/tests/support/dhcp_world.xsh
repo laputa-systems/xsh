@@ -128,3 +128,24 @@ export proc run_support(world: World, in_server: Bool, name: Str, args: List[Str
   let plan = if in_server { joined(world, argv, log)? } else { command(world, argv, log)? }
   Ok(process.run(plan)?)
 }
+
+## Runs an XSH program to completion in the caller's namespace and returns its
+## status, writing its output to `log`. The environment names the scenario
+## directory's `interfaces` and `ifstate` files and the `lease`, `run` and
+## `etc` directories the client was started with, so `ifup` and `ifdown`
+## address the same state.
+export proc run_program(world: World, program: Path, args: List[Str], log: Path) [fs, process, error] -> Result[Status, Error] {
+  let dir = world.dir
+  let environment = {
+    XSH_MODULE_PATH: world.core,
+    LC_ALL: "C",
+    XSH_EXECUTION_PHRASE: "",
+    XSH_IFUP_INTERFACES: fp"{dir}/interfaces",
+    XSH_IFUP_STATE: fp"{dir}/ifstate",
+    XSH_DHCPC_LEASE_DIR: fp"{dir}/lease",
+    XSH_DHCPC_RUN_DIR: fp"{dir}/run",
+    XSH_DHCPC_RESOLV_DIR: fp"{dir}/etc",
+  }
+  let plan = process.command_argv(world.xsh, [world.xsh, program, @paths(args)], dir, environment, b"", log, log, timeout: 120s)
+  Ok(process.run(plan)?)
+}
