@@ -38,7 +38,8 @@ guarantee or a Laputa program. Other inference limits stay with the inference
 milestone.
 
 Performance and resource gates are deferred for G0. XSH-1 and XSH-3 stay open
-and do not block it.
+and do not block it. The owner also waived the quiet-host requirement on
+2026-10-28; no G0 claim depends on a timing.
 
 The graphical profile is outside G0, so Laputa's Muon build blocker does not
 gate it. macOS, Linux aarch64, and Asterinas are outside the G0 claim.

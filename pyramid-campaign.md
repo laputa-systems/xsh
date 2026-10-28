@@ -25,6 +25,11 @@ longer match; reports are disposable local evidence, not committed. The paired
 timing comparison from the integration line waits for the quiet measurement
 window in finish-line item 4.
 
+Later on 2026-10-28 the owner waived the quiet-host requirement so work can
+proceed on a busy host. Correctness cases admit on resources alone. Timings
+taken under the waiver are recorded as measured under load; they are
+diagnostic, not baselines, and item 4 stays open for a quiet window.
+
 Paused 2026-10-27. Resume: “Resume Pyramid, then inference, then Lean.”
 First command: `codex-campaign-closeout.py cancel`.
 Last accepted code revision: `75240d4f1`; selected checks were green, but P0
