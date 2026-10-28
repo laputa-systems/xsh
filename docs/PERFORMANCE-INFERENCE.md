@@ -190,16 +190,16 @@ Two further classes come from the current practical cohort.
   `add_bytes`, `count_data` and `add_counts` turns UInt fields into inferred
   arithmetic results and loses their return schemas. Keep these four.
 
-**Cross-type overloads.** The owner decided that `byte_at` (`Str` and `Bytes`),
-`get` (`Record` and `Map`), and `replace` (`Str` and `Regex`) overloads are
-purposeful retained annotations, not missing inference. A caller must not train
-a callee: with no local evidence these calls stay ambiguous
-(`check.ambiguous-overload`). The ambiguity is registry-level. Only `len`,
-`is_empty`, `write`, `parent` and `normalize` are method families, and a
-registry test asserts `byte_at` is not one. Removing the `data` annotation from
-`wc.continuation`, `wc.within` or `wc.byte_words` produces both
-`check.ambiguous-overload` and `check.result-fallback`, and `wc.sequence_width.data`
-stays reserved.
+**Cross-type overloads.** `byte_at` (`Str` and `Bytes`), `get` (`Record` and
+`Map`) and `replace` (`Str` and `Regex`) on an unresolved receiver report
+`check.ambiguous-overload`. Section 9 makes these in-scope: a generic helper keeps
+a finite sealed requirement over the registry's domains and discharges it at each
+concrete use, as ordering and negation already do. They are open inference
+work, not retained annotations, and they are not registry method families
+(only `len`, `is_empty`, `write`, `parent` and `normalize` are). Removing the
+`data` annotation from `wc.continuation`, `wc.within` or `wc.byte_words`
+currently produces both `check.ambiguous-overload` and `check.result-fallback`;
+`wc.sequence_width.data` stays reserved.
 
 **Effect ceilings.** The 202 clauses split into 142 individual lint candidates
 and 60 without a suggestion (ten Laputa helpers, 38 `compare_live_*` helpers,
