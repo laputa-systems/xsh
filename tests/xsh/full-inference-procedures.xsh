@@ -615,3 +615,29 @@ announce("tag", "again")?
   assert output.success, output.stderr
   assert output.stdout == "hello world\ntrue\n1\nhello again\ntrue\ntag\n", output.stdout
 }
+
+test test_full_inference_generic_value_proc_ends_a_branch_in_exit { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc number(label, text: Str) -> Int {
+  if let Ok(parsed) = text.parse_int() {
+    if parsed < 0 {
+      eprint f"negative {label}"
+      exit 4
+    }
+    parsed
+  } else {
+    eprint f"invalid {label}"
+    exit 5
+  }
+}
+let good = number("count", "12")
+print $good
+let bad = number("count", "x")
+print "not reached"
+""",
+  )?
+  assert output.status == 5, output.stderr
+  assert output.stdout == "12\n", output.stdout
+  assert "invalid count" in output.stderr, output.stderr
+}

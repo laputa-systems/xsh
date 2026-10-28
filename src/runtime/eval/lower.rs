@@ -3280,6 +3280,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             body.extend(self.lower_scheme_return_completion_expression(expression, slots, current_function, facts, visited, lowered_types, tail_types, ResourceTransferSite::Return(tail))?);
             return Some(body);
         }
+        if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Exit(_)) {
+            self.lower_scheme_statement(tail, slots, current_function, facts, visited, lowered_types, &mut body)?;
+            return Some(body);
+        }
         let completion = match self.program.arena.stmt(tail).kind {
             ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
                 let mut lowered = Vec::new();
