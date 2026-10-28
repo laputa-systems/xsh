@@ -1,17 +1,34 @@
 # Scoped verification across XSH and Laputa
 
 **Status:** active on `master`, resumed 2026-10-28. Finish-line items 1 to 3 are
-complete. Item 4 (P0 baselines) is open. Item 5 (Close) is in progress. An
-independent review on 2026-10-28 found four P2 defects and no P1, and all four
-are fixed on `master`:
-- partial lane exclusion was silent;
-- `--status` could not resolve product paths recorded in the container;
-- Laputa evidence ignored the Laputa checkout;
-- the privileged lane was over-broad.
+complete. Item 4 (P0 baselines) is open and needs a quiet measurement window.
+Item 5 (Close) is in progress: the independent reviews of 2026-10-28 found no P1,
+and every P2 and the P3s they listed are fixed on `master`.
 
-A re-review of those fixes and a clean rerun of every listed Change case are
-next. Driver optimization beyond the finish line is out of scope. The G0 candidate is qualified separately from its own
-pinned checkout; see [G0](docs/ROADMAP.md#g0-release-candidate).
+Review findings and their fixes:
+- partial lane exclusion was silent: `8b596e5ae`, `26e941fb7`;
+- `--status` could not resolve product paths recorded in the container:
+  `3d820dcec`;
+- Laputa evidence ignored the Laputa checkout: `538c9a83f`;
+- the privileged lane was over-broad: `56a8138f9` splits it into
+  `lane/root-native` (default confinement, no network, `27b1a0edc`) and
+  `lane/namespace-native` (only a vendored seccomp profile changes);
+- cancellation did not remove the gate's containers or let adapters clean up:
+  `56ccc45b7`, `5a822f3ca`, `ddec7c02a`, `429e54223`, `2c6c0c80a`, `3db8235fb`;
+  `02cb08ece` runs the built interpreter as the container command, because
+  `cargo run` forwarded no signal. A cancelled core trace case that holds the
+  native lease exits 130 in 1.0 s, runs the adapter's own cleanup and leaves no
+  cleanup-unresolved marker;
+- ownership repair did not run on cancellation: `247f182af`;
+- smaller findings: `6b7f553a8`, `aa3bfce9f`, `25f1c4cb5` (container removal and
+  registry), `c938434ac` (evidence binds target and profile), `97f4a411d`,
+  `a3511e707`, `9d44ac759` (dead code), `ccd4046f8` (image ID from the build),
+  `2d1a6ed75`, `4ea819051`, `769318909`, `f3e5d92ce`, `db256243a`, `530b79dee`,
+  `aaf16ba69`, `5edf1236a`.
+
+Driver optimization beyond the finish line is out of scope. The G0 candidate is
+qualified separately from its own pinned checkout; see
+[G0](docs/ROADMAP.md#g0-release-candidate).
 
 **Next:** record the P0 timing, memory and size baselines in a quiet
 measurement window, then close item 5. The owner waived the quiet-host
@@ -71,14 +88,16 @@ Pyramid closes when all of these hold:
   image, and `core/cat/external-consumers` and `verification/performance-check`
   passed three of three. The roughly 990 per-file native cases run inside their
   suites, not one case per run.
-  Clean rerun on `aaf16ba69`, one case per run: all 51 listed Change cases, plus
-  `lane/root-native` (26 tests), `lane/namespace-native` (68),
-  `verification/erase-sites` and `core/lsmem/heavy-inventory`, pass. Three runs
-  carry a reduced verdict: `native-tests/xsh/stdlib` (29 tests outside the
-  lane), `native-tests/xsh/tooling-` (1) and `native-dev/tests` (2). The first
-  `native-dev/tests` runs ended on a 120 s per-test timeout in
-  `test_command_inventory_matches_sources_and_pinned_scope` (24 CPU-seconds
-  alone) at host load 40 to 47; the next two passed 498 of 498 tests run.
+  Clean verdict table on `aaf16ba69`, one case per run: all 51 listed Change
+  cases pass, as do `lane/root-native`, `lane/namespace-native`,
+  `verification/erase-sites` and `core/lsmem/heavy-inventory`. Three runs carry a
+  reduced verdict because tests the unprivileged lane cannot run are declared in
+  `dev/gate_lane.xsh`: `native-tests/xsh/stdlib` (29 tests outside the lane),
+  `native-tests/xsh/tooling-` (1) and `native-dev/tests` (2). A suite that runs
+  reduced exits 0 and says so in its last verdict line; a single file partly
+  outside the lane is incomplete. `native-dev/tests` is the one load-sensitive
+  case: at host load 40 to 47 a heavy system-report test can hit its 2 minute
+  per-test limit, and the rerun passed.
 - **Item 3.** All 49 workload-family correctness cases passed through
   `cargo dev gate --case`, one case per run, on `ba8102de0`, `e18c2e5e1` or
   `22451afb0`. Those revisions differ only in gate, container and test-harness
