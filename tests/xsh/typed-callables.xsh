@@ -1313,3 +1313,16 @@ test test_generic_function_with_ground_annotations_is_a_verified_callback { |ctx
     assert result.stdout == case.stdout, result.stdout
   }
 }
+
+test test_generic_function_with_named_record_annotations_is_a_verified_callback { |ctx|
+  let apply = "pure apply(callback, value, extra) { callback(value, extra) }\n"
+  for case in [
+    {source: "type P = {x: Int}\npure make(label, extra) -> P { {x: 3} }\n" + apply + "print $apply(make, \"a\", 0).x\n", stdout: "3\n"},
+    {source: "type P = {x: Int}\npure read(item: P, extra) { item.x }\n" + apply + "print $apply(read, {x: 5}, 0)\n", stdout: "5\n"},
+    {source: "type P = {x: Int}\npure many(label, extra) -> List[P] { [{x: 1}, {x: 2}] }\n" + apply + "print $apply(many, \"a\", 0).len()\n", stdout: "2\n"},
+  ] {
+    let result = test.run_xsh(ctx, case.source)?
+    assert result.status == 0, result.stderr
+    assert result.stdout == case.stdout, result.stdout
+  }
+}

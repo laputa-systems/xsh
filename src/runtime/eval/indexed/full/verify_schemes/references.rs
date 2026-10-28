@@ -32,6 +32,12 @@ pub(super) fn verify(
     let result = substitution.ty(store, scope, scheme.return_type, budget)?;
     let schema = scheme.return_schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?.filter(|schema| !schema.is_vacuous());
     let effects = substitution.contract(store, scope, scheme.effects, budget)?.for_invocation(scheme.callable_kind);
+    let (params, schema) = if matches!(claimed, SchemeType::Ground(_)) {
+        let params = params.into_iter().map(|parameter| SchemeParameter { schema_expectation: None, ..parameter }).collect();
+        (params, None)
+    } else {
+        (params, schema)
+    };
     let actual = SchemeType::Callable {
         kind: scheme.callable_kind,
         monotype: Arc::new(CallableMonotype::new(params, result, schema)),

@@ -55145,6 +55145,26 @@ assert check_paths(p"relative")
     }
 
     #[test]
+    fn schema_bearing_generic_references_still_reject_disagreeing_instances() {
+        run_with_large_stack(|| {
+            let program = fixture("schema-bearing-reference.xsh", "type P = {x: Int}\npure make(label, extra) -> P { {x: 3} }\npure apply(callback, value, extra) { callback(value, extra) }\npure invoke() -> Int { let made = apply(make, \"a\", 0); made.x }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "invoke");
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let instance = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && program.store.tags[instance.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
+            let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            assert_eq!(arguments.len(), 2);
+            let node = program.store.call_type_arguments[arguments.start].ty;
+            assert_eq!(program.store.scheme_types[node.index()].tag, schema::FullSchemeTypeTag::Ground);
+            let mut forged = program.clone();
+            let ty = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Int).unwrap();
+            forged.store.scheme_types[node.index()].first = ty.raw();
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(error.message, "callable reference disagrees with its actual scheme instance");
+        });
+    }
+
+    #[test]
     fn checked_dynamic_generic_references_preserve_exact_declared_signatures() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("checked-dynamic-reference.xsh", "type DynamicIdentity = pure(value: Any) -> Any\ntype IntIdentity = pure(value: Int) -> Int\npure identity(value) { value }\npure dynamic(value: Any) -> Any { let target: DynamicIdentity = identity; target(value) }\npure concrete() -> Int { let target: IntIdentity = identity; target(7) }\n"));
