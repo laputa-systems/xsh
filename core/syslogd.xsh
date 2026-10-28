@@ -1,15 +1,18 @@
 #!/bin/xsh
+use lib.syslog_kmsg as kmsg
 use lib.syslog_limit as limit
 use lib.syslog_parse as parse
 use lib.syslog_render as render
 use lib.syslog_socket as sock
 
-const USAGE = """Usage: syslogd --state DIR [--socket PATH]
+const USAGE = """Usage: syslogd --state DIR [--socket PATH] [--kmsg PATH]
 Receive local syslog datagrams on a Unix datagram socket and write one escaped
 line per accepted message to standard output.
 
       --socket PATH  socket to publish (default /dev/log)
       --state DIR    directory that holds the exclusive syslog.lock
+      --kmsg PATH    also read kernel messages from PATH (normally /dev/kmsg);
+                     only messages logged after the start are read
       --help         display this help and exit
 
 Standard output is the only sink and is meant to be captured by a supervisor.
@@ -30,7 +33,7 @@ const MSG_TRUNC = 32
 const MSG_CTRUNC = 8
 const EAGAIN = 11
 
-type Options = {help: Bool, socket: Str, state: Str?}
+type Options = {help: Bool, socket: Str, state: Str?, kmsg: Str?}
 type Credentials = {pid: Int, uid: Int, gid: Int}
 type Sink = {target: Str, dev: Int, ino: Int, linked: Bool}
 
@@ -126,6 +129,10 @@ proc write_line(line: Str, last_report: Int) [process, net, io, time, error] -> 
   Ok({delivered: true, blocked: false, reported_at: last_report})
 }
 
+pure kernel_message(record: kmsg.KernelRecord) -> parse.Parsed {
+  {priority: parse.Valid, facility: record.facility, severity: record.severity, header_time: null, host: null, tag: "kernel", tag_pid: null, content: record.message}
+}
+
 proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
   let opts: Options = cli.applet(
     argv,
@@ -134,6 +141,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
       help: {form: "--help", default: false, stop: true},
       socket: {form: "--socket PATH", default: DEFAULT_SOCKET},
       state: {form: "--state DIR"},
+      kmsg: {form: "--kmsg PATH"},
     },
   )?
   if opts.help {
@@ -186,11 +194,25 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
   let config = limit.DEFAULT_CONFIG
   finish_line(f"event=start pid={process.current_pid()?} boot=\"{boot_id}\" socket=\"{socket_path}\" state=\"{state_dir}\" receive_buffer={sock.RECEIVE_BUFFER} datagram_limit={DATAGRAM_LIMIT} batch={BATCH_LIMIT} sender_rate={config.sender_rate} sender_burst={config.sender_burst} global_rate={config.global_rate} global_burst={config.global_burst} line_limit_bytes={render.CONTENT_LIMIT} kernel_loss=unobservable")
 
+  let kmsg_fd = match opts.kmsg {
+    null => -1
+    else => {
+      let opened = unix.open_fd(Path(opts.kmsg ?? ""), nonblock: true)
+      if opened is Err(_) {
+        complain(f"syslogd: cannot open {opts.kmsg ?? ""}")
+        exit 1
+      }
+      let descriptor = opened ?? -1
+      let _ = unix.seek_fd(descriptor, 0, whence: "end")?
+      descriptor
+    }
+  }
   var sink = sink_target()?
   var last_report = 0
   var last_sink_check = 0
   while true {
-    let ready = unix.poll_fds([{fd: published.fd, events: ["readable"]}])?
+    let watched = if kmsg_fd >= 0 { [{fd: published.fd, events: ["readable"]}, {fd: kmsg_fd, events: ["readable"]}] } else { [{fd: published.fd, events: ["readable"]}] }
+    let ready = unix.poll_fds(watched)?
     if ready.is_empty() { continue }
     let checked = time.boottime()? / 1000
     if sink != null and checked - last_sink_check >= REPORT_INTERVAL_US {
@@ -201,6 +223,22 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
         complain("syslogd: the output file was removed; stopping so the supervisor can reopen it")
         finish_line("event=sink-removed")
         exit 1
+      }
+    }
+    if kmsg_fd >= 0 and [entry for entry in ready if entry.fd == kmsg_fd].len() > 0 {
+      let batch = kmsg.drain({read: kmsg.device_read}, kmsg_fd, BATCH_LIMIT)?
+      if batch.overruns > 0 { finish_line(f"event=kmsg-overrun count={batch.overruns}") }
+      if batch.malformed > 0 { finish_line(f"event=kmsg-malformed count={batch.malformed}") }
+      for record in batch.records {
+        let now = time.boottime()?
+        let admission = limit.admit(limiter, limit.Datagram(sender: null, oversize: false, control_truncated: false, rights: 0), now / 1000)
+        limiter = admission.limiter
+        if ! admission.accepted { continue }
+        sequence += 1
+        let line = render.render(render.Entry(sequence: sequence, source: "kmsg", kernel_sequence: record.sequence, kernel_microseconds: record.microseconds, boot_id: boot_id, boottime_ns: now, pid: null, uid: null, gid: null, message: kernel_message(record)))
+        let written = write_line(line, last_report)?
+        last_report = written.reported_at
+        if written.blocked { limiter = limit.sink_dropped(limiter, .SinkBlocked, 1) } else if ! written.delivered { limiter = limit.sink_dropped(limiter, .SinkError, 1) }
       }
     }
     var drained = 0

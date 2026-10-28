@@ -415,9 +415,10 @@ docker run --rm --privileged -v "$PWD":/work -w /work xsh-test sh -c \
   'for f in core/tests/test-syslog-*.xsh; do PRODUCTS/xsht test "$f"; done'
 ```
 
-Result on x86_64 (this work): libc 7, limit 14, parse 14, render 13, service 23,
-71 passed, 0 skipped. On the unprivileged host (`unshare -Urm` works) the libc
-file passes 6 and skips the uid case.
+Result on x86_64 (this work): kmsg 7, kmsg-device 1 (needs a readable
+`/dev/kmsg`), libc 7, limit 14, parse 14, render 13, service 23, 79 passed,
+0 skipped. On the unprivileged host (`unshare -Urm` works) the libc file passes 6
+and skips the uid case, and the kmsg-device file skips.
 
 Facts the tests established about the platform:
 
@@ -443,6 +444,21 @@ Facts the tests established about the platform:
   writes and flushes one line at a time and checks `POLLOUT` before each, so a
   full pipe drops and counts records rather than blocking, and `SIGTERM` still
   stops the service.
+
+### Kernel messages
+
+`syslogd --kmsg /dev/kmsg` also reads kernel records. The reader opens the device
+nonblocking and seeks to its end, so only messages logged after the start are
+read (the ring buffer is not replayed). `EPIPE` means the reader fell behind the
+ring: it is reported as `event=kmsg-overrun` and the next read continues at the
+oldest record held, so the `kseq` numbers jump visibly. The record parser, the
+overrun and empty-queue classification and the one-record-per-read drain are
+native tests over a datagram socket, which also returns one whole record per
+read. The tests never write to `/dev/kmsg`. One manual probe against the real
+device, in a privileged container, appended two lines to the host ring buffer
+(`printf '<5>syslogd kmsg probe one\n' > /dev/kmsg`, then a second) and showed
+them as `source=kmsg` records with the kernel's own `kseq` and `ktime_us`,
+alongside two unrelated kernel lines that arrived meanwhile.
 
 ### glibc client (one-off, not a gate case)
 
