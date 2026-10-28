@@ -1581,6 +1581,14 @@ impl Checker {
                 // binding, and the pattern then sees the non-null value. The
                 // fact is rewritten on every check of this condition.
                 self.optional_binding_spans.remove(&expr.span);
+                let value_ty = if cannot_fail && matches!(value_ty.unvalidated(), Type::Inference(_)) {
+                    self.type_constraints.resolve(&value_ty).unwrap_or(value_ty)
+                } else { value_ty };
+                let value_ty = if cannot_fail && matches!(value_ty.unvalidated(), Type::Inference(_)) {
+                    let present = self.type_constraints.fresh_at_level(arena.arena.expr(*value).span, self.callable_solver_level());
+                    self.expect_type(&Type::Optional(Box::new(present.clone())), &value_ty, arena.arena.expr(*value).span);
+                    Type::Optional(Box::new(present))
+                } else { value_ty };
                 let subject_ty = match value_ty {
                     Type::Optional(present) if cannot_fail => {
                         self.optional_binding_spans.insert(expr.span);

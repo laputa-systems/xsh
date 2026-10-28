@@ -3753,6 +3753,9 @@ impl Checker {
                 .get(&arena.arena.expr(value).span)
                 .cloned()
                 .unwrap_or(Type::Unknown);
+            let ty = if matches!(ty.unvalidated(), Type::Inference(_)) {
+                self.type_constraints.resolve(&ty).unwrap_or(ty)
+            } else { ty };
             // An optional binding's pattern sees the non-null value.
             let ty = match ty {
                 Type::Optional(present)

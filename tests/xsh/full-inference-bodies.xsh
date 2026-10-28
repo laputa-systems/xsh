@@ -432,3 +432,44 @@ print $first_float
   assert output.success, output.stderr
   assert output.stdout == "3\n3\n6\n4\n"
 }
+
+test test_full_inference_pattern_condition_binds_an_optional_generic_subject { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure present_or(value, fallback) {
+  if let present = value { present } else { fallback }
+}
+pure current_or(reader, fallback) {
+  if let current = reader.current { current } else { fallback }
+}
+let missing: Int? = null
+let known: Int? = 3
+let name: Str? = "ada"
+let integers = [present_or(missing, 5), present_or(known, 5)]
+let text = present_or(name, "none")
+let from_field = current_or({current: name}, "none")
+let first = integers[0]
+let second = integers[1]
+print $first
+print $second
+print $text
+print $from_field
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "5\n3\nada\nada\n"
+}
+
+test test_full_inference_pattern_condition_keeps_the_payload_and_fallback_one_type { |ctx|
+  test.expect(
+    ctx,
+    r"""pure present_or(value, fallback) {
+  if let present = value { present } else { fallback }
+}
+let name: Str? = "ada"
+let rejected = present_or(name, 1)
+""",
+    status: 2,
+    stderr: ["[check."],
+  )?
+}
