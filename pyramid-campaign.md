@@ -71,6 +71,14 @@ Pyramid closes when all of these hold:
   image, and `core/cat/external-consumers` and `verification/performance-check`
   passed three of three. The roughly 990 per-file native cases run inside their
   suites, not one case per run.
+  Clean rerun on `aaf16ba69`, one case per run: all 51 listed Change cases, plus
+  `lane/root-native` (26 tests), `lane/namespace-native` (68),
+  `verification/erase-sites` and `core/lsmem/heavy-inventory`, pass. Three runs
+  carry a reduced verdict: `native-tests/xsh/stdlib` (29 tests outside the
+  lane), `native-tests/xsh/tooling-` (1) and `native-dev/tests` (2). The first
+  `native-dev/tests` runs ended on a 120 s per-test timeout in
+  `test_command_inventory_matches_sources_and_pinned_scope` (24 CPU-seconds
+  alone) at host load 40 to 47; the next two passed 498 of 498 tests run.
 - **Item 3.** All 49 workload-family correctness cases passed through
   `cargo dev gate --case`, one case per run, on `ba8102de0`, `e18c2e5e1` or
   `22451afb0`. Those revisions differ only in gate, container and test-harness
