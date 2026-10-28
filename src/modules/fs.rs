@@ -663,10 +663,79 @@ fn permission_bits(mode: i64, span: Span) -> Result<u32, RuntimeError> {
     Ok(mode as u32)
 }
 
+/// What `rooted_write_atomic` may replace at its destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AtomicReplace {
+    Any,
+    RegularOrAbsent,
+}
+
+impl AtomicReplace {
+    pub(crate) fn parse(text: &str, span: Span) -> Result<Self, RuntimeError> {
+        match text {
+            "any" => Ok(Self::Any),
+            "regular_or_absent" => Ok(Self::RegularOrAbsent),
+            other => Err(RuntimeError::new(
+                "fs-root-write",
+                format!("replace must be \"any\" or \"regular_or_absent\", found \"{other}\""),
+            )
+            .with_span(span)),
+        }
+    }
+}
+
+enum AtomicDestination {
+    Absent,
+    Present,
+}
+
+fn atomic_destination(
+    parent: &Root,
+    leaf: &std::ffi::OsStr,
+    replace: AtomicReplace,
+    span: Span,
+) -> Result<AtomicDestination, RuntimeError> {
+    let observed = match rfs::statat(parent, leaf, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) => Some(rfs::FileType::from_raw_mode(stat.st_mode)),
+        Err(rustix::io::Errno::NOENT) => None,
+        Err(error) => {
+            return Err(
+                RuntimeError::host("fs-root-write", &std::io::Error::from(error)).with_span(span)
+            );
+        }
+    };
+    let (kind, errno) = match observed {
+        None => return Ok(AtomicDestination::Absent),
+        Some(rfs::FileType::RegularFile) => return Ok(AtomicDestination::Present),
+        _ if replace == AtomicReplace::Any => return Ok(AtomicDestination::Present),
+        Some(rfs::FileType::Symlink) => ("a symlink", libc::ELOOP),
+        Some(rfs::FileType::Directory) => ("a directory", libc::EISDIR),
+        Some(_) => ("a special file", libc::EEXIST),
+    };
+    let error = std::io::Error::from_raw_os_error(errno);
+    Err(RuntimeError::new(
+        "fs-root-write",
+        format!("destination is {kind}, not a regular file: {error}"),
+    )
+    .with_host_facet(&error)
+    .with_span(span))
+}
+
+/// Replaces `path` below `root` with `data` through a temporary beside it.
+///
+/// The data and the temporary's metadata reach the disk before the rename, and
+/// the parent directory is synchronized after it, so a crash leaves the old
+/// content or the new and a stray temporary at worst. `mode`, when given, is
+/// the exact permission set of the result. `RegularOrAbsent` refuses a
+/// destination that is a symlink, directory or special file; the check and
+/// the rename are separate steps, so a concurrent writer to the directory can
+/// still swap the destination in between unless the caller serializes writers.
 pub(crate) fn rooted_write_atomic(
     root: &Root,
     path: &Path,
     data: &[u8],
+    mode: Option<u32>,
+    replace: AtomicReplace,
     span: Span,
 ) -> Result<(), RuntimeError> {
     let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-write", span)?;
@@ -678,26 +747,39 @@ pub(crate) fn rooted_write_atomic(
         unix_time_nanos()
     ));
     let temp_path = PathBuf::from(&temp_name);
-    let mut temp = rooted_open_file(
-        &parent,
-        &temp_path,
-        RootedOpenMode::WriteCreateNew,
-        "fs-root-write",
-        span,
-    )?;
-    if let Err(error) = temp.write_all(data) {
-        let _ = rooted_remove_at(&parent, &temp_name, false);
-        return Err(RuntimeError::host("fs-root-write", &error).with_span(span));
+    let mut options = RootOpenOptions::new();
+    options.write(true).create_new(true);
+    if let Some(mode) = mode {
+        options.mode(mode);
     }
-    if let Err(error) = temp.sync_all() {
+    let mut temp = parent
+        .open_with(&temp_path, &options)
+        .map_err(|error| RuntimeError::host("fs-root-write", &error).with_span(span))?;
+    let discard = |error: RuntimeError| {
         let _ = rooted_remove_at(&parent, &temp_name, false);
-        return Err(RuntimeError::host("fs-root-write", &error).with_span(span));
+        error
+    };
+    let host = |error: std::io::Error| discard(RuntimeError::host("fs-root-write", &error).with_span(span));
+    temp.write_all(data).map_err(host)?;
+    if let Some(mode) = mode {
+        rooted_set_mode_file(&temp, mode).map_err(host)?;
     }
+    temp.sync_all().map_err(host)?;
     drop(temp);
-    rooted_rename_at(&parent, &temp_name, &parent, &leaf).map_err(|error| {
-        let _ = rooted_remove_at(&parent, &temp_name, false);
-        RuntimeError::host("fs-root-write", &error).with_span(span)
-    })
+    let destination = atomic_destination(&parent, &leaf, replace, span).map_err(discard)?;
+    let renamed = match (destination, replace) {
+        #[cfg(target_os = "linux")]
+        (AtomicDestination::Absent, AtomicReplace::RegularOrAbsent) => {
+            rfs::renameat_with(&parent, &temp_name, &parent, &leaf, rfs::RenameFlags::NOREPLACE)
+                .map_err(std::io::Error::from)
+        }
+        _ => rooted_rename_at(&parent, &temp_name, &parent, &leaf),
+    };
+    renamed.map_err(host)?;
+    parent
+        .open_file(Path::new("."))
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| RuntimeError::host("fs-root-write", &error).with_span(span))
 }
 
 pub(crate) fn rooted_metadata(root: &Root, path: &Path, span: Span) -> Result<Value, RuntimeError> {
@@ -1618,9 +1700,11 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        df_capacity_percent, list_filesystem, mount_for, mount_listing_skips, mounts,
-        rooted_children,
+        AtomicReplace, df_capacity_percent, list_filesystem, mount_for, mount_listing_skips,
+        mounts, rooted_children, rooted_write_atomic,
     };
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
     use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
     use std::path::Path;
@@ -1645,6 +1729,114 @@ mod tests {
         std::fs::remove_file(&target).unwrap();
         assert!(super::create_path(link, b"replacement", test_span()).is_err());
         assert!(!target.exists());
+    }
+
+    fn atomic_fixture() -> (tempfile::TempDir, Root) {
+        let directory = tempfile::tempdir().expect("create atomic write fixture");
+        let root = Root::open(directory.path()).expect("open atomic write fixture");
+        (directory, root)
+    }
+
+    fn write_atomic_for_test(
+        root: &Root,
+        name: &str,
+        data: &[u8],
+        mode: Option<u32>,
+        replace: AtomicReplace,
+    ) -> Result<(), crate::runtime::value::RuntimeError> {
+        rooted_write_atomic(root, Path::new(name), data, mode, replace, test_span())
+    }
+
+    fn stray_temporaries(directory: &Path) -> usize {
+        std::fs::read_dir(directory)
+            .expect("list fixture")
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .expect("fixture entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".tmp.")
+            })
+            .count()
+    }
+
+    #[test]
+    fn rooted_write_atomic_sets_the_requested_mode_regardless_of_umask() {
+        let (directory, root) = atomic_fixture();
+        write_atomic_for_test(&root, "public", b"data", Some(0o644), AtomicReplace::Any).unwrap();
+        write_atomic_for_test(&root, "private", b"data", Some(0o600), AtomicReplace::Any).unwrap();
+        let mode = |name: &str| {
+            std::fs::metadata(directory.path().join(name)).unwrap().permissions().mode() & 0o7777
+        };
+        assert_eq!(mode("public"), 0o644);
+        assert_eq!(mode("private"), 0o600);
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn regular_or_absent_replaces_a_regular_file_and_creates_an_absent_one() {
+        let (directory, root) = atomic_fixture();
+        write_atomic_for_test(&root, "file", b"one", None, AtomicReplace::RegularOrAbsent).unwrap();
+        write_atomic_for_test(&root, "file", b"two", None, AtomicReplace::RegularOrAbsent).unwrap();
+        assert_eq!(std::fs::read(directory.path().join("file")).unwrap(), b"two");
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn regular_or_absent_refuses_a_symlink_directory_and_special_file_untouched() {
+        let (directory, root) = atomic_fixture();
+        let outside = directory.path().join("outside");
+        std::fs::write(&outside, b"outside").unwrap();
+        std::os::unix::fs::symlink(&outside, directory.path().join("link")).unwrap();
+        std::os::unix::fs::symlink("missing", directory.path().join("dangling")).unwrap();
+        std::fs::create_dir(directory.path().join("dir")).unwrap();
+        let fifo = std::ffi::CString::new(directory.path().join("fifo").as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        for (name, errno) in [
+            ("link", libc::ELOOP),
+            ("dangling", libc::ELOOP),
+            ("dir", libc::EISDIR),
+            ("fifo", libc::EEXIST),
+        ] {
+            let error =
+                write_atomic_for_test(&root, name, b"new", None, AtomicReplace::RegularOrAbsent)
+                    .unwrap_err();
+            assert_eq!(error.errno(), Some(i64::from(errno)), "{name}");
+        }
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
+        assert_eq!(std::fs::read_link(directory.path().join("link")).unwrap(), outside);
+        assert!(directory.path().join("dir").is_dir());
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn any_replaces_a_symlink_itself_and_not_its_target() {
+        let (directory, root) = atomic_fixture();
+        let outside = directory.path().join("outside");
+        std::fs::write(&outside, b"outside").unwrap();
+        std::os::unix::fs::symlink(&outside, directory.path().join("link")).unwrap();
+        write_atomic_for_test(&root, "link", b"new", None, AtomicReplace::Any).unwrap();
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
+        assert_eq!(std::fs::read(directory.path().join("link")).unwrap(), b"new");
+        assert!(!std::fs::symlink_metadata(directory.path().join("link")).unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn a_failed_rename_keeps_the_old_content_and_removes_the_temporary() {
+        let (directory, root) = atomic_fixture();
+        std::fs::create_dir(directory.path().join("dir")).unwrap();
+        std::fs::write(directory.path().join("dir/child"), b"child").unwrap();
+        let error = write_atomic_for_test(&root, "dir", b"new", None, AtomicReplace::Any).unwrap_err();
+        assert!(error.errno().is_some());
+        assert_eq!(std::fs::read(directory.path().join("dir/child")).unwrap(), b"child");
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn replace_policy_names_are_a_closed_set() {
+        assert!(AtomicReplace::parse("regular_or_absent", test_span()).is_ok());
+        assert!(AtomicReplace::parse("regular", test_span()).is_err());
     }
 
     #[test]

@@ -4077,6 +4077,9 @@ impl NativeArgumentValues {
     fn pop(&mut self) -> Option<LoweredValue> {
         self.0.pop().flatten()
     }
+    fn truncate(&mut self, len: usize) {
+        self.0.truncate(len);
+    }
     fn remove(&mut self, index: usize) -> LoweredValue {
         self.0
             .remove(index)
@@ -5153,7 +5156,8 @@ impl Evaluator {
                 }
             }
             callable; RuntimeOp::FsRootReadText if values.len() == 2 => return self.eval_lowered_fs_root_read_text_values(values, span),
-            callable; RuntimeOp::FsRootWrite | RuntimeOp::FsRootWriteAtomic if values.len() == 3 => return self.eval_lowered_fs_root_write_values(op, values, span),
+            callable; RuntimeOp::FsRootWrite if values.len() == 3 => return self.eval_lowered_fs_root_write_values(op, values, span),
+            callable; RuntimeOp::FsRootWriteAtomic if (3..=5).contains(&values.len()) => return self.eval_lowered_fs_root_write_values(op, values, span),
             callable; RuntimeOp::FsRootMetadata if values.len() == 2 => return self.eval_lowered_fs_root_metadata_values(values, span),
             callable; RuntimeOp::FsRootStat if (2..=3).contains(&values.len()) => return self.eval_lowered_fs_root_stat_values(values, span),
             callable; RuntimeOp::FsRootExists if values.len() == 2 => {

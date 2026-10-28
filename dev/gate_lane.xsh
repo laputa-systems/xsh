@@ -99,6 +99,7 @@ export const namespace_tests = [
   "core/tests/test-unshare.xsh::test_unshare_runs_the_login_shell_without_a_command",
   "core/tests/test-unshare.xsh::test_unshare_user_namespace_without_a_map_has_the_overflow_uid",
   "core/tests/test-util-linux-storage-regressions.xsh::test_util_linux_lsns_selects_and_releases_a_live_user_namespace",
+  "tests/xsh/stdlib/fs_root_write_atomic.xsh::test_write_atomic_onto_a_bind_mounted_file_fails_ebusy_and_keeps_the_mount",
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_namespaces_reports_a_bound_namespace_file",
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_network_state_follows_the_network_namespace",
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_run_in_namespaces_fork_relays_the_status_and_signal",

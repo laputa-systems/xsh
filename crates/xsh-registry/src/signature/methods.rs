@@ -1143,14 +1143,24 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "write_atomic",
-                    vec![param("path", Type::RelPath), param("data", Type::Bytes)],
+                    vec![
+                        param("path", Type::RelPath),
+                        param("data", Type::Bytes),
+                        default_param("mode", Type::Int),
+                        default_param("replace", Type::Str),
+                    ],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootWriteAtomic,
                 ),
                 method(
                     "write_atomic",
-                    vec![param("path", Type::RelPath), param("data", Type::Str)],
+                    vec![
+                        param("path", Type::RelPath),
+                        param("data", Type::Str),
+                        default_param("mode", Type::Int),
+                        default_param("replace", Type::Str),
+                    ],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootWriteAtomic,

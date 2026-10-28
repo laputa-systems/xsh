@@ -788,7 +788,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.stat(path: RelPath, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
 - `FsRoot.symlink(target: Path, path: RelPath, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
 - `FsRoot.write(path: RelPath, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
-- `FsRoot.write_atomic(path: RelPath, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
+- `FsRoot.write_atomic(path: RelPath, data: Bytes, mode: Int = default, replace: Str = default) -> Result[Unit, Error] (+1 overloads)` — Atomically replaces a file below a rooted filesystem capability.
 
 ### Int
 

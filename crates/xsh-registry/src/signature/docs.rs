@@ -749,9 +749,14 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
                 "observation",
             ],
         )),
-        ("fs", "root_write" | "root_write_atomic") => Some((
+        ("fs", "root_write") => Some((
             "Writes bytes or text below a rooted filesystem capability.",
-            "The relative path cannot escape the root; the atomic variant protects readers from partial replacement.",
+            "The relative path cannot escape the root.",
+            &["filesystem", "rooted", "write"],
+        )),
+        ("fs", "root_write_atomic") => Some((
+            "Atomically replaces a file below a rooted filesystem capability.",
+            "The relative path cannot escape the root. The data reaches the disk before a rename publishes it and the parent directory is synchronized after, so a crash leaves the old or the new content and at worst a stray temporary. mode sets the exact permission bits of the result and defaults to a plain write's. replace is \"any\" (default), which replaces whatever is at the destination including a symlink itself, or \"regular_or_absent\", which fails with the errno of what it found (ELOOP for a symlink, EISDIR for a directory, EEXIST for a special file) and creates an absent destination without replacing a file that appears meanwhile. The destination check and the rename are separate steps: serialize writers with fs.lock when a concurrent writer to the directory could swap the destination in between. Renaming onto a bind-mounted file fails with EBUSY.",
             &["filesystem", "rooted", "write", "atomic"],
         )),
         ("fs", "root_metadata" | "root_exists") => Some((

@@ -145,12 +145,31 @@ impl Evaluator {
     pub(super) fn eval_lowered_fs_root_write_values(
         &mut self, op: RuntimeOp, mut values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let value = {
-            let operation = if op == RuntimeOp::FsRootWriteAtomic {
-                "fs.root_write_atomic"
-            } else {
-                "fs.root_write"
+        let atomic = op == RuntimeOp::FsRootWriteAtomic;
+        let operation = if atomic { "fs.root_write_atomic" } else { "fs.root_write" };
+        let options = lowered_optional_int_arg(values.get(3), operation, span).and_then(|mode| {
+            let mode = match mode {
+                Some(mode) => Some(u32::try_from(mode).ok().filter(|mode| *mode <= 0o7777).ok_or_else(|| {
+                    RuntimeError::new(operation, "mode is out of range").with_span(span)
+                })?),
+                None => None,
             };
+            let replace = match values.get(4) {
+                Some(value) => {
+                    let text = lowered_str_arg_owned(Some(value.clone()), "any", operation, span)?;
+                    fs_module::AtomicReplace::parse(&text, span)?
+                }
+                None => fs_module::AtomicReplace::Any,
+            };
+            Ok((mode, replace))
+        });
+        let (mode, replace) = match options {
+            Ok(options) => options,
+            Err(error) if error.kind == "type-error" => return Err(error),
+            Err(error) => return Ok(ControlFlow::Continue(lowered_result_err_value(error))),
+        };
+        values.truncate(3);
+        let value = {
             let data = lowered_bytes_or_str_owned(
                 values.pop().expect("checked value length"),
                 operation,
@@ -162,8 +181,8 @@ impl Evaluator {
             let rel = pathbuf_from_path_value(&path);
             let result = lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                 .and_then(|dir| {
-                    if op == RuntimeOp::FsRootWriteAtomic {
-                        fs_module::rooted_write_atomic(dir, &rel, &data, span)
+                    if atomic {
+                        fs_module::rooted_write_atomic(dir, &rel, &data, mode, replace, span)
                     } else {
                         fs_module::rooted_write(dir, &rel, &data, span)
                     }
