@@ -576,6 +576,7 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 
 Clock, sleep, command measurement, and duration display.
 
+- `time.boottime() -> Result[Int, Error]` — Reads the boot clock, which keeps counting while the host is suspended.
 - `time.clock_resolution() -> Result[Int, Error]` — Reads the host wall-clock resolution in nanoseconds.
 - `time.duration_compact(seconds: Int) -> Str` — Formats a duration using compact fixed-width units.
 - `time.format(epoch_ns: Int, format: Str, utc: Bool = default) -> Result[Str, Error]` — Formats an epoch nanosecond timestamp as calendar text.

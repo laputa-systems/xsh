@@ -2331,6 +2331,7 @@
         "TemplateRender",
         "TimeNow",
         "TimeMonotonic",
+        "TimeBoottime",
         "TimeClockResolution",
         "TimeFormat",
         "TimeToCalendar",

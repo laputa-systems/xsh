@@ -15,6 +15,24 @@ pub(crate) fn monotonic_ns() -> Result<i64, String> {
     i64::try_from(elapsed).map_err(|_| "monotonic clock exceeds the signed nanosecond range".into())
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const BOOT_CLOCK: rustix::time::ClockId = rustix::time::ClockId::Boottime;
+#[cfg(target_os = "macos")]
+const BOOT_CLOCK: rustix::time::ClockId = rustix::time::ClockId::Monotonic;
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+pub(crate) fn boottime_ns() -> Result<i64, String> {
+    let now = rustix::time::clock_gettime(BOOT_CLOCK);
+    now.tv_sec.checked_mul(NANOS_PER_SECOND)
+        .and_then(|seconds| seconds.checked_add(now.tv_nsec))
+        .ok_or_else(|| "boot clock exceeds the signed nanosecond range".into())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
+pub(crate) fn boottime_ns() -> Result<i64, String> {
+    Err("no boot clock on this host".into())
+}
+
 pub(crate) fn duration_compact(seconds: i64) -> String {
     let mut rest = seconds.max(0);
     let ss = rest % 60;

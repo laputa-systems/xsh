@@ -1617,6 +1617,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Returns nanoseconds from an opaque, process-local origin. Only differences between readings are meaningful; the value is never wall-clock time and must not be persisted as an epoch timestamp. The clock does not move backward during a process run.",
             &["time", "clock", "duration", "host-state"],
         )),
+        ("time", "boottime") => Some((
+            "Reads the boot clock, which keeps counting while the host is suspended.",
+            "Returns integer nanoseconds since the host booted (CLOCK_BOOTTIME on Linux; CLOCK_MONOTONIC, which includes sleep, on macOS); other hosts fail. Unlike time.monotonic, the origin is the host boot and is shared by every process, so readings from separate processes on one boot compare and a reading survives a restart of the same boot. It is not wall-clock time and moves only forward, but a restart after a reboot has a different origin: persist the boot identity with a reading. Use it for lease and expiry deadlines that must account for suspend; use time.monotonic for in-process elapsed measurement and time.now only for display.",
+            &["time", "clock", "duration", "host-state"],
+        )),
         ("time", "format") => Some((
             "Formats an epoch nanosecond timestamp as calendar text.",
             "Uses the process TZ and system timezone rules unless utc is true. Supports strftime directives plus nanoseconds (%N), epoch seconds (%s), quarter (%q), and colon timezone offsets. Format widths and total output are limited to 65536 bytes; embedded NUL and non-UTF-8 output are errors.",

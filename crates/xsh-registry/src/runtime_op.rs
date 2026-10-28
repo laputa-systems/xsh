@@ -644,6 +644,7 @@ pub enum RuntimeOp {
     TemplateRender,
     TimeNow,
     TimeMonotonic,
+    TimeBoottime,
     TimeClockResolution,
     TimeFormat,
     TimeToCalendar,

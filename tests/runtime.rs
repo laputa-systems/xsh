@@ -32,5 +32,7 @@ mod run;
 mod stack_depth;
 #[path = "runtime/streams.rs"]
 mod streams;
+#[path = "runtime/syslog_boottime.rs"]
+mod syslog_boottime;
 #[path = "runtime/unix.rs"]
 mod unix;

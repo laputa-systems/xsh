@@ -5463,6 +5463,15 @@ Contracts worth knowing without consulting the reference:
   widths and total output to 64 KiB. Human and relative date grammar belongs
   to the XSH `lib.date_parse` module used by `date` and `touch`; it can take an
   explicit baseline and does not have a whole-parser native API.
+- Three clocks never mix. `time.now()` is wall-clock epoch milliseconds and may
+  step in either direction; use it for display and calendar decisions only.
+  `time.monotonic()` is nanoseconds from a process-local origin; use it for
+  elapsed time and timeouts inside one process, never persisted. `time.boottime()`
+  is nanoseconds since the host booted, shared by every process on that boot
+  and counting through suspend (Linux `CLOCK_BOOTTIME`; macOS
+  `CLOCK_MONOTONIC`; other hosts fail). Use it for deadlines that are compared
+  across processes, or across a process restart within one boot, and store the boot identity with it
+  because a reboot restarts the origin.
 - `FsRoot` methods and `fs.root_install_file` resolve paths beneath open
   directory handles. Their rooted path parameters take `RelPath` (4.13), which
   excludes absolute paths and `..` that climbs above the starting point. A

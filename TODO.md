@@ -34,7 +34,7 @@ out of scope.
 
 - **Area:** Runtime contracts
 - **Where:** `src/modules/time.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `docs/templates/SPEC.md`
-- **Problem:** Wall time is epoch milliseconds while `time.monotonic()` returns nanoseconds from a process-local origin. Both use integers; Laputa's xinit currently constructs elapsed deadlines from wall time. A mechanical replacement would change units and origin. Unproven: which other deadline consumers mix domains.
+- **Problem:** Wall time is epoch milliseconds while `time.monotonic()` returns nanoseconds from a process-local origin, and `time.boottime()` (XSH-53) returns nanoseconds since boot including suspend. All three use integers; Laputa's xinit currently constructs elapsed deadlines from wall time. A mechanical replacement would change units and origin. Unproven: which other deadline consumers mix domains.
 - **Recommendation:** Inventory the actual wait/retry/deadline consumers, document units and restart/pause semantics, and qualify one shared elapsed-deadline boundary. Prefer existing Duration and nominal-type machinery over new syntax or a units framework. Keep wall timestamps for calendar/security decisions; never persist a process-local instant as a restart-stable timestamp.
 - **Acceptance:** Native tests separate wall and monotonic inputs, cover backward/forward wall jumps, zero/expired budgets, overflow and cancellation; host tests establish the units/origin. Qualify VM pause separately from physical suspend. Migrate the first real consumer with unit-safe conversions and update authored docs before regeneration; no host clock changes.
 - **Coordination:** Laputa LAP-27 owns xinit migration and disposable-guest clock tests.

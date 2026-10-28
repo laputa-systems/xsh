@@ -5862,6 +5862,9 @@ impl Evaluator {
             callable; RuntimeOp::TimeMonotonic if values.is_empty() => {
                 lowered_runtime_result(crate::modules::time::monotonic_ns().map(Value::Int).map_err(|message| RuntimeError::new("time-monotonic", message).with_span(span)), span)?
             }
+            callable; RuntimeOp::TimeBoottime if values.is_empty() => {
+                lowered_runtime_result(crate::modules::time::boottime_ns().map(Value::Int).map_err(|message| RuntimeError::new("time-boottime", message).with_span(span)), span)?
+            }
             callable; RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
             }
