@@ -1,8 +1,16 @@
 # Scoped verification across XSH and Laputa
 
 **Status:** active on `master`, resumed 2026-10-28. Finish-line items 1 to 3 are
-complete. Item 4 (P0 baselines) is open. Item 5 (Close) is in progress after an
-independent review. The G0 candidate is qualified separately from its own
+complete. Item 4 (P0 baselines) is open. Item 5 (Close) is in progress. An
+independent review on 2026-10-28 found four P2 defects and no P1, and all four
+are fixed on `master`:
+- partial lane exclusion was silent;
+- `--status` could not resolve product paths recorded in the container;
+- Laputa evidence ignored the Laputa checkout;
+- the privileged lane was over-broad.
+
+A re-review of those fixes and a clean rerun of every listed Change case are
+next. Driver optimization beyond the finish line is out of scope. The G0 candidate is qualified separately from its own
 pinned checkout; see [G0](docs/ROADMAP.md#g0-release-candidate).
 
 **Next:** record the P0 timing, memory and size baselines in a quiet
