@@ -335,7 +335,8 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                             Some(ty) => ty.is_result() || ty == Type::Any,
                             None if decoder.is_empty_map_module_call(value)? => false,
                             None if !super::indexed_expr_can_complete(decoder, value, 0)? => false,
-                            None => return Err(IrVerifyError::new("implicit discard has no executable value contract")),
+                            None => super::verify_schemes::scoped_discard_is_result(decoder.store, decoder, value)?
+                                .ok_or_else(|| IrVerifyError::new("implicit discard has no executable value contract"))?,
                         }
                     };
                     if result { require(instruction, Some(&[Effect::Error]), true, &mut captured)?; }

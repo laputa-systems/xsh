@@ -34146,6 +34146,47 @@ assert nullable_name == null
         assert_eq!(error.message, "generic tail disagrees with its scheme return");
     }
 
+    #[test]
+    fn full_verifier_rejects_forged_statement_callback_result_fact() {
+        let program = fixture(
+            "statement-callback-result.xsh",
+            "proc greet() { print \"hi\" }\nproc relay(callback) { callback(); 1 }\nproc invoke() { relay(greet)? }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let relay = scheme_fixture_root_function(&program, "relay");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[relay].contract else { panic!("relay has a generic scheme") };
+        let statement = program.store.function_instruction_range(relay).unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtExpr)
+            .expect("relay discards its callback result");
+        let decoder = function_view_decoder(&program.store, relay);
+        let schema::StmtView::Expr { value, .. } = decoder.statement_view(statement).unwrap() else { unreachable!() };
+        let mut facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let fact = facts
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression && fact.instruction == value.raw()
+            })
+            .expect("the discarded call has its authenticated expression fact");
+        let result_type = program.store.scheme_body_facts[fact].ty().unwrap();
+        assert_eq!(program.store.scheme_types[result_type.index()].tag, schema::FullSchemeTypeTag::Result);
+        let literal = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap()
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                    && fact.ty().is_some_and(|ty| {
+                        let node = program.store.scheme_types[ty.index()];
+                        node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == crate::runtime::eval::indexed::semantic::TypeTag::Int
+                    })
+            })
+            .expect("relay's facts include its Int literal");
+        let mut forged = program.clone();
+        let (call_value, literal_value) = (forged.store.scheme_body_facts[fact].value, forged.store.scheme_body_facts[literal].value);
+        forged.store.scheme_body_facts[fact].value = literal_value;
+        forged.store.scheme_body_facts[literal].value = call_value;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "generic body expression disagrees with its checked type");
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",

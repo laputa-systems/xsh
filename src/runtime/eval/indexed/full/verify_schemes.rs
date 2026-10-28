@@ -3674,6 +3674,24 @@ pub(super) fn scoped_no_completion_fact(store: &FullStore, decoder: &FullDecoder
     Ok(true)
 }
 
+pub(super) fn scoped_discard_is_result(store: &FullStore, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<bool>, IrVerifyError> {
+    if !decoder.instruction_range.contains(&instruction) { return Err(IrVerifyError::new("discard fact query belongs to another owner")); }
+    let function = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("discard fact query has no function owner"))?;
+    let function_contract = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("discard fact owner is invalid"))?.contract;
+    let FullCallableContract::Scheme(id) = function_contract else { return Ok(None) };
+    let Some(fact) = scheme_body_fact_type(store, id, instruction as u32, FullSchemeBodyFactKind::Expression)? else { return Ok(None) };
+    let node = store.scheme_types.get(fact.index()).ok_or_else(|| IrVerifyError::new("discard fact type is out of bounds"))?;
+    Ok(match node.tag {
+        FullSchemeTypeTag::Result => Some(true),
+        FullSchemeTypeTag::Ground => {
+            let ty = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("discard fact ground type is invalid"))?;
+            Some(matches!(store.semantic.type_tag(ty)?, super::super::semantic::TypeTag::Result | super::super::semantic::TypeTag::Any))
+        }
+        FullSchemeTypeTag::Parameter => None,
+        _ => Some(false),
+    })
+}
+
 fn scheme_body_fact_type(
     store: &FullStore,
     scheme_id: FullSchemeId,

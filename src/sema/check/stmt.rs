@@ -3102,6 +3102,25 @@ impl Checker {
     }
 
     fn statement_result_with_unit_payload(&mut self, actual: &Type, value: Span) -> Type {
+        if matches!(actual, Type::Inference(_))
+            && let Ok(resolved @ Type::Inference(_)) = self.type_constraints.resolve(actual)
+        {
+            if self.boundary.in_pure {
+                self.expect_type(&Type::Unit, actual, value);
+                return Type::Unit;
+            }
+            return match self.type_constraints.constrain_result_pattern_subject(&resolved, value) {
+                Ok(Type::Result(payload, error)) => {
+                    self.expect_type(&Type::Unit, &payload, value);
+                    Type::Result(Box::new(Type::Unit), error)
+                }
+                Ok(other) => other,
+                Err(error) => {
+                    self.error(value, &format!("statement result constraint failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    Type::Invalid
+                }
+            };
+        }
         let Type::Result(payload, _) = actual else { return actual.clone() };
         if !payload.contains_inference() {
             return actual.clone();
@@ -3638,6 +3657,7 @@ impl Checker {
                     )
                 };
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
+                let ty = self.statement_result_with_unit_payload(&ty, arena.arena.expr(expr_id).span);
                 if !self.reject_bool_statement(source, &ty, stmt.span) {
                     self.record_statement_error(&ty, stmt.span);
                 }
@@ -6997,6 +7017,7 @@ impl Checker {
                 )
             };
             self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
+            let ty = self.statement_result_with_unit_payload(&ty, arena.arena.expr(expr_id).span);
             if self.reject_bool_statement(source, &ty, stmt.span) {
                 return;
             }

@@ -266,3 +266,78 @@ bounded()?
     stderr: ["[check.effect-violation]", "`time`"],
   )?
 }
+
+test test_full_inference_statement_callback_calls_propagate_through_a_generic_proc { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc show(value) { print $value }
+proc twice(callback, value) { callback(value); callback(value) }
+proc each_item(items, callback) { for item in items { callback(item) } }
+proc guarded(callback, flag) { if flag { callback(1) }; 7 }
+twice(show, 3)?
+twice(show, "text")?
+each_item([1, 2], show)?
+let kept = guarded(show, true)?
+assert kept == 7
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n3\ntext\ntext\n1\n2\n1\n"
+}
+
+test test_full_inference_statement_callback_failure_joins_the_proc_error { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc fail(value) -> Result[Unit, Str] { return Err("failed: " + value) }
+proc attempt(callback, value) { callback(value); 1 }
+match attempt(fail, "now") {
+  Err(message) => { print $message }
+  Ok(_) => { print "unexpected" }
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "failed: now\n"
+}
+
+test test_full_inference_statement_callback_keeps_discard_and_effect_rules { |ctx|
+  test.expect(
+    ctx,
+    "proc relay(callback) { callback(); 1 }\nproc value() { 5 }\nrelay(value)?\n",
+    status: 2,
+    stderr: ["[check.callable-mismatch]", "Unit"],
+  )?
+  test.expect(
+    ctx,
+    "proc relay(callback) [] { callback(); 1 }\n",
+    status: 2,
+    stderr: ["[check.effect-violation]", "`error`"],
+  )?
+  test.expect(
+    ctx,
+    "proc stamp() { let moment = time.now(); print $moment }\nproc relay(callback) { callback(); 1 }\nproc bounded() [error] { relay(stamp)? }\n",
+    status: 2,
+    stderr: ["[check.effect-violation]", "`time`"],
+  )?
+}
+
+test test_full_inference_pure_statement_callback_requires_a_unit_result { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure ignore(value) -> Unit { let _ = value }
+pure sweep(items, callback) { for item in items { callback(item) }; items.len() }
+pure pair(callback, value) { callback(value); callback(value); 2 }
+assert sweep([1, 2, 3], ignore) == 3
+assert pair(ignore, "text") == 2
+print "swept"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "swept\n"
+  test.expect(
+    ctx,
+    "pure sweep(items, callback) { for item in items { callback(item) }; 1 }\npure keep(value) { value }\nlet rejected = sweep([1], keep)\n",
+    status: 2,
+    stderr: ["[check.callable-mismatch]", "Unit"],
+  )?
+}

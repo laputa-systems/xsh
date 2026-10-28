@@ -3637,6 +3637,14 @@ error type follows the propagation and failure-only rules above; without known
 errors it defaults to `Error`. A caller that ignores an inferred `Result[T]`
 must handle it like any other value-producing result.
 
+A statement in a quantified callable that calls an unannotated callback
+discards the callback's result under the ordinary statement rule. In a `proc`
+body the callback must return `Result[Unit, E]`: its failure propagates through
+the proc's error type and `error` effect, and every call instantiates `E`. In a
+`pure` body the callback must return `Unit`. A callback with another result is
+rejected at the call with `check.callable-mismatch`; discard any value
+explicitly with `let _ = callback(value)`.
+
 When an inferred proc completion has outer type `Result[T, Error]`, a
 propagated non-Error payload becomes a structured `Error` with kind
 `propagated`. Text and scalar payloads supply its message; other payloads
