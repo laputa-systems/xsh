@@ -2001,12 +2001,13 @@ fn empty_directory_tree(root: std::fs::File) -> std::io::Result<()> {
 }
 
 /// A temporary directory owned through the descriptor it was opened as.
-/// Removal empties that directory and unlinks its name only while the name
-/// still refers to it, so a tree later placed at the old path is never
-/// removed; a moved directory is left in place.
+/// Removal empties that directory and unlinks its name only while the name,
+/// looked up under the saved parent path, still refers to it, so a tree later
+/// placed at the old path is never removed; a moved directory is left in
+/// place.
 pub(crate) struct TempRoot {
     root: Root,
-    parent: std::fs::File,
+    parent: PathBuf,
     name: OsString,
     removed: bool,
 }
@@ -2020,13 +2021,10 @@ impl TempRoot {
             .to_owned();
         let parent = path
             .parent()
-            .ok_or_else(|| std::io::Error::other("temporary directory has no parent"))?;
-        let parent = std::fs::File::from(
-            rfs::openat(CWD, parent, OPEN_TREE_DIRECTORY, rfs::Mode::empty())
-                .map_err(std::io::Error::from)?,
-        );
+            .ok_or_else(|| std::io::Error::other("temporary directory has no parent"))?
+            .to_path_buf();
         let adopted = Self { root: Root::open(&path)?, parent, name, removed: false };
-        if !adopted.is_named()? {
+        if adopted.named_parent()?.is_none() {
             return Err(std::io::Error::other(
                 "temporary directory changed while it was opened",
             ));
@@ -2043,26 +2041,31 @@ impl TempRoot {
         self.remove_directory()
     }
 
-    fn is_named(&self) -> std::io::Result<bool> {
+    fn named_parent(&self) -> std::io::Result<Option<std::fs::File>> {
+        let parent = match rfs::openat(CWD, &self.parent, OPEN_TREE_DIRECTORY, rfs::Mode::empty()) {
+            Ok(parent) => std::fs::File::from(parent),
+            Err(rustix::io::Errno::NOENT | rustix::io::Errno::NOTDIR) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
         let owned = file_identity(&rfs::fstat(&self.root).map_err(std::io::Error::from)?);
-        match rfs::statat(&self.parent, &self.name, AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(named) => Ok(file_identity(&named) == owned),
-            Err(rustix::io::Errno::NOENT) => Ok(false),
+        match rfs::statat(&parent, &self.name, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(named) if file_identity(&named) == owned => Ok(Some(parent)),
+            Ok(_) | Err(rustix::io::Errno::NOENT) => Ok(None),
             Err(error) => Err(error.into()),
         }
     }
 
     fn remove_directory(&self) -> std::io::Result<()> {
-        if !self.is_named()? {
+        let Some(parent) = self.named_parent()? else {
             if rfs::fstat(&self.root).map_err(std::io::Error::from)?.st_nlink == 0 {
                 return Ok(());
             }
             return Err(std::io::Error::other(
                 "temporary root was moved or replaced; its directory was left in place",
             ));
-        }
+        };
         empty_directory_tree(self.root.open_readable_dir(".")?)?;
-        rfs::unlinkat(&self.parent, &self.name, AtFlags::REMOVEDIR).map_err(std::io::Error::from)
+        rfs::unlinkat(&parent, &self.name, AtFlags::REMOVEDIR).map_err(std::io::Error::from)
     }
 }
 
