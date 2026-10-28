@@ -124,6 +124,7 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net
       }
       target.write(step.text ?? "")
     }
+    "copy" => fp"{dir}/{step.text ?? ""}".write(fp"{dir}/{required(step.file, "file", step.do)?}".read_bytes()?)
     "fixture" => run_fixture(required(step.file, "file", step.do)?, step.args)
     "recreate" => {
       fixture.link_delete(world.CLIENT_INTERFACE)

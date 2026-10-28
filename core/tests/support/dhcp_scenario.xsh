@@ -126,3 +126,9 @@ export pure kill(name: Str, signal: Str) -> types.Step {
 export pure link(state: Str) -> types.Step {
   {...step("link"), text: state}
 }
+
+## Copies the scenario file `source` to `target`, to keep a moment of a file
+## that later changes.
+export pure copy(source: Str, target: Str) -> types.Step {
+  {...step("copy"), file: source, text: target}
+}
