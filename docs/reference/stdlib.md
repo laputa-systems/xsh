@@ -653,6 +653,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.open_pty() -> Result[{master: Int, name: Str, replica: Int}, Error]` — Opens a pseudo-terminal pair.
 - `unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
 - `unix.poll_fd(fd: Int, events: List[Str], timeout_ms: Int = default) -> Result[List[Str], Error]` — Waits for descriptor readiness and reports terminal conditions.
+- `unix.poll_fds(entries: List[{events: List[Str], fd: Int}], timeout: Duration? = default) -> Result[List[{events: List[Str], fd: Int}], Error]` — Waits for readiness on up to 64 descriptors and for a handled signal.
 - `unix.read_fd(fd: Int, max_bytes: Int) -> Result[Bytes, Error]` — Reads one bounded chunk from a descriptor.
 - `unix.read_utmp(path: Path = default) -> Result[List[{addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}], Error]` — Reads the login session records of a utmp or wtmp file.
 - `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` — Reaps available Unix child events.
@@ -1064,6 +1065,7 @@ YAML 1.2 decoding, encoding, and files.
 - `UnixLoggedProcessGroup {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}` — Represents an owned Unix process group with logging.
 - `UnixPid1Event {children: List[{pid: Int, status: Status}], kind: Str, signal: Str}` — Describes one PID 1 lifecycle event.
 - `UnixPid1Shutdown {kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}` — Describes a requested PID 1 shutdown action.
+- `UnixPollEntry {events: List[Str], fd: Int}` — Names one descriptor and the events to wait for or that were observed.
 - `UnixPty {master: Int, name: Str, replica: Int}` — Describes a pseudo-terminal pair opened by unix.open_pty.
 - `UnixSpawnedChild {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}` — Represents a Unix child spawned in a process group.
 - `UnixTtyAttrs {cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}` — Describes Unix terminal attributes.

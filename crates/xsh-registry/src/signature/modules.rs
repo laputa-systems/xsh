@@ -3180,6 +3180,15 @@ fn unix_module() -> ModuleSig {
             sig(vec![param("source", Type::Int), default_param("min_fd", Type::Int)],
                 result(Type::Int), false, RuntimeOp::UnixDuplicateFd),
         ),
+        (
+            "poll_fds",
+            sig(
+                vec![param("entries", Type::List(Box::new(crate::records::unix_poll_entry_type()))),
+                    default_param("timeout", Type::Optional(Box::new(Type::Duration)))],
+                result(Type::List(Box::new(crate::records::unix_poll_entry_type()))),
+                false, RuntimeOp::UnixPollFds,
+            ),
+        ),
         ("poll_fd", sig(vec![param("fd", Type::Int), param("events", Type::List(Box::new(Type::Str))), default_param("timeout_ms", Type::Int)], result(Type::List(Box::new(Type::Str))), false, RuntimeOp::UnixPollFd)),
         (
             "set_uid",
@@ -5182,6 +5191,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Represents an owned Unix process group with logging.",
             "The group and log ownership must be closed through the documented lifecycle before the supervising scope ends.",
             &["unix", "process", "ownership", "logging"],
+        ),
+        "UnixPollEntry" => (
+            "Names one descriptor and the events to wait for or that were observed.",
+            "As a request, events holds readable and writable. As a result, events holds the observed readable, writable, error, hangup and invalid conditions in that order.",
+            &["unix", "io", "poll"],
         ),
         "UnixPid1Event" => (
             "Describes one PID 1 lifecycle event.",

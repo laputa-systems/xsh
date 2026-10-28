@@ -83,7 +83,7 @@ impl Effect {
                 | "dhcp_send_release" | "link_up" | "link_down" | "set_ipv4_address"
                 | "flush_ipv4_addresses" | "add_default_ipv4_route" | "del_default_ipv4_route"
                     if module == "linux" => &[Self::Process, Self::Net],
-                "read_fd" | "write_fd" | "notify_ready" if module == "unix" => {
+                "read_fd" | "write_fd" | "notify_ready" | "poll_fds" if module == "unix" => {
                     &[Self::Process, Self::Net]
                 }
                 _ => &[Self::Process],

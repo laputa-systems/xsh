@@ -161,6 +161,23 @@ macro_rules! with_unix_call_rows {
                     Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
                 }
             }
+            callable; RuntimeOp::UnixPollFds => {
+                let entries = $values.first().cloned()
+                    .ok_or_else(|| RuntimeError::new("arity", "unix.poll_fds expected entries").with_span($span))?
+                    .into_value();
+                let timeout = match $values.get(1).cloned() {
+                    None | Some(LoweredValue::Null) => None,
+                    Some(value) => Some(Duration::from_millis(
+                        lowered_duration_arg(Some(value), "unix.poll_fds", $span)?.millis)),
+                };
+                let prepared = unix_module::poll::interests(&entries, $span).and_then(|interests| {
+                    unix_module::poll::deadline(timeout, $span).map(|deadline| (interests, deadline))
+                });
+                match prepared {
+                    Ok((interests, deadline)) => $this.poll_fds_until(&interests, deadline, $span),
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
+            }
             callable; RuntimeOp::UnixSignalSetup => {
                 if !$this.signal_handler_guards.is_empty() {
                     return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-signal", "signal capture conflicts with entry-script signal hooks").with_span($span)))));
@@ -477,6 +494,32 @@ impl Evaluator {
             ) -> Result<Value, RuntimeError>;
         }
         using self, op, values, span
+    }
+
+    fn poll_fds_until(
+        &mut self,
+        interests: &[unix_module::poll::PollInterest],
+        deadline: Option<Instant>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        use unix_module::poll::{PollStep, report, step};
+        loop {
+            self.service_pending_signal(span)?;
+            let escalated = crate::runtime::process::cancellation_escalated_signal().is_some()
+                && self.signal_state.shutdown_complete;
+            if escalated || self.shutting_down() {
+                return Err(match self.signal_state.shutdown_status {
+                    Some(status) => RuntimeError::abort(status, self.signal_state.shutdown_force),
+                    None => RuntimeError::new("canceled", "unix.poll_fds was canceled by shutdown"),
+                }.with_span(span));
+            }
+            match step(interests, deadline, span) {
+                Ok(PollStep::Ready(ready)) => return Ok(Value::ok(report(interests, &ready))),
+                Ok(PollStep::TimedOut) => return Ok(Value::ok(Value::List(Vec::new()))),
+                Ok(PollStep::Interrupted) => {}
+                Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+            }
+        }
     }
 
     fn eval_unix_fake_call(

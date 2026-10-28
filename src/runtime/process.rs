@@ -413,6 +413,50 @@ pub(crate) fn record_signal(signal: i32) {
     {
         let _ = ESCALATION_SIGNAL.compare_exchange(0, signal, Ordering::SeqCst, Ordering::SeqCst);
     }
+    ring_signal_wake();
+}
+
+static SIGNAL_WAKE_WRITER: AtomicI32 = AtomicI32::new(-1);
+static SIGNAL_WAKE: OnceLock<Result<SignalWake, i32>> = OnceLock::new();
+
+struct SignalWake {
+    reader: OwnedFd,
+    _writer: OwnedFd,
+}
+
+fn ring_signal_wake() {
+    let writer = SIGNAL_WAKE_WRITER.load(Ordering::SeqCst);
+    if writer >= 0 {
+        // SAFETY: the descriptor is stored only after it is open and stays open
+        // for the life of the process.
+        let writer = unsafe { BorrowedFd::borrow_raw(writer) };
+        let _ = rio::write(writer, &[1]);
+    }
+}
+
+fn open_signal_wake() -> Result<SignalWake, i32> {
+    let (reader, writer) = rustix::pipe::pipe().map_err(|error| error.raw_os_error())?;
+    for end in [&reader, &writer] {
+        rio::fcntl_setfd(end, rio::FdFlags::CLOEXEC).map_err(|error| error.raw_os_error())?;
+        let flags = rfs::fcntl_getfl(end).map_err(|error| error.raw_os_error())?;
+        rfs::fcntl_setfl(end, flags | rfs::OFlags::NONBLOCK).map_err(|error| error.raw_os_error())?;
+    }
+    SIGNAL_WAKE_WRITER.store(writer.as_raw_fd(), Ordering::SeqCst);
+    Ok(SignalWake { reader, _writer: writer })
+}
+
+pub(crate) fn signal_wake_reader() -> io::Result<BorrowedFd<'static>> {
+    match SIGNAL_WAKE.get_or_init(open_signal_wake) {
+        Ok(wake) => Ok(wake.reader.as_fd()),
+        Err(errno) => Err(io::Error::from_raw_os_error(*errno)),
+    }
+}
+
+pub(crate) fn drain_signal_wake() {
+    if let Some(Ok(wake)) = SIGNAL_WAKE.get() {
+        let mut sink = [0u8; 64];
+        while matches!(rio::read(&wake.reader, &mut sink), Ok(count) if count > 0) {}
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

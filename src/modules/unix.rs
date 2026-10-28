@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
 pub(crate) mod daemon;
+pub(crate) mod poll;
 mod process;
 mod sessions;
 mod tty;

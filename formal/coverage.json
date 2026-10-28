@@ -2218,6 +2218,7 @@
         "UnixControllingTty",
         "UnixOpenFd",
         "UnixPollFd",
+        "UnixPollFds",
         "UnixCloseFd",
         "UnixOpenPty",
         "UnixTtyTable",

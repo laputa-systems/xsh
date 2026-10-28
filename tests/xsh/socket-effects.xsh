@@ -15,6 +15,7 @@ const socket_calls = [
   "unix.read_fd(0, 16)",
   "unix.write_fd(0, b\"payload\")",
   "unix.notify_ready(0)",
+  "unix.poll_fds([{fd: 0, events: [\"readable\"]}])",
   "linux.link_up(\"eth0\")",
   "linux.link_down(\"eth0\")",
   "linux.set_ipv4_address(\"eth0\", \"192.0.2.1\", \"255.255.255.0\")",

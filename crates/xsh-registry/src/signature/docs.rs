@@ -1507,6 +1507,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",
             &["unix", "io", "poll"],
         )),
+        ("unix", "poll_fds") => Some((
+            "Waits for readiness on up to 64 descriptors and for a handled signal.",
+            "Each entry names a distinct descriptor and requests readable and writable; an empty request observes terminal conditions. The result lists only entries that have events, in input order, with events ordered readable, writable, error, hangup, invalid. An empty result means the timeout elapsed; a null timeout waits indefinitely and a zero timeout only observes. A descriptor that is not open reports invalid. Duplicate descriptors, more than 64 entries, unknown events and a negative descriptor fail with unix-poll-fds. A signal the evaluator handles (SIGINT, SIGTERM and signals with an on hook) ends the wait through the same checkpoint as time.sleep: the hook runs, and the script then stops with the shutdown status (or the canceled error when none is set); the call never reports success. A signal that needs no handling does not end the wait, and EINTR resumes toward the original deadline. The wait uses no timer: an idle call makes no wakeups until a descriptor, the deadline or a signal fires. Readiness is level-triggered and a readable datagram or stream is not consumed by the poll.",
+            &["unix", "io", "poll", "signal"],
+        )),
         ("set", "empty") => Some((
             "Creates the empty set.",
             "The element type comes from where the call is written: an annotated binding, a parameter, a field, or a return type that is a Set[T].",

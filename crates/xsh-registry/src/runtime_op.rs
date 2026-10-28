@@ -513,6 +513,7 @@ pub enum RuntimeOp {
     UnixControllingTty,
     UnixOpenFd,
     UnixPollFd,
+    UnixPollFds,
     UnixCloseFd,
     UnixOpenPty,
     UnixTtyTable,

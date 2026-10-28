@@ -4703,9 +4703,10 @@ not manage descendants that move to another process group or session.
 
 OS signal handlers only record that a signal arrived. XSH code runs only at
 checkpoints: between statements, at loop iterations, around deferred actions,
-while waiting on processes, pipelines, and network jobs, during `time.sleep`,
-and while scheduling or collecting parallel stream work. CPU-bound expression
-evaluation and blocking host calls observe a signal at the next checkpoint. A
+while waiting on processes, pipelines, and network jobs, during `time.sleep`
+and `unix.poll_fds`, and while scheduling or collecting parallel stream work.
+CPU-bound expression evaluation and blocking host calls other than those waits
+observe a signal at the next checkpoint. A
 top-level runner clears prior signal state before installing its handlers; a
 signal recorded afterward remains pending while the source is loaded and
 checked, and is handled at the first execution checkpoint. An embedding host
@@ -5649,7 +5650,13 @@ Contracts worth knowing without consulting the reference:
   absolute position; `whence: "current"` and `whence: "end"` accept signed
   offsets relative to the descriptor's position or file length, with invalid
   resulting positions rejected by the kernel. `unix.open_pty` gives a
-  pseudo-terminal pair; descriptors are the script's to close. `unix.read_utmp`
+  pseudo-terminal pair; descriptors are the script's to close. `unix.poll_fds`
+  waits on up to 64 distinct descriptors at once and, unlike `poll_fd`, ends
+  at a signal the evaluator handles: the signal's hook runs, then the script
+  stops with the shutdown status as at a `time.sleep` checkpoint (`defer`
+  actions run), so the call never returns as if the wait had timed out. Its
+  timeout is a `Duration?`; `null` waits indefinitely, and an idle wait makes
+  no periodic wakeups. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
 - Network primitives in `linux` move bytes between a script and the kernel;

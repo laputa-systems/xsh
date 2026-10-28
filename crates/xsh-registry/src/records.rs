@@ -128,6 +128,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("UnixGroupId", unix_group_id_type()),
         ("UnixId", unix_id_type()),
         ("UnixKillAllResult", unix_kill_all_result_type()),
+        ("UnixPollEntry", unix_poll_entry_type()),
         ("UnixLoadAverage", unix_load_average_type()),
         ("UnixLoggedProcessGroup", unix_logged_process_group_type()),
         ("UnixPid1Event", unix_pid1_event_type()),
@@ -1320,6 +1321,10 @@ pub fn linux_namespace_type() -> Type {
 
 pub fn linux_blockdev_info_type() -> Type {
     Type::Record(name_type_map(vec![("size_bytes", Type::UInt), ("logical_sector_bytes", Type::UInt), ("physical_sector_bytes", Type::UInt), ("read_only", Type::Bool)]))
+}
+
+pub fn unix_poll_entry_type() -> Type {
+    Type::Record(name_type_map(vec![("fd", Type::Int), ("events", Type::List(Box::new(Type::Str)))]))
 }
 
 pub fn time_calendar_type() -> Type {
