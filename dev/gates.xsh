@@ -67,7 +67,7 @@ export error PlanError = Invalid(detail: Str)
 export enum CaseAction { Prepare, ExecuteLeaf }
 
 ## Focused execution retains raw child status and structured failure causes.
-export error ExecutionError = Failed(case_id: Str, raw_status: Int) | TimedOut(case_id: Str, cause: ProcessError) | Cancelled(case_id: Str, raw_status: Int) | Interrupted(case_id: Str, cause: ProcessError) | ProcessFailed(case_id: Str, cause: ProcessError) | BudgetExpired(case_id: Str) | Incomplete(case_id: Str, raw_status: Int) | DiscoveryUnavailable(case_id: Str, detail: Str) | ResultsUnavailable(case_id: Str, detail: Str) | ProductChanged(case_id: Str, product: Str) | ProductUnavailable(product: Str, detail: Str) | SourceChanged(case_id: Str) | SourceUnavailable(detail: Str)
+export error ExecutionError = Failed(case_id: Str, raw_status: Int) | TimedOut(case_id: Str, cause: ProcessError) | Cancelled(case_id: Str, raw_status: Int) | ProcessFailed(case_id: Str, cause: ProcessError) | BudgetExpired(case_id: Str) | Incomplete(case_id: Str, raw_status: Int) | DiscoveryUnavailable(case_id: Str, detail: Str) | ResultsUnavailable(case_id: Str, detail: Str) | ProductChanged(case_id: Str, product: Str) | ProductUnavailable(product: Str, detail: Str) | SourceChanged(case_id: Str) | SourceUnavailable(detail: Str)
 
 ## Only the sole literal --full requests comprehensive verification.
 export pure parse_request(arguments: List[Str]) -> Result[GateRequest, Error] {
@@ -1371,7 +1371,6 @@ proc changed_paths(ctx: context.Context) [fs, process, env, error] -> Result[Lis
   match discovered {
     Ok(paths) => paths
     Err(cause) => match cause {
-      ProcessError.Canceled {..} => Err(ExecutionError.Cancelled(case_id: "selection", raw_status: 130))
       else => Err(PlanError.Invalid(detail: f"changed path discovery failed: {cause.message}"))
     }
   }
@@ -1396,7 +1395,6 @@ proc bind_laputa_source(ctx: context.Context, root: Str, case_id: Str) [fs, proc
       digest
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
-    gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
     gate_execution.CouldNotExecute(cause) => Err(ExecutionError.SourceUnavailable(detail: cause.message))
   }
 }
@@ -1405,7 +1403,6 @@ proc gate_image(ctx: context.Context, case_id: Str) [fs, process, env, time, err
   let resolved = try { docker.resolve_image(ctx)? }
   match resolved {
     Ok(identity) => identity
-    Err(ProcessError.Canceled {..}) => Err(ExecutionError.Cancelled(case_id: case_id, raw_status: 130))
     Err(docker.ImageError.Cancelled {raw_status: raw}) => Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw))
     Err(stages.StageError.Failed {detail: detail, ..}) => {
       return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: 130)) when detail == "exit 130" or detail == "signal 2"
@@ -1445,7 +1442,6 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
         ctx.target.triple, tests.profile_name(profile), laputa: {root: root, source: laputa_source})
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
-    gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
     gate_execution.CouldNotExecute(cause) => Err(ExecutionError.SourceUnavailable(detail: cause.message))
   }
 }
@@ -1477,7 +1473,6 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
       return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
     }
     gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
-    gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
     gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
   }
   let config = {
@@ -1550,7 +1545,6 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
         [evidence_product(ctx, xsh.display(), product.digest, product.mode)], ctx.target.triple, tests.profile_name(profile))
     }
     gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
-    gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
     gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
   }
 }
@@ -1665,7 +1659,6 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
           evidence_product(ctx, tokei_path, tokei_product.digest, tokei_product.mode)], ctx.target.triple, tests.profile_name(profile))
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: tokei_scenario_case_id, cause: cause))
-    gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: tokei_scenario_case_id, cause: cause))
     gate_execution.CouldNotExecute(cause) => Err(ExecutionError.ProcessFailed(case_id: tokei_scenario_case_id, cause: cause))
   }
 }
@@ -1954,7 +1947,6 @@ proc observe_input(ctx: context.Context, observer: InputObserver, arguments: Lis
     Ok(value) => value
     Err(cause) => match cause {
       ProcessError.Timeout {..} => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
-      ProcessError.Canceled {..} => { return Err(ExecutionError.Interrupted(case_id: case_id, cause: cause)) }
       else => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
     }
   }
@@ -2267,7 +2259,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
                 Ok(gate_execution.Finished(reader_status)) => {
                   print "Cargo diagnostics could not be read" when ! reader_status.ok
                 }
-                Ok(gate_execution.Cancelled(_)) => return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: 130))
                 Ok(gate_execution.TimedOut(_)) | Ok(gate_execution.CouldNotExecute(_)) | Err(_) => print "Cargo diagnostics could not be read"
               }
               return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw))
@@ -2343,7 +2334,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           Ok(status) => status
           Err(cause) => match cause {
             ProcessError.Timeout {..} => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-            ProcessError.Canceled {..} => { return Err(ExecutionError.Interrupted(case_id: entry.id, cause: cause)) }
             else => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
           }
         }
@@ -2405,7 +2395,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
             return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when ! status.ok
           }
           gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-          gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: entry.id, cause: cause)) }
           gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
         }
         let current = bind_product(ctx, executable, executable, entry.id, available_ns - (time.monotonic()? - case_started))?
@@ -2426,7 +2415,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
             return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when ! status.ok
           }
           gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-          gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: entry.id, cause: cause)) }
           gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: entry.id, detail: cause.message)) }
         }
         selected_ids = match names_output.read_lines() {
@@ -2491,7 +2479,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
                 return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when raw == 2
                 return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause))
               }
-              gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: entry.id, cause: cause)) }
               gate_execution.CouldNotExecute(cause) => {
                 return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when failed_child
                 return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when raw == 2
@@ -2509,7 +2496,6 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))?
         }
         gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-        gate_execution.Cancelled(cause) => { return Err(ExecutionError.Interrupted(case_id: entry.id, cause: cause)) }
         gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
       }
       let case_elapsed = time.monotonic()? - case_started
@@ -2544,7 +2530,6 @@ proc present(result: Result[Unit, Error]) [error, io] -> Result[Unit, Error] {
     Err(ExecutionError.TimedOut {case_id: id, cause: cause}) => { print f"incomplete: {id} timed out: {cause.message}"; exit 2 }
     Err(ExecutionError.BudgetExpired {case_id: id}) => { print f"incomplete: runtime budget exhausted before {id}"; exit 2 }
     Err(ExecutionError.Cancelled {case_id: id, raw_status: raw}) => { print f"cancelled: {id} raw_status={raw}"; exit 130 }
-    Err(ExecutionError.Interrupted {case_id: id, cause: cause}) => { print f"cancelled: {id} cause={cause.message}"; exit 130 }
     Err(ExecutionError.Incomplete {case_id: id, raw_status: raw}) => { print f"incomplete: {id} raw_status={raw}"; exit 2 }
     Err(ExecutionError.DiscoveryUnavailable {case_id: id, detail: detail}) => { print f"incomplete: {id} discovery unavailable: {detail}"; exit 2 }
     Err(ExecutionError.ResultsUnavailable {case_id: id, detail: detail}) => { print f"incomplete: {id} results unavailable: {detail}"; exit 2 }

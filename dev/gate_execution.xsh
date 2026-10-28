@@ -2,7 +2,7 @@
 use stage_contract as contract
 
 ## A child status or a structured process failure, after owned cleanup finishes.
-export enum RunOutcome { Finished(Status), TimedOut(ProcessError), Cancelled(ProcessError), CouldNotExecute(ProcessError) }
+export enum RunOutcome { Finished(Status), TimedOut(ProcessError), CouldNotExecute(ProcessError) }
 
 ## An execution limit that cannot admit a process.
 export error LimitError = Expired(remaining_ns: Int) | InvalidCaseTimeout(seconds: Int)
@@ -31,7 +31,6 @@ export proc execute(spec: contract.CommandSpec, timeout_ms: Int, output: Path? =
     Ok(status) => Finished(status)
     Err(cause) => match cause {
       ProcessError.Timeout {..} => TimedOut(cause)
-      ProcessError.Canceled {..} => Cancelled(cause)
       else => CouldNotExecute(cause)
     }
   }

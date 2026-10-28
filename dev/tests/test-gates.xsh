@@ -1408,13 +1408,13 @@ test test_bounded_gate_execution_preserves_finished_failed_and_cancelled_statuse
     let spec = {stage: "child", target: "fixture", executable: "sh", argv: argv, cwd: root, environment: {}}
     match gate_execution.execute(spec, 1000)? {
       gate_execution.Finished(status) => assert status.shell_code()? == raw
-      gate_execution.TimedOut(_) | gate_execution.Cancelled(_) | gate_execution.CouldNotExecute(_) => test.fail("completed child lost its raw status")
+      gate_execution.TimedOut(_) | gate_execution.CouldNotExecute(_) => test.fail("completed child lost its raw status")
     }
     let output = fp"{root}/output-{raw}"
     let captured = {...spec, argv: ["sh", "-c", f"printf captured; exit {raw}"]}
     match gate_execution.execute(captured, 1000, output: output)? {
       gate_execution.Finished(status) => assert status.shell_code()? == raw
-      gate_execution.TimedOut(_) | gate_execution.Cancelled(_) | gate_execution.CouldNotExecute(_) => test.fail("captured child lost its raw status")
+      gate_execution.TimedOut(_) | gate_execution.CouldNotExecute(_) => test.fail("captured child lost its raw status")
     }
     assert output.read_text()? == "captured"
   }
@@ -1429,7 +1429,7 @@ test test_bounded_gate_timeout_consumes_leader_and_descendant_cleanup { |ctx|
   let spec = {stage: "deadline", target: "fixture", executable: "sh", argv: ["sh", "-c", source], cwd: root, environment: {}}
   match gate_execution.execute(spec, 100)? {
     gate_execution.TimedOut(cause) => assert cause is ProcessError.Timeout {..}
-    gate_execution.Finished(_) | gate_execution.Cancelled(_) | gate_execution.CouldNotExecute(_) => test.fail("deadline did not stop owned work")
+    gate_execution.Finished(_) | gate_execution.CouldNotExecute(_) => test.fail("deadline did not stop owned work")
   }
   for file in [leader_file, child_file] {
     let pid = file.read_text()?.trim() as Int
