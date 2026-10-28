@@ -1771,6 +1771,7 @@ test test_gate_container_preserves_selected_failure_incomplete_and_cancel_status
   let requested_status = fp"{tools}/requested-status"
   let invocation = fp"{tools}/invocation"
   fp"{tools}/docker".write(f"""#!{ctx.xsh_bin}
+if "cargo" in args and "build" in args {{ exit 0 }}
 if args[0] == "image" {{
   let inspect_status = env.get_or("INSPECT_STATUS", "0")? as Int
   let identity_status = env.get_or("IDENTITY_STATUS", "0")? as Int
@@ -2426,6 +2427,7 @@ test test_focused_json_n_binds_prepared_product_and_rejects_incomplete_report { 
   let image = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let python = (run.text which python3)?.trim()
   fp"{tools}/docker".write(f"""#!{ctx.xsh_bin}
+if "cargo" in args and "build" in args {{ exit 0 }}
 if args[0] == "image" {{
   let calls = if p"{image_inspections}".exists()? {{ p"{image_inspections}".read_text()? }} else {{ "" }}
   p"{image_inspections}".write(calls + args.join(" ") + "\\n")?
@@ -2564,6 +2566,7 @@ exec '{python}' "$@"
   let tag_seen = fp"{tools}/tag-seen"
   let build_calls = fp"{tools}/image-builds"
   fp"{tools}/docker".write(f"""#!{ctx.xsh_bin}
+if "cargo" in args and "build" in args {{ exit 0 }}
 if args[0] == "build" {{
   let log = p"{build_calls}"
   let existing = if log.exists()? {{ log.read_text()? }} else {{ "" }}
@@ -3109,6 +3112,7 @@ done
 exec '{python}' "$@"
 """, mode: 0o755)
   fp"{root}/tools/docker".write(f"""#!{ctx.xsh_bin}
+if "cargo" in args and "build" in args {{ exit 0 }}
 if args[0] == "image" {{
   if "--format" in args {{ print "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}
   exit 0

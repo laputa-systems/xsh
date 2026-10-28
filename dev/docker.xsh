@@ -136,7 +136,22 @@ export proc resolve_image(ctx: context.Context) [fs, process, env, error, io] ->
 ## grants no device access. Isolated keeps the default profile and removes the network.
 export enum Confinement { Default, Namespaces, Isolated }
 
-## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
+pure gate_operation(operation: Str) -> Bool {
+  operation in ["gate-lane", "gate-full"]
+}
+
+pure interpreter_command(ctx: context.Context, operation: Str, build_only: Bool) -> List[Str] {
+  let build = ["cargo", "build", "--quiet", "--target", ctx.target.triple, "-p", "xsh", "--bin", "xsh"]
+  if build_only {
+    build
+  } else if gate_operation(operation) {
+    [f"/work/target/{ctx.target.triple}/debug/xsh", "dev/main.xsh", "--", "internal", operation]
+  } else {
+    ["cargo", "run", "--quiet", "--target", ctx.target.triple, "-p", "xsh", "--bin", "xsh", "--", "dev/main.xsh", "--", "internal", operation]
+  }
+}
+
+## Constructs a direct `docker run` argv ending in an internal XSH command.
 ## The inner lifecycle creates a new context, so target and profile travel in
 ## the container environment rather than relying on host process inheritance.
 export pure internal_argv(
@@ -154,6 +169,7 @@ export pure internal_argv(
   host_link_tools: HostLinkTools? = null,
   confinement: Confinement = Default,
   cidfile: Path? = null,
+  build_only: Bool = false,
 ) -> Result[List[Str], Error] {
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
   let lease_mount = if shared_lease_dir == null { [] } else { ["-v", f"{shared_lease_dir}:{shared_lease_dir}"] }
@@ -251,22 +267,9 @@ export pure internal_argv(
     @git_mount,
     @lease_mount,
     image,
-    "cargo",
-    "run",
-    "--quiet",
-    "--target",
-    ctx.target.triple,
-    "-p",
-    "xsh",
-    "--bin",
-    "xsh",
-    "--",
-    "dev/main.xsh",
-    "--",
-    "internal",
-    operation,
+    @interpreter_command(ctx, operation, build_only),
   ]
-  argv.extend(extra)
+  if build_only { argv } else { argv.extend(extra) }
 }
 
 proc internal_command(
@@ -276,11 +279,13 @@ proc internal_command(
   extra: List[Str],
   confinement: Confinement = Default,
   cidfile: Path? = null,
+  build_only: Bool = false,
+  pinned_image: Str? = null,
 ) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
   if linux_test_operation(operation) {
     internal_target_dir(ctx, operation).mkdir(parents: true)?
   }
-  let image = if operation in ["gate-lane", "gate-full"] { resolve_image(ctx)? } else { ensure_image(ctx)? }
+  let image = pinned_image ?? (if gate_operation(operation) { resolve_image(ctx)? } else { ensure_image(ctx)? })
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
@@ -313,6 +318,7 @@ proc internal_command(
     host_link_tools: available_link_tools,
     confinement: confinement,
     cidfile: cidfile,
+    build_only: build_only,
   )?
   stages.command(
       f"docker-{operation}",
@@ -436,14 +442,25 @@ export proc sweep_stale_containers(ctx: context.Context) [fs, process, error, io
 ## removal verified. A cancellation hook removes the registered containers before the client can be killed.
 export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io, time] -> Result[Status, Error] {
   sweep_stale_containers(ctx)?
-  let registry = owned_container_dir(ctx)?
-  let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
-  let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile)?
-  registry.mkdir(parents: true)?
-  print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
-  let outcome = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
-  remove_owned_container(ctx, cidfile)?
-  cidfile.remove(missing_ok: true)?
-  registry.remove(missing_ok: true)? when (fs.children(registry)? |> count()) == 0
-  outcome
+  let image = if gate_operation(operation) { resolve_image(ctx)? } else { ensure_image(ctx)? }
+  let steps = if gate_operation(operation) { [true, false] } else { [false] }
+  var outcome: Result[Status, Error]? = null
+  for build_only in steps {
+    let registry = owned_container_dir(ctx)?
+    let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
+    let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile, build_only: build_only, pinned_image: image)?
+    registry.mkdir(parents: true)?
+    print f"[{spec.stage}{if build_only { "-build" } else { "" }} target={spec.target}] {spec.argv.join(" ")}"
+    let ran = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
+    remove_owned_container(ctx, cidfile)?
+    cidfile.remove(missing_ok: true)?
+    registry.remove(missing_ok: true)? when (fs.children(registry)? |> count()) == 0
+    outcome = ran
+    break when ! build_only
+    match ran {
+      Ok(status) => { return Ok(status) when ! status.ok }
+      Err(cause) => { return Err(cause) }
+    }
+  }
+  outcome ?? Err(ContainerError.InvalidIdentity(detail: "no container step ran"))
 }

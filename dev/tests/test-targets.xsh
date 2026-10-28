@@ -684,6 +684,17 @@ test test_gate_docker_argv_names_a_cidfile_so_the_container_can_be_removed_by_id
   assert "--cidfile" not in without
 }
 
+test test_a_gate_container_runs_the_built_xsh_directly_so_signals_reach_its_hooks {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", ["--case", "x"])?
+  assert "cargo" not in argv and "sh" not in argv
+  assert argv[argv.len() - 7..] == ["/work/target/x86_64-unknown-linux-musl/debug/xsh", "dev/main.xsh", "--", "internal", "gate-lane", "--case", "x"]
+  let build = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", ["--case", "x"], build_only: true)?
+  assert build[build.len() - 9..] == ["cargo", "build", "--quiet", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--bin", "xsh"]
+  let dist = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "dist", false, 1000, 1000, "", [])?
+  assert "cargo" in dist and "run" in dist
+}
+
 test test_gate_docker_argv_mounts_the_shared_lease_directory_read_write {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], git_common_dir: p"/common/.git", shared_lease_dir: p"/common/.work/consolidation/infra")?
@@ -693,9 +704,9 @@ test test_gate_docker_argv_mounts_the_shared_lease_directory_read_write {
 test test_gate_docker_bootstrap_selects_the_target_explicitly {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
+  let build = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], build_only: true)?
   assert "TARGET=x86_64-unknown-linux-musl" in argv
-  assert "--target" in argv
-  assert "x86_64-unknown-linux-musl" in argv
+  assert "--target" in build and "x86_64-unknown-linux-musl" in build
   assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol" in argv
 }
 
