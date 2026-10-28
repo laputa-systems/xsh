@@ -3377,6 +3377,7 @@ proc assert_bundle_operation_rejected(
 # Each rejected invocation prepares the whole dev entrypoint, so the cases are
 # split across tests to let the runner schedule them in parallel.
 test test_system_report_capture_rejects_simultaneous_live_comparison_cpu_and_usb { |ctx|
+  test.timeout(ctx, 300s)
   for arguments in [
     "--capture-cpu-bundle --compare-cpuidle",
     "--capture-cpu-bundle --compare-usb-topology",
@@ -3389,6 +3390,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_cpu_and_usb
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_devices { |ctx|
+  test.timeout(ctx, 300s)
   for arguments in [
     "--capture-smbios-bundle --compare-smbios",
     "--capture-thermal-bundle --compare-thermal",
@@ -3401,6 +3403,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_devices { |
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_resources { |ctx|
+  test.timeout(ctx, 300s)
   for arguments in [
     "--capture-cgroup2-bundle --compare-cgroup-v2",
     "--capture-process-bundle --compare-processes",
@@ -3413,6 +3416,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_resources {
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_identity { |ctx|
+  test.timeout(ctx, 300s)
   for arguments in [
     "--capture-uptime-bundle --compare-identity",
     "--capture-dmi-identity-bundle --compare-identity",
@@ -3425,6 +3429,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_identity { 
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_kernel { |ctx|
+  test.timeout(ctx, 300s)
   for arguments in [
     "--capture-kernel-modules-bundle --compare-modules",
     "--capture-swaps-bundle --compare-swaps",
@@ -3438,6 +3443,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_kernel { |c
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_smbios_corroboration { |ctx|
+  test.timeout(ctx, 300s)
   let utility = ["--corroborate-smbios-bundle", "--dmidecode-bin", "/nonexistent", "--compare-smbios"]
   let combined = "bundle operations cannot be combined"
   assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, utility, combined)

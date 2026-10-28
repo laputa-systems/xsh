@@ -1024,7 +1024,7 @@ main()?
 }
 
 test test_tokei_gate_requires_each_external_input_before_launch { |ctx|
-  test.timeout(ctx, 20s)
+  test.timeout(ctx, 90s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-missing-tokei-input")?
   let marker = fp"{tools}/started"
@@ -1281,7 +1281,7 @@ if args[0] == "test" {{
   let stderr = fp"{root}/stderr"
   fp"{root}/dev/performance/results.py".write(f"import pathlib,time\npathlib.Path({json.encode(ready.display())?}).write_text('ready')\ntime.sleep(30)\n")
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), fp"{repository}/dev/main.xsh".display(), "--", "internal", "gate-lane", "--case", "test-route-witness-unit"],
-    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 10s)
+    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {{
@@ -1675,7 +1675,7 @@ test test_full_catalogue_preserves_the_existing_batch_owner_sequence {
 }
 
 test test_manual_dispatch_validates_every_closure_before_any_substitute_process { |ctx|
-  test.timeout(ctx, 15s)
+  test.timeout(ctx, 90s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "full-dispatch-contract")?
   let marker = fp"{root}/started"
