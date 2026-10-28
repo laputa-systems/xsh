@@ -157,3 +157,21 @@ export pure server_stop(name: Str) -> types.Step {
 export pure measure(name: Str, ms: Int) -> types.Step {
   {...step("measure"), name: name, ms: ms}
 }
+
+## Prints a `VMMARK text` line, which a host driving a virtual machine reads
+## from the serial console to know a stage has been reached.
+export pure mark(text: Str) -> types.Step {
+  {...step("mark"), text: text}
+}
+
+## Samples the monotonic, boot, wall and hardware clocks every 100 ms for `ms`
+## milliseconds into `file`.
+export pure sample_clocks(file: Str, ms: Int) -> types.Step {
+  {...step("sample"), file: file, ms: ms}
+}
+
+## Steps the wall clock by `ms` milliseconds (negative to go back). Only for a
+## disposable machine.
+export pure wall_step(ms: Int) -> types.Step {
+  {...step("wall_step"), ms: ms}
+}

@@ -81,6 +81,27 @@ proc measure(job: world.Job, window_ms: Int, target: Path) [fs, time, error] {
   target.write(json.encode({window_ms: window_ms, before: before, after: after})?)
 }
 
+type Clocks = {monotonic_ms: Int, boottime_ms: Int, wall_ms: Int, rtc_ms: Int}
+
+proc read_clocks() [fs, process, time, error] -> Result[Clocks, Error] {
+  Clocks(monotonic_ms: time.monotonic()? / 1000000, boottime_ms: time.boottime()? / 1000000, wall_ms: time.now(), rtc_ms: linux.hwclock()?)
+}
+
+proc sample_clocks(target: Path, window_ms: Int, period_ms: Int) [fs, process, time, error] {
+  var samples: List[Clocks] = []
+  let started = time.monotonic()? / 1000000
+  while time.monotonic()? / 1000000 - started < window_ms {
+    samples += [read_clocks()?]
+    time.sleep(period_ms * 1ms)
+  }
+  target.write(json.encode(samples)?)
+}
+
+proc announce(text: Str) [fs, io, error] {
+  print f"VMMARK {text}"
+  io.flush_stdout()?
+}
+
 proc run_fixture(action: Str, args: List[Str]) [process, net, error] {
   match action {
     "link_add_dummy" => fixture.link_add_dummy(args[0], args[1])
@@ -93,7 +114,7 @@ proc run_fixture(action: Str, args: List[Str]) [process, net, error] {
   }
 }
 
-proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net, time, error] -> Result[Jobs, Error] {
+proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process, net, time, error] -> Result[Jobs, Error] {
   let dir = setup.dir
   var table = jobs
   match step.do {
@@ -173,6 +194,9 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net
       let relink = world.run_support(setup, true, "dhcp_server_link", [world.SERVER_INTERFACE, world.SERVER_ADDRESS, f"{world.SERVER_PREFIX}"], fp"{dir}/recreate.log")?
       fp"{dir}/recreate.status".write(f"{relink.shell_code()?}\n")
     }
+    "mark" => announce(step.text ?? "")?
+    "sample" => sample_clocks(fp"{dir}/{required(step.file, "file", step.do)?}", step.ms ?? 10000, 100)?
+    "wall_step" => linux.set_system_clock(time.now() + (step.ms ?? 0))?
     "measure" => {
       guard let job = table.get(step.name ?? "client") else { return Err(error.failure("no such job to measure")) }
       measure(job, step.ms ?? 10000, fp"{dir}/measure-{step.name ?? "client"}.json")?
@@ -197,7 +221,7 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, process, net
   Ok(table)
 }
 
-proc main(...argv: List[Str]) [fs, process, net, time, error] {
+proc main(...argv: List[Str]) [fs, io, process, net, time, error] {
   let scenario = json.read(fp"{argv[0]}")?.require(types.Scenario)?
   let dir = fp"{scenario.dir}"
   let setup = world.build(dir, fp"{scenario.xsh}", fp"{scenario.core}")?
