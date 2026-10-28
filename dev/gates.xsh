@@ -789,7 +789,8 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
     reasons: ["result reconciliation contract"],
     execution: RunCommand(stages.command("verification/results", ctx.target.triple, "python3",
-      ["python3", "-B", "-m", "unittest", "dev.performance.test_results"], ctx.root, {})))]
+      ["python3", "-B", "-m", "unittest", "dev.performance.test_results"], ctx.root,
+      {TMPDIR: fp"{ctx.root}/.work/tmp"})))]
   entries += [CatalogCase(id: "verification/source", tier: Change,
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
     reasons: ["source snapshot contract"],
