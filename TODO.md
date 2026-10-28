@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 51
+Next: 53
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -20,6 +20,24 @@ which items block a release; performance and resource items such as XSH-1 and
 XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+
+### XSH-51 · P2 · Decide lsipc JSON for merged POSIX selector tables
+
+- **Area:** Core commands
+- **Where:** `core/lsipc.xsh`, `core/tests/test-lsipc.xsh:344`
+- **Problem:** For two POSIX selectors, reference util-linux crashes and XSH defines the output. Its `--json` table repeats column names such as `NAME` and `PERMS` as object keys, so XSH's strict decoder rejects XSH's own output and `test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference` fails in the private-namespace lane. For pairs where util-linux does not crash, both emit the same duplicate keys.
+- **Recommendation:** Decide whether the crash-only pairs keep util-linux's duplicate-key shape or emit unique keys, then make the structural check read the chosen shape. Keep byte parity for the non-crashing pairs.
+- **Fix with:** reference-parity
+- **Effort:** S
+
+### XSH-52 · P2 · Diagnose the lslocks owner-exit race fixture
+
+- **Area:** Tests
+- **Where:** `core/tests/test-util-linux-race-boundaries.xsh:23`, `core/tests/fixtures/util-linux/races/owner_disappearance.py:170`
+- **Problem:** `test_util_linux_lslocks_owner_exit_after_both_kernel_snapshots` fails in the private-namespace lane with `tracee exited before returning the owned /proc/locks row`, serially and in parallel. XSH's lslocks reads `/proc/locks` with plain `read`, which the observer recognises, so a syscall mismatch is ruled out. Unproven: whether the reference or the candidate tracee fails, and whether the cause is the fixture, the PID namespace, or lslocks.
+- **Recommendation:** Report which tracee exited and its captured snapshot, then fix the side that is wrong.
+- **Fix with:** root-cause
+- **Effort:** S
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 

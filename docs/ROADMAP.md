@@ -59,3 +59,18 @@ script products. G0 is complete when:
 
 A result counts only for the executable and source it ran. Any later executable
 change reruns the affected qualification.
+
+### G0 status
+
+Of the 59 failures in the last recorded full native run, 47 still reproduced
+on `master`; all 47 are fixed. A full native run on `f39195a4e`
+then had 3 failures, introduced by the temporary-root fix and since repaired,
+and 215 skips. The 64 skips above the recorded run need user namespaces and
+pass in a privileged container. 70 of the 72 util-linux private-namespace
+tests pass in that lane's namespace; XSH-51 and XSH-52 track the other two.
+The remaining skips need root, external fixtures, or tools absent from the
+image.
+
+Criterion 2 is not yet met: the combined run must be repeated on the final
+candidate, privileged and including the private-namespace lane.
+
