@@ -18,6 +18,13 @@ reference is out of scope unless a listed item needs it:
    while the host is busy, but that leaves this item open.
 5. The Close row of Acceptance passes, including an independent review.
 
+Decisions, 2026-10-28: the stale-evidence status view reads the latest
+focused report per case from the checkout's `.work/gate/`, bound to the source
+and product identities it ran on, and reports stale or not run when those no
+longer match; reports are disposable local evidence, not committed. The paired
+timing comparison from the integration line waits for the quiet measurement
+window in finish-line item 4.
+
 Paused 2026-10-27. Resume: “Resume Pyramid, then inference, then Lean.”
 First command: `codex-campaign-closeout.py cancel`.
 Last accepted code revision: `75240d4f1`; selected checks were green, but P0
