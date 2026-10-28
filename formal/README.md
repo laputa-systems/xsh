@@ -12,6 +12,11 @@ finite Rust-conformance ledger has no cases. The fixed source/IR corpus,
 semantic scenario suite, and replay runner have not been introduced. Private
 bridge fixtures are not conformance cases.
 
+Every claim here starts after parsing unless planned source-admission evidence
+covers the source bytes. Rust is the only implementation compared so far. The
+plan states the contract a second implementation must meet; no such
+implementation or evidence about one exists.
+
 [`check-inventory.py`](scripts/check-inventory.py) and its
 [tests](tests/inventory/test_check_inventory.py) validate inventory structure,
 owner coverage, root reachability, and evidence records. They do not test Lean

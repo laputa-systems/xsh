@@ -9,6 +9,14 @@ obligations and post-consolidation source-freeze requirement.
 Typing acceptance does not wait for this phase. A typing-only resume leaves
 Lean paused.
 
+The 2026-10-28 scope revision keeps that pause and the source-freeze gate. It
+makes the independent contract reusable by a second implementation of the
+core, with a Goose frontend as the first intended experiment, and adds five
+planned obligations (`SRC-ADMIT`, `TYPE-COMPLETE`, `TYPE-DIAG`, `CERT-FACTS`,
+`IMPL-REFINE`). No Goose implementation exists, and none is a prerequisite for
+any obligation in this plan. See [Replacement implementation
+contract](#replacement-implementation-contract).
+
 The foundations were authorized on 2026-10-13 after preflight.
 The pinned toolchain, finite private bridge fixtures, provisional inventory,
 scalar, base-machine, and observed-machine fragments, validation, nominal
@@ -39,7 +47,7 @@ runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidat
 acceptance and the post-consolidation G0b source freeze remain pending gates.
 The earlier authorization for wider staggered lanes is paused. These independent fragments make no
 source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
-72 inventoried universal theorem obligations remain planned. The Raw decoder
+77 inventoried universal theorem obligations remain planned. The Raw decoder
 modules include a finite four-tag schema model with successful-row conditions,
 bounded payload ranges, malformed-row rejection witnesses, and a guard
 mutation witness. A separate `FiniteSchema` model adds nine roots over an
@@ -64,7 +72,7 @@ widen by a base view. The Result field witness uses structural `baseView` only.
 Optional injection excludes Optional and Any sources; its rejection witness
 covers only Optional Path to Optional Any and Any to Optional Any. It excludes Null,
 Record, Union, Rust/source correspondence, and full G2 closure.
-The inventory now names 685 roots across 89 owners; its 51 Python tests check inventory consistency,
+The inventory now names 685 roots across 92 owners; its 51 Python tests check inventory consistency,
 mutation controls, and finite-case evidence boundaries. The observed-machine
 fragment wraps the accepted scalar/integer BaseMachine in an ordered
 observation trace; progress preserves the link between a pending typed wait
@@ -145,7 +153,7 @@ The Duration fragment excludes parsing, evaluation, source spans, compound
 assignment, and Rust correspondence; its generalized mathematical-Int
 `time.millis` saturation case is unreachable from signed-64-bit XSH `IntValue`
 inputs. The inventory remains provisional, with null source identity, no finite
-conformance cases, and all 72 universal obligations planned.
+conformance cases, and all 77 universal obligations planned.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
 **Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
 lowering obligations, and connect those independent statements to the Rust
@@ -161,6 +169,10 @@ compatibility assumes unique record and Map keys, models Set serialization only
 for ordered ordinal keys emitted as ordinals, and requires explicit path
 conversion. List execution uses abstract finite expressions. None of these
 fragments establishes Rust correspondence.
+Every semantic claim starts after parsing except where `SRC-ADMIT` evidence
+covers the source bytes and module inputs for an admitted domain. A proof that begins
+with supplied syntax is a claim about that syntax, not about the original
+source program.
 `formal/Xsh.lean` imports every current module under `formal/Xsh/`, but root reachability does not
 establish adequacy or close any full-language obligation. These fragments do
 not establish Rust conformance.
@@ -171,10 +183,11 @@ not establish Rust conformance.
 2. A total independent Lean model, checker, operational semantics, and proofs for the whole inventoried core, including validation, effects, calls, control, cleanup, resources, streams, raw IR, and lowering.
 3. A development-only source/IR export and independently checked translation path, plus actual Rust conformance, fixed adversarial cases, minimized regressions, and kernel-certified canonical artifacts.
 4. Reproducible fixed gates, a bounded discovery runner, audit controls, current canonical documentation, and G10 aggregate theorems on a fresh checkout.
+5. A replacement contract: frontend and runtime compatibility conditions, the artifact-validation and source-admission boundaries, and a refinement template, all stated against the independent semantics so that a second implementation can supply candidates to the same checks. A second implementation is not a deliverable.
 
 ## Charter
 
-The implementation remains Rust. Lean is a development and verification tool: no Lean product dependency, ordinary-build prerequisite, production evaluator, compiler service, or runtime fallback. A formal executable oracle is allowed only under `formal/`, and its executable results remain empirical evidence unless a kernel-checked theorem links them to the definitions.
+Rust is the production implementation and the first comparison implementation. The independent Lean contract is written so that a later implementation of the core can be compared with it without reusing Rust's representations; a Goose frontend is the first intended experiment. The SPEC template and recorded owner decisions define the contract. When Rust and the contract disagree, retain the counterexample and investigate it; resolve it by repairing the implementation or by an owner decision that changes the contract, never by redefining the oracle to reproduce Rust. Lean is a development and verification tool: no Lean product dependency, ordinary-build prerequisite, production evaluator, compiler service, or runtime fallback. A formal executable oracle is allowed only under `formal/`, and its executable results remain empirical evidence unless a kernel-checked theorem links them to the definitions.
 
 Run G0–G10 to G10. Every core rule stays in scope even when difficult. Development may use explicitly named fragments, but no fragment theorem closes a full-language obligation. Do not turn a universal theorem into a finite corpus claim. Brief progress updates may report evidence or a parked item; they do not pause work for routine approval. Park only the affected item for an irreversible/outside-repository action, a forbidden boundary, an incompatible redesign, or a loop that cannot produce a check; continue independent work and leave a concrete next probe.
 
@@ -191,6 +204,10 @@ Keep evidence distinct in the ledger:
 - `ARTIFACT_CERTIFIED`: a closed proposition about identified source/IR bytes has a kernel-checked certificate using the verified validator.
 - `EXTERNAL_ASSUMPTION`: an explicit named primitive, host, platform, or tool boundary contract.
 
+Each class names its subject. A `SPEC_PROVED` theorem about a Lean model of an implementation proves that model, and the record says so. `RUST_CONFORMANCE` is reserved for evidence that actually ran Rust. An `ARTIFACT_CERTIFIED` record names its artifact kind (original source bytes with their module inputs, source document, raw-IR document, candidate fact set, or source/IR pair), the artifact identity, and the exact proposition checked. A certificate for emitted IR does not prove that the producing compiler is correct on other inputs, and does not prove that Rust or any other runtime executes that IR correctly.
+
+Evidence about a future implementation records its revision, artifact kind and identity, theorem or property, checker and toolchain identity, supported domain and preconditions, the trusted extraction, compilation, runtime, and host boundaries, and the adjacent boundaries that only tests support. Compiler pins and hashes establish identity and reproducibility, not refinement. Schema 2 has no field for a non-Rust implementation. The first such evidence needs a versioned, tested schema change that keeps existing records' meaning; it may add an implementation-indexed class but must not record non-Rust runs as `RUST_CONFORMANCE`, rename an existing class, or start a parallel ledger.
+
 All production proof roots must build and pass a separate fresh kernel recheck. The only allowed foundational axioms are those actually needed from `propext`, `Quot.sound`, and `Classical.choice`. Audit the transitive dependency closure independently: bundled fresh checking does not enforce this allowlist. Reject `sorry`, `admit`, `sorryAx`, project axioms, native-evaluation axioms, unsafe proof escapes, and theorem statements whose definitions smuggle the conclusion into a premise. Keep all required roots under the root import `Xsh`.
 
 For each major theorem, review its elaborated statement and definition closure, including `WellTyped`, `InternalFault`, `HostConforms`, `SemanticWF`, and `TraceCorresponds`. Require inhabited host contracts, accepted/rejected witnesses, malformed artifacts, and mutations that the comparison detects. `OutOfFuel` is a runner result, never a language result. A theorem without a witness and an adversarial counterexample is not accepted.
@@ -202,12 +219,12 @@ For each major theorem, review its elaborated statement and definition closure, 
 
 ### Prescribed decisions
 
-- Pin Lean `4.34.1`, release commit `5045d0056413266e57c625dcd7c365b10e377c52`, with bundled Lake `5.0.0-src`. Use bundled `leanchecker` (named `lean4checker` before Lean 4.28); run `lake build`, then `cd formal && lake env leanchecker --fresh Xsh`. A transitive axiom audit is a separate required gate. Do not install an extra checker package.
+- Pin the toolchain named in `formal/lean-toolchain`, currently Lean `4.35.0` (commit `7e8881d96` moved it from the preflight's `4.34.1`, release commit `5045d0056413266e57c625dcd7c365b10e377c52`, with bundled Lake `5.0.0-src`). Use bundled `leanchecker` (named `lean4checker` before Lean 4.28); run `lake build`, then `cd formal && lake env leanchecker --fresh Xsh`. A transitive axiom audit is a separate required gate. Do not install an extra checker package.
 - Use standard Lean libraries by default. Add Mathlib only for a named theorem/abstraction that is missing and materially reduces proof burden after comparing a few local lemmas. Before adopting any dependency, pin the exact revision and record license, maintenance, transitive trust, build-time, and peak-memory costs. It must not affect a product dependency, product startup, or product binary size. If a dependency is not worth its proof-build cost, remove it.
 - Use a small, untyped source model and a distinct raw IR model. Keep malformed inputs representable until the independent verifier accepts them. Use explicit fuel for executable semantics; keep proofs structurally total. A single shared machine invariant composes the workstreams; do not create unrelated toy evaluators.
 - Model `Int` as signed 64-bit and `UInt` as its nonnegative subset at boundaries; `Duration` is unsigned 64-bit milliseconds. Failed typed stores raise the specified uncatchable `type-error`, leave the old store unchanged, and unwind normally. `.require(UInt)` remains a recoverable validation. Keep paths as native bytes, `Str` as UTF-8, and Float as exact 64-bit bits with the equality rule above.
-- Distinguish contract observations from diagnostics. Contract equivalence retains values, exact bytes and integers, Float bits where relevant, ordered requests/events, failures and blame, cleanup/resource actions, yielded items, checkpoints, suspension and divergence. Only implementation counters, unstable addresses, and timing overhead may be erased wholesale. Identity renaming must preserve a bijection, aliasing, and lifetime.
-- XSH's parser/exporter and host/runtime remain empirical boundaries where not otherwise proved. Do not claim universal Rust, OS, native math-library, or external-process correctness. Name each external contract and never classify a core mechanism as external because it is hard.
+- Distinguish contract observations from diagnostics. Contract equivalence retains values, exact bytes and integers, Float bits where relevant, ordered requests/events, failures and blame, cleanup/resource actions, yielded items, checkpoints, suspension and divergence. Only implementation counters, unstable addresses, and timing overhead may be erased wholesale. Identity renaming must preserve a bijection on observable identities, together with their aliasing and lifetime. An identity is observable when the contract's observations can distinguish it: aliasing equality, nominal and module identity comparisons, stale-handle rejection, and resource actions. Internal slot, row, pool, arena, and allocation identities may be renamed, shared, or reused when every observation is unchanged; a reused slot must never make a previously invalid handle observably valid. The contract does not require identical internal sharing.
+- XSH's parser/exporter and host/runtime remain empirical boundaries where not otherwise proved, including the parser outside SRC-ADMIT's admitted domains. Do not claim universal Rust, OS, native math-library, or external-process correctness. Name each external contract and never classify a core mechanism as external because it is hard.
 - Wire schema v1 has separate closed source and raw-IR documents. Encode bytes/native paths as lowercase hex, stored `u32` words/IDs as eight hex digits, and signed/unsigned 64-bit values and Float bits as sixteen hex digits; signed integers use two's-complement bits. Strings remain exact UTF-8. Preserve raw payload order (low then high word), table order, and `IR_NONE`; name tags with their exact ordinal. Unknown schemas/fields/tags/type IDs, duplicates, missing required metadata, and malformed lengths fail closed. Rust-exported checker facts and witnesses are untrusted candidates, never accepted facts. Hashes are allowed only when binding an actual artifact/proof to its bytes, not as a campaign database.
 - Prefer existing `xsh-fuzz` and test-helper boundaries. A narrowly scoped raw-IR development feature may be added only if those cannot expose private data; verify it is absent from normal products and check feature combinations. Do not widen public `libxsh`, export private `FullProgram`, add permanent instruction branches, or add a production crate just for the bridge.
 - Changes to the language contract require an evidence-backed defect or proof-boundary need. Minimal demonstrated semantic repairs and test-only hooks are pre-authorized by this campaign, including the Float decision above. Preserve callers and update `docs/templates/SPEC.md`, tests, and generated docs together. An unrelated or major incompatible redesign is parked while independent work continues; never ask during execution. The SPEC template is authoritative; generated `docs/SPEC.md` is a reader artifact.
@@ -289,6 +306,16 @@ Include valid, specified-failure, rejected and malformed-IR witnesses plus one
 kernel-certified artifact. Mutations to arithmetic, a binding ID, and an IR
 operand must be detected. Review shared interfaces before parallel lanes.
 
+The semantic state is representation-independent: no rule reads Rust enum
+layout, addresses, allocation order, arena organization, reference counts, or
+internal IDs. Each typed host request family states its semantic inputs and
+outputs, errors and propagation, ownership and borrowing duration, retention of
+buffers, values or callbacks, reentrancy and permitted calling threads,
+cancellation and partial completion, handle validity and stale-identity
+rejection, and the caller's and callee's obligations. These contracts stay
+independent of any C layout; derive a concrete ABI only for an experiment that
+needs one. They do not cover native library or operating-system internals.
+
 ### G2 — Validated types
 
 After G1 interfaces stabilize, own `formal/Xsh/Validation` and changes to
@@ -350,6 +377,22 @@ Compare actual component decisions and one actual Rust source route
 incrementally. Candidate facts and witnesses remain untrusted; an invalid
 adapter response is not XSH behavior.
 
+Source admission (`SRC-ADMIT`): for a declared grammar domain, connect exact
+source bytes and every module input to the independent parse tree and its
+binding projection. Cover the encoding rules, literal interpretation, parse
+success and failure, source positions and contractual parse diagnostics, and
+module-resolution assumptions. The step from that tree to core, including
+parser-performed desugaring, stays with G8's sugar obligation. The G10
+theorems close it over the admitted domains they list; a source-level claim
+outside those domains stays labeled as starting at syntax. Discharge it per
+admitted production set by an independent parse/projection proof or by a sound
+witness checker over the original bytes. A source hash binds identity only; it
+does not show that a syntax tree is the parse of those bytes. Parser/printer
+round trips and corpus agreement are empirical evidence. Expand the admitted
+productions only as each connected frontend stage needs them, and state every
+report's starting boundary.
+
+
 There is no general host-injection API. `test.mock` covers selected DNS/network
 operations and `NativeTestHost` reaches nested script/trace behavior. Add only
 the per-operation fake or private seam required by a concrete fixture; do not
@@ -371,7 +414,18 @@ and argument evaluation order, source-order argument/default/rest binding,
 dynamic validation before frame entry, nominal/program identity, context
 save/restore, module prepare/install, exact versus open export/effect contracts,
 and entry argument domains. Prove `TYPE-CHECK/MEMBER/CALL/MODULE/FACTS/PRESERVE/
-PROGRESS/RECOVERY/ENTRY`. Any resource/stream fragment is temporary and must
+PROGRESS/RECOVERY/ENTRY`. Soundness alone admits a checker that rejects every
+program, so also prove `TYPE-COMPLETE/DIAG`: within the specified inference
+envelope the algorithmic checker accepts every declaratively well-typed program
+and infers the schemes and effects the contract specifies, and every rejected
+program reports a diagnostic category and span that the contract fixes and that
+name a rule the program violates. Where no principal scheme exists, the
+contract records its choice or the limit. The envelope is the specified
+language, not unrestricted inference. Making a further diagnostic category
+contractual is a language-contract change. TYPE-DIAG concerns rejection reports
+only. Keep
+invalid programs, contractual limits, features outside a declared domain,
+internal faults, and runner timeouts or fuel exhaustion distinct. Any resource/stream fragment is temporary and must
 close after G5/G6.
 
 ### G5 — Control and resources (one coupled lane)
@@ -430,6 +484,35 @@ eligible in-place route (the current architecture cap is 128; revalidate it at
 execution) agrees with frame execution. Finish `validateTranslation` soundness
 and coverage of every supported core lowering pattern. Obligations:
 `LOWER-SUGAR/WF/FACTS/STEP/OBS/DIVERGE`, `MODE-EQUIV`, `CERT-SOUND/COVERAGE`.
+A structurally valid, well-typed target that computes a different result must
+fail translation validation.
+
+`CERT-FACTS`: the fact validator accepts a candidate frontend's checked facts
+and derivations exactly when they form a valid derivation under the declarative
+rules for that source and module environment and their observable content
+(resolved declarations, nominal and module identity, selected operations,
+schemes, effects, guards, and evaluation order) equals what the contract
+determines. Alternative derivations with that content are accepted. Within the
+declared domain every such derivation is accepted, with a non-vacuity witness. It does not trust the candidate to resolve the
+declaration, select the operation, classify every effect, insert every guard,
+preserve module identity, keep evaluation order, or implement the source
+computation.
+
+`IMPL-REFINE`: every behavior of a concrete machine from a corresponding
+initial state decodes to a behavior the semantic machine permits for the same
+program and host responses: observation-equal for deterministic cases, within
+the permitted-behavior relation otherwise, with errors, host requests,
+termination, and divergence preserved. Prove it from local premises: a state
+and representation invariant, a decoding relation, initial correspondence,
+one-step preservation, step correspondence in which each concrete step matches
+zero or more semantic steps and zero-step runs decrease a well-founded measure,
+local progress (each invariant state is final, steps, or emits a decoded host
+request), and final-result and observation decoding. Derive the required
+premises from the semantic features in the admitted domain, not from the
+implementation's choices, and never assume conformance as a premise. The raw
+indexed machine is the first instance; state its existing step-simulation and
+mode-equivalence obligations as instances rather than proving them twice.
+Require an inhabited instance and a mutant that drops a premise.
 
 ### G9 — Conformance and adversarial closure
 
@@ -466,17 +549,95 @@ concurrent Lean builds, each 4 CPU and 8 GiB; at most one Rust build, 12 CPU and
 once. At launch, lower concurrency if the host is smaller; never exceed these
 limits on the specified host.
 
+### Connected milestone (successor Phase F)
+
+The integrator owns this milestone and composes slices from G1, G1b, G2 and G3
+interfaces, G4, G7b, G8, and the fact validator; it opens no new formal domain.
+Its path is resolved lexical names, constraints, substitutions and schemes,
+elaborated typed core, validated indexed instructions, and observable
+execution, for variables, functions and application, immutable and mutable
+local bindings, records and projection, Bool and Result control, and the
+relevant effect boundaries. Each stage states its exact domain; the domain is
+non-empty and contains the milestone's accepted and rejected programs, and
+reports give accepted and rejected counts.
+
+The milestone requires the independent contract and its connected theorems;
+actual emitted Rust facts and raw IR in the closed exchange documents; the Rust
+structural verifier together with the milestone's independent Lean fact and
+translation validators, which do not exist yet; precisely labeled execution
+evidence; the parser, exporter, compiler, runtime, and host assumptions it rests
+on; and a documented way for another implementation to submit candidates to the
+same checks. Running foreign raw IR on the Rust executor needs a test-only
+decoder into the verified representation. Its programs reject these
+corruptions: a wrong binding or nominal identity, a wrong selected operation,
+forged effect facts, a missing validation, substituted source or module input,
+a well-typed target that computes a different result, a missing or reordered
+observation, invalid reuse or lifetime where the slice has them, and an
+unsupported or timed-out run presented as agreement.
+
+The milestone is ready for a Goose experiment when this path works through the
+current Rust implementation, its assumptions are explicit, and a candidate can
+target it. That readiness closes no full-core obligation and certifies no
+Goose implementation.
+
 Each capability is end-to-end: formal definition/proof, actual exporter or source route, positive and adversarial native/conformance cases, applicable docs, and incrementally updated coverage. Shared ownership and merge rules follow the `orchestrate` campaign procedure; the table supplies the XSH-specific files, prerequisites, and initial maximum width.
 
 ## Acceptance contracts
 
 ### Semantics and theorem coverage
 
-The model covers the complete frozen core after parsing: sugar and binding identity; imports/module generations; core values/types and validated types; constants; callable signatures/defaults/argument plans; effects and lexical negative bounds; dynamic checks and typed stores; all result/control/recovery forms; resources/cleanup/deadlines/signals; producer/stage/worker behavior; raw indexed representation; verification, lowering, and both execution modes. System-report, applets, applications, native library internals, external programs, OS race freedom, Linux/syscalls, LLVM/Rust compiler, and `xshi`'s separate interactive policy are outside the denominator. A core path shared by `xshi` remains in scope.
+The model covers the complete frozen core after parsing, and from source bytes where SRC-ADMIT evidence applies: sugar and binding identity; imports/module generations; core values/types and validated types; constants; callable signatures/defaults/argument plans; effects and lexical negative bounds; dynamic checks and typed stores; all result/control/recovery forms; resources/cleanup/deadlines/signals; producer/stage/worker behavior; raw indexed representation; verification, lowering, and both execution modes. System-report, applets, applications, native library internals, external programs, OS race freedom, Linux/syscalls, LLVM/Rust compiler, and `xshi`'s separate interactive policy are outside the denominator. A core path shared by `xshi` remains in scope.
 
 For execution, define configurations that account for program identity, syntax/current continuation, environment and typed store, calls/blocks/scopes/cleanup, resources, stream and worker state, evaluator cwd/env overlays, deadlines/signals, outcomes, observations, and pending host request. Prove preservation and progress modulo only specified failures, emitted host requests, legitimate suspension, and divergence. A rejected store commits nothing. Host requests are operation-indexed and responses are constrained; distinguish safety claims from liveness claims and state progress premises for liveness.
 
-For lowering, independent source and IR machines relate every permitted target behavior to the source contract. Deterministic fixed scenarios require observation equivalence; nondeterministic schedules use an explicit allowed-schedule/refinement relation. Do not normalize away missing output, reordered specified events, different failures/blame, aliasing, Float distinctions, or interruption checkpoints. Parser projection, exporter correctness, Rust execution, and native library behavior remain separately identified empirical or external links.
+For lowering, independent source and IR machines relate every permitted target behavior to the source contract. Deterministic fixed scenarios require observation equivalence; nondeterministic schedules use an explicit allowed-schedule/refinement relation. Do not normalize away missing output, reordered specified events, different failures/blame, aliasing, Float distinctions, or interruption checkpoints. Parser projection outside SRC-ADMIT's admitted domains, exporter correctness, Rust execution, and native library behavior remain separately identified empirical or external links.
+
+### Layers and representation
+
+Six layers are separate, and each adjacent pair is joined by a named relation:
+
+1. Original source bytes and module inputs. SRC-ADMIT relates them to the core.
+2. The independent parsed core language and its meaning.
+3. Checked facts, types, schemes, effects, and elaboration. G4 and CERT-FACTS relate them to the core.
+4. The meaning of executable IR, independent of any encoding. G8's lowering obligations and CERT-SOUND relate layer 3 to it, and G7b defines it.
+5. The Rust indexed program representation and its exact validation rules: tags, payload widths, one-based IDs and sentinels, ranges, pools, ownership, and provenance stay exact concrete obligations. G7a's structural decoding and G7b's semantic well-formedness map accepted tables to layer 4.
+6. An implementation's execution state: frames, slots, stores, and suspended work. IMPL-REFINE relates it to the semantic machine.
+
+Language meaning never depends on layer 5 or 6 details. Layer 5 stays exact; it is the first concrete instance, not a weakened portable form. Another implementation may use packed records, relative references, phase-owned storage, or different frame layouts when it establishes the same relations.
+
+### Replacement implementation contract
+
+This contract assembles existing obligations into what a second frontend or runtime must satisfy. The independent contract is authoritative throughout.
+
+**Frontend.** For a declared, non-empty source or core domain and module environment that contains the milestone programs, a compatible frontend agrees on acceptance and rejection; infers equivalent public types, schemes, and effects; preserves lexical, nominal, module, and binding identities; selects equivalent operations and overloads; and produces elaboration with the same observable content that CERT-FACTS checks, including validations, argument binding, and default evaluation order. Rejections carry the contractual diagnostic category and source span (TYPE-DIAG, and SRC-ADMIT for parse failures); message text and internal numbering are not contractual, and any normalization of diagnostics is specified with its reason. An unsupported feature, crash, timeout, fuel exhaustion, or empty output is never counted as a matching rejection or success.
+
+**Runtime.** A compatible runtime preserves values and numerical distinctions; structured errors, propagation, and blame; evaluation and effect order; cleanup and resource identity; producer demand, suspension, cancellation, and worker behavior; checkpoints and admissible host interactions; and termination and divergence (G1, G5–G8). Deterministic behavior requires the specified observation equivalence; nondeterministic behavior uses the explicit permitted-behavior relation with its liveness premises. Wall-clock timing, native allocation events, and internal instruction counts need not match; language-visible limits and resource behavior must.
+
+**Artifact validation.** A candidate supplies checked facts, derivations, and a target artifact in the closed exchange documents; the independent validator checks them against the source and core contract (CERT-FACTS, CERT-SOUND). Three claims stay separate: the validator's soundness theorem over its admitted domain; a checked certificate for one identified source/target pair; and empirical execution of that artifact by some implementation. Exchange and adapter work stays inside development and test boundaries.
+
+**Runtime refinement.** IMPL-REFINE supplies the template. For compact storage, the semantic features in the admitted domain determine which obligations apply among tags, bounds, offsets, lengths and arithmetic overflow; stable references and alias identity; region ownership, escape, and reclamation; slot reuse and stale handles; closures and environments that outlive calls; frames, continuations, and suspended computations; and observable resource cleanup as distinct from unobservable reclamation. An implementation cannot opt out of an obligation its domain's features require; the contract adds no bijection on internal storage and no identical sharing.
+
+**Implementation boundary.** A theorem about a Lean model of a packed or region-based runtime proves that model. A claim about Goose source, generated C, or native execution needs an identified connection: faithful extraction from a verified model, validation of each generated artifact, or an explicitly trusted compilation or translation path recorded as an external assumption. No such connection exists today.
+
+**Goose considerations, observed 2026-10-28.** Recheck these when an experiment starts; none changes XSH semantics. Goose has no heap, collector, reference counting, or destructors; values live on compiler-managed data stacks or in pools whose `free` releases no memory, so a reused slot can be read as a different value of its type, which is the stale-handle case above. Recursive functions cannot keep growable data across a recursive call. There are no escaping closures or function pointers. Threads are separate programs that exchange only flat values through typed queues. `return E from f` propagates through a hidden discriminant rather than unwinding. Goose compiles a whole program to one C file. `extern fn` admits scalars, flat fixed-size values, references, and slices, rejects callbacks, and forbids C from keeping borrowed arguments; `export fn` functions must be called from the thread that called `goose_init`. Sources: the project [README](https://github.com/aardappel/goose) and [reference](https://github.com/aardappel/goose/blob/master/docs/reference.md). The first experiment should be a frontend that emits facts and raw IR for the Rust structural verifier and the connected milestone's independent validators, and keeps the Rust executor through a test-only decoder; it may reuse the Rust parser if its reports start at that boundary.
+
+### Requirement map
+
+| Requirement | Existing owner | Gap or clarification | Evidence required | Belongs to |
+|---|---|---|---|---|
+| Source bytes and modules to core syntax | G1b bridge, G8 sugar | Missing: the scope began after parsing | SRC-ADMIT proof or witness checker per admitted production set | Current campaign |
+| Frontend acceptance agrees, not only soundness | G4 TYPE-CHECK | Missing completeness within the inference envelope | TYPE-COMPLETE | Current campaign |
+| Contractual diagnostics | G4 TYPE-RECOVERY, Architecture invariants | Missing category and span obligation | TYPE-DIAG | Current campaign |
+| Candidate facts not trusted | G1b, Phase F | Missing: no validator for another frontend's facts | CERT-FACTS | Current campaign |
+| Wrong-but-typed target rejected | G8 CERT-SOUND | Clarified | CERT-SOUND with a wrong-computation mutant | Current campaign |
+| Representation-independent semantics | G1, prescribed observation rule | Clarified, including observable identities | Review of G1 state and G7a decoding | Current campaign |
+| Runtime refinement template | G8 LOWER-STEP, MODE-EQUIV | Missing generic theorem from local premises | IMPL-REFINE and one concrete instance | Current campaign |
+| Host interface contracts | G1 host contracts, G5 resources | Clarified fields; no ABI | Inhabited contracts and EXTERNAL_ASSUMPTION records | Current campaign |
+| Evidence subject and identity | Evidence and trust | Clarified; future schema change named, not made | Records that name their subject | Current campaign |
+| Connected path and readiness | Connected milestone section, successor Phase F | Clarified as the first milestone, with an owner | Connected theorems, emitted artifacts, corruption rejections | Current campaign |
+| Goose frontend facts and IR | none | Needs a candidate | Certificates for its artifacts through CERT-FACTS and CERT-SOUND | Future implementation |
+| Goose runtime refinement | none | Needs a candidate and a connection route | IMPL-REFINE instance plus an extraction, validation, or trusted-compilation link | Future implementation |
+| Goose host boundary | none | Needs a concrete experiment | A derived ABI meeting the G1 host contracts | Future implementation |
 
 ### Adversarial and nonvacuity set
 
@@ -484,7 +645,7 @@ For every core rule require an inhabited positive witness and an adversarial/rej
 
 Retain deliberate cross-feature products for (1) validated value × typed callback × imported module × top-level binding; (2) resource in error cause × nonlocal exit × `try`/`retry` × cleanup; (3) shared producer × negative effect region × early close × defer; (4) UInt/dynamic parameter × failed store × `within` × `errdefer`; (5) bounded parallel imported callback × independent failures × cancellation; and (6) explicit resource `with` × escaped alias × ordinary outer ownership. Name the shared invariant composing each product.
 
-The mutation gate kills at least these 16 classes: missing typed-store guard; missing effect edge; unknown treated as empty; dropped `io` implication; `try` clears host effects; lost latent producer provenance; swapped effectful argument order; refinement retained after filtering; wrong nominal/import provenance; dropped/reversed cleanup; data `Err` treated as propagation; serial source over-pulled; wrong parallel failure selected; out-of-range IR accepted; dynamic guard omitted; observation normalization hides a missing event. Record detecting gate and witness for each. Add a mutant when an actual regression exposes a new class. For compilation, effects, and cleanup, include a deliberately wrong lowerer, missing-edge solver, and bad release ordering respectively. Host contracts must have a concrete inhabited mock and admissible reachable responses.
+The mutation gate kills at least these 16 classes: missing typed-store guard; missing effect edge; unknown treated as empty; dropped `io` implication; `try` clears host effects; lost latent producer provenance; swapped effectful argument order; refinement retained after filtering; wrong nominal/import provenance; dropped/reversed cleanup; data `Err` treated as propagation; serial source over-pulled; wrong parallel failure selected; out-of-range IR accepted; dynamic guard omitted; observation normalization hides a missing event. The replacement contract adds nine classes, for at least 25 in total: a forged binding or nominal identity, a wrong selected operation, a forged effect fact, a well-typed target that computes a different result, an unsupported or timed-out run reported as agreement, a parse accepted for different bytes, a checker that rejects every program, a fact validator that trusts the candidate, and a refinement proof with a dropped premise. Record detecting gate and witness for each. Add a mutant when an actual regression exposes a new class. For compilation, effects, and cleanup, include a deliberately wrong lowerer, missing-edge solver, and bad release ordering respectively. Host contracts must have a concrete inhabited mock and admissible reachable responses.
 
 Fixed enumeration is finite and explicit: at most 2 declarations and 2 modules; 1–6 syntax or instruction nodes; type depth 0–3; 0–2 nested containers with at most 2 elements and 3 bytes per byte/string/path payload; 0–3 arguments; scope depth 0–3; at most 2 resource identities; worker count 1–2; scheduler length 0–6. Enumerate each constructor and each named two-feature interaction within these bounds, not the impossible full Cartesian product. Report candidates considered, filtered with reasons, completed, and result categories; fail on missing constructor coverage or unexpectedly low admission. Proofs remain universal over their mathematical domains.
 
@@ -517,7 +678,7 @@ Pre-authorized: a minimal, demonstrated semantic repair that preserves establish
 
 ## Non-goals
 
-No proof target for system-report, core applets, user applications, UI, or `xshi` policy; no universal Rust/LLVM/OS/syscall/filesystem-race/external-command/native-library proof; no runtime sandbox from `without`; no production Lean runtime or evaluator; no speculative AST, JIT, async runtime, public compiler API, task service, parallel coordination daemon, compatibility shim, loose serialization fallback, corpus-only replacement for a theorem, or performance optimization before parity.
+No proof target for system-report, core applets, user applications, UI, or `xshi` policy; no universal Rust/LLVM/OS/syscall/filesystem-race/external-command/native-library proof; no runtime sandbox from `without`; no production Lean runtime or evaluator; no speculative AST, JIT, async runtime, public compiler API, task service, parallel coordination daemon, compatibility shim, loose serialization fallback, corpus-only replacement for a theorem, or performance optimization before parity. No Goose port, Goose installation, proof of the Goose compiler, C compiler, LLVM, linker, or CPU, generic backend or plugin framework, public `libxsh` ABI, permanent production exporter, new product artifact format, or language change made for a temporary Goose limitation. Validating every production compilation is a separate deployment decision outside this plan.
 
 ## Reference
 
@@ -551,6 +712,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 - 2026-10-13 — Owner confirmed lexical `without` bounds and producer-origin effect charging; retain causal latent-effect proof, reject runtime-sandbox redesign.
 - 2026-10-13 — Pin Lean 4.34.1/Lake 5.0.0-src; bundle the checker and audit axioms separately.
 - 2026-10-13 — No Mathlib by default; use only after a named missing theorem and a bounded maintenance/trust/build-cost case.
+- 2026-10-28 — Owner revised the scope so the independent contract supports a second implementation, with Goose as the first intended experiment. Added SRC-ADMIT, TYPE-COMPLETE, TYPE-DIAG, CERT-FACTS, and IMPL-REFINE as planned obligations, raising the count from 72 to 77; the pause and source-freeze gate are unchanged.
 
 ### Append-only phase log
 
@@ -600,4 +762,4 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 
 ## For the owner afterwards
 
-Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust/artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Continue the staggered foundations and close G0a controls; start G0b from the post-consolidation tree. Keep all 72 full theorem obligations planned until their complete proofs and required evidence pass.
+Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust/artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Continue the staggered foundations and close G0a controls; start G0b from the post-consolidation tree. Keep all 77 full theorem obligations planned until their complete proofs and required evidence pass.

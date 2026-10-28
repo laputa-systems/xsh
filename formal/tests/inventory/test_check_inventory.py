@@ -121,7 +121,7 @@ class InventoryCheckerTests(unittest.TestCase):
             result["fragment_roots"],
         )
         self.assertEqual(685, len(result["fragment_roots"]))
-        self.assertEqual(72, len(result["obligations"]))
+        self.assertEqual(77, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
         self.assertEqual([], coverage["finite_conformance"]["cases"])

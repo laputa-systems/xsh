@@ -2577,6 +2577,13 @@
       "proof_root_id": "full.CERT-COVERAGE"
     },
     {
+      "id": "CERT-FACTS",
+      "gate": "G8",
+      "evidence_class": "SPEC_PROVED",
+      "status": "planned",
+      "proof_root_id": "full.CERT-FACTS"
+    },
+    {
       "id": "CERT-SOUND",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
@@ -2694,6 +2701,13 @@
       "evidence_class": "SPEC_PROVED",
       "status": "planned",
       "proof_root_id": "full.EXEC-SAFE"
+    },
+    {
+      "id": "IMPL-REFINE",
+      "gate": "G8",
+      "evidence_class": "SPEC_PROVED",
+      "status": "planned",
+      "proof_root_id": "full.IMPL-REFINE"
     },
     {
       "id": "IR-GUARDS",
@@ -2815,6 +2829,13 @@
       "proof_root_id": "full.RES-TRANSFER"
     },
     {
+      "id": "SRC-ADMIT",
+      "gate": "G1b",
+      "evidence_class": "SPEC_PROVED",
+      "status": "planned",
+      "proof_root_id": "full.SRC-ADMIT"
+    },
+    {
       "id": "STREAM-CLOSE",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
@@ -2869,6 +2890,20 @@
       "evidence_class": "SPEC_PROVED",
       "status": "planned",
       "proof_root_id": "full.TYPE-CHECK"
+    },
+    {
+      "id": "TYPE-COMPLETE",
+      "gate": "G4",
+      "evidence_class": "SPEC_PROVED",
+      "status": "planned",
+      "proof_root_id": "full.TYPE-COMPLETE"
+    },
+    {
+      "id": "TYPE-DIAG",
+      "gate": "G4",
+      "evidence_class": "SPEC_PROVED",
+      "status": "planned",
+      "proof_root_id": "full.TYPE-DIAG"
     },
     {
       "id": "TYPE-ENTRY",
