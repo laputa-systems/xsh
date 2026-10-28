@@ -19,7 +19,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 DETAILED = ("check.local-inference", "compact.indexed-build")
-ERROR_CODE = re.compile(r"^err\[([a-z.-]+)\]: (.*)$", re.MULTILINE)
+NAMED_METHOD = ("check.ambiguous-overload",)
+ERROR_BLOCK = re.compile(r"^err\[([a-z.-]+)\]: (.*)(?:\n {2}[^\n]*\n( {2}[^\n]*)\n( {2}[^\n]*))?$", re.MULTILINE)
+CALLED_METHOD = re.compile(r"\.(\w+)\(")
 
 
 def read_sites(inventory):
@@ -41,8 +43,18 @@ def check(xsht, root, path, timeout):
         result = subprocess.run([xsht, "check", path], cwd=root, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return "timeout", []
-    errors = ERROR_CODE.findall(result.stderr.decode(errors="replace"))
-    return ("pass" if result.returncode == 0 else "fail"), [f"{code}: {message[:90]}" if code in DETAILED else code for code, message in errors]
+    errors = [describe(*block) for block in ERROR_BLOCK.findall(result.stderr.decode(errors="replace"))]
+    return ("pass" if result.returncode == 0 else "fail"), errors
+
+
+def describe(code, message, source_line, caret_line):
+    if code in DETAILED:
+        return f"{code}: {message[:90]}"
+    if code in NAMED_METHOD:
+        start = caret_line.find("^")
+        called = CALLED_METHOD.search(source_line[start:start + caret_line.count("^")]) if start >= 0 else None
+        return f"{code}: {called.group(1)}" if called else code
+    return code
 
 
 def erase(data, edits):

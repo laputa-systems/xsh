@@ -16,6 +16,9 @@ if ": Str" not in text:
 if "UNSUPPORTED" in text:
     sys.stderr.write("err[check.local-inference]: generic callable body requires something\\n")
     sys.exit(2)
+if "AMBIGUOUS" in text:
+    sys.stderr.write("err[check.ambiguous-overload]: method receiver has no unique registered operation\\n  main.xsh:3:5\\n    x.byte_at(i)\\n    ^^^^^^^^^^^^ no unique operation\\n")
+    sys.exit(2)
 if "BROKEN" in text:
     sys.stderr.write("err[check.parse]: broken\\n")
     sys.exit(2)
@@ -80,6 +83,14 @@ class EraseSitesTests(unittest.TestCase):
         singles, joint, summary = self.run_tool([(x_start, x_start + 5)])
         self.assertEqual(singles[0][2], ["check.local-inference: generic callable body requires something"])
         self.assertIn("check.local-inference: generic callable body requires something", summary)
+
+    def test_ambiguous_overloads_are_grouped_by_the_called_method(self):
+        source = SOURCE + "AMBIGUOUS\n"
+        (self.root / "main.xsh").write_text(source)
+        x_start = source.index(": Int")
+        singles, joint, summary = self.run_tool([(x_start, x_start + 5)])
+        self.assertEqual(singles[0][2], ["check.ambiguous-overload: byte_at"])
+        self.assertIn("1 parameter check.ambiguous-overload: byte_at", summary)
 
 
 if __name__ == "__main__":
