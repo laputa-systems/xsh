@@ -3436,6 +3436,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let Some(returned_type) = lowered_types.get(&returned) else { return false; };
         let expected = facts.scheme().return_type();
         if returned_type.matches_body_return(expected) || facts.scheme().method_path_return_matches(returned_type) { return true; }
+        if facts.scheme().kind() == CallableKind::Proc && !facts.scheme().explicit_return() && returned_type.matches_defaulted_proc_return(expected) { return true; }
         if returned != producer { return false; }
         let Some(source_type) = lowered_types.get(&producer) else { return false; };
         if !matches!(self.scheme_completion_source_form(source_type, source_expression), Some(

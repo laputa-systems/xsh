@@ -25763,6 +25763,23 @@ assert observed_words == [Ok("row")]
     }
 
     #[test]
+    fn generic_error_payload_returns_require_the_defaulted_proc_contract() {
+        let program = fixture(
+            "defaulted-proc-error-payload.xsh",
+            "proc choose(flag, value) { if flag { Ok(value) } else { Err(\"declined\") } }\nlet observed = choose(true, 1)\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let choose = scheme_fixture_root_function(&program, "choose");
+        assert!(program.store.function_metadata[choose].defaulted_proc_return());
+        let FullCallableContract::Scheme(scheme) = program.store.functions[choose].contract else { panic!("choose has a generic scheme") };
+        let mut forged = program.clone();
+        forged.store.function_metadata[choose].flags &= !FUNCTION_METADATA_DEFAULTED_PROC_RETURN;
+        forged.store.schemes[scheme.index()].explicit_return = true;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "generic body return does not match its scheme return");
+    }
+
+    #[test]
     fn verifier_checks_defaulted_proc_return_metadata() {
         let program = fixture(
             "defaulted-proc-return-metadata.xsh",

@@ -1892,11 +1892,15 @@ pub(super) fn verify_body(
                             } else { false };
                             let method_path_return = !actual.matches_body_return(expected_return)
                                 && super::methods::written_path_return_matches(store, decoder.owner, scheme_scope, &actual, expected_return, budget)?;
-                            if !actual.matches_body_return(expected_return) && !joined_result_source && !method_path_return {
+                            let normalized_error_return = !joined_result_source && !method_path_return
+                                && store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.defaulted_proc_return())
+                                && !actual.matches_body_return(expected_return)
+                                && actual.matches_defaulted_proc_return(expected_return);
+                            if !actual.matches_body_return(expected_return) && !joined_result_source && !method_path_return && !normalized_error_return {
                                 return Err(IrVerifyError::new("generic body return does not match its scheme return"));
                             }
                             if let Some(tail) = tails.remove(&instruction) {
-                                let tail_matches = if joined_result_source || method_path_return {
+                                let tail_matches = if joined_result_source || method_path_return || normalized_error_return {
                                     body_types_equal(&tail, &actual)
                                 } else {
                                     tail.matches_body_return(expected_return)

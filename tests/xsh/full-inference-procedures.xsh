@@ -341,3 +341,37 @@ print "swept"
     stderr: ["[check.callable-mismatch]", "Unit"],
   )?
 }
+
+test test_full_inference_authored_ok_and_err_join_in_a_generic_proc { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc branch(flag, value) { if flag { Ok(value) } else { Err("declined") } }
+proc early(flag, value) {
+  if flag { return Err("early") }
+  return Ok(value)
+}
+proc counted(flag, value) {
+  if flag { return Ok(value) }
+  Err(7)
+}
+match branch(true, 1) { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+match branch(false, "text") { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+match early(true, 1.5) { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+match early(false, 1.5) { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+match counted(false, "kept") { Ok(value) => { print $value }
+  Err(error) => { print $error.message } }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\ndeclined\nearly\n1.5\n7\n"
+  test.expect(
+    ctx,
+    "proc branch(flag, value) -> Result[Int, Error] { if flag { Ok(1) } else { Err(\"declined\") } }\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+}

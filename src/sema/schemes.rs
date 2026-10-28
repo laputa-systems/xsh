@@ -1855,6 +1855,12 @@ impl SchemeType {
         }
     }
 
+    pub(crate) fn matches_defaulted_proc_return(&self, expected: &Self) -> bool {
+        if self.matches_body_return(expected) { return true; }
+        let (Self::Result(actual_ok, _), Self::Result(expected_ok, expected_error)) = (self, expected) else { return false };
+        **expected_error == Self::Ground(Type::Error) && actual_ok.matches_body_return(expected_ok)
+    }
+
     pub(crate) fn may_hold_resource(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
