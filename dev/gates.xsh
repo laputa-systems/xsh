@@ -1049,6 +1049,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
   var unresolved: List[Str] = []
   var selected_ids = explicit_ids
   var known_paths: List[Str] = []
+  var lane_scenarios: List[Str] = []
   for changed_path in paths {
     if changed_path.starts_with("/") or ".." in changed_path.split("/") {
       unresolved += [f"path outside repository scope: {changed_path}"]
@@ -1178,7 +1179,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     if changed_path.starts_with("core/") and changed_path.ends_with(".xsh") and changed_path.split("/").len() == 2 {
       let applet_tests = f"core/tests/test-{changed_path[5..changed_path.byte_len() - 4]}.xsh"
       if fp"{ctx.root}/{applet_tests}".exists()? {
-        known_paths += [applet_tests]
+        let note = lane_note(ctx, applet_tests)?
+        unresolved += note.unresolved
+        for scenario in note.scenarios { lane_scenarios += [scenario] when scenario not in lane_scenarios }
+        known_paths += [applet_tests] when note.keep
         if scenario_seconds_for_stage(f"native-{applet_tests}") != null {
           let edit_cases = [case for case in source_edit_cases if case.source == changed_path]
           for case in edit_cases { selected_ids += [case.id] when case.id not in selected_ids }
@@ -1189,9 +1193,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
     match select([changed_path]) {
       Ok(owned) => {
-        if owned.native_files == [changed_path] and outside_unprivileged_lane(ctx, changed_path)? {
-          unresolved += [unprivileged_lane_gap(changed_path)]
-        } else {
+        let note = if owned.native_files == [changed_path] { lane_note(ctx, changed_path)? } else { LaneNote(keep: true, unresolved: [], scenarios: []) }
+        unresolved += note.unresolved
+        for scenario in note.scenarios { lane_scenarios += [scenario] when scenario not in lane_scenarios }
+        if note.keep {
           known_paths += [changed_path]
           unresolved += [f"no Change case owns {changed_path}; its shared core coverage is the explicit {core_suite_scenario_id} scenario"] when Core in owned.areas
         }
@@ -1236,7 +1241,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     let owned_root = ctx.root.resolve()?.display() + "/"
     return Err(PlanError.Invalid(detail: f"native case {id} escapes the owned source root")) when ! resolved_path.display().starts_with(owned_root)
     return Err(PlanError.Invalid(detail: f"native case {id} is not a file")) when resolved_path.metadata()?.kind != "file"
-    return Err(PlanError.Invalid(detail: unprivileged_lane_gap(file))) when outside_unprivileged_lane(ctx, file)?
+    return Err(PlanError.Invalid(detail: unprivileged_lane_gap(file))) when ! lane_note(ctx, file)?.keep
     if id not in [entry.id for entry in chosen] {
       for entry in catalogue(ctx, profile, Selection(areas: [], native_files: [file]), ["explicit native file selection"])? {
         chosen += [entry] when entry.id == id
@@ -1245,6 +1250,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
   }
   let resolved = resolve_selection(chosen, selected_ids, explicit_ids, tier)?
   var scenarios: List[Str] = if soundness_owners(selection.areas) and soundness_scenario_id not in explicit_ids { [soundness_scenario_id] } else { [] }
+  for scenario in lane_scenarios { scenarios += [scenario] when scenario not in scenarios and scenario not in explicit_ids }
   for spec in lane_plan(ctx, profile, selection)? {
     scenarios += [spec.stage] when scenario_seconds_for_stage(spec.stage) != null and spec.stage not in explicit_ids and spec.stage not in scenarios
   }
@@ -1956,9 +1962,10 @@ proc require_source(ctx: context.Context, source: Str, case_id: Str, available_n
 }
 
 type EvidenceProduct = {path: Str, digest: Str, mode: Int}
-type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int}
+type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int}
 
-enum EvidenceState { Current(Int), Stale(Str), NotRun }
+## What the recorded evidence for a case says about the current source and products.
+export enum EvidenceState { Current(Int), Reduced(Int, Int), Stale(Str), NotRun }
 
 const full_evidence_id = "full"
 
@@ -1970,10 +1977,10 @@ pure full_evidence_path(ctx: context.Context) -> Path {
   fp"{ctx.root}/.work/gate/full.json"
 }
 
-proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct]) [fs, time, error] -> Result[Unit, Error] {
+proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], outside_lane: Int = 0) [fs, time, error] -> Result[Unit, Error] {
   let directory = record_path.parent()
   if ! directory.exists()? { directory.mkdir(parents: true)? }
-  let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now()}
+  let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now(), outside_lane: outside_lane}
   record_path.write_atomic(json.encode(record)?)
 }
 
@@ -1996,12 +2003,15 @@ proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_so
       Err(cause) => { return Stale(f"product unavailable: {product.path}: {cause.message}") }
     }
   }
+  return Reduced(record.recorded_ms, record.outside_lane) when record.outside_lane > 0
   Current(record.recorded_ms)
 }
 
-proc evidence_label(state: EvidenceState) [time, error] -> Result[Str, Error] {
+## Renders an evidence state for the status view.
+export proc evidence_label(state: EvidenceState) [time, error] -> Result[Str, Error] {
   match state {
     Current(recorded_ms) => f"current (passed {time.format(recorded_ms * 1000000, "%Y-%m-%d %H:%M:%S", utc: true)?} UTC)"
+    Reduced(recorded_ms, outside) => f"reduced (passed {time.format(recorded_ms * 1000000, "%Y-%m-%d %H:%M:%S", utc: true)?} UTC with {outside} tests outside the lane)"
     Stale(reason) => f"stale ({reason})"
     NotRun => "not run"
   }
@@ -2045,12 +2055,21 @@ pure lane_excluded_tests() -> List[Str] {
   excluded
 }
 
-proc outside_unprivileged_lane(ctx: context.Context, file: Str) [fs, error] -> Result[Bool, Error] {
-  return false when ctx.target.os != "linux"
+type LaneNote = {keep: Bool, unresolved: List[Str], scenarios: List[Str]}
+
+proc lane_note(ctx: context.Context, file: Str) [fs, error] -> Result[LaneNote, Error] {
+  let untouched = LaneNote(keep: true, unresolved: [], scenarios: [])
+  return untouched when ctx.target.os != "linux"
   let excluded = [id for id in lane_excluded_tests() if id.starts_with(f"{file}::")]
-  return false when excluded.is_empty()
-  let declared = [line for line in fp"{ctx.root}/{file}".read_text()?.split("\n") if line.starts_with("test ")]
-  declared.len() == excluded.len()
+  return untouched when excluded.is_empty()
+  let declared = [line for line in fp"{ctx.root}/{file}".read_text()?.split("\n") if line.starts_with("test ")].len()
+  var scenarios: List[Str] = []
+  scenarios += [root_native_case_id] when ! [id for id in excluded if id in gate_lane.root_tests].is_empty()
+  scenarios += [namespace_native_case_id] when ! [id for id in excluded if id in gate_lane.namespace_tests].is_empty()
+  return LaneNote(keep: false, unresolved: [unprivileged_lane_gap(file)], scenarios: scenarios) when declared == excluded.len()
+  let remaining = declared - excluded.len()
+  let routes = if scenarios.is_empty() { "" } else { f"; {scenarios.join(" and ")} cover the ones that need root or namespaces" }
+  LaneNote(keep: true, unresolved: [f"{file}: {excluded.len()} of {declared} native tests are outside the unprivileged Linux lane, so the case runs only the other {remaining}{routes}"], scenarios: scenarios)
 }
 
 pure unprivileged_lane_gap(file: Str) -> Str {
@@ -2106,6 +2125,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
   for entry in plan.cases {
     case_evidence_path(ctx, entry.id).remove(missing_ok: true)?
     var commands: List[contract.CommandSpec] = []
+    var outside_lane = 0
     var compiled = false
     var harness: Str? = null
     match entry.execution {
@@ -2238,6 +2258,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           seen += [id]
         }
         let in_lane = if ctx.target.os == "linux" { [id for id in seen if id not in lane_excluded_tests()] } else { seen }
+        outside_lane += seen.len() - in_lane.len()
         print f"lane scope: {seen.len() - in_lane.len()} of {seen.len()} native tests need a capability the unprivileged Linux lane lacks; they are not selected" when in_lane.len() != seen.len()
         if in_lane.is_empty() and ! seen.is_empty() {
           print f"lane scope: every selected native test is outside the unprivileged Linux lane; request {root_native_case_id} or {namespace_native_case_id} for the ones a container can run"
@@ -2388,7 +2409,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           let observed = harness_bindings.get(executable)?
           bound += [{path: executable, digest: observed.digest, mode: observed.mode}]
         }
-        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound)?
+        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, outside_lane: outside_lane)?
       }
       Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {}
     }

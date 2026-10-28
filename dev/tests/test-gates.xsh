@@ -1116,7 +1116,7 @@ test test_core_change_selects_the_applet_module_and_reports_shared_paths_as_gaps
   let ctx = fixtures.linux_context(fs.cwd()?)?
   let ls_plan = gates.plan_paths(ctx, tests.Verification, ["core/ls.xsh"], [], gates.Change)?
   assert [entry.id for entry in ls_plan.cases] == ["native-core/tests/test-ls.xsh"]
-  assert ls_plan.unresolved.is_empty()
+  assert ls_plan.unresolved.len() == 1 and ls_plan.unresolved[0].starts_with("core/tests/test-ls.xsh: 1 of ")
   for shared in ["core/lib/accounts.xsh", "core/blkid.xsh"] {
     let plan = gates.plan_paths(ctx, tests.Verification, [shared], [], gates.Change)?
     assert plan.cases.is_empty()
@@ -1195,6 +1195,37 @@ test test_root_and_namespace_groups_are_separate_scenarios_each_selected_alone {
   for id in gate_lane.root_tests { assert id not in gate_lane.namespace_tests }
 }
 
+test test_a_partly_excluded_native_module_is_reported_with_counts_and_its_scenario {
+  let root = fs.cwd()?
+  let ctx = fixtures.linux_context(root)?
+  var excluded: List[Str] = [@gate_lane.root_tests, @gate_lane.namespace_tests]
+  for exclusion in gate_lane.lane_exclusions { excluded += exclusion.tests }
+  let cases = [
+    {applet: "lslocks", scenarios: []},
+    {applet: "chroot", scenarios: ["lane/root-native"]},
+    {applet: "lsns", scenarios: ["lane/namespace-native"]},
+    {applet: "unshare", scenarios: ["lane/namespace-native"]},
+  ]
+  for item in cases {
+    let applet_file = f"core/tests/test-{item.applet}.xsh"
+    let declared = [line for line in fp"{root}/{applet_file}".read_text()?.split("\n") if line.starts_with("test ")].len()
+    let outside = [id for id in excluded if id.starts_with(f"{applet_file}::")].len()
+    assert outside > 0 and outside < declared
+    let plan = gates.plan_paths(ctx, tests.Verification, [f"core/{item.applet}.xsh"], [], gates.Change)?
+    assert plan.unresolved.len() == 1, f"{item.applet}: {plan.unresolved.join(";")}"
+    assert plan.unresolved[0].starts_with(f"{applet_file}: {outside} of {declared} native tests are outside the unprivileged Linux lane")
+    for scenario in item.scenarios { assert scenario in plan.available_scenarios, f"{item.applet} lists {plan.available_scenarios.join(",")}" }
+    if item.scenarios.is_empty() { assert "lane/root-native" not in plan.available_scenarios and "lane/namespace-native" not in plan.available_scenarios }
+  }
+}
+
+test test_evidence_for_a_reduced_native_selection_is_not_labelled_current {
+  let reduced = gates.evidence_label(gates.Reduced(1700000000000, 3))?
+  assert reduced.starts_with("reduced")
+  assert "3 tests outside the lane" in reduced
+  assert gates.evidence_label(gates.Current(1700000000000))?.starts_with("current")
+}
+
 test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
   let ctx = fixtures.linux_context(fs.cwd()?)?
   let gap = "core/tests/test-syslog-libc.xsh has no test the unprivileged Linux lane can run; lane/root-native and lane/namespace-native run the ones that need root or namespaces"
@@ -1207,7 +1238,7 @@ test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
   }
   let mixed = gates.plan_paths(ctx, tests.Verification, ["tests/xsh/stdlib/linux_namespaces.xsh"], [], gates.Change)?
   assert [entry.id for entry in mixed.cases] == ["native-tests/xsh/stdlib/linux_namespaces.xsh"]
-  assert mixed.unresolved.is_empty()
+  assert mixed.unresolved.len() == 1 and "outside the unprivileged Linux lane" in mixed.unresolved[0]
 }
 
 test test_catalogue_preserves_documentation_verification_and_products {

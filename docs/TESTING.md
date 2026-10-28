@@ -167,7 +167,10 @@ paths stay read-only. Three tests need an unmasked `/proc` (a `procfs` mount ins
 namespace, or credential transitions that depend on one) and one needs `CAP_SYS_ADMIN` in the
 initial user namespace, so they are declared outside every
 lane. A native file whose every test is declared outside the unprivileged lane is a reported gap
-that names these scenarios, not a case. The remaining groups name a platform, an external
+that names these scenarios, not a case. A file with only some tests outside the lane stays a
+case, but planning reports the counts as unresolved scope, so the request exits 2, and lists the
+scenarios that cover the root and namespace tests. A case that ran a reduced selection
+records evidence that `--status` shows as reduced, never as current. The remaining groups name a platform, an external
 fixture that only a Rust test provides, supplementary groups, a host resource, an unmasked
 `/proc`, or a test whose subject is the skip outcome; no gate lane runs them. A new native test
 that skips in the gate lane needs an entry in one of those groups, and
