@@ -124,8 +124,9 @@ checker coverage. `src/sema/schemes.rs` similarly selects the exact
 `compiler/inference-work/correctness` Rust test.
 A Change request for `core/lsmem.xsh` also selects `core/lsmem/consumers`, an
 `--exact-id` set of the tests in other modules that run the applet. The
-unprivileged gate lane skips the two namespace-dependent lsmem consumers, as the
-Core directory run does; an exact set cannot include a test that will skip.
+unprivileged gate lane skips the two namespace-dependent lsmem consumers, which need a
+private namespace context only a Rust test provides; an exact set cannot include a test
+that will skip.
 An Edit request for `core/cat.xsh` selects bounded byte-stream tests. Change
 selects the cat behavior module and its exact external consumers.
 Edit rejects Change-only cases before preparing products. Edit runtime is limited
