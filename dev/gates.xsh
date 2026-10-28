@@ -2009,6 +2009,11 @@ export type EvidenceProduct = {path: Str, digest: Str, mode: Int, under_target: 
 export type LaputaBinding = {root: Str, source: Str}
 type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int, laputa: LaputaBinding?}
 
+## The verdict line of a run that left tests outside the unprivileged lane, so it cannot be read as full coverage.
+export pure reduced_verdict(outside: Int) -> Str {
+  f"Selected scope: passed, reduced ({outside} tests outside the lane; see {root_native_case_id}, {namespace_native_case_id})"
+}
+
 ## What the recorded evidence for a case says about the current source and products.
 export enum EvidenceState { Current(Int), Reduced(Int), Stale(Str), NotRun }
 
@@ -2480,6 +2485,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
     }
     match entry.execution {
       RunCommand(_) | DocumentationCheck => {
+        print reduced_verdict(outside_lane) when outside_lane > 0
         var bound = [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in products]
         if let executable = harness {
           let observed = harness_bindings.get(executable)?

@@ -1232,6 +1232,10 @@ test test_a_partly_excluded_native_module_is_reported_with_counts_and_its_scenar
   }
 }
 
+test test_a_reduced_run_says_so_in_its_verdict_line {
+  assert gates.reduced_verdict(29) == "Selected scope: passed, reduced (29 tests outside the lane; see lane/root-native, lane/namespace-native)"
+}
+
 test test_evidence_for_a_reduced_native_selection_is_not_labelled_current {
   let reduced = gates.evidence_label(gates.Reduced(3))?
   assert reduced.starts_with("reduced")
