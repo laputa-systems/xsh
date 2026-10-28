@@ -101,7 +101,19 @@ cannot run are declared in `dev/gate_lane.xsh` and run by the explicit
 corpus, lint-format corpus, `test-awk.xsh`, `test-gnu-sort.xsh`) are Scenario
 cases. Timings were taken at host load 14 to 123, never idle.
 
-Next: close the two open item 1 failures, then the P0 baselines (item 4) in a quiet
+Both failures and the unexplained endings are closed:
+- The source snapshot no longer includes upstream tracking counts that another
+  worktree's merge changes (`2767dba0a`).
+- The laputa-mixed test owns its fixture checkout (`cf25f4fbf`).
+- The syslog reads moved into `core/lib` (`31d399e85`).
+
+On `5046fd6b9`, `native-dev/tests` passed 487 of 487 in the pinned image;
+`core/cat/external-consumers` and `verification/performance-check` passed three
+of three. Item 1 is complete for every listed non-file Change case and the
+privileged scenario. The roughly 990 per-file native cases ran inside their
+suites, not one case per run.
+
+Next: the P0 baselines (item 4) in a quiet
 window.
 
 Automatic discovery now reads staged, unstaged and untracked Git paths with
