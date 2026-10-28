@@ -558,3 +558,45 @@ assert cleanups == 2
     status: 0,
   )?
 }
+
+test test_full_inference_ordering_retains_its_domain_for_quantified_operands { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure less(a, b) { a < b }
+pure smaller(a, b) { if a < b { a } else { b } }
+pure largest(items) { var best = items[0]; for item in items { if item > best { best = item } }; best }
+pure within(value, low, high) { low <= value and value <= high }
+stream above(items, floor) { for item in items { if item > floor { yield item } } }
+let stronger = smaller
+assert less(1, 2)
+assert less("a", "b")
+assert !less(2.5, 1.5)
+assert less(1s, 2s)
+assert smaller(3, 2) == 2
+assert stronger("b", "a") == "a"
+assert largest([1, 5, 2]) == 5
+assert largest(["a", "c", "b"]) == "c"
+assert within(2.5, 1.0, 3.0)
+let kept = above([1, 5, 3], 2) |> collect()
+assert kept == [5, 3]
+print "ordered"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "ordered\n"
+}
+
+test test_full_inference_ordering_rejects_operands_outside_its_domain { |ctx|
+  for case in [
+    {call: "less(true, false)", rejection: "[check.operator-type]"},
+    {call: "less([1], [2])", rejection: "[check.operator-type]"},
+    {call: "less(1, \"a\")", rejection: "[check.type-mismatch]"},
+  ] {
+    test.expect(
+      ctx,
+      "pure less(a, b) { a < b }\nlet rejected = " + case.call + "\n",
+      status: 2,
+      stderr: [case.rejection],
+    )?
+  }
+}

@@ -3373,6 +3373,10 @@ impl Checker {
         if self.reject_unnarrowed_union(&left, "an ordering comparison", left_span) {
             return;
         }
+        if matches!(left, Type::Inference(_)) {
+            self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::OrderingOperand, &left, left_span);
+            return;
+        }
         if !left.can_be_ordering_operand() && !left.is_recovery() {
             self.error(left_span, "comparison requires Int, Float, Str, or Duration", DiagnosticCode::CheckOperatorType);
         }

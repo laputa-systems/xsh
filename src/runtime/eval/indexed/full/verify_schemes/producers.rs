@@ -5545,6 +5545,20 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, right.raw() as usize, right_type, false);
                 Ok(())
             }
+            schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge, left, right, .. }
+                if expected.as_ref() == &Type::Bool
+                    && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))
+                    && let (Some(left), Some(right)) = (
+                        self.scoped_expression_type(&decoder, left.raw() as usize)?,
+                        self.scoped_expression_type(&decoder, right.raw() as usize)?,
+                    )
+                    && left.closed_ground_type().is_none() =>
+            {
+                if !super::body_types_equal(&left, &right) {
+                    return Err(IrVerifyError::new("scoped ordering operands disagree with their Boolean producer"));
+                }
+                Ok(())
+            }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
                 if expected.as_ref() == &Type::Bool
                     && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))

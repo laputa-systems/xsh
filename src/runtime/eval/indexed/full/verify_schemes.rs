@@ -2280,7 +2280,11 @@ fn scheme_has_known_direct_error_effect(store: &FullStore, scheme: &FullScheme) 
     Ok(direct.contains(&crate::syntax::node::Effect::Error))
 }
 
-fn body_ordering_matches(left: &SchemeType, right: &SchemeType) -> Result<(), IrVerifyError> {
+fn body_ordering_matches(store: &FullStore, scope: &SchemeScope, left: &SchemeType, right: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    if left.closed_ground_type().is_none() && right.closed_ground_type().is_none() {
+        if !body_types_equal(left, right) { return Err(IrVerifyError::new("generic ordering operands have incompatible domains")); }
+        return operations::verify_key_domain(store, scope, crate::sema::sealed_operation::TypeDomain::OrderingOperand, left, budget);
+    }
     let left = left.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic ordering operand has no closed domain"))?;
     let right = right.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic ordering operand has no closed domain"))?;
     if !left.can_be_ordering_operand() || !right.can_be_ordering_operand() || !right.unvalidated().matches_expected(left.unvalidated()) { return Err(IrVerifyError::new("generic ordering operands have incompatible domains")); }
@@ -2712,7 +2716,7 @@ fn verify_body_expression(
                 let (op, right, _) = pair?;
                 if !matches!(op, crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge) { return Err(IrVerifyError::new("generic comparison chain requires ordering operators")); }
                 let right = child(right, budget)?;
-                body_ordering_matches(&left, &right)?;
+                body_ordering_matches(store, scheme_scope, &left, &right, budget)?;
                 left = right;
             }
             SchemeType::Ground(Type::Bool)
@@ -2722,7 +2726,8 @@ fn verify_body_expression(
             SchemeType::Ground(Type::Bool)
         }
         schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge, left, right, .. } => {
-            body_ordering_matches(&child(left, budget)?, &child(right, budget)?)?;
+            let (left, right) = (child(left, budget)?, child(right, budget)?);
+            body_ordering_matches(store, scheme_scope, &left, &right, budget)?;
             SchemeType::Ground(Type::Bool)
         }
         schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, left, right, .. } => {

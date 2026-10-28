@@ -3358,8 +3358,11 @@ Equality can retain a shared type parameter, including list membership with
 the same item parameter. Membership can retain independent value and container
 parameters, selecting the ordinary domain at each call. Unsigned map membership
 validates the computed needle before evaluating the container; validation errors
-follow the enclosing capture or Proc error boundary. Ordering uses concrete
-checked operand domains.
+follow the enclosing capture or Proc error boundary. Ordering of two
+quantified operands retains one shared type parameter bounded to the ordering
+domains `Int`, `UInt`, `Float`, `Duration`, and `Str`; each call checks that
+domain, so `pure less(a, b) { a < b }` accepts `1, 2` and `"a", "b"` and
+rejects `Bool` or `List` operands with `check.operator-type`.
 Boolean `and` and `or` evaluate the left operand first and evaluate the right
 operand only when needed. Ordering chains evaluate each reached operand once
 and stop at the first false pair. Map membership preserves its declared key

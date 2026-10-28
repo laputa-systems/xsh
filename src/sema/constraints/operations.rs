@@ -498,7 +498,7 @@ impl TypeConstraints {
                                         }
                                     }
                                     crate::sema::sealed_operation::TypeDomain::CollectItem | crate::sema::sealed_operation::TypeDomain::MinMaxItem => {},
-                                    crate::sema::sealed_operation::TypeDomain::CountKey => return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }),
+                                    crate::sema::sealed_operation::TypeDomain::CountKey | crate::sema::sealed_operation::TypeDomain::OrderingOperand => return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }),
                                 }
                             }
                             continue;

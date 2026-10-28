@@ -301,6 +301,7 @@ impl Checker {
                             crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey,
                             crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream,
                             crate::sema::sealed_operation::TypeDomain::MinMaxItem => DiagnosticCode::CheckDynamicBoundary,
+                            crate::sema::sealed_operation::TypeDomain::OrderingOperand => DiagnosticCode::CheckOperatorType,
                         },
                         crate::sema::constraints::SealedOperationError::UnsupportedMembership { .. } => DiagnosticCode::CheckMembershipType,
                         crate::sema::constraints::SealedOperationError::UnsupportedIndex { .. } => DiagnosticCode::CheckIndexType,
