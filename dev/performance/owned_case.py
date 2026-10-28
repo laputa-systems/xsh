@@ -35,7 +35,7 @@ def _execute(label, operation):
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)
         leases = check.baseline_owner(SimpleNamespace(source_root=owner), 'dev/util-linux/leases.py', 'owned_case_leases')
         try:
-            with leases.campaign_leases(owner, native=True, cargo=True):
+            with leases.campaign_leases(owner, native=True):
                 detail = operation(leases)
         except leases.LeaseBusy as error:
             print(f'{label} incomplete: {error}')

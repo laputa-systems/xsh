@@ -191,6 +191,23 @@ class CoreCasesTests(unittest.TestCase):
                 core_trace.check_case(xsht, self.fixtures, lease)
         self.assertIs(type(error.exception), ValueError)
 
+    def test_owned_case_takes_no_cargo_lease_because_it_builds_nothing(self):
+        class LeaseBusy(Exception):
+            pass
+        taken = []
+
+        def campaign_leases(*args, **kwargs):
+            taken.append(kwargs)
+            return nullcontext()
+
+        lease = SimpleNamespace(campaign_leases=campaign_leases, LeaseBusy=LeaseBusy)
+        argv = ['pipeline', '--xsht', '/xsht', '--scratch', '/scratch']
+        with patch.object(core_trace.sys, 'argv', argv), \
+                patch.object(owned_case.check, 'baseline_owner', return_value=lease), \
+                patch.object(core_trace, 'check_case', return_value={'subprocesses': 1, 'syscalls': 2}), redirect_stdout(io.StringIO()):
+            self.assertEqual(core_trace.main(), 0)
+        self.assertEqual(taken, [{'native': True}])
+
     def test_pipeline_controller_reports_termination_as_cancellation(self):
         class LeaseBusy(Exception):
             pass
