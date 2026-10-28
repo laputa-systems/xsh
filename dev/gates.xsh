@@ -1757,22 +1757,19 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
 }
 
 ## Runs from the INT and TERM hooks while the runtime still holds the primary signal, which the hook's pre-cancel budget
-## defers. It removes every container this run started and verifies each removal, so none keeps writing after the
-## cancellation is reported. It then forwards the signal to the processes this run started and waits up to grace_ms for
-## them to exit, because the runtime kills a child group 150 ms after forwarding and the Python adapters need longer
-## to remove their own containers and release the shared leases.
+## defers. It forwards the signal to the process groups this run started, so a docker client hands it to the
+## container's own hook, and waits up to grace_ms for them to exit. The runtime would kill a child group 150 ms after
+## forwarding, which is too soon for the Python adapters to remove their containers and release the shared leases.
+## Only then does it remove the containers this run started and verify each removal, as a backstop that kills nothing
+## that could still clean up. The host grace must exceed the grace of the hook inside the container.
 export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int = 30000) [fs, process, error, io, time] {
-  match docker.remove_owned_containers(ctx) {
-    Ok(_) => {}
-    Err(cause) => print f"cancelled run could not remove its container: {cause.message}"
-  }
   let me = process.current_pid()?
   let owned = [entry for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
   for entry in owned {
     let signalled = if entry.pgrp == entry.pid { process.kill_group(entry.pid, signal: signal) } else { process.kill(entry.pid, signal: signal) }
     match signalled {
       Ok(_) => {}
-      Err(_) => {}
+      Err(cause) => print f"could not signal process {entry.pid}: {cause.message}" when (cause.errno ?? 0) != 3
     }
   }
   let owned_pids = [entry.pid for entry in owned]
@@ -1781,6 +1778,10 @@ export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int =
     let alive = [entry.pid for entry in process.list()? if entry.pid in owned_pids and entry.status != "Z"]
     break when alive.is_empty()
     time.sleep(100ms)
+  }
+  match docker.remove_owned_containers(ctx) {
+    Ok(_) => {}
+    Err(cause) => print f"cancelled run could not verify its container cleanup: {cause.message}"
   }
 }
 

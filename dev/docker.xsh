@@ -11,7 +11,7 @@ export type HostLinkTools = {mold: Path, kache: Path}
 export error ImageError = InvalidIdentity(detail: Str) | Unavailable(raw_status: Int) | Cancelled(raw_status: Int)
 
 ## A container the gate started could not be shown to be gone.
-export error ContainerError = InvalidIdentity(detail: Str) | Survived(id: Str) | Unverified(detail: Str)
+export error ContainerError = InvalidIdentity(detail: Str) | Survived(id: Str) | Unverified(id: Str, detail: Str)
 
 proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
   return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
@@ -329,24 +329,43 @@ export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool,
   stages.execute(internal_command(ctx, operation, privileged, extra)?)
 }
 
+type DockerAnswer = {ok: Bool, timed_out: Bool, stderr: Str}
+
+proc ask_docker(ctx: context.Context, arguments: List[Str], timeout_ms: Int) [fs, process, error, io] -> Result[DockerAnswer, Error] {
+  stages.ensure_dir(fp"{ctx.root}/.work/tmp")
+  let scratch = fs.tempdir_in(fp"{ctx.root}/.work/tmp")?
+  let errors = fp"{scratch.host_path()?}/stderr"
+  let command = process.command_argv("docker", ["docker", @arguments], cwd: ctx.root, stdout: fp"{scratch.host_path()?}/stdout",
+    stderr: errors, timeout: time.millis(timeout_ms))
+  match process.run(command) {
+    Ok(status) => DockerAnswer(ok: status.ok, timed_out: false, stderr: errors.read_text()?.trim())
+    Err(cause) => match cause {
+      ProcessError.Timeout {..} => DockerAnswer(ok: false, timed_out: true, stderr: "docker did not answer in time")
+      else => { return Err(cause) }
+    }
+  }
+}
+
 ## Removes a container the gate started, by the ID its cidfile recorded, and verifies it is gone. A client that is
-## cancelled can leave the container running; this never touches a container the gate did not start.
-export proc remove_owned_container(ctx: context.Context, cidfile: Path) [fs, process, error, io, time] -> Result[Unit, Error] {
+## cancelled can leave the container running; this never touches a container the gate did not start. Each docker
+## call is bounded by query_timeout_ms, so a hung daemon makes the removal unverified instead of blocking.
+export proc remove_owned_container(ctx: context.Context, cidfile: Path, query_timeout_ms: Int = 10000) [fs, process, error, io, time] -> Result[Unit, Error] {
   return when ! cidfile.exists()?
   let id = cidfile.read_text()?.trim()
+  return when id == ""
   guard id.byte_len() == 64 else { return Err(ContainerError.InvalidIdentity(detail: "the cidfile does not hold a container ID")) }
   for digit in id.split("") {
     return Err(ContainerError.InvalidIdentity(detail: "the cidfile does not hold a container ID")) when digit not in "0123456789abcdef"
   }
   var attempt = 0
   while attempt < 8 {
-    let inspection = run.capture --text docker container inspect --format "{{.Id}}" $id
-    return when inspection.status.ok == false and "No such container" in inspection.stderr
-    return Err(ContainerError.Unverified(detail: inspection.stderr.trim())) when ! inspection.status.ok
+    let inspection = ask_docker(ctx, ["container", "inspect", "--format", "{{.Id}}", id], query_timeout_ms)?
+    return when ! inspection.ok and "No such container" in inspection.stderr
+    return Err(ContainerError.Unverified(id: id, detail: inspection.stderr)) when ! inspection.ok
     if attempt == 0 {
-      let removal = run.capture --text docker rm -f $id
+      let removal = ask_docker(ctx, ["rm", "-f", id], query_timeout_ms)?
       print f"[docker-container-remove target={ctx.target.triple}] docker rm -f {id}"
-      print removal.stderr.trim() when ! removal.status.ok and "No such container" not in removal.stderr and "already in progress" not in removal.stderr
+      print $removal.stderr when ! removal.ok and "No such container" not in removal.stderr and "already in progress" not in removal.stderr
     }
     time.sleep(time.millis(250))
     attempt += 1
@@ -354,22 +373,21 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path) [fs, pro
   Err(ContainerError.Survived(id: id))
 }
 
-## The directory where this run records the cidfile of every container it starts, so one cancellation hook can
-## find them all. It belongs to the running process.
-export proc owned_container_dir(ctx: context.Context) [process, error] -> Result[Path, Error] {
-  fp"{ctx.root}/.work/tmp/gate-containers-{process.current_pid()?}"
-}
-
-## Removes every container this run started and verifies each removal, then forgets the registry.
-export proc remove_owned_containers(ctx: context.Context) [fs, process, error, io, time] -> Result[Unit, Error] {
-  let registry = owned_container_dir(ctx)?
+proc remove_registry(ctx: context.Context, registry: Path) [fs, process, error, io, time] -> Result[Unit, Error] {
   return when ! registry.exists()?
   var failure: Error? = null
   for entry in fs.children(registry)? {
     if entry.name.ends_with(".cid") {
       match remove_owned_container(ctx, entry.path) {
         Ok(_) => entry.path.remove(missing_ok: true)?
-        Err(cause) => { failure = cause when failure == null }
+        Err(cause) => {
+          match cause {
+            ContainerError.Unverified {id: id, detail: detail} => print f"container {id} removal is unverified ({detail}); remove it by hand with: docker rm -f {id}"
+            ContainerError.Survived {id: id} => print f"container {id} removal is unverified (it survived docker rm -f); remove it by hand with: docker rm -f {id}"
+            else => print f"container cleanup failed: {cause.message}"
+          }
+          failure = cause when failure == null
+        }
       }
     }
   }
@@ -377,10 +395,41 @@ export proc remove_owned_containers(ctx: context.Context) [fs, process, error, i
   registry.remove(missing_ok: true)?
 }
 
+## The directory where this run records the cidfile of every container it starts, so one cancellation hook can
+## find them all. It is named for the process and its start time, so a reused pid cannot claim another run's directory.
+export proc owned_container_dir(ctx: context.Context) [process, error] -> Result[Path, Error] {
+  let me = process.current_pid()?
+  let started = [entry.start_time_ms for entry in process.list()? if entry.pid == me]
+  fp"{ctx.root}/.work/tmp/gate-containers-{me}-{started.get(0) ?? 0}"
+}
+
+## Removes every container this run started and verifies each removal, then forgets the registry. An unverifiable
+## removal is reported with the container ID and the command that removes it by hand.
+export proc remove_owned_containers(ctx: context.Context) [fs, process, error, io, time] -> Result[Unit, Error] {
+  remove_registry(ctx, owned_container_dir(ctx)?)
+}
+
+## Removes the containers of runs that no longer exist: a registry whose process is gone, or whose pid now belongs
+## to a process that started at another time.
+export proc sweep_stale_containers(ctx: context.Context) [fs, process, error, io, time] -> Result[Unit, Error] {
+  let tmp = fp"{ctx.root}/.work/tmp"
+  return when ! tmp.exists()?
+  let live = [f"{entry.pid}-{entry.start_time_ms}" for entry in process.list()?]
+  for entry in fs.children(tmp)? {
+    if entry.name.starts_with("gate-containers-") and entry.name["gate-containers-".byte_len()..] not in live {
+      match remove_registry(ctx, entry.path) {
+        Ok(_) => {}
+        Err(_) => {}
+      }
+    }
+  }
+}
+
 ## Returns the owned container launch status without replacing its raw child code. The container is recorded by a
 ## cidfile in the run's registry. Whatever way the client ends, a container that is still present is removed and its
 ## removal verified. A cancellation hook removes the registered containers before the client can be killed.
 export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io, time] -> Result[Status, Error] {
+  sweep_stale_containers(ctx)?
   let registry = owned_container_dir(ctx)?
   let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
   let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile)?

@@ -387,15 +387,19 @@ pure gate_request(arguments: List[Str]) -> Bool {
     (arguments.len() > 1 and arguments[0] == "internal" and arguments[1] in ["gate-lane", "gate-full", "gate-validate-full"]))
 }
 
+pure cancel_grace_ms(arguments: List[Str]) -> Int {
+  if ! arguments.is_empty() and arguments[0] == "internal" { 20000 } else { 30000 }
+}
+
 on INT --pre-cancel=45s [fs, process, env, time, error, io] {
   if gate_request(args) {
-    gates.cancel_owned_work(lifecycle.create()?, "INT")
+    gates.cancel_owned_work(lifecycle.create()?, "INT", cancel_grace_ms(args))
     exit 130
   }
 }
 on TERM --pre-cancel=45s [fs, process, env, time, error, io] {
   if gate_request(args) {
-    gates.cancel_owned_work(lifecycle.create()?, "TERM")
+    gates.cancel_owned_work(lifecycle.create()?, "TERM", cancel_grace_ms(args))
     exit 130
   }
 }

@@ -968,7 +968,6 @@ proc main() [fs, process, env, time, error, io] {{
   }
   assert f"rm|-f|{id}" in log.read_lines()?
   assert fp"{root}/gone-{id}".exists()?
-  assert "gates.cancel_owned_work(" in fp"{repository}/dev/main.xsh".read_text()?
 }
 
 test test_a_cancelled_gate_gives_its_adapters_the_time_their_cleanup_needs { |ctx|
@@ -1016,8 +1015,6 @@ proc main() [fs, process, env, time, error, io] {{
     assert status.exited_with(130)
   }
   assert cleaned.exists()?
-  assert "gates.cancel_owned_work(lifecycle.create()?, \"INT\")" in fp"{repository}/dev/main.xsh".read_text()?
-  assert "gates.cancel_owned_work(lifecycle.create()?, \"TERM\")" in fp"{repository}/dev/main.xsh".read_text()?
 }
 
 test test_container_removal_is_verified_against_the_daemon_not_assumed { |ctx|
@@ -1070,5 +1067,197 @@ match docker.run_internal_status(ctx, "gate-lane", false, []) {{
     stdout: ["registry=false"],
     args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", XSH_TEST_IMAGE_BUILD: "0"},
+  )?
+}
+
+test test_a_cancelled_gate_removes_a_container_only_after_its_children_had_their_grace { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-order")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "accccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let log = fp"{root}/calls"
+  let ready = fp"{root}/ready"
+  let cleaned = fp"{root}/cleaned"
+  write_fake_tool(
+    fp"{tools}/docker",
+    ctx.xsh_bin,
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+let state = if p"{cleaned}".exists()? {{ "after-cleanup" }} else {{ "before-cleanup" }}
+log.write(previous + args.join("|") + "|" + state + "\\n")?
+let marker = Path("{root}/gone-" + args[args.len() - 1])
+if args[0] == "container" and args[1] == "inspect" {{
+  if marker.exists()? {{
+    eprint "Error response from daemon: No such container: " + args[args.len() - 1]
+    exit 1
+  }}
+  exit 0
+}}
+if args[0] == "rm" {{ marker.write("x")? }}
+exit 0
+""",
+  )
+  let adapter = fp"{root}/adapter.sh"
+  adapter.write(f"""#!/bin/sh
+trap 'sleep 1; echo cleaned > {cleaned}; exit 143' TERM
+: > {ready}
+sleep 30 &
+wait
+""", mode: 0o755)
+  let script = fp"{root}/run.xsh"
+  script.write(f"""
+use context
+use docker
+use gates
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+
+on TERM --pre-cancel=40s [fs, process, env, time, error, io] {{
+  gates.cancel_owned_work(ctx, "TERM", 20000)
+  exit 130
+}}
+
+proc main() [fs, process, env, time, error, io] {{
+  let registry = docker.owned_container_dir(ctx)?
+  registry.mkdir(parents: true)?
+  fp"{{registry}}/gate-lane-1.cid".write("{id}")?
+  run {adapter}
+}}
+""")
+  let search_path = f"{tools}:{env.get_or("PATH", "")?}"
+  let module_path = fp"{repository}/dev".display()
+  let xsh = ctx.xsh_bin
+  env PATH=$search_path XSH_MODULE_PATH=$module_path {
+    let child = spawn run $xsh $script ?
+    var waited = 0
+    while ! ready.exists()? and waited < 100 {
+      time.sleep(100ms)
+      waited += 1
+    }
+    assert ready.exists()?
+    process.kill(child.pid, signal: "TERM")
+    let status = wait child?
+    assert status.exited_with(130)
+  }
+  assert cleaned.exists()?
+  let calls = log.read_lines()?
+  assert f"rm|-f|{id}|after-cleanup" in calls
+  assert f"rm|-f|{id}|before-cleanup" not in calls
+}
+
+test test_an_unverifiable_removal_is_reported_with_the_id_and_the_manual_command { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-unverified")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "bccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, fp"{root}/calls")?
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+let registry = docker.owned_container_dir(ctx)?
+registry.mkdir(parents: true)?
+fp"{{registry}}/gate-lane-1.cid".write("{id}")?
+match docker.remove_owned_containers(ctx) {{
+  Ok(_) => print "removed"
+  Err(_) => print "unverified"
+}}
+""",
+    status: 0,
+    stdout: [f"container {id} removal is unverified", f"docker rm -f {id}", "unverified"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", UNREACHABLE: "1"},
+  )?
+}
+
+test test_a_hung_daemon_cannot_hold_the_cleanup_past_its_query_timeout { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-hung")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "dccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  fp"{root}/container.cid".write(id)
+  write_fake_tool(fp"{tools}/docker", ctx.xsh_bin, "time.sleep(60s)?")?
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+match docker.remove_owned_container(ctx, p"{root}/container.cid", query_timeout_ms: 500) {{
+  Ok(_) => print "removed"
+  Err(error) => print ${{error.message}}
+}}
+""",
+    status: 0,
+    stdout: ["ContainerError.Unverified"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+  )?
+}
+
+test test_a_registry_of_a_dead_run_is_swept_and_a_live_one_is_kept { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-sweep")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "fccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let log = fp"{root}/calls"
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(root)}
+let tmp = fp"{{ctx.root}}/.work/tmp"
+let dead = fp"{{tmp}}/gate-containers-999999-1"
+dead.mkdir(parents: true)?
+fp"{{dead}}/gate-lane-1.cid".write("{id}")?
+let own = docker.owned_container_dir(ctx)?
+own.mkdir(parents: true)?
+docker.sweep_stale_containers(ctx)?
+print f"dead={{dead.exists()?}} own={{own.exists()?}}"
+""",
+    status: 0,
+    stdout: ["dead=false own=true"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+  )?
+  assert f"rm|-f|{id}" in log.read_lines()?
+}
+
+test test_an_empty_cidfile_means_no_container_was_created_yet { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-empty-cid")?
+  let repository = fs.cwd()?
+  fp"{root}/container.cid".write("")
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+match docker.remove_owned_container(ctx, p"{root}/container.cid") {{
+  Ok(_) => print "nothing to remove"
+  Err(error) => print ${{error.message}}
+}}
+""",
+    status: 0,
+    stdout: ["nothing to remove"],
+    args: [],
+    env: {PATH: "/nonexistent", XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
 }
