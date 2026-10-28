@@ -322,13 +322,13 @@ impl Checker {
         entry_source: &str,
         args_domain: ArgsDomain,
     ) -> (
-        FxHashMap<String, UserModuleSig>,
+        Arc<FxHashMap<String, UserModuleSig>>,
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         Vec<CheckOutput>,
         ResourceTransferFacts,
         super::stream_origins::StreamOriginSummaries,
     ) {
-        let mut signatures = FxHashMap::default();
+        let mut signatures = Arc::new(FxHashMap::default());
         let mut summaries = std::collections::BTreeMap::new();
         let mut origin_summaries = super::stream_origins::StreamOriginSummaries::new();
         let mut outputs = FxHashMap::default();
@@ -360,7 +360,7 @@ impl Checker {
                 )
             });
             if !record.is_embedded() {
-                if let Some(signature) = &checked.signature { signatures.insert(module.key.clone(), signature.clone()); }
+                if let Some(signature) = &checked.signature { Arc::make_mut(&mut signatures).insert(module.key.clone(), signature.clone()); }
                 else { assert!(checked.output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "a rejected module reports a checking failure"); }
             }
             Self::extend_effect_summaries(&mut summaries, &checked.output.function_effect_facts);
@@ -402,7 +402,7 @@ impl Checker {
         type_program: Arc<ArenaProgram>,
         sources: Option<&SourceMap>,
         entry_source: &str,
-        dependencies: &FxHashMap<String, UserModuleSig>,
+        dependencies: &Arc<FxHashMap<String, UserModuleSig>>,
         dependency_summaries: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         dependency_origins: &super::stream_origins::StreamOriginSummaries,
     ) -> CheckedModuleFacts {
@@ -540,7 +540,7 @@ impl Checker {
     fn session_effect_checker(
         options: CheckOptions,
         byte_script_arguments: bool,
-        modules: &FxHashMap<String, UserModuleSig>,
+        modules: &Arc<FxHashMap<String, UserModuleSig>>,
         effect_graph: EffectGraph,
         effect_summaries: std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         collecting_effects: bool,
@@ -550,7 +550,7 @@ impl Checker {
         if byte_script_arguments {
             checker.define_standard_values();
         }
-        checker.user_modules = Arc::new(modules.clone());
+        checker.user_modules = Arc::clone(modules);
         checker.effect_graph = effect_graph;
         checker.effect_summaries = effect_summaries;
         checker.authoritative_effect_graph = true;
@@ -642,11 +642,11 @@ impl Checker {
         source: &str,
         options: CheckOptions,
         type_program: Arc<ArenaProgram>,
-        modules: &FxHashMap<String, UserModuleSig>,
+        modules: &Arc<FxHashMap<String, UserModuleSig>>,
     ) -> bool {
         let program = view.program;
         let mut checker = Self::new(options);
-        checker.user_modules = Arc::new(modules.clone());
+        checker.user_modules = Arc::clone(modules);
         checker.record_constructors = RecordConstructors::collect_declarations_bundle(view);
         checker.collect_type_imports_arena(program, view.statement_ids());
         checker.collect_definitions_arena(

@@ -700,10 +700,8 @@ impl CheckOutput {
         // also carry dependency views that would publish their instances repeatedly.
         self.prepared_constants
             .merge_cli_plan_facts(&module.prepared_constants);
-        self.resolved_bindings = Arc::new(
-            self.resolved_bindings
-                .merge_visible(&module.resolved_bindings),
-        );
+        Arc::make_mut(&mut self.resolved_bindings)
+            .merge_visible_in_place(&module.resolved_bindings);
         self.assignment_facts.merge(&module.assignment_facts);
         self.checked_declarations
             .types

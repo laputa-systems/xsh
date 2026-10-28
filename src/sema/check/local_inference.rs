@@ -281,15 +281,6 @@ impl Checker {
                 );
             }
         }
-        for module in Arc::make_mut(&mut self.user_modules).values_mut() {
-            for ty in module
-                .values
-                .values_mut()
-                .chain(module.resolved_types.values_mut())
-            {
-                finalize_type(constraints, ty, fallback, &mut reported, diagnostics);
-            }
-        }
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
                 if constraints.resolve_in_place(&mut binding.ty).is_err()

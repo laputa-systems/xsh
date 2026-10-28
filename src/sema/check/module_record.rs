@@ -207,8 +207,9 @@ impl ModuleRecords {
                         let record = prepared
                             .get(module.key.as_str())
                             .expect("reachable module was prepared before entry facts");
-                        dependency_facts.merge_owner(program, record.owner_facts());
+                        dependency_facts.merge_owner_unresolved(record.owner_facts());
                     }
+                    dependency_facts.resolve_module_fields(program);
                     let root_view = CheckBundleView::for_module(
                         program,
                         view.root_statements,
@@ -523,12 +524,18 @@ impl PreparedModuleFacts {
     }
 
     fn merge_owner(&mut self, program: &ArenaProgram, owner: &Self) {
-        let mut bindings = self
-            .resolved_bindings
-            .merge_visible(&owner.resolved_bindings);
+        self.merge_owner_unresolved(owner);
+        self.resolve_module_fields(program);
+    }
+
+    fn resolve_module_fields(&mut self, program: &ArenaProgram) {
+        let bindings = Arc::make_mut(&mut self.resolved_bindings);
         let declarations = bindings.declarations.clone();
         bindings.resolve_module_fields(program, &declarations);
-        self.resolved_bindings = Arc::new(bindings);
+    }
+
+    fn merge_owner_unresolved(&mut self, owner: &Self) {
+        Arc::make_mut(&mut self.resolved_bindings).merge_visible_in_place(&owner.resolved_bindings);
         self.assignment_facts.merge(&owner.assignment_facts);
         Arc::make_mut(&mut self.return_inference_index)
             .merge_owner(&owner.return_inference_index);

@@ -113,6 +113,12 @@ impl ResolvedBindings {
 
     pub(super) fn merge_visible(&self, other: &Self) -> Self {
         let mut merged = self.clone();
+        merged.merge_visible_in_place(other);
+        merged
+    }
+
+    pub(super) fn merge_visible_in_place(&mut self, other: &Self) {
+        let merged = self;
         for (&id, declaration) in &other.declarations {
             if let Some(existing) = merged.declarations.get(&id) {
                 let same_args = id == BindingId::args()
@@ -143,7 +149,6 @@ impl ResolvedBindings {
             &mut merged.expression_namespaces,
             &other.expression_namespaces,
         );
-        merged
     }
 
     pub(super) fn resolve_module_fields(

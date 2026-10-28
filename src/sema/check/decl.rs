@@ -1326,14 +1326,14 @@ impl Checker {
         view: &CheckBundleView<'_>,
         options: super::CheckOptions,
         type_program: Arc<ArenaProgram>,
-    ) -> FxHashMap<String, UserModuleSig> {
+    ) -> Arc<FxHashMap<String, UserModuleSig>> {
         let program = view.program();
         let record_constructors = RecordConstructors::collect_declarations_bundle(view);
-        let mut headers = FxHashMap::default();
+        let mut headers = Arc::new(FxHashMap::default());
         for module in view.modules() {
             let mut checker = Self::new(options);
             checker.current_namespace = Some(module.name);
-            checker.user_modules = Arc::new(headers.clone());
+            checker.user_modules = Arc::clone(&headers);
             checker.record_constructors = record_constructors.detached();
             let statements = program.module_statements(module).collect::<Vec<_>>();
             checker.collect_type_imports_arena(program, statements.iter().copied());
@@ -1370,7 +1370,8 @@ impl Checker {
                     header.resolved_types.insert(name, checker.type_from_name(name, span));
                 }
             }
-            headers.insert(module.key.clone(), header);
+            drop(checker);
+            Arc::make_mut(&mut headers).insert(module.key.clone(), header);
         }
         headers
     }

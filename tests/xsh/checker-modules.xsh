@@ -926,3 +926,38 @@ machine_and_features()?
   assert lines[0] != ""
   assert lines[1] as Int >= 0
 }
+
+type StageReport = {name: Str, alloc_bytes: Int}
+type FileReport = {diagnostics: Int, stages: List[StageReport]}
+type FrontendReport = {files: List[FileReport]}
+
+proc diamond_check_allocation(ctx: TestContext, diamonds: Int) [fs, process, error] -> Result[Int] {
+  let root = test.temp_dir(ctx, name: f"diamond-{diamonds}")?
+  fp"{root}/identity.xsh".write("##! Shared identity.\n## Returns its input.\nexport pure identity(value) { value }\n")
+  var lines = []
+  for index in range(0, diamonds) {
+    for branch in ["left", "right"] {
+      fp"{root}/{branch}_{index}.xsh".write(f"##! Branch.\nuse identity as shared\n## The identity of one.\nexport let value: Int = shared.identity(1)\n")
+      lines += [f"use {branch}_{index}"]
+    }
+  }
+  lines += ["let total_0: Int = 0"]
+  for index in range(0, diamonds) {
+    lines += [f"let total_{index + 1}: Int = total_{index} + left_{index}.value + right_{index}.value"]
+  }
+  lines += [f"print $total_{diamonds}"]
+  fp"{root}/main.xsh".write(lines.join("\n") + "\n")
+  let report = run.capture --text "xsht" "frontend-stats" "--json" fp"{root}/main.xsh"
+  assert report.status.exited_with(0), report.stderr
+  let parsed = json.decode(report.stdout)?.require(FrontendReport)?
+  assert parsed.files[0].diagnostics == 0, "the generated diamond program must check cleanly"
+  let checked = parsed.files[0].stages |> where { |stage| stage.name == "ast_check" } |> collect()
+  assert checked.len() == 1, "frontend-stats must report one ast_check stage"
+  Ok(checked[0].alloc_bytes)
+}
+
+test test_module_checking_allocation_grows_linearly_with_module_count { |ctx|
+  let small = diamond_check_allocation(ctx, 16)?
+  let large = diamond_check_allocation(ctx, 128)?
+  assert large < small * 10, f"checking 8x the modules allocated {large} bytes against {small}"
+}
