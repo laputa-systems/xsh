@@ -4087,8 +4087,15 @@ Equality can retain a shared type parameter, including list membership with
 the same item parameter. Membership can retain independent value and container
 parameters, selecting the ordinary domain at each call. Unsigned map membership
 validates the computed needle before evaluating the container; validation errors
-follow the enclosing capture or Proc error boundary. Ordering uses concrete
-checked operand domains.
+follow the enclosing capture or Proc error boundary. Ordering of two
+quantified operands retains one shared type parameter bounded to the ordering
+domains `Int`, `UInt`, `Float`, `Duration`, and `Str`; each call checks that
+domain, so `pure less(a, b) { a < b }` accepts `1, 2` and `"a", "b"` and
+rejects `Bool` or `List` operands with `check.operator-type`.
+Unary `-` of a quantified operand likewise retains one type parameter bounded to
+`Int` and `Float`, and its result has that type: `pure negate(value) { -value }`
+accepts `4` and `2.5`, and rejects `UInt`, `Duration`, and `Str` operands with
+`check.operator-type`.
 Boolean `and` and `or` evaluate the left operand first and evaluate the right
 operand only when needed. Ordering chains evaluate each reached operand once
 and stop at the first false pair. Map membership preserves its declared key
@@ -4385,6 +4392,18 @@ A proc with no return type and a statement body has Unit success type. Its
 error type follows the propagation and failure-only rules above; without known
 errors it defaults to `Error`. A caller that ignores an inferred `Result[T]`
 must handle it like any other value-producing result.
+
+A statement in a quantified callable that calls an unannotated callback
+discards the callback's result under the ordinary statement rule. In a `proc`
+body the callback must return `Result[Unit, E]`: its failure propagates through
+the proc's error type and `error` effect, and every call instantiates `E`. In a
+`pure` body the callback must return `Unit`. A callback with another result is
+rejected at the call with `check.callable-mismatch`. A `pure` callback that
+returns `Unit` is therefore not accepted by a `proc` body's statement call;
+discard any callback value explicitly with `let _ = callback(value)`.
+
+An empty `pure` body returns `Unit` whether or not the callable is quantified:
+`pure noop(value) { }` accepts any argument and is a valid `Unit` callback.
 
 When an inferred proc completion has outer type `Result[T, Error]`, a
 propagated non-Error payload becomes a structured `Error` with kind
