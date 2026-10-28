@@ -901,7 +901,7 @@ use context
 use docker
 use targets as target_policy
 
-let ctx: context.Context = {context_source(repository)}
+let ctx: context.Context = {context_source(root)}
 let registry = docker.owned_container_dir(ctx)?
 registry.mkdir(parents: true)?
 fp"{{registry}}/one.cid".write("{first}")?
@@ -936,7 +936,7 @@ use docker
 use gates
 use targets as target_policy
 
-let ctx: context.Context = {context_source(repository)}
+let ctx: context.Context = {context_source(root)}
 
 on TERM --pre-cancel=20s [fs, process, env, time, error, io] {{
   gates.cancel_owned_work(ctx, "TERM")
@@ -1112,7 +1112,7 @@ use docker
 use gates
 use targets as target_policy
 
-let ctx: context.Context = {context_source(repository)}
+let ctx: context.Context = {context_source(root)}
 
 on TERM --pre-cancel=40s [fs, process, env, time, error, io] {{
   gates.cancel_owned_work(ctx, "TERM", 20000)
@@ -1161,7 +1161,7 @@ use context
 use docker
 use targets as target_policy
 
-let ctx: context.Context = {context_source(repository)}
+let ctx: context.Context = {context_source(root)}
 let registry = docker.owned_container_dir(ctx)?
 registry.mkdir(parents: true)?
 fp"{{registry}}/gate-lane-1.cid".write("{id}")?
