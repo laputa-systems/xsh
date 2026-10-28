@@ -345,6 +345,7 @@ Build products with `cargo dev build`. Linux tests use the pinned
 verification. `dev/targets.xsh` defines both x86-64 and AArch64 Linux product
 targets. The util-linux acceptance adapter currently qualifies its campaign in
 the pinned x86-64 image; that scope does not narrow the product target matrix.
+The [util-linux README](../dev/util-linux/README.md) lists its checks and parity rules.
 
 `cargo dev dist` creates packaging products under `target/$TARGET/dist`.
 `tools/copied-product-smoke.py` checks copied distribution binaries against a

@@ -83,11 +83,9 @@ environments or perform process actions.
 
 ## Current limits
 
-Live collection supports Linux. Linux ARM64 has no qualification from the
-monitor's verification run, and live battery behavior was tested only with
-fixtures. The archived 120-by-40 profile reported a latency-target miss; that
-historical result was not requalified in this lane. GPU collection, process
-actions and detail views, and non-Linux live collectors are outside this
-monitor surface.
+Live collection supports Linux. Linux ARM64 is not qualified, and live battery
+behavior is tested only with fixtures. The 120-by-40 profile missed its latency
+target and has not been requalified. GPU collection, process actions and
+detail views, and non-Linux live collectors are outside this monitor.
 
 See [Testing](TESTING.md#profile-btop) to run the preloaded profile.

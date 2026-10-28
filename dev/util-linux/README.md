@@ -36,6 +36,30 @@ fixture state. Reference and candidate see the same fixture. Only version
 banners are checked independently. The native contract and regression
 selectors live in `core/tests/` and `dev/util-linux/acceptance.py`.
 
+## Parity
+
+The cohort is `lslocks`, `lsipc`, `lsmem`, `mountpoint`, and `namei`. Each
+command runs natively in XSH. The installed utility is a test oracle and is
+never the implementation. `coverage/` maps each command's behaviors to cases.
+
+```sh
+python3 dev/util-linux/check.py parity --command lslocks --case NAME
+python3 dev/util-linux/check.py parity --commands lslocks,lsipc
+python3 dev/util-linux/check.py parity --all --require-positive-boundaries
+```
+
+A parity case fails when the reference or the candidate did not run, the
+fixture inputs differ, an unexpected signal or timeout occurred, or no case
+matched the selector. A skipped, unexecuted, or missing behavior is never a
+pass. Output normalization is limited to named nondeterminism such as PIDs and
+inode IDs, mapped by fixture identity. The exceptions are:
+
+- `--version` output: the XSH banner `NAME (XSH core) VERSION` and the
+  util-linux 2.42.4 banner are each asserted on their own.
+- The stale `errno` suffix of the `lsmem` diagnostic for a rooted memory
+  directory with no numeric entries.
+- The thirteen `lsipc` invocations that crash the reference.
+
 ## Acceptance
 
 `baseline --check` compares reference and candidate version output and samples
