@@ -709,7 +709,8 @@ const focused_core_workloads = [
 const tokei_scenario_case_id = "showcase/tokei/uutils-rust-correctness"
 const constraint_solver_case_id = "compiler/constraint-solver/correctness"
 
-pure laputa_products(case_id: Str) -> List[tests.Product] {
+## The products a Laputa case runs against, which its record binds.
+export pure laputa_products(case_id: Str) -> List[tests.Product] {
   if case_id == laputa_reuse_case_id { [tests.Xsh, tests.Xsht, tests.Xshi] } else { [tests.Xsh, tests.Xsht] }
 }
 
@@ -1376,6 +1377,10 @@ proc gate_image(ctx: context.Context, case_id: Str) [fs, process, env, time, err
   }
 }
 
+proc require_laputa_source(ctx: context.Context, root: Str, case_id: Str, expected: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  return Err(ExecutionError.SourceChanged(case_id: case_id)) when bind_laputa_source(ctx, root, case_id)? != expected
+}
+
 proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, root: Str, source: Str, laputa_source: Str, image: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0)) when ctx.target.os != "linux"
   let scratch = fp"{ctx.root}/.work/tmp"
@@ -1393,10 +1398,12 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
       return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
       return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
       return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
-      let bindings = bind_products(ctx, profile, [tests.Xsh, tests.Xsht], case_id, 30000000000)?
+      let bindings = bind_products(ctx, profile, laputa_products(case_id), case_id, 30000000000)?
       require_source(ctx, source, case_id, 30000000000)?
+      require_laputa_source(ctx, root, case_id, laputa_source)?
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
-        [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in bindings])
+        [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in bindings],
+        laputa: {root: root, source: laputa_source})
     }
     gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
     gate_execution.Cancelled(cause) => Err(ExecutionError.Interrupted(case_id: case_id, cause: cause))
@@ -1632,7 +1639,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   let profile = tests.execution_profile()?
   let plan = plan_paths(ctx, profile, paths, ids, tier)?
   if output == InspectStatus {
-    inspect_evidence(ctx, plan)?
+    inspect_evidence(ctx, plan, laputa_root)?
     if ! plan.unresolved.is_empty() { exit 2 }
     return
   }
@@ -1964,7 +1971,9 @@ proc require_source(ctx: context.Context, source: Str, case_id: Str, available_n
 ## A product a case ran against. Paths under the target directory are stored relative to it, because the
 ## container and the host mount that directory at different absolute paths.
 export type EvidenceProduct = {path: Str, digest: Str, mode: Int, under_target: Bool}
-type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int}
+## The Laputa checkout a case ran against.
+export type LaputaBinding = {root: Str, source: Str}
+type EvidenceRecord = {case: Str, source: Str, products: List[EvidenceProduct], recorded_ms: Int, outside_lane: Int, laputa: LaputaBinding?}
 
 ## What the recorded evidence for a case says about the current source and products.
 export enum EvidenceState { Current(Int), Reduced(Int), Stale(Str), NotRun }
@@ -1995,15 +2004,15 @@ pure evidence_product_path(ctx: context.Context, product: EvidenceProduct) -> St
 }
 
 ## Writes the record for a case that passed.
-export proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], outside_lane: Int = 0) [fs, time, error] -> Result[Unit, Error] {
+export proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], outside_lane: Int = 0, laputa: LaputaBinding? = null) [fs, time, error] -> Result[Unit, Error] {
   let directory = record_path.parent()
   if ! directory.exists()? { directory.mkdir(parents: true)? }
-  let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now(), outside_lane: outside_lane}
+  let record: EvidenceRecord = {case: id, source: source, products: products, recorded_ms: time.now(), outside_lane: outside_lane, laputa: laputa}
   record_path.write_atomic(json.encode(record)?)
 }
 
 ## Compares a stored record with the current source and products.
-export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error]) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
+export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error], laputa: LaputaBinding? = null) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
   return NotRun when ! record_path.exists()?
   let loaded = try { json.decode(record_path.read_text()?)?.require(EvidenceRecord)? }
   let record = match loaded {
@@ -2014,6 +2023,11 @@ export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, cur
   match current_source {
     Ok(digest) => { return Stale("source changed") when digest != record.source }
     Err(cause) => { return Stale(f"source unavailable: {cause.message}") }
+  }
+  if let ran = record.laputa {
+    guard let seen = laputa else { return Stale("Laputa checkout not observed; pass --laputa-root") }
+    return Stale("Laputa root changed") when seen.root != ran.root
+    return Stale("Laputa source changed") when seen.source != ran.source
   }
   for product in record.products {
     let location = evidence_product_path(ctx, product)
@@ -2037,10 +2051,18 @@ export proc evidence_label(state: EvidenceState) [time, error] -> Result[Str, Er
   }
 }
 
-proc inspect_evidence(ctx: context.Context, plan: CatalogPlan) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+proc inspect_evidence(ctx: context.Context, plan: CatalogPlan, laputa_root: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   let source = try { bind_source(ctx, "status", 30000000000)? }
   for entry in plan.cases {
-    let state = evidence_state(ctx, case_evidence_path(ctx, entry.id), entry.id, source)?
+    var observed: LaputaBinding? = null
+    if entry.id in laputa_case_ids and laputa_root != null {
+      let digest = try { bind_laputa_source(ctx, laputa_root ?? "", entry.id)? }
+      match digest {
+        Ok(value) => observed = {root: laputa_root ?? "", source: value}
+        Err(cause) => { print f"{entry.id}: stale (Laputa source unavailable: {cause.message})"; continue }
+      }
+    }
+    let state = evidence_state(ctx, case_evidence_path(ctx, entry.id), entry.id, source, laputa: observed)?
     print f"{entry.id}: {evidence_label(state)?}"
   }
   for gap in plan.unresolved { print f"incomplete: {gap}" }

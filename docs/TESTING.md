@@ -61,7 +61,10 @@ discarding its previous record, so a failed or interrupted run leaves it not run
 reports each as current, stale or not run. Stale names the first mismatch: a
 changed source, a changed or missing product, or an unreadable record. Status
 only observes source and products; it starts no Docker, Cargo or tests.
-Scenario and Laputa cases store their record when the external run passes. A `--full` run stores a
+Scenario and Laputa cases store their record when the external run passes. A Laputa record also
+binds the Laputa root and source digest and, for reuse-count, `xshi`; `--status` with `--laputa-root`
+observes the checkout again and reports a changed root or digest as stale, and without the root it
+reports the record as stale. A `--full` run stores a
 source-bound record only after every step passes; until then status reports
 `Full: not run`, and a source edit afterwards reports it stale.
 

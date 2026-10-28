@@ -1266,6 +1266,26 @@ main()?
   let _ = test.expect(ctx, observe, status: 0, stdout: ["stale (product changed"], args: [], env: environment)?
 }
 
+test test_laputa_evidence_is_current_only_for_the_laputa_checkout_it_ran_against { |ctx|
+  let ctx_root = fixtures.linux_context(test.temp_dir(ctx, name: "laputa-evidence")?)?
+  let record = gates.case_evidence_path(ctx_root, "laputa/pm.make/plan")
+  let ran: gates.LaputaBinding = {root: "/laputa", source: "a"}
+  gates.store_evidence(record, "laputa/pm.make/plan", "xsh", [], laputa: ran)?
+  let cases = [
+    {observed: ran, expected: "current (passed"},
+    {observed: {root: "/laputa", source: "b"}, expected: "stale (Laputa source changed)"},
+    {observed: {root: "/elsewhere", source: "a"}, expected: "stale (Laputa root changed)"},
+  ]
+  for item in cases {
+    let state = gates.evidence_state(ctx_root, record, "laputa/pm.make/plan", Ok("xsh"), laputa: item.observed)?
+    assert gates.evidence_label(state)?.starts_with(item.expected)
+  }
+  let unobserved = gates.evidence_state(ctx_root, record, "laputa/pm.make/plan", Ok("xsh"))?
+  assert gates.evidence_label(unobserved)? == "stale (Laputa checkout not observed; pass --laputa-root)"
+  assert tests.Xshi in gates.laputa_products("laputa/pm.execute/reuse-count")
+  assert tests.Xshi not in gates.laputa_products("laputa/pm.make/plan")
+}
+
 test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
   let ctx = fixtures.linux_context(fs.cwd()?)?
   let gap = "core/tests/test-syslog-libc.xsh has no test the unprivileged Linux lane can run; lane/root-native and lane/namespace-native run the ones that need root or namespaces"
