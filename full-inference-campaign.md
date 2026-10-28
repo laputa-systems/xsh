@@ -1,12 +1,35 @@
 # XSH: complete general inference across the language
 
-Status: execution-ready plan, reviewed on 2026-10-19 against local master
-`d489d8fcf`. Planning does not start this work or authorize its effects.
+**Status:** active on `master`. Execution launched 2026-10-19 from `9134db7e7`
+under the owner's grant for bounded isolated edits, local commits and
+integration, and owned offline Docker operations. No pushing. The G3 matrix
+rows pass and the G3 gaps are closed on `master` (2026-10-28). Two G3 items stay
+open. G4, the corpus reductions, has started. G5 and G6 have not. The
+[ROADMAP](docs/ROADMAP.md) orders this campaign after Pyramid.
 
-Execution launched on 2026-10-19 from `9134db7e7` under the owner's explicit
-grant for bounded isolated edits, local commits/integration, and owned offline
-Docker operations. No pushing. Current results and ownership remain in
-`docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`.
+**Resume:** read `AGENTS.md`, `TODO.md`, and this document. The checkable G3
+status and the G4 measurements are in
+[the inference evidence](docs/PERFORMANCE-INFERENCE.md). Recheck the limiting
+stage on current `master` before choosing work, and rerun the affected checks
+after any change to a compiler input or contract.
+
+**Open items:**
+
+- G3: generated metamorphic programs and an independent test-only solver
+  comparison. G3 is not closed until both exist.
+- G3: `{n: 0, ...r}` and field assignment on a local copy of an unannotated
+  parameter are rejected with "spread must be a record" and "field assignment
+  requires a record value", while `{...r, n: v}` works. A row override needs a
+  lacks constraint, so the rejection is a limit. Only the wording is open.
+- G4: erase annotations on the practical cohort with the open candidate classes
+  listed in the log (22 `ambiguous-overload` parameters, 22
+  `compact.indexed-build` failures, stream return provenance, two
+  `check.conversion` cases, and the `Set[Str]` generic-argument case).
+- G4: replace the `supports_generalized_body` whitelist with the result of
+  lowering the scheme body, closing the verifier classes first. Not started.
+- G4: the frozen views need a source-qualified compiler pair (see the evidence
+  page).
+- G5, G6, and the F0 completion-ownership item below.
 
 Deliver these results in order:
 
@@ -19,17 +42,15 @@ Deliver these results in order:
 ## Execute within this charter
 
 Use this executable core for sequencing. The numbered completion specification
-below remains mandatory. Its G0–G6 checkpoints map to the work items here;
-an intermediate checkpoint never waives a later requirement.
-Those are inference checkpoints. The active performance campaign's inherited
-G1 baseline gate and G6 deployment gate retain their own scopes and results.
+below remains mandatory. Its G0–G6 checkpoints map to the work items here. An
+intermediate checkpoint never waives a later requirement. These are inference
+checkpoints. The [deployment campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md)
+keeps its own G1 baseline and G6 deployment gates.
 
-The coordinator owns integration, representation contracts, acceptance, and
-the existing progress owner in `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`.
-Follow the installed `orchestrate` skill and its campaign reference for
-lane contracts, integration, and worktree lifecycle. Do not create another
-campaign tracker. Add only decisions and phase results a future reader needs
-to that progress owner during execution. This document specifies the work.
+The coordinator owns integration, representation contracts, and acceptance, and
+keeps the log at the end of this document. Follow the installed `orchestrate`
+skill for lane contracts, integration, and worktree lifecycle. Do not create
+another campaign tracker.
 
 Decide inside the bounds below, record the reason, and continue. Park only the
 affected item when authority or a required input is unavailable. A parked
@@ -37,55 +58,27 @@ mandatory item means the campaign remains incomplete. Technical difficulty,
 unimplemented inference, and three unsuccessful experiments are reasons to
 reassign diagnosis, not reasons to waive the deliverable.
 
-Keep at least four lanes active when four disjoint assignments are ready,
-with a ceiling of eight after the owner's repeated 2026-10-23 acceleration request.
-All delegated lanes use experts. The active campaign permits three ordinary
-builds with disjoint outputs and one native job, retaining the host reserve.
-Use the follow-up task operation for approvals and next assignments so completed
-lanes resume immediately; messages alone do not restart them.
-When fewer are ready, use every disjoint assignment
-and have the coordinator resolve their dependencies. Never create competing
-signature redesigns to fill slots. The core compiler owner takes the coupled
-scheme/checker/lowerer/verifier changes end to end. Other lanes own independent
-fixture files, corpus tooling, diagnostics consumers, or loop repairs. A lane
-must receive explicit files before writing; the coordinator owns shared test
-registrations, generated output, manifests, and lockfiles.
+The core compiler owner takes the coupled scheme/checker/lowerer/verifier
+changes end to end. Other lanes own independent fixture files, corpus tooling,
+diagnostics consumers, or loop repairs. A lane receives explicit files before
+writing. The coordinator owns shared test registrations, generated output,
+manifests, and lockfiles. Never create competing signature redesigns to fill
+slots.
 
 Use `.work/wt/full-inference-<lane>` and scratch under that checkout's
-`.work/tmp`. Confirm `.work/` is ignored in `.git/info/exclude` before writing.
-Keep a 12 GiB host reserve and never exceed 32 assigned CPUs. Admit each launch
-with `perf-gate-ready -s`. Preserve the active campaign's allocations:
+`.work/tmp`. Resource allocations, admission with `perf-gate-ready -s`, and the
+lease owners are those of the deployment campaign's resource and ownership
+limits. Run one full native suite at a time, and verify immutable merged
+sources in a scratch worktree so later integration cannot alter a running check.
 
-| Work | CPU/jobs limit | Memory limit | Concurrency |
-|---|---|---|---|
-| Ordinary compiler build | 2 CPUs, 2 jobs | 8 GiB | At most three, with disjoint Cargo outputs and available leases |
-| Lightweight focused check | 2 CPUs | 4 GiB | Up to the admitted disjoint lane count |
-| Inherited final/release build or native observer | 12 CPUs, 12 build jobs | 24 GiB | Alone |
-| Inherited scheduler pair | 32 CPUs | 40 GiB | Alone |
-
-Use observed peaks to reduce width, never to override these gate allocations
-or the host reserve. Park a gate whose required allocation does not fit.
-Use existing common Cargo/native/performance leases through
-`dev/util-linux/leases.py`; serialize builds sharing Cargo state and run one
-full native suite at a time. A timed window excludes competing work.
-
-Replace or resume a stopped lane in the same coordinating turn. Integrate
-accepted slices while the next disjoint tranche runs. Verify immutable merged
-sources in a scratch worktree, so later integration cannot alter a running
-check. Split verification only across disjoint inputs and output directories.
-Poll owned jobs at least every 60 seconds while active, consume completions
-immediately, and inspect every lane at least every 15 minutes. Do not end a
-coordinating turn with an unattended job and no active completion owner.
-Use `followup_task` when a lane must answer or perform work; `send_message`
-does not wake an idle or completed lane. Reserve it for updates needing no reply.
-F0 must also enforce completion ownership in the existing launcher path:
-retain the child handle until status and cleanup are consumed, and chain a
-dependent stage only from an observed successful terminal result. Reproduce
-the past mistake with a test child that finishes before the next observation;
-the owner must consume it and advance or fail, never leave it recorded as
-running. Test failure and interruption too. Use the existing process/launcher
-tests, not a new polling service or durable job registry. A prose polling rule
-alone does not complete F0.
+F0 must also enforce completion ownership in the existing launcher path: retain
+the child handle until status and cleanup are consumed, and chain a dependent
+stage only from an observed successful terminal result. Reproduce the past
+mistake with a test child that finishes before the next observation. The owner
+must consume it and advance or fail, never leave it recorded as running. Test
+failure and interruption too. Use the existing process and launcher tests, not
+a new polling service or durable job registry. A prose polling rule alone does
+not complete F0.
 
 Repair the loop before repeating a check that takes over two minutes for a
 single semantic repro, or over five minutes for an incremental focused check.
@@ -93,8 +86,9 @@ Target 30 seconds for a prepared repro and two minutes for its focused group,
 excluding the first necessary build. An unchanged workload over twice its P0
 CPU or memory baseline is egregious and gets a bounded repair immediately.
 Ordinary performance tuning waits until functional and parity completion.
-Measure the smaller budgets in section 12 during development; gate them at P4.
-Memory limits, correct cleanup, and fail-closed resource exhaustion always apply.
+Measure the smaller budgets in section 12 during development and gate them at
+P4. Memory limits, correct cleanup, and fail-closed resource exhaustion always
+apply.
 
 After three distinct refuted hypotheses or 90 minutes without a discriminating
 result, park the current approach with its minimal repro and refuted premise.
@@ -127,6 +121,7 @@ Execution effects still require a launch grant covering this expanded scope.
 | Treat concrete overload ambiguity separately from a well-scoped residual sealed requirement. | Resolve grounded calls uniquely. Retain representable relationships in generalized schemes; do not use a caller to recheck or train the body. |
 | Add no production dependencies, persisted cache format, or new public syntax. | Existing solver, registry, CLI, and benchmark owners cover this scope. A design requiring one is parked and redesigned within these bounds. |
 | Build migration support as source transformations only. | Preserve old statement/value meaning explicitly before changing omission defaults. Delete migration-only compiler paths at close; introduce no legacy runtime mode. |
+| Keep the cross-type overloads `byte_at` (`Str`, `Bytes`), `get` (`Record`, `Map`) and `replace` (`Str`, `Regex`) as purposeful retained annotations. | Owner decision relayed in the 2026-10-28 documentation brief. A caller must not train a callee, so these calls stay ambiguous without local evidence. Section 9's sealed requirements still apply to well-scoped residual requirements. |
 | Keep historical and current cohorts separate. | The accepted 1,040 view uses `15243e97`, while current corpus scripts describe 877. Neither mutable tables nor fresh diagnostics replace frozen eligibility. |
 | Complete parity and capability coverage before optimization. | Section 12's numerical budgets remain unchanged but become release gates only at P4. Correctness, memory safety, and egregious loop regressions are never deferred. |
 
@@ -142,36 +137,7 @@ Neither lane may weaken acceptance or edit another lane's semantic code.
 
 ## Baseline and fast verification
 
-Current source already has quantified type and row parameters, open rows,
-rollback-safe union-find, registered-call evidence, private proc value returns,
-and generic pure identity/projection with immutable aliases. It still rejects
-quantified proc/stream schemes, typed storage of generic callables, ordinary
-recursive inferred returns, and generic bodies outside a narrow classifier.
-Effects are concrete graph summaries rather than symbolic callback relations.
-The verified code map appears at the end of this document.
-
-Frozen combined source `55032a7ee2c4d340a6e5df9d4f362b0074d8a9e0`
-passes canonical correctness, including 14,077 native passes, zero failures,
-and 150 skips. Its supplemental warning-denied Clippy check fails with 53
-errors. Later supplemental stages and functional/baseline close do not pass
-by implication. Preserve the actual failed evidence under
-`.work/final-review-evidence/final-correctness-gates/correctness-i1-r12-55032a7ee`.
-P0 reproduces and repairs that warning boundary before another full run.
-
-Two real pinned-image probes passed during planning using the frozen R12
-canonical products, mounted read-only, with 2 CPUs, 4 GiB, no network, and a
-30-second deadline:
-
-| Exact native selector | Result | Observed outer elapsed time |
-|---|---|---|
-| `tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_and_open_record_projection` | 1 pass, 0 failures, 0 skips | 0.148 s |
-| `tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable` | 1 pass, 0 failures, 0 skips; the old rejection remains | 0.147 s |
-
-These single observations establish a cheap executable foundation and a real
-frontier. They are not performance baselines or proof of current-master full
-qualification. No full suite or build was run during preflight.
-
-Use these two loop speeds during execution:
+Use these two loop speeds:
 
 ```sh
 # Run inside the pinned environment with matching verification products.
@@ -183,14 +149,14 @@ cargo test --locked --offline --target x86_64-unknown-linux-musl \
 cargo dev gate PATH...
 ```
 
-Use debug only for non-process Rust units. Process/native tests need matching
-verification or release products and `XSH_BIN`/`XSHT_BIN` bindings. Discover
-selectors with `xsht test --list FILTER` and require exactly the intended
-nonempty set. An exact positive must report one pass and zero skips. Inspect
-the generated gate plan in `dev/gates.xsh`: the broad checker mapping does not
-select every inference-specific native file. Explicitly pass those paths too.
+Use debug only for non-process Rust units. Process and native tests need
+matching verification or release products and `XSH_BIN`/`XSHT_BIN` bindings.
+Discover selectors with `xsht test --list FILTER` and require exactly the
+intended nonempty set. An exact positive must report one pass and zero skips.
+Inspect the generated gate plan in `dev/gates.xsh`: the broad checker mapping
+does not select every inference-specific native file, so pass those paths too.
 
-Before any full candidate freeze run the warning boundary using the existing
+Before any full candidate freeze, run the warning boundary with the existing
 pinned launcher and Cargo lease:
 
 ```sh
@@ -200,9 +166,9 @@ dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.s
 ```
 
 Bind the launcher's source, output, Laputa corpus, and resource environment
-through its existing owner, rather than borrowing another source's target.
-Run the focused changed crate first; the displayed workspace command is the
-pre-freeze integration boundary, not the per-edit loop. No autofix or formatter.
+through its existing owner, rather than borrowing another source's target. Run
+the focused changed crate first. The workspace command is the pre-freeze
+integration boundary, not the per-edit loop. No autofix or formatter.
 
 ## Sequence and ownership
 
@@ -213,14 +179,14 @@ only for a concrete integration risk that focused tests cannot cover.
 
 | Phase/item; size | Prerequisites | Owned files and deliverable | Acceptance proof |
 |---|---|---|---|
-| P0/F0 ground and loop; M | Launch grant | Coordinator: existing progress owner. Loop lane: `dev/gates.xsh`, relevant `dev/tests`, existing launchers only as needed. Freeze sources/products, baseline reds, commands, and corpus inputs. | Both foundation probes; minimal reds for each frontier; warning boundary repaired and checked; measure focused loop and show every selected test. No receipt credit from older sources. |
+| P0/F0 ground and loop; M | Launch grant | Coordinator: the log below. Loop lane: `dev/gates.xsh`, relevant `dev/tests`, existing launchers only as needed. Freeze sources/products, baseline reds, commands, and corpus inputs. | Both foundation probes; minimal reds for each frontier; warning boundary repaired and checked; measure focused loop and show every selected test. No receipt credit from older sources. |
 | P0/F1 freeze witnesses; M | F0 source freeze; overlaps loop repair | Fixture lane: new inference fixtures and separate native test modules. Corpus lane: `dev/performance/corpus/` and copied source views. No compiler edits. | Map every section 13 row and every section 4 node family to named positive/negative witnesses. Freeze changed-path coverage, classification, operation/effect snapshots, and paired behavior selection before removals. |
 | P1/F2 canonical path; L | F0; F1 supplies witnesses continuously | One compiler owner: `src/sema/constraints.rs`, `schemes.rs`, checker, lowering, indexed schema/verifier/execution. Add nested callable monotypes, effects, SCC inference, and prepared evidence through one path. Coordinate SPEC, snippet and grammar updates in the same accepted slice. | G1 then G2: imported generic value → higher-order proc → generic Result → producer → post-disposal execution; own negative controls, unchanged existing controls, matching specification, and compiling mainline. |
 | P2/F3 complete the language path; L | F2 contract; F1 matrix | Same compiler owner: remaining checker/elaboration/runtime files. Disjoint fixture and diagnostic lanes consume its published contract; no parallel signature redesign. Land each behavior change with its SPEC, snippet and grammar updates. | G3: every matrix row, existing expression/statement family, all delayed callable positions, rank-1 captures/recursion, grounded operations, and normal/forced disposal routes pass. Full changed-compiler integration boundary once, including grammar generators when affected. |
 | P2/F4 complete corpus parity; L | F2 for probes; final reductions require F3 | Corpus lane: views, classification and existing cohort adapters. Compiler causes return to F3 owner. Tooling lane: `crates/xsht/` consumers with coordinator-assigned files. | G4: original/reduced historical eleven roots and practical roots check, lower, execute selected affected paths, compare operations/effects/interfaces, and reject deliberate mutations. Every retained in-scope missing relationship resolved. |
 | P3/F5 harden; M | F3 and F4 | Compiler owner: remaining safety/error defects. Tooling/docs lane: remaining documentation, scheme rendering and safe fixes. Coordinator generates derived docs for each accepted slice, not only at F5. | Section 13 metamorphisms, independent test-only solver comparison, valid-before-invalid IR tests, safe-fix idempotence, diagnostic specificity, affected documentation checks. No missing mandatory positive or negative. |
-| P4/F6 measure and optimize; L | F5 functional and parity completion | Measurement lane: existing `dev/performance/`, benchmark fixtures and counters. Compiler owner fixes measured mechanisms only. | G5: all section 12 budgets, deterministic scaling below, build/size gates from the active campaign, exact-output controls, readiness before/after each timed window. Record tradeoffs; no moving tolerances or benchmark denominator. |
-| P5/F7 close; M | F6; inherited same-source qualification | Coordinator plus independent reviewer. Delete proved-dead paths, update canonical docs and existing handoff, integrate reviewed local changes only within grant. | G6, final independent adversarial review with no P1/P2 open, full same-source canonical/supplemental/functional and inherited baseline acceptance; clean owned-process shutdown and worktree closeout. Mandatory parked items mean incomplete, never successful close. |
+| P4/F6 measure and optimize; L | F5 functional and parity completion | Measurement lane: existing `dev/performance/`, benchmark fixtures and counters. Compiler owner fixes measured mechanisms only. | G5: all section 12 budgets, deterministic scaling below, build/size gates from the deployment campaign, exact-output controls, readiness before/after each timed window. Record tradeoffs; no moving tolerances or benchmark denominator. |
+| P5/F7 close; M | F6; inherited same-source qualification | Coordinator plus independent reviewer. Delete proved-dead paths, update canonical docs and this document, integrate reviewed local changes only within grant. | G6, final independent adversarial review with no P1/P2 open, full same-source canonical/supplemental/functional and inherited baseline acceptance; clean owned-process shutdown and worktree closeout. Mandatory parked items mean incomplete, never successful close. |
 
 P0 starts with one foundation owner until its exact checks work, then can
 sustain four lanes: loop, capability fixtures, corpus inventory, and
@@ -235,8 +201,8 @@ after assigning every ready independent item.
 
 The section 13 matrix is a minimum, not a replacement for the detailed
 requirements in sections 1–12 and 14–15. F1 records exact test selectors beside
-each existing row in the active progress owner; add fixture tests in ordinary
-native modules, not a new campaign runner. Existing rejection tests such as
+each existing row in the G3 table of `docs/PERFORMANCE-INFERENCE.md`; add
+fixture tests in ordinary native modules, not a new campaign runner. Existing rejection tests such as
 `rank1_generic_function_cannot_be_stored_as_typed_callable` become positive
 regressions for the newly specified case. Keep separately named higher-rank,
 bad-effect, bad-capture, and dynamic-signature rejection controls. Never retain
@@ -290,7 +256,7 @@ still bound repeat visits per output node. Exceedance is a diagnosed F6
 failure, not an excuse to omit a family. Preserve current deterministic
 resource limits until a tested, stricter bounded representation replaces them.
 
-Reuse the active campaign's benchmark owners and source/product qualification.
+Reuse the deployment campaign's benchmark owners and source/product qualification.
 Add only the missing inference workloads/counters. Use at least 100 interleaved
 completed baseline/candidate invocations per cold distribution for median/p95,
 and at least five interleaved runs per runtime workload with median, min, and
@@ -306,7 +272,7 @@ Final qualification uses the existing owners, in their documented order:
 canonical bootstrap/execution in `dev/consolidation/final_canonical_replay.py`,
 supplemental `dev/consolidation/winddown/gate-tools/final-correctness-gates/launch.py`,
 then `dev/performance/check.py --config CONFIG functional --check` and the
-active campaign's normal profile, timed observer, forced, comparative,
+deployment campaign's normal profile, timed observer, forced, comparative,
 scheduler, util-linux resource/private-namespace/close prerequisites. Use the
 real independent-review context for baseline close; the bare CLI does not
 manufacture it. Never use the unavailable `inference`, `optimize`, `deployment`,
@@ -316,21 +282,16 @@ cleanup; a changed compiler needs new same-source receipts.
 
 ## Execution authority and exclusions
 
-This preflight authorizes only editing this draft and bounded foundation checks.
-It authorizes no implementation, commits, merging, acquisition, or deployment.
-A later launch grant must explicitly cover isolated implementation and any local
-commits/integration. Within that grant, conventional commit subjects name the
-area; item IDs belong in the body. Mark contract changes as breaking where
-applicable and surface the omission/export/callable/elaboration changes in the
-final report. Never push.
+Conventional commit subjects name the area. Item IDs belong in the body. Mark
+contract changes as breaking where applicable and surface the omission, export,
+callable and elaboration changes in the final report. Never push.
 
 Keep execution offline using already available pinned inputs. If an input is
 missing, park its dependent item instead of fetching moving versions. Do not
 edit ordinary sibling Laputa, live roots, host packages, CI, Rust toolchain
 pins, kernels, or release artifacts. This plan adds no KVM, privilege, or
-network requirement; deployment effects remain with their separately authorized
-campaign owner. Preserve the active deployment and post-consolidation cleanup
-obligations rather than claiming this inference plan closes them.
+network requirement. Deployment effects stay with the deployment campaign, and
+this plan does not close its obligations.
 
 Delete superseded restrictions only after proving their replacements cover
 callers, tools, tests, imports, generated inputs and prepared execution. Search
@@ -349,9 +310,9 @@ Lean theorem expansion, or new orchestration/provenance platform belongs here.
 
 Implement the original general-inference ambition in `laputa-systems/xsh`. This is the completion campaign, not another pure-function pilot, annotation-removal exercise, or proposal for future work. Preserve the integrated solver, canonical schemes, checked facts, verified indexed execution, and existing runtime repairs. Extend their authority until ordinary XSH implementations need annotations only to state intentional contracts, supply genuinely missing information, or resolve genuine ambiguity.
 
-Read `AGENTS.md`, `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `docs/PERFORMANCE-INFERENCE.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, the relevant SPEC templates, and the existing inference design and capability tests. Incorporate this completion contract into the active campaign and its existing progress owner; do not reopen the retired consolidation campaign or create another orchestration/provenance system. Preserve historical evidence and accounting.
+Read `AGENTS.md`, `docs/PERFORMANCE-INFERENCE.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, the relevant SPEC templates, and the existing inference design and capability tests. Do not reopen the retired consolidation campaign or create another orchestration/provenance system. Preserve historical evidence and accounting.
 
-Follow the current pinned x86_64 Linux musl environment, toolchain, build profiles, resource admission, isolated-worktree policy, and source/product qualification. Do not revive obsolete macOS/ARM commands. Keep ordinary Laputa checkouts and live systems untouched; use the campaign's approved isolated source views and local fixtures. No pushing, publishing, new kernel work, or release upload. Lean stays in its current maintenance scope; full theorem development is not a prerequisite or a parallel expansion of this task.
+Follow the current pinned x86_64 Linux musl environment, toolchain, build profiles, resource admission, isolated-worktree policy, and source/product qualification. Do not revive obsolete macOS/ARM commands. Keep ordinary Laputa checkouts and live systems untouched; use the approved isolated source views and local fixtures. No publishing, new kernel work, or release upload. Lean stays in its current maintenance scope; full theorem development is not a prerequisite or a parallel expansion of this task.
 
 ## 1. Scope decision: implementation limits are not permanent language contracts
 
@@ -668,17 +629,19 @@ context, not an override of this completion contract.
 | Indexed lowering, independent verifier and execution | [lower.rs](src/runtime/eval/lower.rs), [full.rs](src/runtime/eval/indexed/full.rs), `src/runtime/eval/indexed/full/`, `src/runtime/eval/lowered_run/indexed_run/` |
 | Canonical language text and generated outputs | [SPEC template](docs/templates/SPEC.md), [testing procedures](docs/TESTING.md) |
 | Historical inference design and frozen corpus design | [first slice](dev/consolidation/designs/inference.md), [cohort](dev/consolidation/designs/typing-cohort.md) |
-| Accepted source views, reproduction, retained classes and practical adapters | [inference audit](docs/PERFORMANCE-INFERENCE.md) |
-| Active campaign, inherited gates and deployment obligations | [performance/deployment campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) |
+| Accepted source views, reproduction, retained classes and practical adapters | [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
+| Inherited gates and deployment obligations | [performance and deployment campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) |
 
-## Decision and campaign logs
+## Log
 
-Use the existing append-only decision and phase log in
-`docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`. Add one line per judgment a reader
-would otherwise miss and one line per completed phase, with the source and
-actual result. This document's prescribed decisions are the starting rules.
-Do not maintain a second progress log here. A stale completion status is a
-defect for the coordinator to fix when consuming the result.
+One line per judgment a reader would otherwise miss. This document's
+prescribed decisions are the starting rules.
+
+- 2026-10-19: Execution launched from `9134db7e7`. Inference implementation runs alongside the deployment campaign's G1 qualification. Close still needs matching final-source acceptance.
+- 2026-10-28, G3 gaps: closed on `master` by one-case gates. A recursive pure function that indexes a generic receiver binds its wrapper return before generalizing (`6841a2107`). A nullary proc that tail-calls a generic proc applying its callback expands the application when the argument cannot hold a resource (`b4a5620c7`). A pure-effect rejection and the follow-on errors after a body error or a failed call report one diagnostic (`f248649ea` and the cascade commit after it). Dynamic-boundary, prepared-program and metamorphic rows produced no defect with ad-hoc witnesses.
+- 2026-10-28, reduced composition: the quadratic checker output of the reduced higher-order composition workload (453, 941, 2685 and 9245 output nodes at 8, 16, 32 and 64) stays. The earlier diagnosis that each scheme carries applications differing only in span was wrong. The inherited applications are chained, one callback invocation per level with distinct argument and result parameters, so merging them modulo span is a no-op and the measured output did not change. Unifying them would reject callbacks whose parameter is `Any`, and sharing a callee's requirement set by reference would change the scheme representation in the checker, verifier and runtime. The scaling comparison normalizes work by output size, and verifier work stays near a tenth of its bound up to 256 units, so the output size is accepted as inherent to rank-1 copying. No blame span is user-visible.
+- 2026-10-28, G4 start: `dev/performance/corpus/erase_sites.py` measures the practical corpus (usage and counts in the evidence page). Twenty of the 23 proc-return `type-mismatch` failures come from an explicit non-Result return annotation that selects the plain value contract. That is source meaning, not missing inference. The frozen views need a source-qualified compiler pair and are not migrated. Open candidate classes by first diagnostic: 22 `ambiguous-overload` parameters not yet checked for genuine ambiguity, 22 `compact.indexed-build` failures (generic argument temporaries without a unique path, incomplete storage contracts, condition control roles), stream return provenance, and two `check.conversion` cases. A `Set[Str]` local from `set.empty()` passed to a generic callee fails verification with "generic call argument has no closed checked type".
+- 2026-10-28, generic-body whitelist: over the 4,731 private parameter annotations in `core/*.xsh`, `supports_generalized_body` itself rejects 25 sites and the lowering's "cannot be compiled yet" limits reject 38, against roughly 200 verifier or lowering failures behind the checker's acceptance. Removing the whitelist before those gaps close would turn a clear rejection into an IR verification failure. The proposal is to replace the predicate with the result of lowering the scheme body, closing the verifier classes first. It is a separate item and has not started.
 
 ## For the owner afterwards
 
