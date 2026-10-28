@@ -87,9 +87,8 @@ The first family runs exposed harness defects, now repaired:
 A combined Change selection shares one 300 s budget, so it cannot finish
 under heavy load; per-case runs each get the full budget.
 
-Item 1 status, 2026-10-28, tip `0a520d1c4`: of the 52 Change cases that were not
-per-file native cases, 49 pass one case per run in the pinned image, and
-`native-core/tests` is no longer a Change case. `native-dev/tests` fails on
+Item 1 status, 2026-10-28, tip `0a520d1c4`: `native-core/tests` is no longer a Change
+case, and 48 of the other 51 listed cases pass one case per run in the pinned image. `native-dev/tests` fails on
 `dev/checks/check_kernel_reads.py` (`core/syslogd.xsh` reads `/proc` or `/sys`
 literals; owned by the syslog lane) and, in about one run in three, on
 `test_laputa_mixed_case_preserves_regular_child_status`, which observes the live
