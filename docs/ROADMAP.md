@@ -104,6 +104,22 @@ compositor before the screenshot. After a clean rebuild of all 84 packages
 partitions, installs and boots the target, then fails its SSH smoke check:
 the target's login shell is `/bin/xshi`, which the default seed builds as the
 documented stub, so remote commands cannot run. `mirror-test` also needs a
-host `jq`. Criterion 3 is met; criterion 4 waits on the login-shell decision
-and one uninterrupted `make verify`.
+host `jq`. Criterion 3 is met.
+
+Criterion 4 is met. One uninterrupted `make verify` at Laputa `7d550bc` passed
+every step. These are the four changes since the run above:
+- The mirror scripts use `jaq` (`a7e88f8`).
+- baselayout creates `/tmp` and `/var/tmp` as `1777` (`6db84ef`).
+- Installed accounts log in through `/usr/bin/xsh-login`, which runs `-c
+  SOURCE` with `xsh` (`7d550bc`).
+- The SSH smoke check runs `xsh --help`.
+
+The run used this seed, kernel and profile:
+- Seed: XSH `b268b5007`, clean, `release, lto=false`, x86_64-musl. Product
+  sha256 prefixes: `xsh` `abb9e5cffd31e9ec`, `xsht` `4e964e4271999830`,
+  `xshi` `f6355b0fca563977`.
+- Kernel: artifact `3c602079f1ed…`, rebuilt from clean.
+- Profile: `qemu-dwl-foot` generation `d37ec0bbb131…`.
+
+All four criteria hold for candidate `b268b5007`.
 
