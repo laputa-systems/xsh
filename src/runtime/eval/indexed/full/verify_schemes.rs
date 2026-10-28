@@ -3000,7 +3000,10 @@ fn verify_body_expression(
                 } else { body_type_matches_ground(&actual, &expected) };
                 let checked_accumulator = !source_matches && matches!(&expected, Type::List(_)) && expected.has_unsigned_constraint()
                     && actual.closed_ground_type().is_some_and(|actual| matches!(actual, Type::List(_)) && !actual.contains_any() && !actual.contains_recovery());
-                if (!source_matches && !checked_accumulator) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
+                let identical_source = actual.closed_ground_type().is_some_and(|actual| actual == expected);
+                let complete_storage = runtime_complete_value_check_type(&expected, budget, 0)?
+                    || identical_source && runtime_complete_check_type(&expected, budget, 0, false, Some(&expected))?;
+                if (!source_matches && !checked_accumulator) || !complete_storage { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
                 if checked_accumulator { checked_accumulators.push(instruction); }
                 SchemeType::Ground(expected)
             }

@@ -491,3 +491,21 @@ print $bad
   assert output.success, output.stderr
   assert output.stdout == "abc\nnone\n"
 }
+
+test test_full_inference_enum_annotated_local_reads_a_generic_row_field { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""enum Platform { Linux, Mac }
+pure is_mac(value) {
+  let platform: Platform = value.platform
+  platform == Mac
+}
+let on_mac = is_mac({platform: Mac})
+let on_linux = is_mac({platform: Linux})
+print $on_mac
+print $on_linux
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\nfalse\n"
+}

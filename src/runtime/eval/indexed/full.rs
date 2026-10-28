@@ -34367,6 +34367,42 @@ assert nullable_name == null
         assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
     }
 
+    #[test]
+    fn full_verifier_rejects_forged_enum_local_storage_facts() {
+        let program = fixture(
+            "enum-local-storage.xsh",
+            "enum Platform { Linux, Mac }\n\
+             pure is_mac(value) {\n  let platform: Platform = value.platform\n  platform == Mac\n}\n\
+             let on_mac = is_mac({platform: Mac})\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let function = scheme_fixture_root_function(&program, "is_mac");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[function].contract else { panic!("is_mac has a generic scheme") };
+        let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let ground_tag = |index: usize, wanted: crate::runtime::eval::indexed::semantic::TypeTag| {
+            let fact = program.store.scheme_body_facts[index];
+            fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                && fact.ty().is_some_and(|ty| {
+                    let node = program.store.scheme_types[ty.index()];
+                    node.tag == schema::FullSchemeTypeTag::Ground
+                        && (program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == wanted)
+                })
+        };
+        let boolean = facts.clone().find(|index| ground_tag(*index, crate::runtime::eval::indexed::semantic::TypeTag::Bool)).expect("the comparison has a Bool fact");
+        let platform = facts.clone()
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression && fact.ty().is_some() && !ground_tag(*index, crate::runtime::eval::indexed::semantic::TypeTag::Bool)
+                    && !ground_tag(*index, crate::runtime::eval::indexed::semantic::TypeTag::Int)
+            })
+            .expect("the enum read has an Expression fact");
+        let mut forged = program.clone();
+        let (boolean_value, platform_value) = (forged.store.scheme_body_facts[boolean].value, forged.store.scheme_body_facts[platform].value);
+        forged.store.scheme_body_facts[boolean].value = platform_value;
+        forged.store.scheme_body_facts[platform].value = boolean_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",
