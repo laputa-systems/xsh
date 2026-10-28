@@ -19,8 +19,7 @@ the preceding work. Model proofs, finite witnesses, and Rust correspondence
 remain distinct evidence.
 
 The Deser cutover remains in place. Its performance thresholds are waived;
-outstanding correctness and platform qualification are not passes. See
-[the Deser campaign](../campaign-deser.md).
+outstanding correctness and platform qualification are not passes.
 
 ## G0 release candidate
 

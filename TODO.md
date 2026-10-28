@@ -13,7 +13,7 @@ to edit another checkout.
 The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
 items remain open. The performance/deployment and Lean campaigns retain their
-own pause/launch rules; this queue update resumes neither. The [Deser](campaign-deser.md)
+own pause/launch rules; this queue update resumes neither. The Deser
 codec cutover is accepted; its correctness and platform qualification remain
 open. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
 which items block a release; performance and resource items such as XSH-1 and
@@ -137,8 +137,8 @@ out of scope.
 ### XSH-41 · P3 · Qualify a strict configuration consumer after the Deser cutover
 
 - **Area:** Data boundaries
-- **Where:** `campaign-deser.md`, `src/modules/json.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `tests/`
-- **Problem:** The revised Deser campaign already owns direct values, the shared validator, explicit lexical typing and structured codec failures. A separate implementation here would duplicate that work; application-level configuration admission still needs a real consumer proof.
+- **Where:** `src/modules/json.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `tests/`
+- **Problem:** The accepted Deser cutover already owns direct values, the shared validator, explicit lexical typing and structured codec failures. A separate implementation here would duplicate that work; application-level configuration admission still needs a real consumer proof.
 - **Recommendation:** After the relevant campaign APIs land, qualify one Laputa service/network data schema using existing prepared schemas and exact validation. Keep trusted executable modules distinct from decoded data. Self-describing formats use decode plus validation; lexical CSV/INI conversions remain explicit as prescribed by the campaign. Reuse the canonical failure representation and preserve field paths; no second schema system or implicit coercion.
 - **Acceptance:** Unknown/duplicate fields, missing versus null values, invalid variants/ranges and unsupported representations fail before application. Valid common-domain inputs yield equivalent normalized values without claiming all formats are interchangeable. Report any necessary boundary repair to the campaign owner while it is active; do not widen its seven-codec inventory.
 - **Coordination:** Laputa LAP-5 owns the service schema and operational checks; its immediate unknown-field fix need not wait for Deser.

@@ -4,7 +4,7 @@ Status: paused 2026-10-25 on `master`. This handoff supersedes the historical
 instructions below. No campaign loop, lane or qualification retry is scheduled.
 Release sequencing now belongs to the [G0 release candidate](ROADMAP.md#g0-release-candidate),
 which defers this campaign's performance obligations. Deser has since been cut
-over; see `campaign-deser.md`.
+over.
 
 ## Resume
 
@@ -19,9 +19,8 @@ git status --short && git log -5 --oneline
 
 Read `AGENTS.md`, `TODO.md`, this handoff and the current `orchestrate` steering
 checkpoint before choosing work. Recheck the limiting stage and owner authority;
-do not blindly restart the old queue or rebaseline unchanged inputs. The queued
-`campaign-deser.md` preflight is a separate planning request, not execution of
-that campaign. No owner decision is needed to preserve this paused state.
+do not blindly restart the old queue or rebaseline unchanged inputs. No owner
+decision is needed to preserve this paused state.
 
 ## State and direction
 
@@ -123,7 +122,7 @@ removal and no ownership repair was attempted.
 
 | Retained path | Branch / HEAD | Current consumer |
 |---|---|---|
-| `.` | `master` | Main integration checkout and queued Deser preflight. |
+| `.` | `master` | Main integration checkout. |
 | `.work/wt/finish-lint` | `backlog-finish-lint` / `97e361171` | Matched release baseline/candidate, RSS evidence and pending guarded CPU acceptance for XSH-14. |
 | `.work/wt/perf-baseline-r13` | detached `0dfebb001` | Existing release baseline products and receipts for remaining comparative gates. |
 | `.work/wt/requalify-57a-ef7` | detached `57a0f6314` | Protected reference products rebuilt with approved ef7 for remaining comparisons. |
@@ -137,8 +136,7 @@ in Laputa at `.work/wt/qualification-corpus-f201300`, revision `f201300d`.
 ## Not started and verified
 
 No full canonical r2 retry, supplemental qualification, fresh timing, new
-Pyramid wave or Deser implementation was started during winddown. The next
-requested action is Deser preflight only; it does not clear existing acceptance.
+Pyramid wave or Deser implementation was started during winddown.
 
 Reboot audit: worktree pruning and fresh status checks cover all retained XSH
 trees; branches preserve every retired source snapshot. `.work` is ignored via

@@ -60,11 +60,10 @@ translation, not the separation that makes a boundary checkable.
 
 Structured-data codecs should project into the existing value/schema model and
 report representation limits explicitly. They do not each earn a schema language,
-validator or coercion rule. The current [Deser campaign](../campaign-deser.md)
-is a planned example of this direction, not proof of completion: it owns a
-seven-codec cutover, direct language values, limited host-tooling DOM use and
-explicit lexical conversions. This philosophy neither expands that inventory
-nor launches the campaign.
+validator or coercion rule. The completed Deser cutover is an example
+of this direction: seven codecs, direct language values, limited host-tooling
+DOM use and explicit lexical conversions. This philosophy neither expands that
+inventory nor reopens that cutover.
 
 Do not add a framework, daemon, public abstraction or new syntax solely to unify
 hypothetical future consumers. Retire superseded paths when a migration is
