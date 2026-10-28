@@ -1,0 +1,233 @@
+#!/bin/xsh
+use lib.syslog_limit as limit
+use lib.syslog_parse as parse
+use lib.syslog_render as render
+use lib.syslog_socket as sock
+
+const USAGE = """Usage: syslogd --state DIR [--socket PATH]
+Receive local syslog datagrams on a Unix datagram socket and write one escaped
+line per accepted message to standard output.
+
+      --socket PATH  socket to publish (default /dev/log)
+      --state DIR    directory that holds the exclusive syslog.lock
+      --help         display this help and exit
+
+Standard output is the only sink and is meant to be captured by a supervisor.
+Records carry the kernel-reported sender (pid, uid, gid) apart from the tag,
+host and time the sender claims. Delivery is not lossless: the kernel drops
+datagrams from a full socket queue without telling the receiver, and the
+receiver drops by rate, size, descriptor passing and an unwritable sink, and
+counts each. The service never writes to /dev/log itself.
+"""
+
+const DEFAULT_SOCKET = "/dev/log"
+const DATAGRAM_LIMIT = 8192
+const BATCH_LIMIT = 16
+const REPORT_INTERVAL_US = 1000000
+const SOL_SOCKET = 1
+const SCM_CREDENTIALS = 2
+const MSG_TRUNC = 32
+const MSG_CTRUNC = 8
+const EAGAIN = 11
+
+type Options = {help: Bool, socket: Str, state: Str?}
+type Credentials = {pid: Int, uid: Int, gid: Int}
+type Sink = {target: Str, dev: Int, ino: Int, linked: Bool}
+
+on TERM [process] {
+  exit 0
+}
+
+on INT [process] {
+  exit 0
+}
+
+pure credentials(control: List[LinuxControlMessage]) -> Credentials? {
+  for message in control {
+    if message.level == SOL_SOCKET and message.type == SCM_CREDENTIALS and message.data.len() >= 12 {
+      return {
+        pid: bytes.unpack_le(message.data, 4, 0) ?? 0,
+        uid: bytes.unpack_le(message.data, 4, 4) ?? 0,
+        gid: bytes.unpack_le(message.data, 4, 8) ?? 0,
+      }
+    }
+  }
+  null
+}
+
+proc sink_target() [fs, error] -> Result[Sink?, Error] {
+  let info = fs.stat(Path("/proc/self/fd/1"), follow_symlinks: true)?
+  if info.kind != "file" { return Ok(null) }
+  Ok({target: Path("/proc/self/fd/1").readlink()?.display(), dev: info.dev, ino: info.ino, linked: info.nlink > 0})
+}
+
+proc receive(fd: Int) [process, net, error] -> Result[List[LinuxReceivedMessage], Error] {
+  match linux.recvfrom(fd, DATAGRAM_LIMIT, 0, "close") {
+    Ok(message) => Ok([message])
+    Err(failure) => if failure.errno == EAGAIN { Ok([]) } else { Err(failure) }
+  }
+}
+
+pure sender_of(found: Credentials?) -> limit.Sender? {
+  if let credentials = found { return limit.Sender(uid: credentials.uid, pid: credentials.pid) }
+  null
+}
+
+proc complain(text: Str) [io] {
+  eprint $text
+  let _ = io.flush_stderr()
+}
+
+proc announce(line: Str) [io] {
+  print $line
+}
+
+proc writable(fd: Int) [process, net, error] -> Result[Bool, Error] {
+  Ok("writable" in unix.poll_fd(fd, ["writable"], 0)?)
+}
+
+proc finish_line(line: Str) [process, net, io, error] {
+  if writable(1)? {
+    announce(line)
+    if io.flush_stdout() is Err(_) { complain(line) }
+  } else if writable(2)? {
+    complain(line)
+  }
+}
+
+type SinkCheck = {sink: Sink?, removed: Bool}
+
+proc check_sink(previous: Sink?) [fs, process, net, io, error] -> Result[SinkCheck, Error] {
+  if let before = previous {
+    if let current = sink_target()? {
+      if ! current.linked { return Ok({sink: previous, removed: true}) }
+      if current.target != before.target {
+        finish_line(f"event=sink-moved from=\"{before.target}\" to=\"{current.target}\"")
+        return Ok({sink: current, removed: false})
+      }
+    }
+  }
+  Ok({sink: previous, removed: false})
+}
+
+type Written = {delivered: Bool, blocked: Bool, reported_at: Int}
+
+proc write_line(line: Str, last_report: Int) [process, net, io, time, error] -> Result[Written, Error] {
+  if ! writable(1)? { return Ok({delivered: false, blocked: true, reported_at: last_report}) }
+  announce(line)
+  if let Err(failure) = io.flush_stdout() {
+    let reported = time.boottime()? / 1000
+    if reported - last_report >= REPORT_INTERVAL_US {
+      complain(f"syslogd: output failed: {failure.message}")
+      return Ok({delivered: false, blocked: false, reported_at: reported})
+    }
+    return Ok({delivered: false, blocked: false, reported_at: last_report})
+  }
+  Ok({delivered: true, blocked: false, reported_at: last_report})
+}
+
+proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
+  let opts: Options = cli.applet(
+    argv,
+    {
+      gnu: {status: 1},
+      help: {form: "--help", default: false, stop: true},
+      socket: {form: "--socket PATH", default: DEFAULT_SOCKET},
+      state: {form: "--state DIR"},
+    },
+  )?
+  if opts.help {
+    print $USAGE
+    return
+  }
+  let state = opts.state
+  if state == null {
+    complain("syslogd: --state DIR is required")
+    exit 2
+  }
+  let socket_path = Path(opts.socket)
+  process.set_signal_action("HUP", "ignore")
+  let state_dir = Path(state ?? "/")
+  let lock_path = Path(f"{state_dir}/syslog.lock")
+  let lock = match fs.lock(lock_path, nonblocking: true) {
+    Ok(held) => held
+    Err(failure) => {
+      complain(f"syslogd: another receiver holds {lock_path}: {failure.message}")
+      exit 1
+    }
+  }
+  defer fs.unlock(lock)
+
+  let published = match sock.publish(socket_path) {
+    Ok(socket) => socket
+    Err(failure) => {
+      complain(f"syslogd: cannot publish {socket_path}: {failure.message}")
+      exit 1
+    }
+  }
+  let boot_id = Path("/proc/sys/kernel/random/boot_id").read_text()?.trim()
+  var limiter = limit.new_limiter(limit.DEFAULT_CONFIG)?
+  var sequence = 0
+  defer {
+    finish_line(f"event=stop {limit.summary(limiter)}")
+    match sock.unpublish(published) {
+      Ok(_) => {}
+      Err(failure) => complain(f"syslogd: cannot remove {socket_path}: {failure.message}")
+    }
+    unix.close_fd(published.fd)
+  }
+
+  let notify = e"NOTIFY_FD" ?? ""
+  if ! notify.is_empty() {
+    let channel = notify.parse_int()?
+    assert unix.write_fd(channel, b"r")? == 1
+    unix.close_fd(channel)?
+  }
+  let config = limit.DEFAULT_CONFIG
+  finish_line(f"event=start pid={process.current_pid()?} boot=\"{boot_id}\" socket=\"{socket_path}\" state=\"{state_dir}\" receive_buffer={sock.RECEIVE_BUFFER} datagram_limit={DATAGRAM_LIMIT} batch={BATCH_LIMIT} sender_rate={config.sender_rate} sender_burst={config.sender_burst} global_rate={config.global_rate} global_burst={config.global_burst} line_limit_bytes={render.CONTENT_LIMIT} kernel_loss=unobservable")
+
+  var sink = sink_target()?
+  var last_report = 0
+  var last_sink_check = 0
+  while true {
+    let ready = unix.poll_fds([{fd: published.fd, events: ["readable"]}])?
+    if ready.is_empty() { continue }
+    let checked = time.boottime()? / 1000
+    if sink != null and checked - last_sink_check >= REPORT_INTERVAL_US {
+      last_sink_check = checked
+      let verdict = check_sink(sink)?
+      sink = verdict.sink
+      if verdict.removed {
+        complain("syslogd: the output file was removed; stopping so the supervisor can reopen it")
+        finish_line("event=sink-removed")
+        exit 1
+      }
+    }
+    var drained = 0
+    while drained < BATCH_LIMIT {
+      let received = receive(published.fd)?
+      if received.is_empty() { break }
+      let datagram = received[0]
+      drained += 1
+      let sender = credentials(datagram.control)
+      let now = time.boottime()?
+      let admission = limit.admit(
+        limiter,
+        limit.Datagram(
+          sender: sender_of(sender),
+          oversize: datagram.size > datagram.data.len() or datagram.flags.bit_and(MSG_TRUNC) != 0,
+          control_truncated: datagram.flags.bit_and(MSG_CTRUNC) != 0,
+          rights: datagram.rights_closed,
+        ),
+        now / 1000,
+      )
+      limiter = admission.limiter
+      if ! admission.accepted { continue }
+      sequence += 1
+      let line = render.render(render.Entry(sequence: sequence, source: "socket", kernel_sequence: null, kernel_microseconds: null, boot_id: boot_id, boottime_ns: now, pid: sender?.pid, uid: sender?.uid, gid: sender?.gid, message: parse.parse(datagram.data)))
+      let written = write_line(line, last_report)?
+      last_report = written.reported_at
+      if written.blocked { limiter = limit.sink_dropped(limiter, .SinkBlocked, 1) } else if ! written.delivered { limiter = limit.sink_dropped(limiter, .SinkError, 1) }
+    }
+  }
+}
