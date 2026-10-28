@@ -3858,6 +3858,24 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn regex_literal_call_arguments_authenticate_their_literal_type() {
+        let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let regex = program.store.tags.iter().position(|tag| *tag == FullTag::ExprPreparedRegex).unwrap();
+        let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+        let mut wrong_literal = program.clone();
+        wrong_literal.store.tags[regex] = FullTag::ExprBool;
+        wrong_literal.store.data[regex] = wrong_literal.store.data[boolean];
+        wrong_literal.store.in_place.take();
+        assert!(wrong_literal.store.in_place.get().is_none());
+        assert_eq!(
+            FullVerifier::verify(&wrong_literal).expect_err("a Bool cannot stand for the Regex argument").message,
+            "generic call argument does not match its checked parameter slot",
+        );
+    }
+
+    #[test]
     fn authored_path_method_returns_authenticate_their_header_and_actual_tail() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("pure written(location, other) -> Path { let _ = other.parent(); location.parent() }\npure foreign(location: Path) -> Path { location }\nlet relative: RelPath = p\"a/b\"\nlet _ = written(p\"/a/b\", relative)\n");

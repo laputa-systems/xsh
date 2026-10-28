@@ -554,6 +554,21 @@ print $fallback
   assert output.stdout == "none\nsome\nb\nz\n"
 }
 
+test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure keep(value, marker: Int) -> Int { marker }
+let literal = keep(rx"[0-9]+", 1)
+let stored = rx"[a-z]+"
+let named = keep(stored, 2)
+print $literal
+print $named
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n2\n"
+}
+
 test test_full_inference_slice_of_a_typed_value_is_a_generic_argument { |ctx|
   let output = test.run_xsh(
     ctx,

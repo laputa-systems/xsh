@@ -11854,6 +11854,7 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Float(_) => Ok(Some(Type::Float)),
             schema::ExprView::Bool(_) => Ok(Some(Type::Bool)),
             schema::ExprView::Duration(_) => Ok(Some(Type::Duration)),
+            schema::ExprView::PreparedRegex(_) => Ok(Some(Type::Regex)),
             schema::ExprView::Tag { type_name, .. } => Ok(Some(Type::Tag(type_name))),
             schema::ExprView::Null => Ok(Some(Type::Null)),
             schema::ExprView::Unit => Ok(Some(Type::Unit)),
@@ -12189,8 +12190,7 @@ impl<'a> FullDecoder<'a> {
                     Ok(Some(output))
                 }
             }
-            schema::ExprView::PreparedRegex(_)
-            | schema::ExprView::PreparedConstant(_)
+            schema::ExprView::PreparedConstant(_)
             | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Glob { .. }
             | schema::ExprView::LastStatus { .. }
