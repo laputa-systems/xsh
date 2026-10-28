@@ -482,3 +482,25 @@ print "not reached"
   assert output.stdout == "user: root\n", output.stdout
   assert "missing name for 7" in output.stderr, output.stderr
 }
+
+test test_full_inference_generic_proc_exits_from_a_branch_or_match_arm_tail { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc report(kind, name: Str) [io, process] {
+  if name == "" { exit 4 } else { print f"{kind}: {name}" }
+}
+proc load(kind, name: Str) [fs, io, process] {
+  match fp"{name}".read_text() {
+    Ok(text) => { print f"{kind}: loaded" }
+    Err(failure) => { exit 5 }
+  }
+}
+report("first", "ready")
+load("second", "/etc/hostname")
+load("third", "/nonexistent-xsh-path")
+print "not reached"
+""",
+  )?
+  assert output.status == 5, output.stderr
+  assert output.stdout == "first: ready\nsecond: loaded\n", output.stdout
+}

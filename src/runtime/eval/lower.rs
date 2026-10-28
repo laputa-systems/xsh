@@ -3515,7 +3515,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(value)
             }
             ArenaStmtKind::Command(_) | ArenaStmtKind::Exit(_)
-                if self.bodies.statement_positions.get(&statement) == Some(&crate::sema::check::StatementPosition::Statement) => {
+                if matches!(self.program.arena.stmt(statement).kind, ArenaStmtKind::Exit(_))
+                    || self.bodies.statement_positions.get(&statement) == Some(&crate::sema::check::StatementPosition::Statement) => {
                 self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Unit);
                 lowered_types.insert(value, SchemeType::Ground(Type::Unit));
