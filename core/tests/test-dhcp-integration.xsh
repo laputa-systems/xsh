@@ -191,3 +191,132 @@ test test_ifup_and_ifdown_drive_the_running_client_without_a_second_acquisition_
   assert release.frame.ip?.destination == SERVER and release.frame.destination_mac == SERVER_MAC
   assert release.message.ciaddr == OFFERED and release.message.server_id == SERVER and ! release.message.broadcast
 }
+
+test test_a_killed_client_restarts_into_init_reboot_and_keeps_the_address { |ctx|
+  let file = write_rules(ctx, bound_rules())?
+  guard let dir = scenario.execute(
+    ctx,
+    "crash-restart",
+    [
+      scenario.capture("client", "client.pcap"),
+      scenario.server_xsh(file),
+      scenario.wait_for("client.pcap", "", 5000),
+      scenario.wait_for("server.requests", "", 5000),
+      scenario.write("etc/resolv.static", ""),
+      scenario.client("client", client_args([])),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 20000),
+      scenario.kill("client", "KILL"),
+      scenario.sleep(300),
+      scenario.snapshot("crashed"),
+      scenario.client("restarted", client_args([])),
+      scenario.sleep(6000),
+      scenario.snapshot("restarted"),
+      scenario.kill("restarted", "TERM"),
+      scenario.sleep(500),
+    ],
+  )? else { return }
+  let crashed = json.read(fp"{dir}/crashed.json")?.require(Snapshot)?
+  assert "192.168.50.100" in [item.address for item in crashed.addresses], "a crash leaves the configuration in place"
+  let restarted = json.read(fp"{dir}/restarted.json")?.require(Snapshot)?
+  assert [item.address for item in restarted.addresses if item.address == "192.168.50.100"].len() == 1
+  assert [route for route in restarted.routes if route.gateway == "192.168.50.1"].len() == 1
+  let captured = pcap.dhcp_messages(pcap.parse(fp"{dir}/client.pcap".read_bytes()?)?)
+  assert [item.message.kind for item in captured] == [1, 2, 3, 5, 3, 5], "one discovery, then a validation of the remembered lease"
+  let validation = captured[4]
+  assert validation.message.ciaddr == 0 and validation.message.requested_ip == OFFERED and validation.message.server_id == null
+}
+
+test test_link_flap_and_interface_recreation_are_survived_without_a_new_discovery_storm { |ctx|
+  let file = write_rules(ctx, bound_rules())?
+  guard let dir = scenario.execute(
+    ctx,
+    "flap-recreate",
+    [
+      scenario.fixture("link_add_dummy", ["ts0", "02:00:00:00:00:77"]),
+      scenario.fixture("link_up", ["ts0"]),
+      scenario.fixture("address_add4", ["ts0", "100.100.1.1", "32", "100.100.1.1", ""]),
+      scenario.server_xsh(file),
+      scenario.wait_for("server.requests", "", 5000),
+      scenario.write("etc/resolv.static", ""),
+      scenario.client("client", client_args([])),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 20000),
+      scenario.snapshot("bound"),
+      scenario.link("down"),
+      scenario.sleep(2000),
+      scenario.link("up"),
+      scenario.wait_for("run/eth0.status", "\"sent_request_init_reboot\":1", 30000),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 30000),
+      scenario.sleep(500),
+      scenario.snapshot("flapped"),
+      scenario.recreate(),
+      scenario.link("up"),
+      scenario.server_stop("server"),
+      {...scenario.server_xsh(file), name: "again"},
+      scenario.wait_for("again.requests", "\"kind\":\"request\"", 30000),
+      scenario.sleep(3000),
+      scenario.snapshot("recreated"),
+      scenario.kill("client", "TERM"),
+      scenario.sleep(500),
+    ],
+  )? else { return }
+  let bound = json.read(fp"{dir}/bound.json")?.require(Snapshot)?
+  let flapped = json.read(fp"{dir}/flapped.json")?.require(Snapshot)?
+  assert "192.168.50.100" in [item.address for item in flapped.addresses]
+  assert [route for route in flapped.routes if route.gateway == "192.168.50.1"].len() == 1, "the route the kernel dropped with the carrier is back"
+  let recreated = json.read(fp"{dir}/recreated.json")?.require(Snapshot)?
+  let old_index = [link for link in bound.links if link.name == "eth0"][0].ifindex
+  let new_index = [link for link in recreated.links if link.name == "eth0"][0].ifindex
+  assert new_index != old_index, "the interface really was recreated"
+  let on_new = [item for item in recreated.addresses if item.ifindex == new_index]
+  assert [item.address for item in on_new] == ["192.168.50.100"], "the lease is configured on the new device"
+  assert [route for route in recreated.routes if route.gateway == "192.168.50.1" and route.ifindex == new_index].len() == 1
+  assert "100.100.1.1" in [item.address for item in recreated.addresses], "foreign state is untouched"
+  let again = fp"{dir}/again.requests".read_text()?
+  assert "\"kind\":\"discover\"" not in again, "the remembered lease is validated, not discarded"
+}
+
+test test_a_foreign_resolver_file_is_reported_and_left_alone_while_the_lease_still_binds { |ctx|
+  let file = write_rules(ctx, bound_rules())?
+  guard let dir = scenario.execute(
+    ctx,
+    "resolver-conflict",
+    [
+      scenario.server_xsh(file),
+      scenario.wait_for("server.requests", "", 5000),
+      scenario.write("etc/resolv.static", ""),
+      scenario.write("etc/resolv.conf", "nameserver 9.9.9.9\n"),
+      scenario.client("client", client_args([])),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 20000),
+      scenario.sleep(1000),
+      scenario.snapshot("bound"),
+      scenario.copy("run/eth0.status", "bound.status"),
+      scenario.kill("client", "TERM"),
+      scenario.sleep(500),
+    ],
+  )? else { return }
+  assert fp"{dir}/etc/resolv.conf".read_text()? == "nameserver 9.9.9.9\n"
+  let status = fp"{dir}/bound.status".read_text()?
+  assert "dns-conflict" in status and "foreign_file" in status, status
+  let bound = json.read(fp"{dir}/bound.json")?.require(Snapshot)?
+  assert "192.168.50.100" in [item.address for item in bound.addresses], "a resolver conflict does not undo the address"
+}
+
+test test_the_client_recovers_after_a_silent_server_returns { |ctx|
+  let file = write_rules(ctx, bound_rules())?
+  guard let dir = scenario.execute(
+    ctx,
+    "server-absence",
+    [
+      scenario.write("etc/resolv.static", ""),
+      scenario.client("client", client_args([])),
+      scenario.sleep(9000),
+      scenario.server_xsh(file),
+      scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 40000),
+      scenario.snapshot("bound"),
+      scenario.kill("client", "TERM"),
+      scenario.sleep(500),
+    ],
+  )? else { return }
+  let bound = json.read(fp"{dir}/bound.json")?.require(Snapshot)?
+  assert "192.168.50.100" in [item.address for item in bound.addresses]
+}

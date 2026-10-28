@@ -132,3 +132,8 @@ export pure link(state: Str) -> types.Step {
 export pure copy(source: Str, target: Str) -> types.Step {
   {...step("copy"), file: source, text: target}
 }
+
+## Stops the server job `name` with a kill.
+export pure server_stop(name: Str) -> types.Step {
+  {...step("server_stop"), name: name, signal: "KILL"}
+}
