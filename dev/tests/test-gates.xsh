@@ -19,6 +19,28 @@ proc init_gate_repository(root: Path, repository: Path) [fs, process, env, error
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture
 }
 
+proc init_laputa_gate_repository(root: Path, repository: Path) [fs, process, env, error] -> Result[Unit, Error] {
+  init_gate_repository(root, repository)?
+  for entry in fs.children(fp"{repository}/dev/performance")? {
+    if entry.name.ends_with(".py") and entry.kind == "file" {
+      fp"{root}/dev/performance/{entry.name}".write(entry.path.read_bytes()?)
+    }
+  }
+  let tools = "dev/consolidation/winddown/gate-tools/final-performance-gates"
+  fp"{root}/{tools}".mkdir(parents: true)?
+  for entry in fs.children(fp"{repository}/{tools}")? {
+    if entry.name.ends_with(".py") and entry.kind == "file" {
+      fp"{root}/{tools}/{entry.name}".write(entry.path.read_bytes()?)
+    }
+  }
+  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
+  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?, mode: 0o755)
+  fp"{root}/dev/util-linux".mkdir()
+  fp"{root}/dev/util-linux/leases.py".write(fp"{repository}/dev/util-linux/leases.py".read_bytes()?)
+  let _ = run.capture --text git -C $root add .
+  let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture-performance
+}
+
 test test_changed_path_discovery_preserves_git_filename_boundaries_and_staged_changes { |ctx|
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-git-paths")?
@@ -2328,6 +2350,12 @@ test test_laputa_mixed_case_preserves_regular_child_status { |ctx|
   test.timeout(ctx, 180s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "laputa-mixed")?
+  let checkout = fp"{tools}/checkout"
+  checkout.mkdir()
+  init_laputa_gate_repository(checkout, repository)?
+  let products = fp"{checkout}/target/x86_64-unknown-linux-musl/verification"
+  products.mkdir(parents: true)?
+  for product in ["xsh", "xsht", "xshi"] { fp"{products}/{product}".write("fixture\n", mode: 0o755) }
   let laputa = fp"{tools}/laputa"
   laputa.mkdir()
   let _ = run.capture --text git -C $laputa init --quiet
@@ -2381,7 +2409,7 @@ exit p"{desired}".read_text()?.trim() as Int
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{repository}")?, ["--case", "showcase/tokei/correctness", "--case", "laputa/pm.make/plan", "--laputa-root", "{laputa}"])?
+  gates.execute(fixtures.linux_context(p"{checkout}")?, ["--case", "showcase/tokei/correctness", "--case", "laputa/pm.make/plan", "--laputa-root", "{laputa}"])?
 }}
 main()?
 """
