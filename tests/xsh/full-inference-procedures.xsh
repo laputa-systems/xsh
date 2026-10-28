@@ -580,3 +580,22 @@ let missing = probe("here", p"/nonexistent-xsh-path")?
     stderr: ["fs-metadata"],
   )?
 }
+
+test test_full_inference_generic_proc_with_a_value_return_may_end_in_exit { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc number(option, text: Str) -> Int {
+  return 7 when text == "ok"
+  eprint f"bad ({option})"
+  exit 6
+}
+let good = number("flag", "ok")
+print $good
+let bad = number("flag", "no")
+print "not reached"
+""",
+  )?
+  assert output.status == 6, output.stderr
+  assert output.stdout == "7\n", output.stdout
+  assert "bad (flag)" in output.stderr, output.stderr
+}

@@ -3211,6 +3211,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some((vec![returned], lowered_types, BTreeMap::new()));
         }
         let (&tail, prefix) = statements.split_last()?;
+        if facts.scheme().kind() == CallableKind::Proc && matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Exit(_)) {
+            let mut body = Vec::new();
+            for &statement in &statements {
+                self.lower_scheme_statement(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+            }
+            if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() + facts.noncompleting_expressions().len() { return self.block_scheme_lowering(block); }
+            return Some((body, lowered_types, BTreeMap::new()));
+        }
         if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
             && (matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
                 || self.is_proc_return_completion(tail, facts))
