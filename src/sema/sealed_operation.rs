@@ -22,7 +22,7 @@ pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
 pub(crate) enum SliceBounds { Unbounded, Start, End, Both }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TypeDomain { SortKey, CountKey, CollectItem, MinMaxItem, OrderingOperand }
+pub(crate) enum TypeDomain { SortKey, CountKey, CollectItem, MinMaxItem, OrderingOperand, NegationOperand }
 
 impl TypeDomain {
     pub(crate) fn may_accept(self, ty: &Type) -> bool {
@@ -40,6 +40,7 @@ impl TypeDomain {
         match (self, ty.unvalidated()) {
             (Self::CollectItem, ty) => !matches!(ty, Type::Stream(_) | Type::Inference(_)),
             (Self::OrderingOperand, ty) => ty.can_be_ordering_operand(),
+            (Self::NegationOperand, ty) => matches!(ty, Type::Int | Type::Float),
             (Self::SortKey, Type::Int | Type::Str | Type::Bool | Type::Path)
             | (Self::CountKey, Type::Int | Type::UInt | Type::Str | Type::Bool) => true,
             (Self::SortKey, Type::Record(fields)) => fields.values().all(|ty| self.accepts(ty)),

@@ -6482,6 +6482,28 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     }
 
     #[test]
+    fn generic_negation_requires_its_scoped_domain_predicate() {
+        use crate::sema::sealed_operation::{SealedOperationSignature, TypeDomain};
+        use crate::sema::schemes::SealedOperationBinding;
+        use super::super::super::schemes::FullSealedOperation;
+        let program = prepare("pure negate(value) { -value }\nlet negated = negate(4)\n");
+        FullVerifier::verify(&program).unwrap();
+        let (predicate, subject) = program.store.scheme_operations.iter().enumerate().find_map(|(index, operation)| match operation {
+            FullSealedOperation::TypePredicate { domain: TypeDomain::NegationOperand, subject } => Some((index, *subject)),
+            _ => None,
+        }).unwrap();
+        let mut wrong_domain = program.clone();
+        wrong_domain.store.scheme_operations[predicate] = FullSealedOperation::TypePredicate { domain: TypeDomain::CollectItem, subject };
+        for binding in &mut wrong_domain.store.call_operation_bindings {
+            if matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::NegationOperand))) {
+                *binding = SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::CollectItem));
+            }
+        }
+        let error = FullVerifier::verify(&wrong_domain).unwrap_err();
+        assert!(error.message.contains("lacks its scoped canonical domain predicate"), "{}", error.message);
+    }
+
+    #[test]
     fn generic_pipeline_input_policy_authenticates_domain_and_error_payload() {
         let program = prepare("pure collect_values(values) { values |> collect }");
         let (_, scheme) = generic_owner(&program);

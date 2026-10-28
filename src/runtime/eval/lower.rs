@@ -5038,7 +5038,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         push_build_row!(self, expr, BuildExprRow::IfExpr { branches: vec![(value, no)], else_value: yes, span })
                     }
                     UnaryOp::Neg => {
-                        let float = facts.expression_types().get(&expr).and_then(SchemeType::closed_ground_type) == Some(Type::Float);
+                        let operand = facts.expression_types().get(&expr).and_then(SchemeType::closed_ground_type);
+                        let float = operand == Some(Type::Float);
+                        let quantified = operand.is_none();
                         let constant = if float { push_build_row!(self, expr, BuildExprRow::Float(crate::runtime::value::FloatValue::new(-1.0))) } else { push_build_row!(self, expr, BuildExprRow::Int(0)) };
                         lowered_types.insert(constant, SchemeType::Ground(if float { Type::Float } else { Type::Int }));
                         let result = if float {
@@ -5046,7 +5048,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         } else {
                             push_build_row!(self, expr, BuildExprRow::Binary { op: BinaryOp::Sub, left: constant, right: value, span })
                         };
-                        if float { self.scratch.borrow_mut().non_int_binary_expressions.insert(result.index()); }
+                        if float || quantified { self.scratch.borrow_mut().non_int_binary_expressions.insert(result.index()); }
                         result
                     }
                 }

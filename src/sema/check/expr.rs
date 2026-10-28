@@ -3203,6 +3203,9 @@ impl Checker {
                 }
                 if matches!(ty, Type::Float) {
                     Type::Float
+                } else if let Ok(resolved @ Type::Inference(_)) = self.type_constraints.resolve(&ty) {
+                    self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::NegationOperand, &resolved, span);
+                    resolved
                 } else {
                     self.expect_type(&Type::Int, &ty, span);
                     Type::Int

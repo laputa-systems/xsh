@@ -2756,6 +2756,15 @@ fn verify_body_expression(
             }
             SchemeType::Ground(Type::Bool)
         }
+        schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Sub, left, right, .. }
+            if matches!(decoder.expression_view(left.raw() as usize)?, schema::ExprView::Int(0))
+                && types.get(&(right.raw() as usize)).is_some_and(|operand| operand.closed_ground_type().is_none()) =>
+        {
+            child(left, budget)?;
+            let operand = child(right, budget)?;
+            operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::NegationOperand, &operand, budget)?;
+            operand
+        }
         schema::ExprView::Binary { op, left, right, .. } => {
             let left = child(left, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic binary operand has no closed operation contract"))?;
             let right = child(right, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic binary operand has no closed operation contract"))?;

@@ -3363,6 +3363,10 @@ quantified operands retains one shared type parameter bounded to the ordering
 domains `Int`, `UInt`, `Float`, `Duration`, and `Str`; each call checks that
 domain, so `pure less(a, b) { a < b }` accepts `1, 2` and `"a", "b"` and
 rejects `Bool` or `List` operands with `check.operator-type`.
+Unary `-` of a quantified operand likewise retains one type parameter bounded to
+`Int` and `Float`, and its result has that type: `pure negate(value) { -value }`
+accepts `4` and `2.5`, and rejects `UInt`, `Duration`, and `Str` operands with
+`check.operator-type`.
 Boolean `and` and `or` evaluate the left operand first and evaluate the right
 operand only when needed. Ordering chains evaluate each reached operand once
 and stop at the first false pair. Map membership preserves its declared key

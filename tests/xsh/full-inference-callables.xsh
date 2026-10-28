@@ -600,3 +600,42 @@ test test_full_inference_ordering_rejects_operands_outside_its_domain { |ctx|
     )?
   }
 }
+
+test test_full_inference_negation_instantiates_independent_numeric_domains { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure negate(value) { -value }
+pure magnitude(value) { if value < 0 { -value } else { value } }
+pure magnitude_of(value, zero) { if value < zero { -value } else { value } }
+pure scale_down(value) { -value + value + value }
+pure last_negated(items) { var kept = items[0]; for item in items { kept = -item }; kept }
+let negated = negate
+assert negate(4) == -4
+assert negate(2.5) == -2.5
+assert negated(7) == -7
+assert magnitude(-3) == 3
+assert magnitude_of(-1.5, 0.0) == 1.5
+assert scale_down(5) == 5
+assert last_negated([1, 2]) == -2
+assert last_negated([1.5, 2.5]) == -2.5
+print "negated"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "negated\n"
+}
+
+test test_full_inference_negation_rejects_operands_outside_its_domain { |ctx|
+  for case in [
+    {call: "negate(\"text\")", rejection: "NegationOperand does not support Str"},
+    {call: "negate(3s)", rejection: "NegationOperand does not support Duration"},
+    {call: "negate(true)", rejection: "NegationOperand does not support Bool"},
+  ] {
+    test.expect(
+      ctx,
+      "pure negate(value) { -value }\nlet rejected = " + case.call + "\n",
+      status: 2,
+      stderr: ["[check.operator-type]", case.rejection],
+    )?
+  }
+}

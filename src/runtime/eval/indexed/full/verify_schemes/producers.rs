@@ -5545,6 +5545,19 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, right.raw() as usize, right_type, false);
                 Ok(())
             }
+            schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Sub, left, right, .. }
+                if matches!(decoder.expression_view(left.raw() as usize)?, schema::ExprView::Int(0))
+                    && let (Some(result), Some(operand)) = (
+                        self.scoped_expression_type(&decoder, instruction)?,
+                        self.scoped_expression_type(&decoder, right.raw() as usize)?,
+                    )
+                    && operand.closed_ground_type().is_none() =>
+            {
+                if !super::body_types_equal(&result, &operand) {
+                    return Err(IrVerifyError::new("scoped negation result disagrees with its operand"));
+                }
+                Ok(())
+            }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge, left, right, .. }
                 if expected.as_ref() == &Type::Bool
                     && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))
