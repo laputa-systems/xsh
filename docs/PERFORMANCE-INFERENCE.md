@@ -190,7 +190,7 @@ Two further classes come from the current practical cohort.
   `add_bytes`, `count_data` and `add_counts` turns UInt fields into inferred
   arithmetic results and loses their return schemas. Keep these four.
 
-**Cross-type overloads.** `byte_at` (`Str` and `Bytes`), `get` (`Record` and
+**Cross-type overloads.** `byte_at` (`Str` and `Bytes`), `get` (`List` and
 `Map`) and `replace` (`Str` and `Regex`) on an unresolved receiver report
 `check.ambiguous-overload`. Section 9 makes these in-scope: a generic helper keeps
 a finite sealed requirement over the registry's domains and discharges it at each
