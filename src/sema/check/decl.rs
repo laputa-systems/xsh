@@ -1286,6 +1286,41 @@ impl Checker {
         }
     }
 
+    pub(super) fn finalize_user_module_values(
+        &mut self,
+        program: &ArenaProgram,
+        module: &ArenaUserModule,
+        signature: &mut UserModuleSig,
+    ) {
+        let mut reported = self
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference))
+            .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span))
+            .collect::<std::collections::BTreeSet<_>>();
+        for statement in program.arena.stmt_ids(module.statements) {
+            let ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else {
+                continue;
+            };
+            let inner = program.arena.stmt(inner);
+            let (ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. }) = inner.kind else {
+                continue;
+            };
+            let Some(name) = binding_target_simple_name_arena(program, target) else {
+                continue;
+            };
+            if let Some(ty) = signature.values.get_mut(&name) {
+                super::local_inference::finalize_type(
+                    &self.type_constraints,
+                    ty,
+                    inner.span,
+                    &mut reported,
+                    &mut self.diagnostics,
+                );
+            }
+        }
+    }
+
     /// Resolve exported type headers before the entry selects its argument domain.
     pub(super) fn module_type_headers(
         view: &CheckBundleView<'_>,

@@ -77,3 +77,37 @@ print ${invoke({value: 5})}
     assert result.stdout == "5\n", result.stdout
   }
 }
+
+test test_exported_value_from_a_generic_call_publishes_its_resolved_type { |ctx|
+  let modules = test.temp_dir(ctx, name: "typing-exported-generic-value")?
+  fp"{modules}/shared.xsh".write("##! Shared identity.\n## Returns its argument.\nexport pure identity(value) { value }\n")?
+  fp"{modules}/branch.xsh".write("""##! Branch holding a generic call result.
+use shared
+## The identity of one.
+export let value = shared.identity(1)
+## The identity of text.
+export let label = shared.identity("x")
+""")?
+  let result = test.run_xsh(ctx, r"""use branch
+let total: Int = branch.value + 1
+let text: Str = branch.label + "y"
+assert total == 2
+assert text == "xy"
+""", env: {XSH_MODULE_PATH: modules})?
+  assert result.status == 0, result.stderr
+}
+
+test test_exported_value_with_an_unresolved_type_is_rejected_in_its_module { |ctx|
+  let modules = test.temp_dir(ctx, name: "typing-exported-unresolved-value")?
+  fp"{modules}/branch.xsh".write("""##! Branch holding an unresolved call result.
+## Returns its argument.
+export pure keep(value) { value }
+## The unresolved result.
+export let value = keep([])
+""")?
+  let result = test.run_xsh(ctx, "use branch\nprint $branch.value.len()\n", env: {XSH_MODULE_PATH: modules})?
+  assert result.status == 2, result.stderr
+  assert "[check.local-inference]" in result.stderr, result.stderr
+  assert "branch.xsh:5" in result.stderr, result.stderr
+  assert "[check.field-access]" not in result.stderr, result.stderr
+}

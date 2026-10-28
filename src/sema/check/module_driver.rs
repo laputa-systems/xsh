@@ -475,6 +475,7 @@ impl Checker {
         let facts = checker.effect_graph.facts(&checker.effect_summaries);
         checker.finalize_function_declarations(program, &facts);
         checker.finalize_user_module_functions(program, module, &mut signature);
+        checker.finalize_user_module_values(program, module, &mut signature);
         checker.publish_command_binding_sites();
         checker.record_constructors = record.prepared_facts().record_constructors.clone();
         let output = checker.into_output();
