@@ -33,6 +33,19 @@ def fingerprint(info):
     return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
+_READ_BUFFER = bytearray(1 << 20)
+
+
+def file_sha256(source):
+    digest = hashlib.sha256()
+    view = memoryview(_READ_BUFFER)
+    while True:
+        count = source.readinto(view)
+        if not count:
+            return digest.digest()
+        digest.update(view[:count])
+
+
 def add(digest, value):
     digest.update(len(value).to_bytes(8, "big"))
     digest.update(value)
@@ -131,13 +144,17 @@ def capture(root=None):
     add(digest, index)
     add(digest, index_details)
     add(digest, index_presence)
+    contained_ancestors = set()
     for name in sorted(source_names):
         name.decode("utf-8")
         if name.startswith(b"/") or any(part in (b"", b".", b"..") for part in name.split(b"/")):
             raise ValueError("Git returned an invalid source path")
         path = os.path.join(root, name)
-        if os.path.commonpath((root, os.path.realpath(os.path.dirname(path)))) != root:
-            raise ValueError("source ancestor escapes the repository")
+        ancestor = os.path.dirname(path)
+        if ancestor not in contained_ancestors:
+            if os.path.commonpath((root, os.path.realpath(ancestor))) != root:
+                raise ValueError("source ancestor escapes the repository")
+            contained_ancestors.add(ancestor)
         add(digest, name)
         try:
             before = os.lstat(path)
@@ -178,11 +195,11 @@ def capture(root=None):
                 raise ValueError("source symlink target changed during inspection")
         elif stat.S_ISREG(before.st_mode):
             flags = os.O_RDONLY | os.O_NOFOLLOW
-            with os.fdopen(os.open(path, flags), "rb") as source:
+            with os.fdopen(os.open(path, flags), "rb", buffering=0) as source:
                 if fingerprint(os.fstat(source.fileno())) != fingerprint(before):
                     raise ValueError("source changed before inspection")
                 add(digest, b"file")
-                add(digest, hashlib.file_digest(source, "sha256").digest())
+                add(digest, file_sha256(source))
                 if fingerprint(os.fstat(source.fileno())) != fingerprint(before):
                     raise ValueError("source changed during inspection")
         else:
