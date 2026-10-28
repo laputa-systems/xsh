@@ -66,8 +66,29 @@ Branch decisions, 2026-10-28 (tip SHAs kept so any branch can be restored):
 - `.work/wt/pyramid-tokei-upstream`, the pinned upstream Tokei reference, stays.
   Finish-line item 2 is complete.
 
-Next: with a quiet host, run every catalogue Change case on `master` (item 1),
-the workload-family correctness cases (item 3), and the P0 baselines (item 4).
+Item 3 is complete on 2026-10-28: all 49 workload-family correctness cases
+passed through `cargo dev gate --case`, one case per run. They ran on
+`ba8102de0`, `e18c2e5e1` or `22451afb0`, which differ only in gate,
+container and test harness repairs. The Laputa cases passed against Laputa
+`9485988`. The Tokei uutils scenario passed with the pinned reference binary
+`53c96c15…` and uutils `e7c9f3194`: the selected file sets match. Its source
+provenance stays unqualified and its counts differ as recorded.
+
+The first family runs exposed harness defects, now repaired:
+- Lease files pinned to this host's inodes failed on fresh clones and in
+  worktree containers (`41e10555d`, `ead52b4c5`).
+- BuildKit provenance gave each cached `xsh-test` rebuild a new image ID,
+  which deleted images pinned by concurrent focused cases (`e18c2e5e1`).
+- Four dev-test hang guards sat at their idle runtimes (`1ce29a038`).
+- The corpus agreement test ran serially on musl's allocator: 655 s, so
+  `test-lowering` and `test-type-agreement` timed out on clean `master`.
+  It now takes 75 s (`88fb7d722`, `22451afb0`).
+
+A combined Change selection shares one 300 s budget, so it cannot finish
+under heavy load; per-case runs each get the full budget.
+
+Next: finish item 1 across the remaining Change cases on `master`, then the P0
+baselines (item 4) in a quiet window.
 
 Automatic discovery now reads staged, unstaged and untracked Git paths with
 NUL delimiters and rejects non-UTF-8 output. The Docker launcher scopes Git's
