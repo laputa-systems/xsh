@@ -1771,16 +1771,18 @@ export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int =
     Err(cause) => print f"cancelled run could not remove its container: {cause.message}"
   }
   let me = process.current_pid()?
-  let owned = [entry.pid for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
-  for pid in owned {
-    match process.kill(pid, signal: signal) {
+  let owned = [entry for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
+  for entry in owned {
+    let signalled = if entry.pgrp == entry.pid { process.kill_group(entry.pid, signal: signal) } else { process.kill(entry.pid, signal: signal) }
+    match signalled {
       Ok(_) => {}
       Err(_) => {}
     }
   }
+  let owned_pids = [entry.pid for entry in owned]
   let deadline = time.monotonic()? + grace_ms * 1000000
   while time.monotonic()? < deadline {
-    let alive = [entry.pid for entry in process.list()? if entry.pid in owned and entry.status != "Z"]
+    let alive = [entry.pid for entry in process.list()? if entry.pid in owned_pids and entry.status != "Z"]
     break when alive.is_empty()
     time.sleep(100ms)
   }
