@@ -79,7 +79,7 @@ test test_discover_has_the_exact_wire_bytes {
   assert datagram[..44] == header
   assert datagram[44..236] == bytes.zero(192)?
   assert datagram[236..240] == b"\x63\x82\x53\x63"
-  let options = bytes.concat([b"\x35\x01\x01", b"\x3d\x07\x01", MAC, b"\x39\x02\x05\xdc", b"\x37\x08\x01\x03\x06\x0f\x1c\x33\x3a\x3b", b"\xff"])
+  let options = bytes.concat([b"\x35\x01\x01", b"\x3d\x07\x01", MAC, b"\x39\x02\x05\xdc", b"\x37\x09\x01\x03\x06\x0f\x1c\x33\x3a\x3b\x79", b"\xff"])
   assert datagram[240..240 + options.len()] == options
   assert datagram[240 + options.len()..] == bytes.zero(300 - 240 - options.len())?
 }
@@ -89,8 +89,64 @@ test test_requested_options_are_a_subset_of_the_implemented_options {
   for code in wire.requested_options() {
     assert code in implemented
   }
-  assert wire.requested_options() == [1, 3, 6, 15, 28, 51, 58, 59]
-  assert 121 not in implemented
+  assert wire.requested_options() == [1, 3, 6, 15, 28, 51, 58, 59, 121]
+}
+
+pure classless(entries: List[Bytes]) -> Bytes {
+  option(121, bytes.concat(entries))
+}
+
+pure entry(prefix: Int, significant: Bytes, gateway: Int) -> Bytes {
+  bytes.concat([ints([prefix]), significant, be32(gateway)])
+}
+
+test test_classless_routes_are_decoded_with_their_significant_octets_only {
+  let data = offer_with([classless([entry(24, b"\x0a\x01\x02", SERVER), entry(0, b"", SERVER), entry(32, b"\xc0\x00\x02\x09", 0), entry(17, b"\x0a\x80\x80", SERVER + 1), entry(1, b"\x80", SERVER)])])
+  let value = decoded(data)?
+  assert value.classless_routes == [
+    {destination: 167838208, prefix: 24, gateway: SERVER},
+    {destination: 0, prefix: 0, gateway: SERVER},
+    {destination: 3221225993, prefix: 32, gateway: 0},
+    {destination: 176193536, prefix: 17, gateway: SERVER + 1},
+    {destination: 2147483648, prefix: 1, gateway: SERVER},
+  ]
+}
+
+test test_a_classless_option_split_across_instances_is_concatenated {
+  let whole = bytes.concat([entry(24, b"\x0a\x01\x02", SERVER), entry(8, b"\x0a", SERVER)])
+  let data = offer_with([option(121, whole[..4]), option(121, whole[4..])])
+  assert decoded(data)?.classless_routes.len() == 2
+}
+
+test test_malformed_classless_options_are_typed_rejections {
+  assert verdict(offer_with([classless([entry(33, b"\x0a\x01\x02\x03\x04", SERVER)])])) == "value_121"
+  assert verdict(offer_with([classless([ints([24, 10, 1, 2, 192, 168])])])) == "length_121"
+  assert verdict(offer_with([classless([ints([24, 10, 1])])])) == "length_121"
+  assert verdict(offer_with([option(121, b"")])) == "length_121"
+  assert verdict(offer_with([classless([entry(24, b"\x0a\x01\x02", SERVER), ints([8])])])) == "length_121"
+}
+
+test test_classless_destinations_must_be_canonical_routable_and_unique {
+  assert verdict(offer_with([classless([entry(20, b"\x0a\x01\x0f", SERVER)])])) == "value_121", "host bits set"
+  assert verdict(offer_with([classless([entry(8, b"\x7f", SERVER)])])) == "value_121", "loopback"
+  assert verdict(offer_with([classless([entry(4, b"\xe0", SERVER)])])) == "value_121", "multicast"
+  assert verdict(offer_with([classless([entry(8, b"\x00", SERVER)])])) == "value_121", "this network"
+  assert verdict(offer_with([classless([entry(24, b"\x0a\x01\x02", SERVER), entry(24, b"\x0a\x01\x02", SERVER + 1)])])) == "value_121", "duplicate"
+  assert verdict(offer_with([classless([entry(0, b"", SERVER), entry(1, b"\x00", SERVER)])])) == "accepted", "split defaults"
+}
+
+test test_classless_gateways_are_unicast_or_on_link {
+  assert verdict(offer_with([classless([entry(24, b"\x0a\x01\x02", 0)])])) == "accepted"
+  assert verdict(offer_with([classless([entry(24, b"\x0a\x01\x02", 4294967295)])])) == "address_classless_gateway"
+  assert verdict(offer_with([classless([entry(24, b"\x0a\x01\x02", 3758096385)])])) == "address_classless_gateway"
+  assert verdict(offer_with([classless([entry(24, b"\x0a\x01\x02", 2130706433)])])) == "address_classless_gateway"
+}
+
+test test_the_classless_route_count_is_bounded {
+  let many = [entry(32, bytes.concat([ints([10, 0, 0]), ints([index])]), SERVER) for index in range(wire.MAX_CLASSLESS_ROUTES + 1)]
+  assert verdict(offer_with([option(121, bytes.concat(many[..28])), option(121, bytes.concat(many[28..]))])) == "value_121"
+  let allowed = [entry(32, bytes.concat([ints([10, 0, 0]), ints([index])]), SERVER) for index in range(wire.MAX_CLASSLESS_ROUTES)]
+  assert verdict(offer_with([option(121, bytes.concat(allowed[..28])), option(121, bytes.concat(allowed[28..]))])) == "accepted"
 }
 
 test test_request_forms_set_ciaddr_requested_address_server_and_flag {
@@ -285,7 +341,7 @@ pure next_random(state: Int) -> Int {
 }
 
 test test_mutated_replies_yield_only_ok_or_typed_rejects {
-  let seed = offer_with([option(1, b"\xff\xff\xff\x00"), option(3, be32(SERVER)), option(6, be32(167772161)), option(15, b"example.org"), option(58, be32(1800)), option(59, be32(3150))])
+  let seed = offer_with([option(1, b"\xff\xff\xff\x00"), option(3, be32(SERVER)), option(6, be32(167772161)), option(15, b"example.org"), option(58, be32(1800)), option(59, be32(3150)), classless([entry(24, b"\x0a\x01\x02", SERVER), entry(0, b"", SERVER)])])
   var state = 20260101
   var accepted = 0
   var reasons = []
@@ -309,6 +365,12 @@ test test_mutated_replies_yield_only_ok_or_typed_rejects {
         }
         if let mask = value.subnet_mask {
           assert wire.mask_prefix(mask) != null
+        }
+        assert value.classless_routes.len() <= wire.MAX_CLASSLESS_ROUTES
+        for route in value.classless_routes {
+          assert route.prefix >= 0 and route.prefix <= 32
+          assert route.destination.bit_and(wire.prefix_mask(route.prefix) ?? 0) == route.destination
+          assert route.gateway == 0 or wire.is_unicast(route.gateway)
         }
       }
       Err(reject) => {

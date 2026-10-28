@@ -1,4 +1,4 @@
-##! DHCPv4 wire format (RFC 2131, 2132, 3396): message encoders and one
+##! DHCPv4 wire format (RFC 2131, 2132, 3396, 3442): message encoders and one
 ##! validating decoder. Nothing here touches a socket or a clock; every
 ##! function maps bytes and numbers to bytes, numbers or a typed rejection.
 ##! IPv4 addresses are unsigned 32-bit integers, so address arithmetic is
@@ -68,6 +68,7 @@ export type Message = {
   rebinding_secs: Int?,
   subnet_mask: Int?,
   routers: List[Int],
+  classless_routes: List[ClasslessRoute],
   dns: List[Int],
   domain: Str?,
   broadcast_address: Int?,
@@ -75,6 +76,11 @@ export type Message = {
   parameter_list: List[Int],
   text: Str?,
 }
+
+## One route of the classless static route option (RFC 3442): a destination
+## network of `prefix` bits and the router that reaches it, where a router of
+## 0.0.0.0 means the destination is on the link itself.
+export type ClasslessRoute = {destination: Int, prefix: Int, gateway: Int}
 
 type RawOption = {code: Int, data: Bytes, parts: Int}
 
@@ -114,6 +120,8 @@ export const MIN_MESSAGE_LENGTH = 240
 export const MAX_MESSAGE_LENGTH = 1500
 ## The most addresses kept from a router or DNS list.
 export const MAX_LIST_ITEMS = 8
+## The most routes kept from a classless static route option.
+export const MAX_CLASSLESS_ROUTES = 32
 ## The most option instances one message may carry across its option areas.
 export const MAX_OPTION_INSTANCES = 256
 ## The BOOTP minimum size encoded messages are padded to.
@@ -125,6 +133,7 @@ const OPTION_ROUTERS = 3
 const OPTION_DNS = 6
 const OPTION_DOMAIN = 15
 const OPTION_BROADCAST = 28
+const OPTION_CLASSLESS = 121
 const OPTION_REQUESTED_IP = 50
 const OPTION_LEASE = 51
 const OPTION_OVERLOAD = 52
@@ -163,6 +172,7 @@ const OPTION_RULES: List[OptionRule] = [
   {code: OPTION_RENEWAL, concatenates: false, requested: true},
   {code: OPTION_REBINDING, concatenates: false, requested: true},
   {code: OPTION_CLIENT_ID, concatenates: true, requested: false},
+  {code: OPTION_CLASSLESS, concatenates: true, requested: true},
 ]
 
 ## The option codes this library parses and validates.
@@ -451,6 +461,42 @@ pure address_list(options: List[RawOption], code: Int, field: Str) -> Result[Lis
   Ok(addresses |> take(MAX_LIST_ITEMS))
 }
 
+pure routable_destination(destination: Int, prefix: Int) -> Bool {
+  return true when prefix == 0
+  let first = destination / 16777216
+  return false when first >= 224 or first == 127
+  first != 0 or prefix < 8
+}
+
+pure classless_routes(options: List[RawOption]) -> Result[List[ClasslessRoute], WireReject] {
+  guard let data = find_option(options, OPTION_CLASSLESS) else { return Ok([]) }
+  fail .BadOptionLength(OPTION_CLASSLESS) when data.len() < 5
+  var routes: List[ClasslessRoute] = []
+  var offset = 0
+  while offset < data.len() {
+    let prefix = data.byte_at(offset) ?? 0
+    fail .BadOptionValue(OPTION_CLASSLESS) when prefix > 32
+    let significant = (prefix + 7) / 8
+    fail .BadOptionLength(OPTION_CLASSLESS) when offset + 1 + significant + 4 > data.len()
+    var destination = 0
+    for index in range(4) {
+      let octet = if index < significant { data.byte_at(offset + 1 + index) ?? 0 } else { 0 }
+      destination = destination * 256 + octet
+    }
+    let gateway = read_u32(data, offset + 1 + significant)
+    fail .BadOptionValue(OPTION_CLASSLESS) unless destination.bit_and(prefix_mask(prefix) ?? 0) == destination
+    fail .BadOptionValue(OPTION_CLASSLESS) unless routable_destination(destination, prefix)
+    fail .BadAddress("classless_gateway") unless gateway == 0 or is_unicast(gateway)
+    for held in routes {
+      fail .BadOptionValue(OPTION_CLASSLESS) when held.destination == destination and held.prefix == prefix
+    }
+    fail .BadOptionValue(OPTION_CLASSLESS) when routes.len() >= MAX_CLASSLESS_ROUTES
+    routes += [ClasslessRoute(destination:, prefix:, gateway:)]
+    offset += 1 + significant + 4
+  }
+  Ok(routes)
+}
+
 pure is_label(label: Str) -> Bool {
   return false when label == "" or label.byte_len() > 63
   return false when label.starts_with("-") or label.ends_with("-")
@@ -609,6 +655,7 @@ export pure decode(data: Bytes) -> Result[Message, WireReject] {
     rebinding_secs: single_word(options, OPTION_REBINDING)?,
     subnet_mask: subnet_mask(options)?,
     routers: address_list(options, OPTION_ROUTERS, "router")?,
+    classless_routes: classless_routes(options)?,
     dns: address_list(options, OPTION_DNS, "dns")?,
     domain: domain_name(options)?,
     broadcast_address: single_word(options, OPTION_BROADCAST)?,
