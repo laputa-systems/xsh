@@ -400,4 +400,16 @@ design above assumes the stated defaults.
 
 ## Decision
 
-Pending owner review.
+Accepted on 2026-10-28 with these answers to the open questions:
+
+1. Proceed. The G0 candidate is a frozen commit, so this work on `master` does
+   not change it; the exception is recorded in `docs/ROADMAP.md`.
+2. Remove the five `linux.dhcp_*` operations in D7 as a breaking change, so one
+   wire implementation remains.
+3. Names as written.
+4. `Dockerfile.test` gains `dnsmasq` as the independent reference DHCP server and
+   `tcpdump` for captures; the DHCP lane owns that edit. The glibc client test
+   runs as a documented one-off integration in a disposable glibc container that
+   shares only the test socket directory, not as a gate case.
+5. Refuse and report.
+6. S9 starts after S6 and S7 are accepted; D9 starts after D8 is accepted.
