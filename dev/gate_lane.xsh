@@ -114,6 +114,7 @@ export const lane_exclusions: List[Exclusion] = [
   Exclusion(missing: "a host resource the container lacks", tests: [
     "core/tests/test-basename.xsh::test_basename_runs_as_executable_shebang_script",
     "core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports",
+    "core/tests/test-syslog-kmsg-device.xsh::test_the_kernel_message_source_opens_at_the_end_and_does_not_disturb_the_socket",
     "core/tests/test-uu-comm.xsh::test_uu_comm_locale_collation",
     "core/tests/test-uu-cp-5.xsh::test_uu_cp_cp_xattr_enotsup_handling",
     "core/tests/test-uu-dd-2.xsh::test_uu_dd_seek_past_dev",

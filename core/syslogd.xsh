@@ -1,4 +1,5 @@
 #!/bin/xsh
+use lib.syslog_kernel as kernel
 use lib.syslog_kmsg as kmsg
 use lib.syslog_limit as limit
 use lib.syslog_parse as parse
@@ -35,7 +36,6 @@ const EAGAIN = 11
 
 type Options = {help: Bool, socket: Str, state: Str?, kmsg: Str?}
 type Credentials = {pid: Int, uid: Int, gid: Int}
-type Sink = {target: Str, dev: Int, ino: Int, linked: Bool}
 
 on TERM [process] {
   exit 0
@@ -56,12 +56,6 @@ pure credentials(control: List[LinuxControlMessage]) -> Credentials? {
     }
   }
   null
-}
-
-proc sink_target() [fs, error] -> Result[Sink?, Error] {
-  let info = fs.stat(Path("/proc/self/fd/1"), follow_symlinks: true)?
-  if info.kind != "file" { return Ok(null) }
-  Ok({target: Path("/proc/self/fd/1").readlink()?.display(), dev: info.dev, ino: info.ino, linked: info.nlink > 0})
 }
 
 proc receive(fd: Int) [process, net, error] -> Result[List[LinuxReceivedMessage], Error] {
@@ -98,11 +92,11 @@ proc finish_line(line: Str) [process, net, io, error] {
   }
 }
 
-type SinkCheck = {sink: Sink?, removed: Bool}
+type SinkCheck = {sink: kernel.Output?, removed: Bool}
 
-proc check_sink(previous: Sink?) [fs, process, net, io, error] -> Result[SinkCheck, Error] {
+proc check_sink(previous: kernel.Output?) [fs, process, net, io, error] -> Result[SinkCheck, Error] {
   if let before = previous {
-    if let current = sink_target()? {
+    if let current = kernel.output()? {
       if ! current.linked { return Ok({sink: previous, removed: true}) }
       if current.target != before.target {
         finish_line(f"event=sink-moved from=\"{before.target}\" to=\"{current.target}\"")
@@ -173,7 +167,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
       exit 1
     }
   }
-  let boot_id = Path("/proc/sys/kernel/random/boot_id").read_text()?.trim()
+  let boot_id = kernel.boot_id()?
   var limiter = limit.new_limiter(limit.DEFAULT_CONFIG)?
   var sequence = 0
   defer {
@@ -207,7 +201,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
       descriptor
     }
   }
-  var sink = sink_target()?
+  var sink = kernel.output()?
   var last_report = 0
   var last_sink_check = 0
   while true {
