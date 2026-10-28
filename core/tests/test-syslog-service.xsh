@@ -501,3 +501,50 @@ test test_a_hangup_from_a_supervisor_reload_leaves_the_service_running { |ctx|
   svc.signal(lay, "TERM")?
   assert (wait handle?).exited_with(0)
 }
+
+proc as_user(ctx: TestContext, lay: svc.Layout, tag: Str, uid: Int, scenario: Str, args: List[Str], stdin = b"") [fs, process, error] -> Result[Command, Error] {
+  let root = fp"{lay.root}/{tag}"
+  root.mkdir()
+  root.chmod(0o755)
+  let script = fp"{ctx.core_dir}/tests/support/syslog_sender.py"
+  let argv = ["setpriv", f"--reuid={uid}", f"--regid={uid}", "--clear-groups", "python3", "-I", script.display(), scenario, lay.socket.display()].extend(args)
+  Ok(process.command_argv("setpriv", argv, root, {LC_ALL: "C"}, stdin, fp"{root}/sender.out", timeout: 120s))
+}
+
+test test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials { |ctx|
+  if unix.id()?.uid != 0 {
+    test.skip("running senders as other users needs real root")
+    return
+  }
+  let lay = svc.layout(ctx, "uids")?
+  let launch = boot(ctx, lay)?
+  let command = launch.command
+  let handle = spawn command?
+  svc.attach(launch)
+  svc.await_ready(launch)
+  let first_command = as_user(ctx, lay, "u1", 1001, "numbered", ["10"])?
+  let second_command = as_user(ctx, lay, "u2", 1002, "numbered", ["10"])?
+  let third_command = as_user(ctx, lay, "u3", 1003, "numbered", ["10"])?
+  let first = spawn first_command?
+  let second = spawn second_command?
+  let third = spawn third_command?
+  assert (wait first?).exited_with(0) and (wait second?).exited_with(0) and (wait third?).exited_with(0)
+  let claim_command = as_user(ctx, lay, "u4", 1004, "datagram", [], b"<13>Oct 28 10:11:12 elsewhere root[1]: claims to be pid 1\n")?
+  assert process.run(claim_command)?.exited_with(0)
+  let lines = svc.await_lines(lay, "seq=", 31)?
+  var seen: Map[Str, Int] = {}
+  for line in lines {
+    let fields = rx" pid=([0-9]+) uid=([0-9]+) gid=([0-9]+) ".captures(line)
+    assert ! fields.is_empty(), line
+    assert fields[2] == fields[3], line
+    seen[fields[2]] = (seen.get(fields[2]) ?? 0) + 1
+    if "tag=\"root\"" in line {
+      assert fields[2] == "1004" and "tag_pid=1 host=\"elsewhere\"" in line, line
+      assert fields[1] != "1", line
+    }
+  }
+  assert seen.len() == 4
+  assert [seen.get(uid) ?? 0 for uid in ["1001", "1002", "1003", "1004"]] == [10, 10, 10, 1]
+  svc.signal(lay, "TERM")?
+  assert (wait handle?).exited_with(0)
+}

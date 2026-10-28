@@ -13,7 +13,7 @@ proc compiled_client(ctx: TestContext, root: Path) [fs, process, env, error] -> 
   Ok(binary)
 }
 
-proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str], namespaces: List[Str] = ["user", "mnt"], map_root: Bool = true) [fs, process, env, error] -> Result[Scene?] {
+proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str]) [fs, process, env, error] -> Result[Scene?] {
   let root = test.temp_dir(ctx, name: name)?
   let client = compiled_client(ctx, root)?
   let state = fp"{root}/state"
@@ -24,7 +24,7 @@ proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str], namespac
   let script = fp"{ctx.core_dir}/tests/support/syslog_scene.sh"
   let argv = ["sh", script.display(), ctx.xsh_bin.display(), fp"{ctx.core_dir}/syslogd.xsh".display(), state.display(), log.display(), err.display(), client.display(), mode].extend(args)
   let plan = process.command_argv("sh", argv, root, {PATH: e"PATH" ?? "/usr/bin:/bin", LC_ALL: "C"})
-  match linux.run_in_namespaces(plan, unshare: namespaces, map_root_user: map_root) {
+  match linux.run_in_namespaces(plan, unshare: ["user", "mnt"], map_root_user: true) {
     Err(failure) => {
       if "unshare failed" in failure.message { return Ok(null) }
       Err(failure)
@@ -114,26 +114,4 @@ test test_a_burst_of_libc_messages_is_recorded_in_order_without_loss { |ctx|
     assert f"msg=\"counted {index}\"" in lines[index], lines[index]
     assert "facility=local3" in lines[index]
   }
-}
-
-test test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials { |ctx|
-  if unix.id()?.uid != 0 {
-    test.skip("running clients as other users needs real root")
-    return
-  }
-  guard let scene = run_scene(ctx, "libc-uids", "uids", [], ["mnt"], false)? else {
-    test.skip("the kernel refuses mount namespaces")
-    return
-  }
-  let lines = records(scene)
-  assert lines.len() == 30, f"{lines.len()} of 30 arrived: {scene.err}"
-  var seen: Map[Str, Int] = {}
-  for line in lines {
-    let fields = rx" pid=([0-9]+) uid=([0-9]+) gid=([0-9]+) ".captures(line)
-    assert ! fields.is_empty(), line
-    assert fields[2] == fields[3], line
-    seen[fields[2]] = (seen.get(fields[2]) ?? 0) + 1
-  }
-  assert seen.len() == 3
-  assert [seen.get(uid) ?? 0 for uid in ["1001", "1002", "1003"]] == [10, 10, 10]
 }

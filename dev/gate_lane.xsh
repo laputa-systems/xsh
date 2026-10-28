@@ -23,6 +23,7 @@ export const root_tests = [
   "core/tests/test-setpriv.xsh::test_setpriv_securebits_are_edited_from_the_current_flags",
   "core/tests/test-setpriv.xsh::test_setpriv_supplementary_groups_are_cleared_listed_or_initialized",
   "core/tests/test-setpriv.xsh::test_setpriv_uid_options_set_real_effective_and_saved_ids",
+  "core/tests/test-syslog-service.xsh::test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials",
   "core/tests/test-traceroute.xsh::test_traceroute_gateway_adds_a_source_route",
   "core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports",
   "core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined",
@@ -108,7 +109,6 @@ export const namespace_tests = [
 ## Tests no gate lane can run: the lane lacks a service, resource, platform or the skip outcome is the subject.
 export const lane_exclusions: List[Exclusion] = [
   Exclusion(missing: "an unmasked /proc or CAP_SYS_ADMIN in the initial user namespace, which no confined gate container grants", tests: [
-    "core/tests/test-syslog-libc.xsh::test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials",
     "core/tests/test-unshare.xsh::test_unshare_mount_proc_accepts_a_directory",
     "core/tests/test-unshare.xsh::test_unshare_mount_proc_shows_the_new_pid_namespace",
     "tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace",

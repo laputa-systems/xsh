@@ -43,17 +43,6 @@ count)
     "$client" count "$1"
     sleep 1
     ;;
-uids)
-    clients=""
-    for uid in 1001 1002 1003; do
-        setpriv --reuid="$uid" --regid="$uid" --clear-groups "$client" count 10 &
-        clients="$clients $!"
-    done
-    for pid in $clients; do
-        wait "$pid"
-    done
-    sleep 1
-    ;;
 stalled)
     kill -STOP "$service_pid"
     "$client" count "$1" &
