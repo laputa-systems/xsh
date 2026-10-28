@@ -8717,7 +8717,7 @@ impl<'a> FullDecoder<'a> {
                 scoped_initializers.push(value.raw() as usize);
             }
         }
-        if scoped_initializers.is_empty() && !temporary {
+        if scoped_initializers.is_empty() && (!temporary || self.is_pattern_condition_capture(slot, charge)?) {
             return Ok(None);
         }
         if self.is_parameter_or_capture_slot(slot, charge)? {
@@ -8753,6 +8753,38 @@ impl<'a> FullDecoder<'a> {
             ));
         }
         Ok(Some(*initializer))
+    }
+
+    fn is_pattern_condition_capture(
+        &self,
+        slot: usize,
+        charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        for instruction in self.instruction_range.clone() {
+            charge(1)?;
+            match self.store.tags[instruction] {
+                FullTag::ExprPatternIf => {
+                    let schema::ExprView::PatternIf { branches, .. } = self.expression_view(instruction)? else { continue };
+                    for branch in branches {
+                        charge(1)?;
+                        for captured in branch?.2 {
+                            if captured? == slot { return Ok(true); }
+                        }
+                    }
+                }
+                FullTag::StmtPatternIf => {
+                    let schema::StmtView::PatternIf { branches, .. } = self.statement_view(instruction)? else { continue };
+                    for branch in branches {
+                        charge(1)?;
+                        for captured in branch?.2 {
+                            if captured? == slot { return Ok(true); }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
     }
 
     fn is_parameter_or_capture_slot(
@@ -34316,6 +34348,23 @@ assert nullable_name == null
         let mut forged = program.clone();
         forged.store.runtime_ops[operations[0]] = RuntimeOp::MapEmpty;
         assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn full_verifier_rejects_a_forged_pattern_capture_argument_binder() {
+        let program = fixture(
+            "pattern-capture-argument.xsh",
+            "pure ident(value) { value }\n\
+             pure labelled(selected: Bytes) -> Str {\n  let text = if let Ok(value) = selected.utf8() { ident(value) } else { \"none\" }\n  text\n}\n\
+             let label = labelled(b\"abc\")\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call(&program, "ident");
+        let mut forged = program.clone();
+        let int = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Int).unwrap();
+        replace_scheme_fixture_call_type(&mut forged, call, int);
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
     }
 
     fn pipeline_payload_fixture() -> (FullProgram, usize) {

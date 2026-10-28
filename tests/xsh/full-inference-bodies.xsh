@@ -473,3 +473,21 @@ let rejected = present_or(name, 1)
     stderr: ["[check."],
   )?
 }
+
+test test_full_inference_pattern_capture_in_an_initializer_is_a_generic_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure ident(value) { value }
+pure labelled(selected: Bytes) -> Str {
+  let text = if let Ok(value) = selected.utf8() { ident(value) } else { "none" }
+  text
+}
+let good = labelled(b"abc")
+let bad = labelled(b"\xff")
+print $good
+print $bad
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "abc\nnone\n"
+}
