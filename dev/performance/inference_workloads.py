@@ -225,7 +225,7 @@ def _recursive_effect_component(size):
             next_index = (index + 1) % size
             argument_type = ': Int' if annotated else ''
             effect_clause = ' [time]' if annotated else ''
-            return_type = ' -> Int' if annotated else ''
+            return_type = ' -> Result[Int]' if annotated else ''
             recursive_call = f'effect_step_{next_index}(value - 1)'
             if index == size - 1:
                 body = f'if value <= 0 {{ 42 }} else {{ let _ = time.now(); {recursive_call} }}'
@@ -233,7 +233,7 @@ def _recursive_effect_component(size):
                 body = f'if value <= 0 {{ 42 }} else {{ {recursive_call} }}'
             lines.append(f'proc effect_step_{index}(value{argument_type}){effect_clause}{return_type} {{ {body} }}')
         answer_type = ': Int' if annotated else ''
-        lines.extend(('', f'let answer{answer_type} = effect_step_0({size})', 'print $answer', ''))
+        lines.extend(('', f'let answer{answer_type} = effect_step_0({size})?', 'print $answer', ''))
         return {'main.xsh': '\n'.join(lines)}
 
     return _workload('recursive-effect-component', 'component', size, source(True), source(False))

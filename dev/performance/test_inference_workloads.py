@@ -145,6 +145,8 @@ class InferenceWorkloadTests(unittest.TestCase):
                     self.assertEqual(reduced.count('time.now()'), 1)
                     self.assertIn('effect_step_0(value - 1)', annotated)
                     self.assertIn('effect_step_0(value - 1)', reduced)
+                    for source in (annotated, reduced):
+                        self.assertIn(f'= effect_step_0({case.size})?\n', source)
                 elif case.family == 'finite-overload-chain':
                     self.assertEqual(annotated.count('|> map(identity)'), case.size)
                     self.assertEqual(reduced.count('|> map(identity)'), case.size)
