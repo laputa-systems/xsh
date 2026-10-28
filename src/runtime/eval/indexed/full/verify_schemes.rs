@@ -5524,6 +5524,22 @@ fn checked_argument_type_inner(
                     .map(|ty| Some(CheckedArgumentType::Known(ty)));
             }
         }
+        schema::ExprView::Slice { base, .. } => {
+            if let Some(CheckedArgumentType::Known(base_type)) = checked_argument_type(
+                store,
+                decoder,
+                use_instruction,
+                base.raw() as usize,
+                materialization,
+                depth + 1,
+            )? {
+                ensure_closed_type(&base_type)?;
+                if matches!(base_type.unvalidated(), Type::List(_) | Type::Str | Type::Bytes) {
+                    materialization.charge_clone(&base_type)?;
+                    return Ok(Some(CheckedArgumentType::Known(base_type.into_unvalidated())));
+                }
+            }
+        }
         schema::ExprView::Field { base, name, .. } => {
             let base_instruction = base.raw() as usize;
             if decoder.instruction_range.contains(&instruction)

@@ -553,3 +553,19 @@ print $fallback
   assert output.success, output.stderr
   assert output.stdout == "none\nsome\nb\nz\n"
 }
+
+test test_full_inference_slice_of_a_typed_value_is_a_generic_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure width(input, marker) { input.len() }
+pure head(value: Bytes, start: Int) -> Int { width(value[..start], 1) }
+pure words(items: List[Str], count: Int) -> Int { width(items[..count], "m") }
+let bytes_width = head(b"abcdef", 3)
+let list_width = words(["a", "b", "c"], 2)
+print $bytes_width
+print $list_width
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n2\n"
+}

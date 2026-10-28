@@ -34504,6 +34504,22 @@ assert nullable_name == null
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
+    #[test]
+    fn full_verifier_rejects_a_forged_slice_argument_binder() {
+        let program = fixture(
+            "slice-argument.xsh",
+            "pure width(input, marker: Int) { input.len() }\n\
+             pure head(value: Bytes, start: Int) -> Int { width(value[..start], 1) }\n\
+             let measured = head(b\"abcdef\", 3)\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call(&program, "width");
+        let mut forged = program.clone();
+        let text = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Str).unwrap();
+        replace_scheme_fixture_call_type(&mut forged, call, text);
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",
