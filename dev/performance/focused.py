@@ -124,15 +124,15 @@ def _parse_config(value):
 
 
 def _admission(config):
-    owner = check.baseline_owner(
-        config,
-        'dev/consolidation/winddown/gate-tools/final-performance-gates/final-comparative.py',
-        'focused_admission',
-    )
-    admission = owner.perf_gate_check()
-    check.require(isinstance(admission, dict) and type(admission.get('exit_code')) is int,
-                  'focused resource admission result is malformed')
-    check.require(admission['exit_code'] == 0, 'focused resource admission unavailable')
+    command = ['perf-gate-ready', '-s', str(config.scratch)]
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, check=False, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise check.CheckError(f'focused resource admission unavailable: {error}') from error
+    admission = {'command': command, 'exit_code': result.returncode,
+                 'stdout': result.stdout, 'stderr': result.stderr}
+    check.require(admission['exit_code'] == 0,
+                  f'focused resource admission unavailable: {result.stderr.strip() or result.returncode}')
     return admission
 
 

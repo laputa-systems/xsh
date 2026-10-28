@@ -673,11 +673,15 @@ class FocusedTests(unittest.TestCase):
             launch.assert_not_called()
             self.assertFalse(config.output.exists())
         with self.config() as config:
-            with patch.object(check, 'baseline_owner', return_value=SimpleNamespace(
-                    perf_gate_check=lambda: {'command': ['perf-gate-ready'], 'exit_code': 1,
-                                             'stdout': '', 'stderr': 'busy'})), \
-                    self.assertRaisesRegex(check.CheckError, 'admission unavailable'):
+            constrained = SimpleNamespace(returncode=75, stdout='', stderr='memory below reserve')
+            with patch.object(focused.subprocess, 'run', return_value=constrained) as status, \
+                    self.assertRaisesRegex(check.CheckError, 'admission unavailable: memory below reserve'):
                 focused._admission(config)
+            self.assertEqual(status.call_args.args[0], ['perf-gate-ready', '-s', str(config.scratch)])
+        with self.config() as config:
+            loaded = SimpleNamespace(returncode=0, stdout='load=31.9 mem_free_pct=63', stderr='')
+            with patch.object(focused.subprocess, 'run', return_value=loaded):
+                self.assertEqual(focused._admission(config)['exit_code'], 0)
 
     def test_admission_follows_fixture_qualification_before_launch(self):
         with self.config() as config:
