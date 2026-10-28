@@ -1750,7 +1750,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   if ctx.target.os == "linux" {
     var forwarded = ["--source-digest", source ?? "", "--tier", tier_name(tier), @paths]
     for id in ids { forwarded += ["--case", id] }
-    let confinement = if namespace_native_case_id in ids { docker.Namespaces } else { docker.Default }
+    let confinement = lane_confinement(ids)
     return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded, confinement: confinement)?)
   }
   execute_plan(ctx, profile, plan, paths, source)
@@ -1782,6 +1782,11 @@ export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int =
     break when alive.is_empty()
     time.sleep(100ms)
   }
+}
+
+## The container a request runs in. The root lane needs no network, and the namespace lane swaps only its seccomp profile.
+export pure lane_confinement(ids: List[Str]) -> docker.Confinement {
+  if root_native_case_id in ids { docker.Isolated } else if namespace_native_case_id in ids { docker.Namespaces } else { docker.Default }
 }
 
 ## An adapter that stops on SIGINT exits 130 and on SIGTERM exits 143; both are cancellation, not failure.

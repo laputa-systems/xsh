@@ -666,6 +666,16 @@ test test_namespace_confinement_swaps_only_the_seccomp_profile {
   assert [word for word in plain if word.starts_with("seccomp=")].len() == 0
 }
 
+test test_isolated_confinement_only_removes_the_network {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let isolated = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], confinement: docker_workflows.Isolated)?
+  assert "--network" in isolated and "none" in isolated
+  assert "--privileged" not in isolated and "--cap-add" not in isolated
+  assert [word for word in isolated if word.starts_with("seccomp=") or word.starts_with("systempaths=")].len() == 0
+  let plain = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
+  assert "--network" not in plain
+}
+
 test test_gate_docker_argv_names_a_cidfile_so_the_container_can_be_removed_by_id {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], cidfile: p"/repo/.work/tmp/x/container.cid")?

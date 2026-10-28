@@ -1331,6 +1331,13 @@ test test_laputa_evidence_is_current_only_for_the_laputa_checkout_it_ran_against
   assert tests.Xshi not in gates.laputa_products("laputa/pm.make/plan")
 }
 
+test test_only_the_root_lane_runs_without_a_network {
+  assert gates.lane_confinement(["lane/root-native"]) == docker.Isolated
+  assert gates.lane_confinement(["lane/namespace-native"]) == docker.Namespaces
+  assert gates.lane_confinement(["native-tests/xsh/stdlib"]) == docker.Default
+  assert gates.lane_confinement([]) == docker.Default
+}
+
 test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
   let ctx = fixtures.linux_context(fs.cwd()?)?
   let gap = "core/tests/test-syslog-libc.xsh has no test the unprivileged Linux lane can run; lane/root-native and lane/namespace-native run the ones that need root or namespaces"

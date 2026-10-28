@@ -161,7 +161,7 @@ incomplete, so a native test the unprivileged lane cannot run is not selected th
 `dev/gate_lane.xsh` declares those tests by exact ID. Two groups can run in a container
 and have an explicit Scenario case each; each must be selected alone.
 `lane/root-native` runs the `root_tests` group as root in the default container, with
-Docker's default confinement. `lane/namespace-native` runs the `namespace_tests` group as the
+Docker's default confinement and no network. `lane/namespace-native` runs the `namespace_tests` group as the
 host user in a container whose only change is the seccomp profile
 `dev/gate-namespaces.seccomp.json`. That file is Docker's default profile (moby
 `profiles/seccomp/default.json`) plus one rule that allows `clone`, `clone3`, `unshare`,
@@ -184,6 +184,15 @@ fixture that only a Rust test provides, supplementary groups, a host resource, a
 `/proc`, or a test whose subject is the skip outcome; no gate lane runs them. A new native test
 that skips in the gate lane needs an entry in one of those groups, and
 `dev/tests/test-gates.xsh` checks that every entry names a test that exists.
+
+The gate containers give reproducible environments and keep a test's effects away from the
+host session. They are not a security boundary against hostile test code. Test code already runs
+as a docker-capable user and can write the checkout and `.git/hooks`. In `lane/root-native` the
+container's root is host uid 0, because the daemon does not use user-namespace remapping, so a
+test that escapes the container is root on the host. The seccomp profile, the dropped network and
+the host-user wrapper reduce accidents; they do not contain an adversary. The native wrapper does
+not add `no_new_privs`, because declared tests assert that the flag starts clear
+(`test_set_no_new_privs_is_visible_and_inherited` and the `nnp=false` checks in `test-setpriv.xsh`).
 
 Compilation runs outside the runtime budget and is reported as a separate stage.
 Before Linux gate execution, Docker resolves the configured test image to an

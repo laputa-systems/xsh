@@ -133,8 +133,8 @@ export proc resolve_image(ctx: context.Context) [fs, process, env, error, io] ->
 ## The container confinement a lifecycle operation requests. Namespaces replaces Docker's default seccomp profile
 ## with dev/gate-namespaces.seccomp.json, which allows the namespace and mount syscalls without CAP_SYS_ADMIN so that
 ## a process can create user namespaces. It adds no capability, leaves /proc masking and read-only paths in place and
-## grants no device access.
-export enum Confinement { Default, Namespaces }
+## grants no device access. Isolated keeps the default profile and removes the network.
+export enum Confinement { Default, Namespaces, Isolated }
 
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
 ## The inner lifecycle creates a new context, so target and profile travel in
@@ -217,6 +217,7 @@ export pure internal_argv(
   match confinement {
     Default => {}
     Namespaces => { argv += ["--security-opt", f"seccomp={ctx.root}/dev/gate-namespaces.seccomp.json"] }
+    Isolated => { argv += ["--network", "none"] }
   }
 
   if stress_repeat.trim() != "" {
