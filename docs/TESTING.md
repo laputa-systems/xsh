@@ -391,6 +391,96 @@ container with a 0.01 CPU quota and a 1 GiB memory limit. Their driver waits for
 the child to open the device, then kills and reaps it. The ordinary gate runs
 this bounded case separately.
 
+## Syslog receiver
+
+`core/tests/test-syslog-*.xsh` cover `syslogd` and its libraries. The parser,
+renderer and limiter files are pure native tests. `test-syslog-service.xsh`
+starts the real service the way a supervisor does (a readiness descriptor, one
+append-only log for stdout and stderr, signals to stop it) with the socket under
+a test directory, so it needs no namespace. Its senders are XSH and
+`core/tests/support/syslog_sender.py` (`python3`), which passes descriptors and
+floods. `test-syslog-libc.xsh` builds `core/tests/support/syslog_client.c` with
+the image's `clang-23` (`CC` overrides) and runs it against the service inside
+new user and mount namespaces whose `/dev` is a private tmpfs, because
+`syslog(3)` hard-codes `/dev/log` and the host already has one. The test
+creates no device nodes: it bind-mounts `null`, `zero`, `full`, `random`,
+`urandom` and `tty` into the tmpfs first. A kernel that refuses unprivileged
+user namespaces skips those cases with a named reason, as in the unprivileged
+`gate` container; the privileged lane runs them all. The case that runs clients
+as three uids (1001 to 1003) needs real root and skips otherwise. Run the full
+set the privileged way, with `PRODUCTS` the directory of the built `xsht` and `xsh`:
+
+```sh
+docker run --rm --privileged -v "$PWD":/work -w /work xsh-test sh -c \
+  'for f in core/tests/test-syslog-*.xsh; do PRODUCTS/xsht test "$f"; done'
+```
+
+Result on x86_64 (this work): libc 7, limit 14, parse 14, render 13, service 23,
+71 passed, 0 skipped. On the unprivileged host (`unshare -Urm` works) the libc
+file passes 6 and skips the uid case.
+
+Facts the tests established about the platform:
+
+- musl `syslog(3)` opens a blocking `SOCK_DGRAM` socket (`strace` shows
+  `socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC)`), and glibc 2.41 does too. A
+  stalled receiver therefore blocks every logging program instead of losing
+  messages; `test_a_stalled_receiver_blocks_a_musl_client_which_then_loses_nothing`
+  holds the service with `SIGSTOP` and shows the client blocked and then
+  delivering all 150 messages. `syslogd` drains its socket before it ever waits
+  on output for that reason, and drops a record when stdout is not writable
+  instead of waiting.
+- The queue of an `AF_UNIX` datagram socket holds `net.unix.max_dgram_qlen`
+  datagrams, 10 on the test host, and `SO_RCVBUF` does not raise it. A
+  nonblocking sender that outruns the receiver sees `EAGAIN` and the receiver
+  sees nothing, so kernel loss is reported as `kernel_loss=unobservable`, never
+  as a count.
+- `SCM_RIGHTS` carries at most 253 descriptors per message. With 4096 bytes of
+  control buffer all of them are received and closed; under `RLIMIT_NOFILE`
+  exhaustion the kernel installs the ones that fit and sets `MSG_CTRUNC`, and
+  the descriptor count of the service is identical before and after 10 000
+  messages carrying descriptors.
+- Output to a pipe: every line is under 4096 bytes (`PIPE_BUF`), the service
+  writes and flushes one line at a time and checks `POLLOUT` before each, so a
+  full pipe drops and counts records rather than blocking, and `SIGTERM` still
+  stops the service.
+
+### glibc client (one-off, not a gate case)
+
+The image has no glibc userland, so a real glibc client runs in a disposable
+container that shares only the socket. With the service running on the host or
+in `xsh-test` at `$G/dev/log` (directory `0755`):
+
+```sh
+docker run --rm -v "$G/dev/log":/dev/log \
+  -v "$PWD/core/tests/support/syslog_client.c":/client.c:ro debian:stable-slim sh -c \
+  'apt-get update -qq && apt-get install -y -qq gcc libc6-dev &&
+   gcc -O1 -o /tmp/c /client.c && /tmp/c basic && /tmp/c multiline &&
+   /tmp/c count 50 && /tmp/c long'
+```
+
+Result with Debian glibc 2.41 on the x86_64 host: all 54 records arrived
+(`facility=daemon severity=warning tag="cclient"`), the `long` message arrived
+uncut by glibc and was cut by the service at 2048 bytes (`cut=3951`), and the
+kernel pid in each record (6665) differed from the container's own pid in
+`tag_pid` (513), which is the kernel credential crossing a pid namespace.
+
+### Measurements
+
+Verification build, one core of a loaded 32-core host (load 20 to 70), x86_64 musl:
+
+| Measure | Result |
+|---|---|
+| Idle for 61 s | 0 voluntary context switches on either thread, 0 CPU ticks |
+| Idle syscalls under `strace -f -c` | 3 `ppoll` calls in the whole run (startup) |
+| `time.sleep(10s)` for comparison | 990 `clock_nanosleep` calls |
+| Sustained intake | 3000 records accepted in about 3 s wall, 2.18 s CPU: about 0.73 ms CPU per record (parse, limit, render, write, flush) |
+| Peak resident set | 38 MB (`VmHWM`) at idle and after the 3000 records |
+| Open descriptors | 8 at idle and after the 3000 records; the flood test (4500 blocking sends and a 3000-datagram nonblocking burst) asserts fewer than 20 |
+| Stop | `SIGTERM` during a flood: exit 0, socket removed, final counters printed within seconds |
+
+Time-based figures are not gates and were taken on a busy host; the perf-gate
+rule was not applied to them.
+
 ## Interactive parity
 
 Interactive tests require `-p xshi --features laputa-asterinas`; builds
