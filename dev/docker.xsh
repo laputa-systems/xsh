@@ -385,5 +385,6 @@ export proc run_internal_status(ctx: context.Context, operation: Str, privileged
   let outcome = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
   remove_owned_container(ctx, cidfile)?
   cidfile.remove(missing_ok: true)?
+  registry.remove(missing_ok: true)? when (fs.children(registry)? |> count()) == 0
   outcome
 }
