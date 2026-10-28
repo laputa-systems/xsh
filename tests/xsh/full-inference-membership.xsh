@@ -119,3 +119,40 @@ let invalid = has(Build, [Run])
     stderr: ["[check.operator-type]", "operation requires Second, found First", "has(Build, [Run])"],
   )?
 }
+
+test test_full_inference_membership_checks_loop_items_against_a_ground_container { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure known_in_list(items, known: List[Str]) {
+  var count = 0
+  for item in items { if item in known { count += 1 } }
+  count
+}
+pure first_unknown(items, known: List[Str]) {
+  for item in items { guard item in known else { return item } }
+  "none"
+}
+let listed = known_in_list(["a", "b", "c"], ["a", "c"])
+let missing = first_unknown(["a", "b"], ["a"])
+print $listed
+print $missing
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\nb\n"
+}
+
+test test_full_inference_membership_loop_item_rejects_a_mismatched_ground_container { |ctx|
+  test.expect(
+    ctx,
+    r"""pure known_in_list(items, known: List[Str]) {
+  var count = 0
+  for item in items { if item in known { count += 1 } }
+  count
+}
+let rejected = known_in_list([1, 2], ["a"])
+""",
+    status: 2,
+    stderr: ["[check."],
+  )?
+}

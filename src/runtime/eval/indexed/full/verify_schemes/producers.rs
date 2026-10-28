@@ -5617,6 +5617,22 @@ impl<'a> ProducerProof<'a> {
                     && matches!(self.store.sealed_operation_site(owner, instruction as u32)?, Some(super::super::schemes::FullSealedOperation::Membership { .. }))
                     && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))
                 { return Ok(()); }
+                if expected.as_ref() == &Type::Bool
+                    && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool)))
+                    && let (Some(needle), Some(container)) = (
+                        self.scoped_expression_type(&decoder, left.raw() as usize)?.and_then(|ty| ty.closed_ground_type()),
+                        self.scoped_expression_type(&decoder, right.raw() as usize)?.and_then(|ty| ty.closed_ground_type()),
+                    )
+                {
+                    self.budget.charge_clone(&needle)?;
+                    self.budget.charge_clone(&container)?;
+                    use crate::sema::types::MembershipCheck as M;
+                    if match container.membership_needle_type(&needle) {
+                        M::Expected(required) => needle.matches_expected(required) && required.matches_expected(&needle),
+                        M::Compared(required) => needle.matches_expected(required),
+                        _ => false,
+                    } { return Ok(()); }
+                }
                 let container = match self.need_context(&decoder, right.raw() as usize)? {
                     Some(container) => container,
                     None => {

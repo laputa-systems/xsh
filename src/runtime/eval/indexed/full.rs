@@ -34215,6 +34215,48 @@ assert nullable_name == null
         assert_eq!(error.message, "generic body expression disagrees with its checked type");
     }
 
+    #[test]
+    fn full_verifier_rejects_forged_loop_item_membership_needle_fact() {
+        let program = fixture(
+            "loop-item-membership.xsh",
+            "pure count_known(items, known: List[Str]) {\n  var count = 0\n  for item in items { if item in known { count += 1 } }\n  count\n}\n\
+             let total = count_known([\"a\"], [\"a\"])\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let function = scheme_fixture_root_function(&program, "count_known");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[function].contract else { panic!("count_known has a generic scheme") };
+        let decoder = function_view_decoder(&program.store, function);
+        let membership = program.store.function_instruction_range(function).unwrap()
+            .find(|instruction| {
+                program.store.tags[*instruction] == FullTag::ExprBinary
+                    && matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In, .. }))
+            })
+            .expect("count_known tests membership");
+        let schema::ExprView::Binary { left, .. } = decoder.expression_view(membership).unwrap() else { unreachable!() };
+        let mut body_facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let needle = body_facts.clone()
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression && fact.instruction == left.raw()
+            })
+            .expect("the needle has its authenticated expression fact");
+        let literal = body_facts
+            .find(|index| {
+                let fact = program.store.scheme_body_facts[*index];
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                    && fact.ty().is_some_and(|ty| {
+                        let node = program.store.scheme_types[ty.index()];
+                        node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.type_tag(TypeId::from_raw(node.first).unwrap()).unwrap() == crate::runtime::eval::indexed::semantic::TypeTag::Int
+                    })
+            })
+            .expect("count_known's facts include an Int expression");
+        let mut forged = program.clone();
+        let (needle_value, literal_value) = (forged.store.scheme_body_facts[needle].value, forged.store.scheme_body_facts[literal].value);
+        forged.store.scheme_body_facts[needle].value = literal_value;
+        forged.store.scheme_body_facts[literal].value = needle_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
         let program = fixture(
             "pipeline-payload.xsh",
