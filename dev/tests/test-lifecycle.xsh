@@ -831,20 +831,9 @@ test test_an_owned_container_that_outlives_its_client_is_removed_by_id_and_verif
   let repository = fs.cwd()?
   let id = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let log = fp"{root}/calls"
-  let gone = fp"{root}/gone"
   let cidfile = fp"{root}/container.cid"
   cidfile.write(id)
-  write_fake_tool(
-    fp"{tools}/docker",
-    ctx.xsh_bin,
-    f"""let log = p"{log}"
-let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
-log.write(previous + args.join("|") + "\\n")?
-if args[0] == "container" and args[1] == "inspect" {{ exit if p"{gone}".exists()? {{ 1 }} else {{ 0 }} }}
-if args[0] == "rm" and env.get_or("KEEP", "")? == "" {{ p"{gone}".write("x")? }}
-exit 0
-""",
-  )
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
   let source = f"""
 use context
 use docker
@@ -859,7 +848,7 @@ match docker.remove_owned_container(ctx, p"{cidfile}") {{
   test.expect(ctx, source, status: 0, stdout: ["removed"], args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"})?
   assert f"rm|-f|{id}" in log.read_lines()?
-  gone.remove()?
+  fp"{root}/gone-{id}".remove()?
   log.remove()?
   test.expect(ctx, source, status: 0, stdout: ["ContainerError.Survived"], args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", KEEP: "1"})?
@@ -874,13 +863,23 @@ let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
 log.write(previous + args.join("|") + "\\n")?
 let marker = Path("{root}/gone-" + args[args.len() - 1])
 if args[0] == "container" and args[1] == "inspect" {{
+  if env.get_or("UNREACHABLE", "")? != "" {{
+    eprint "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
+    exit 1
+  }}
   if marker.exists()? {{
     eprint "Error response from daemon: No such container: " + args[args.len() - 1]
     exit 1
   }}
   exit 0
 }}
-if args[0] == "rm" {{ marker.write("x")? }}
+if args[0] == "rm" {{
+  marker.write("x")? when env.get_or("KEEP", "")? == ""
+  if env.get_or("RM_RACES", "")? != "" {{
+    eprint "Error response from daemon: removal of container is already in progress"
+    exit 1
+  }}
+}}
 exit 0
 """,
   )
@@ -1019,4 +1018,30 @@ proc main() [fs, process, env, time, error, io] {{
   assert cleaned.exists()?
   assert "gates.cancel_owned_work(lifecycle.create()?, \"INT\")" in fp"{repository}/dev/main.xsh".read_text()?
   assert "gates.cancel_owned_work(lifecycle.create()?, \"TERM\")" in fp"{repository}/dev/main.xsh".read_text()?
+}
+
+test test_container_removal_is_verified_against_the_daemon_not_assumed { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-verify")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "dccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let cidfile = fp"{root}/container.cid"
+  cidfile.write(id)
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, fp"{root}/calls")?
+  let source = f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+match docker.remove_owned_container(ctx, p"{cidfile}") {{
+  Ok(_) => print "removed"
+  Err(error) => print ${{error.message}}
+}}
+"""
+  test.expect(ctx, source, status: 0, stdout: ["ContainerError.Unverified"], args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", UNREACHABLE: "1"})?
+  test.expect(ctx, source, status: 0, stdout: ["removed"], args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", RM_RACES: "1"})?
 }

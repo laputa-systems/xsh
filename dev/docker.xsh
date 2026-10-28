@@ -11,7 +11,7 @@ export type HostLinkTools = {mold: Path, kache: Path}
 export error ImageError = InvalidIdentity(detail: Str) | Unavailable(raw_status: Int) | Cancelled(raw_status: Int)
 
 ## A container the gate started could not be shown to be gone.
-export error ContainerError = InvalidIdentity(detail: Str) | Survived(id: Str)
+export error ContainerError = InvalidIdentity(detail: Str) | Survived(id: Str) | Unverified(detail: Str)
 
 proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
   return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
@@ -340,9 +340,12 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path) [fs, pro
   var attempt = 0
   while attempt < 8 {
     let inspection = run.capture --text docker container inspect --format "{{.Id}}" $id
-    return when ! inspection.status.ok
+    return when inspection.status.ok == false and "No such container" in inspection.stderr
+    return Err(ContainerError.Unverified(detail: inspection.stderr.trim())) when ! inspection.status.ok
     if attempt == 0 {
-      stages.execute(stages.command("docker-container-remove", ctx.target.triple, "docker", ["docker", "rm", "-f", id], ctx.root, {}))
+      let removal = run.capture --text docker rm -f $id
+      print f"[docker-container-remove target={ctx.target.triple}] docker rm -f {id}"
+      print removal.stderr.trim() when ! removal.status.ok and "No such container" not in removal.stderr and "already in progress" not in removal.stderr
     }
     time.sleep(time.millis(250))
     attempt += 1
