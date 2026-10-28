@@ -37,10 +37,17 @@ Branch decisions, 2026-10-28 (tip SHAs kept so any branch can be restored):
   equivalent to `f60a72f41`, and `campaign/pyramid-caller-migration`
   (`9614fc7c5`) and `campaign/pyramid-core-cases` (`ce2a3b836`), older
   snapshots of the integration line.
-- Port by path: `campaign/pyramid-integration` (`c7b9b7b29`). It merges an old
-  inference compiler, so only its Pyramid paths move: the gate host, inputs,
-  products and status modules, the Tokei, Laputa and focused-measurement cases,
-  and their tests.
+- Ported by path, then retained: `campaign/pyramid-integration` (`c7b9b7b29`).
+  Two behaviors master lacked moved: the host-side Full validation before
+  replay starts Docker, and owned Docker pipe and scratch cleanup that no longer
+  masks the original failure. The standalone host controller, input and
+  product binding, Tokei and Laputa cases, resource accounting and focused
+  report modules are superseded by `dev/gates.xsh`, `dev/gate_source.py`,
+  `dev/gate_product.xsh` and the adapters on master and were not ported. Still
+  open from that branch: a stored-evidence status view (it needs retained
+  focused reports, which master discards) and the paired-bootstrap focused
+  timing comparison (it needs a public focused observation API and a quiet
+  host).
 - Review, then port or delete: `park/pyramid-{core-cases,kbuild-case,laputa-case,
   native-set,resources,tokei-scout}`, one preservation commit each on
   `dbdd0a80d`, and the small residue of `campaign/pyramid-{catalogue,resources,
