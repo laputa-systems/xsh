@@ -1290,11 +1290,28 @@ still fail on interactions.
 | `check.ambiguous-overload` on a parameter | 22 | Not yet checked for genuine ambiguity. |
 | `compact.indexed-build` verification or lowering | 22 | Open implementation work; first reductions listed in the campaign log. |
 
+Across every private parameter annotation in the 250 top-level `core/*.xsh`
+commands (4,731 sites), the same tool shows 4,141 (87.5%) erasable alone after
+the fixes below. The 590 failures by first diagnostic are 124
+`check.ambiguous-overload`, 53 `check.type-mismatch`, about 200
+`compact.indexed-build` verification or lowering failures, 36 "registered
+method receiver needs an annotation", 25 "generic callable body requires
+immutable bindings…" from the generic-body whitelist, 38 "this function cannot
+be compiled yet" lowering limits, and a tail of smaller checker classes. The
+`byte_at`, `replace` and `get` ambiguity is registry-level: only `len`,
+`is_empty`, `write`, `parent` and `normalize` are method families, and a
+registry test asserts `byte_at` is not one.
+
 Fixed during this measurement: a collect-item predicate no longer shares a
 source key with the operation at its span (it surfaced as a `ForeignVariable`
 diagnostic); a membership test against a ground container accepts a generic
-loop item; `exit` is allowed in a generic proc; and `if let` over an unresolved
-subject is an optional binding.
+loop item; `exit` is allowed in a generic proc, including at a branch or arm
+tail; `if let` over an unresolved subject is an optional binding; an annotated
+empty `Set` or `Map` local is a generic argument; a pattern capture in an
+initializer is a generic argument; an enum-typed local reads a generic row
+field; a null-tested optional read verifies in a generic body; and an inferred
+proc ending in a `loop` that cannot break has no Unit completion. On the four
+practical files these raise the single-site count from 572 to 585 of 668.
 
 The frozen original and reduced views no longer check with the current
 compiler. Rebuilt from the recorded revisions, their digests match, but the
