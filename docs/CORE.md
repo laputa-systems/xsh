@@ -13,6 +13,30 @@ a command's terminating signal so the caller observes the same signal death.
 `no_new_privs`, supplementary groups, GIDs, UIDs, inheritable capabilities,
 ambient capabilities, parent-death signal, then ptracer.
 
+`dhcpc INTERFACE` is the supervised DHCPv4 client: one foreground process per
+interface, run under a supervisor such as `xinit`, never in PID 1. It owns the
+exact addresses and routes it configured, recorded in a versioned lease file
+under `--lease-dir` (default `/var/lib/dhcpc`), and never flushes anything
+else. It reads replies from a packet socket, because a reply to an unaddressed
+client is dropped by reverse-path filtering before a UDP socket sees it, and
+sends unaddressed messages as raw frames. Renewal at T1 is unicast, rebinding
+at T2 is broadcast, expiry withdraws only owned state, and a remembered lease
+is validated with INIT-REBOOT after a restart or boot-identity change. The
+resolver is shared through one coordinator: per-interface contributions under
+`--run-dir` are merged with the operator's static file (`--static-file`) into
+`--resolv-dir/resolv.conf`, and a `resolv.conf` that the coordinator did not
+write, or a symlink, is reported in the status and never replaced. The status
+is `RUN_DIR/INTERFACE.status` (JSON, with counters and the last `trouble`), and
+`RUN_DIR/INTERFACE.control` takes `down`, `up` and `stop`.
+
+`ifup` and `ifdown` drive a running `dhcpc` through that control socket and
+wait up to `--wait SECONDS`. Without a running client, `ifup` runs the shared
+client once (`--once` semantics): it acquires and configures a lease and then
+exits, so nothing renews it; a supervised `dhcpc` is the way to keep one.
+`ifdown` releases the lease by unicast RELEASE, withdraws owned state and the
+interface's resolver contribution, and leaves the link up. Static interfaces
+behave as before.
+
 | Applet | Byte and error behavior |
 |---|---|
 | `tee` | Copies input bytes to each output. Write failures are governed by `warn`, `warn-nopipe`, `exit`, or `exit-nopipe`; the default exits on pipe errors and reports other output errors. With `-p`, the default is `warn-nopipe`; `nopipe` modes exit once every output is a broken pipe. |

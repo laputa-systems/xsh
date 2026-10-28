@@ -547,6 +547,21 @@ Verification build, one core of a loaded 32-core host (load 20 to 70), x86_64 mu
 
 Time-based figures are not gates and were taken on a busy host; the perf-gate
 rule was not applied to them.
+||||||| parent of 174f84c (docs(core): describe dhcpc, the ifup and ifdown contract and the DHCP test lanes)
+## DHCP client
+
+The DHCP client tests run a pure suite on any host (`test-dhcp-wire`,
+`-arp`, `-machine`, `-net`, `-store`, `-dns`, `-frame`, `-client`) and four
+namespace suites. `test-dhcp-route-identity`, `test-dhcp-world`,
+`test-dhcp-integration` and `test-dhcp-reference` create user, mount and
+network namespaces joined by a veth pair and never touch the host's links,
+resolvers or clocks; a kernel that refuses the namespaces skips them with the
+reason. The privileged Linux lane runs them as root, where the namespaces omit
+the user namespace so dnsmasq can drop its group privileges, and it has
+`dnsmasq` and `tcpdump` in `Dockerfile.test`: the reference suite compares the
+client against dnsmasq and a tcpdump capture and skips only where dnsmasq is
+absent. The in-process fake world (`tests/support/dhcp_fake.xsh`) is a
+test-only `ClientIo`; production networking cannot be redirected to it.
 
 ## Interactive parity
 
