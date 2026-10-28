@@ -1300,3 +1300,16 @@ test test_long_callback_forwarding_chain_verifies_its_producers { |ctx|
   assert result.status == 0, result.stderr
   assert result.stdout == "64\n"
 }
+
+test test_generic_function_with_ground_annotations_is_a_verified_callback { |ctx|
+  for case in [
+    {source: "pure inc(value) -> Str { \"a\" }\npure apply(callback, value) { callback(value) }\nprint $apply(inc, 0)\n", stdout: "a\n"},
+    {source: "pure inc(value) -> Int { value + 1 }\npure apply(callback, value) { callback(value) }\nprint $apply(inc, 0)\n", stdout: "1\n"},
+    {source: "pure pick(label: Str, value) { value }\npure apply(callback, label, value) { callback(label, value) }\nprint $apply(pick, \"a\", 7)\n", stdout: "7\n"},
+    {source: "pure wrap(label, value) -> List[Str] { [\"x\"] }\npure apply(callback, label, value) { callback(label, value) }\nprint $apply(wrap, \"a\", 7).len()\n", stdout: "1\n"},
+  ] {
+    let result = test.run_xsh(ctx, case.source)?
+    assert result.status == 0, result.stderr
+    assert result.stdout == case.stdout, result.stdout
+  }
+}

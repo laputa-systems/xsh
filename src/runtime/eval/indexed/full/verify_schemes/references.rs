@@ -24,13 +24,13 @@ pub(super) fn verify(
         Ok(SchemeParameter {
             name: Name::intern(store.string(physical.name)?),
             ty: substitution.ty(store, scope, parameter.ty, budget)?,
-            schema_expectation: parameter.schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?,
+            schema_expectation: parameter.schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?.filter(|schema| !schema.is_vacuous()),
             defaulted: physical.flags & 2 != 0,
             rest: physical.flags & 1 != 0,
         })
     }).collect::<Result<Vec<_>, IrVerifyError>>()?;
     let result = substitution.ty(store, scope, scheme.return_type, budget)?;
-    let schema = scheme.return_schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?;
+    let schema = scheme.return_schema.map(|schema| substitution.schema(store, scope, schema, budget)).transpose()?.filter(|schema| !schema.is_vacuous());
     let effects = substitution.contract(store, scope, scheme.effects, budget)?.for_invocation(scheme.callable_kind);
     let actual = SchemeType::Callable {
         kind: scheme.callable_kind,

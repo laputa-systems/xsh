@@ -514,6 +514,19 @@ impl SchemaExpectation {
 
 }
 
+impl<T> SchemaExpectation<T> {
+    pub(crate) fn is_vacuous(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(schema) = pending.pop() {
+            if !schema.instances.is_empty() {
+                return false;
+            }
+            pending.extend(schema.children.values());
+        }
+        true
+    }
+}
+
 impl<T: Clone> SchemaExpectation<T> {
     pub(crate) fn map<U>(&self, map: &mut impl FnMut(&T) -> U) -> SchemaExpectation<U> {
         match self.try_map(&mut |ty| Ok::<_, std::convert::Infallible>(map(ty))) {
