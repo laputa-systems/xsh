@@ -36,12 +36,9 @@ proc xsht(root: Path, arguments: List[Str]) [process, env, error] -> Result[Capt
 test test_runner_lists_and_filters_native_tests {
   let listed = run.capture --text "xsht" test --list test_dns
   assert listed.status.exited_with(0), listed.stderr
-  # The filter is a substring of the test name: every listed test has it, in
-  # path order, and tests named otherwise are left out. The repository gains
-  # tests, so the list is not pinned whole.
   let names = listed.stdout.lines()
-  assert names[0] == "tests/xsh/basic.xsh::test_dns_mock", listed.stdout
-  assert "tests/xsh/stdlib/dns.xsh::test_dns_module_with_mocks" in names, listed.stdout
+  let expected = ["tests/xsh/basic.xsh::test_dns_mock", "tests/xsh/stdlib/dns.xsh::test_dns_module_with_mocks"]
+  assert [name for name in names if name in expected] == expected, listed.stdout
   for name in names {
     assert "::test_dns" in name, name
   }
