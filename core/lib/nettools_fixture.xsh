@@ -24,7 +24,8 @@ proc send(message_type: Int, flags: Int, payload: Bytes) [process, error] {
   assert replies.len() >= 0
 }
 
-proc index_of(name: Str) [process, net, error] -> Int {
+## The interface index of a name.
+export proc index_of(name: Str) [process, net, error] -> Int {
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(socket)
@@ -32,7 +33,8 @@ proc index_of(name: Str) [process, net, error] -> Int {
   bytes.unpack_le(reply, 4, 16)?
 }
 
-pure mac_bytes(text: Str) -> Bytes {
+## The six bytes of a colon-separated hardware address.
+export pure mac_bytes(text: Str) -> Bytes {
   let octets = collect {
     for part in text.split(":") {
       var value = 0
@@ -53,14 +55,31 @@ export proc link_add_dummy(name: Str, mac: Str) [process, error] {
   send(c.RTM_NEWLINK, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), payload)
 }
 
+pure veth_request(name: Str, peer: Str, mac: Str, peer_mac: Str, peer_attributes: List[Bytes]) -> Bytes {
+  let peer_info = bytes.concat([bytes.zero(16) ?? b"", attr(3, c_string(peer)), attr(1, mac_bytes(peer_mac)), bytes.concat(peer_attributes)])
+  let data = attr(1, peer_info)
+  let kind = attr(18, bytes.concat([attr(1, c_string("veth")), attr(2, data)]))
+  bytes.concat([bytes.zero(16) ?? b"", attr(3, c_string(name)), attr(1, mac_bytes(mac)), kind])
+}
+
 ## Creates a veth pair, both ends still down.
 export proc link_add_veth(name: Str, peer: Str, mac: Str, peer_mac: Str) [process, error] {
   let c = linux.net_constants()
-  let peer_info = bytes.concat([bytes.zero(16)?, attr(3, c_string(peer)), attr(1, mac_bytes(peer_mac))])
-  let data = attr(2, peer_info)
-  let kind = attr(18, bytes.concat([attr(1, c_string("veth")), attr(2, data)]))
-  let payload = bytes.concat([bytes.zero(16)?, attr(3, c_string(name)), attr(1, mac_bytes(mac)), kind])
-  send(c.RTM_NEWLINK, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), payload)
+  send(c.RTM_NEWLINK, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), veth_request(name, peer, mac, peer_mac, []))
+}
+
+## Creates a veth pair whose peer is created directly in the network namespace
+## behind `netns_fd`, an open descriptor of a namespace file.
+export proc link_add_veth_into(name: Str, peer: Str, mac: Str, peer_mac: Str, netns_fd: Int) [process, error] {
+  let c = linux.net_constants()
+  send(c.RTM_NEWLINK, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), veth_request(name, peer, mac, peer_mac, [attr(28, bytes.pack_le(netns_fd, 4) ?? b"")]))
+}
+
+## Deletes an interface by name.
+export proc link_delete(name: Str) [process, net, error] {
+  let c = linux.net_constants()
+  let payload = bytes.concat([bytes.from_ints([c.AF_UNSPEC, 0, 0, 0])?, bytes.pack_le(index_of(name), 4)?, bytes.zero(8)?])
+  send(c.RTM_DELLINK, 0, payload)
 }
 
 ## Brings an interface up through its flags.
@@ -70,6 +89,18 @@ export proc link_up(name: Str) [process, net, error] {
   defer unix.close_fd(socket)
   let current = linux.ioctl(socket, c.SIOCGIFFLAGS, nettools.ifreq(name, b"")?, 40)?
   let flags = (bytes.unpack_le(current, 2, 16)?).bit_or(c.IFF_UP)
+  let reply = linux.ioctl(socket, c.SIOCSIFFLAGS, nettools.ifreq(name, bytes.pack_le(flags, 2)?)?, 0)?
+  assert reply.len() >= 0
+}
+
+## Takes an interface down through its flags.
+export proc link_down(name: Str) [process, net, error] {
+  let c = linux.net_constants()
+  let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
+  defer unix.close_fd(socket)
+  let current = linux.ioctl(socket, c.SIOCGIFFLAGS, nettools.ifreq(name, b"")?, 40)?
+  let present = bytes.unpack_le(current, 2, 16)?
+  let flags = present - present.bit_and(c.IFF_UP)
   let reply = linux.ioctl(socket, c.SIOCSIFFLAGS, nettools.ifreq(name, bytes.pack_le(flags, 2)?)?, 0)?
   assert reply.len() >= 0
 }
