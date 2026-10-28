@@ -387,9 +387,15 @@ pure gate_request(arguments: List[Str]) -> Bool {
     (arguments.len() > 1 and arguments[0] == "internal" and arguments[1] in ["gate-lane", "gate-full", "gate-validate-full"]))
 }
 
-on INT [process] {
-  if gate_request(args) { exit 130 }
+on INT --pre-cancel=45s [fs, process, env, time, error, io] {
+  if gate_request(args) {
+    gates.cancel_owned_work(lifecycle.create()?)
+    exit 130
+  }
 }
-on TERM [process] {
-  if gate_request(args) { exit 130 }
+on TERM --pre-cancel=45s [fs, process, env, time, error, io] {
+  if gate_request(args) {
+    gates.cancel_owned_work(lifecycle.create()?)
+    exit 130
+  }
 }

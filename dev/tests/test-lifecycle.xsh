@@ -864,3 +864,110 @@ match docker.remove_owned_container(ctx, p"{cidfile}") {{
   test.expect(ctx, source, status: 0, stdout: ["ContainerError.Survived"], args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", KEEP: "1"})?
 }
+
+proc write_container_stub(tool: Path, xsh: Path, root: Path, log: Path) [fs, error] {
+  write_fake_tool(
+    tool,
+    xsh,
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+log.write(previous + args.join("|") + "\\n")?
+let marker = Path("{root}/gone-" + args[args.len() - 1])
+if args[0] == "container" and args[1] == "inspect" {{
+  if marker.exists()? {{
+    eprint "Error response from daemon: No such container: " + args[args.len() - 1]
+    exit 1
+  }}
+  exit 0
+}}
+if args[0] == "rm" {{ marker.write("x")? }}
+exit 0
+""",
+  )
+}
+
+test test_every_container_a_run_started_is_removed_by_id_from_its_registry { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-registry")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let first = "1ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let second = "2ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let log = fp"{root}/calls"
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  test.expect(
+    ctx,
+    f"""
+use context
+use docker
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+let registry = docker.owned_container_dir(ctx)?
+registry.mkdir(parents: true)?
+fp"{{registry}}/one.cid".write("{first}")?
+fp"{{registry}}/two.cid".write("{second}")?
+docker.remove_owned_containers(ctx)?
+assert ! registry.exists()?
+print "removed"
+""",
+    status: 0,
+    stdout: ["removed"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+  )?
+  let calls = log.read_lines()?
+  assert f"rm|-f|{first}" in calls
+  assert f"rm|-f|{second}" in calls
+}
+
+test test_a_cancelled_gate_removes_its_containers_before_the_runtime_kills_the_client { |ctx|
+  let root = test.temp_dir(ctx, name: "docker-cancel")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let repository = fs.cwd()?
+  let id = "eccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let log = fp"{root}/calls"
+  let ready = fp"{root}/ready"
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  let script = fp"{root}/run.xsh"
+  script.write(f"""
+use context
+use docker
+use gates
+use targets as target_policy
+
+let ctx: context.Context = {context_source(repository)}
+
+on TERM --pre-cancel=20s [fs, process, env, time, error, io] {{
+  gates.cancel_owned_work(ctx)
+  exit 130
+}}
+
+proc main() [fs, process, env, time, error, io] {{
+  let registry = docker.owned_container_dir(ctx)?
+  registry.mkdir(parents: true)?
+  fp"{{registry}}/gate-lane-1.cid".write("{id}")?
+  p"{ready}".write("x")?
+  run sleep 30
+}}
+""")
+  let search_path = f"{tools}:{env.get_or("PATH", "")?}"
+  let module_path = fp"{repository}/dev".display()
+  let xsh = ctx.xsh_bin
+  env PATH=$search_path XSH_MODULE_PATH=$module_path {
+    let child = spawn run $xsh $script ?
+    var waited = 0
+    while ! ready.exists()? and waited < 100 {
+      time.sleep(100ms)
+      waited += 1
+    }
+    assert ready.exists()?
+    process.kill(child.pid, signal: "TERM")
+    let status = wait child?
+    assert status.exited_with(130)
+  }
+  assert f"rm|-f|{id}" in log.read_lines()?
+  assert fp"{root}/gone-{id}".exists()?
+  assert "gates.cancel_owned_work(" in fp"{repository}/dev/main.xsh".read_text()?
+}

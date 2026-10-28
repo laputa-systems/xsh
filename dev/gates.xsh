@@ -1760,6 +1760,16 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   execute_plan(ctx, profile, plan, paths, source)
 }
 
+## Runs from the INT and TERM hooks while the runtime still holds the primary signal, which the hook's pre-cancel budget
+## defers. It removes every container this run started and verifies each removal, so none keeps writing after the
+## cancellation is reported.
+export proc cancel_owned_work(ctx: context.Context) [fs, process, error, io, time] {
+  match docker.remove_owned_containers(ctx) {
+    Ok(_) => {}
+    Err(cause) => print f"cancelled run could not remove its container: {cause.message}"
+  }
+}
+
 ## An adapter that stops on SIGINT exits 130 and on SIGTERM exits 143; both are cancellation, not failure.
 export pure workload_cancelled(raw: Int) -> Bool {
   raw == 130 or raw == 143

@@ -350,15 +350,40 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path) [fs, pro
   Err(ContainerError.Survived(id: id))
 }
 
-## Returns the owned container launch status without replacing its raw child code. The container is named by a
-## cidfile, and whatever way the client ended, a container that is still present is removed and its removal verified.
+## The directory where this run records the cidfile of every container it starts, so one cancellation hook can
+## find them all. It belongs to the running process.
+export proc owned_container_dir(ctx: context.Context) [process, error] -> Result[Path, Error] {
+  fp"{ctx.root}/.work/tmp/gate-containers-{process.current_pid()?}"
+}
+
+## Removes every container this run started and verifies each removal, then forgets the registry.
+export proc remove_owned_containers(ctx: context.Context) [fs, process, error, io, time] -> Result[Unit, Error] {
+  let registry = owned_container_dir(ctx)?
+  return when ! registry.exists()?
+  var failure: Error? = null
+  for entry in fs.children(registry)? {
+    if entry.name.ends_with(".cid") {
+      match remove_owned_container(ctx, entry.path) {
+        Ok(_) => entry.path.remove(missing_ok: true)?
+        Err(cause) => { failure = cause when failure == null }
+      }
+    }
+  }
+  if let cause = failure { return Err(cause) }
+  registry.remove(missing_ok: true)?
+}
+
+## Returns the owned container launch status without replacing its raw child code. The container is recorded by a
+## cidfile in the run's registry. Whatever way the client ends, a container that is still present is removed and its
+## removal verified. A cancellation hook removes the registered containers before the client can be killed.
 export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io, time] -> Result[Status, Error] {
-  stages.ensure_dir(fp"{ctx.root}/.work/tmp")
-  let scratch = fs.tempdir_in(fp"{ctx.root}/.work/tmp")?
-  let cidfile = fp"{scratch.host_path()?}/container.cid"
+  let registry = owned_container_dir(ctx)?
+  registry.mkdir(parents: true)?
+  let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
   let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile)?
   print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
   let outcome = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
   remove_owned_container(ctx, cidfile)?
+  cidfile.remove(missing_ok: true)?
   outcome
 }
