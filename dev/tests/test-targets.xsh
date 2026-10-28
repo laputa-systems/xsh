@@ -656,6 +656,12 @@ test test_gate_docker_argv_mounts_worktree_git_before_the_image {
   assert argv[-2] == "gate-lane"
 }
 
+test test_gate_docker_argv_mounts_the_shared_lease_directory_read_write {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], git_common_dir: p"/common/.git", shared_lease_dir: p"/common/.work/consolidation/infra")?
+  assert "/common/.work/consolidation/infra:/common/.work/consolidation/infra" in argv
+}
+
 test test_gate_docker_bootstrap_selects_the_target_explicitly {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?

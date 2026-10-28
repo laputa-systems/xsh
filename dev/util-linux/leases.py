@@ -166,6 +166,35 @@ def original_root(root: Path) -> Path:
     return common.parent
 
 
+LEASE_DIRECTORY = Path(".work/consolidation/infra")
+LEASE_NAMES = ("final-performance.lock", "native-suite.lock", "cargo.lock")
+
+
+def ensure_lease_files(base: Path) -> Path:
+    directory = base / LEASE_DIRECTORY
+    descriptor = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in LEASE_DIRECTORY.parts:
+            try:
+                os.mkdir(part, 0o755, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            except OSError as error:
+                raise ValueError(f"shared lease directory is unreachable: {directory}: {error}") from error
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        for name in LEASE_NAMES:
+            try:
+                lease = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
+            except OSError as error:
+                raise ValueError(f"shared lease file is unreachable: {directory / name}: {error}") from error
+            os.close(lease)
+    finally:
+        os.close(descriptor)
+    return directory
+
+
 @contextlib.contextmanager
 def acquire(paths: list[tuple[Path, int, tuple[int, int] | None]]):
     descriptors = []
@@ -279,16 +308,16 @@ def campaign_leases(
 ):
     if cargo_target is not None and not cargo:
         raise ValueError("a parallel Cargo target requires the Cargo lease")
-    infra = original_root(root) / ".work/consolidation/infra"
-    paths = [(infra / "final-performance.lock", fcntl.LOCK_SH, (66307, 62037547))]
+    infra = ensure_lease_files(original_root(root))
+    paths = [(infra / "final-performance.lock", fcntl.LOCK_SH, None)]
     if native:
-        paths.append((infra / "native-suite.lock", fcntl.LOCK_EX, (66307, 62012470)))
+        paths.append((infra / "native-suite.lock", fcntl.LOCK_EX, None))
     with acquire(paths) as descriptors:
         token = _native_descriptor.set((descriptors[1], paths[1][0]) if native else None)
         quarantine_token = _native_quarantine.set(None)
         try:
             if cargo:
-                with _cargo_lease(root, infra / "cargo.lock", (66307, 62044429), cargo_target) as cargo_descriptor:
+                with _cargo_lease(root, infra / "cargo.lock", None, cargo_target) as cargo_descriptor:
                     yield (*descriptors, cargo_descriptor)
             else:
                 yield descriptors

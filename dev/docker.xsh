@@ -118,9 +118,11 @@ export pure internal_argv(
   stress_repeat: Str,
   extra: List[Str],
   git_common_dir: Path? = null,
+  shared_lease_dir: Path? = null,
   host_link_tools: HostLinkTools? = null,
 ) -> Result[List[Str], Error] {
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
+  let lease_mount = if shared_lease_dir == null { [] } else { ["-v", f"{shared_lease_dir}:{shared_lease_dir}"] }
   guard host_link_tools == null or ctx.target.triple == "x86_64-unknown-linux-musl" else {
     return Err(targets.TargetError.Unsupported(target: ctx.target.triple))
   }
@@ -203,6 +205,7 @@ export pure internal_argv(
     @linker_environment,
     @target_environment,
     @git_mount,
+    @lease_mount,
     image,
     "cargo",
     "run",
@@ -261,6 +264,12 @@ proc internal_command(
       common_git = fp"{output.trim()}"
     }
   }
+  var shared_lease_dir = null
+  if common_git != null {
+    let lease_dir = fp"{common_git.parent()}/.work/consolidation/infra"
+    lease_dir.mkdir(parents: true)?
+    shared_lease_dir = lease_dir
+  }
   let argv = internal_argv(
     ctx,
     image,
@@ -272,6 +281,7 @@ proc internal_command(
     stress_repeat,
     extra,
     git_common_dir: common_git,
+    shared_lease_dir: shared_lease_dir,
     host_link_tools: available_link_tools,
   )?
   stages.command(

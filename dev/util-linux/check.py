@@ -19,7 +19,7 @@ import uuid
 
 sys.dont_write_bytecode = True
 
-from leases import campaign_leases, LeaseBusy, mark_cleanup_unresolved, original_root, require_native_lease, require_cargo_lease
+from leases import campaign_leases, ensure_lease_files, LEASE_NAMES, LeaseBusy, mark_cleanup_unresolved, original_root, require_native_lease, require_cargo_lease
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -379,8 +379,8 @@ def owned_cleanup(source):
             "/.work/wt/util-linux-" in arguments or "/core/tests/fixtures/util-linux/" in arguments
         ):
             raise ValueError(f"owned process remains: {line}")
-    infra = original_root(ROOT) / ".work/consolidation/infra"
-    for name in ("final-performance.lock", "native-suite.lock", "cargo.lock"):
+    infra = ensure_lease_files(original_root(ROOT))
+    for name in LEASE_NAMES:
         path = infra / name
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         try:

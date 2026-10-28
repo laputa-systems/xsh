@@ -5,13 +5,14 @@ import os
 from pathlib import Path
 import queue
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 from unittest.mock import patch
 
-from leases import _cargo_held, _cargo_lease, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root, prepare_cleanup_unresolved, resolve_cleanup_unresolved
+from leases import LEASE_NAMES, campaign_leases, _cargo_held, _cargo_lease, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root, prepare_cleanup_unresolved, resolve_cleanup_unresolved
 
 
 def hold(path, mode, channel):
@@ -241,8 +242,58 @@ class LeaseTests(unittest.TestCase):
             require_cargo_lease()
 
     def test_worktree_resolves_original_repository(self):
-        root = Path(__file__).resolve().parents[2]
-        self.assertEqual(original_root(root), Path("/home/josh/d/laputa-systems/xsh"))
+        checkout = Path(self.directory.name) / "checkout"
+        subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "--quiet", "--allow-empty", "-m", "fixture"], check=True)
+        worktree = Path(self.directory.name) / "worktree"
+        subprocess.run(["git", "-C", str(checkout), "worktree", "add", "--quiet", "--detach", str(worktree)], check=True)
+        self.assertEqual(original_root(worktree), checkout.resolve())
+        with campaign_leases(worktree, native=True, cargo=True):
+            pass
+        self.assertTrue((checkout / ".work/consolidation/infra/native-suite.lock").is_file())
+        self.assertFalse((worktree / ".work/consolidation").exists())
+
+    def fresh_checkout(self):
+        checkout = Path(self.directory.name) / "fresh"
+        (checkout / ".git").mkdir(parents=True)
+        return checkout
+
+    def test_fresh_root_creates_lease_files(self):
+        checkout = self.fresh_checkout()
+        with campaign_leases(checkout, native=True, cargo=True):
+            pass
+        infra = checkout / ".work/consolidation/infra"
+        for name in LEASE_NAMES:
+            self.assertTrue((infra / name).is_file())
+
+    def test_second_native_holder_is_busy(self):
+        checkout = self.fresh_checkout()
+        with campaign_leases(checkout, native=True):
+            with self.assertRaises(LeaseBusy):
+                with campaign_leases(checkout, native=True):
+                    self.fail("second native holder entered")
+
+    def test_symlinked_lease_file_is_rejected(self):
+        checkout = self.fresh_checkout()
+        infra = checkout / ".work/consolidation/infra"
+        infra.mkdir(parents=True)
+        (infra / "final-performance.lock").symlink_to(self.path)
+        with self.assertRaises(ValueError):
+            with campaign_leases(checkout):
+                self.fail("symlinked lease accepted")
+        self.assertEqual(self.path.read_bytes(), b"preserve")
+
+    def test_unreachable_lease_directory_fails_loudly(self):
+        checkout = self.fresh_checkout()
+        (checkout / ".work").mkdir()
+        (checkout / ".work").chmod(0o500)
+        self.addCleanup((checkout / ".work").chmod, 0o700)
+        if os.access(checkout / ".work", os.W_OK):
+            self.skipTest("directory permissions are not enforced")
+        with self.assertRaisesRegex(ValueError, "shared lease directory is unreachable"):
+            with campaign_leases(checkout):
+                self.fail("unreachable lease directory accepted")
 
     def test_dangling_cleanup_marker_prevents_dispatch(self):
         self.path.with_suffix(".cleanup-unresolved").symlink_to(self.path.with_name("missing"))
