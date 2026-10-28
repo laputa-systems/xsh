@@ -51,6 +51,12 @@ def add(digest, value):
     digest.update(value)
 
 
+def status(root):
+    output = git(root, b"status", b"--porcelain=v2", b"--branch", b"-z", b"--untracked-files=all")
+    return b"".join(record + b"\0" for record in records(output)
+                    if not record.startswith((b"# branch.upstream ", b"# branch.ab ")))
+
+
 def index_bytes(root):
     location = git(root, b"rev-parse", b"--path-format=absolute", b"--git-path", b"index")
     if not location.endswith(b"\n"):
@@ -131,7 +137,7 @@ def capture(root=None):
     top = git(root, b"rev-parse", b"--show-toplevel")
     if not top.endswith(b"\n") or os.path.realpath(top[:-1]) != root:
         raise ValueError("source repository root is unavailable")
-    state = git(root, b"status", b"--porcelain=v2", b"--branch", b"-z", b"--untracked-files=all")
+    state = status(root)
     index = git(root, b"ls-files", b"--stage", b"-z", b"--")
     gitlinks = {entry.split(b"\t", 1)[1] for entry in records(index)
                 if entry.startswith(b"160000 ") and b"\t" in entry}
@@ -206,7 +212,7 @@ def capture(root=None):
             raise ValueError("unsupported source entry")
         if fingerprint(os.lstat(path)) != fingerprint(before):
             raise ValueError("source changed during inspection")
-    if (state != git(root, b"status", b"--porcelain=v2", b"--branch", b"-z", b"--untracked-files=all")
+    if (state != status(root)
             or index != git(root, b"ls-files", b"--stage", b"-z", b"--")
             or index_details != index_flags(root)
             or index_presence != index_bytes(root)[:1]

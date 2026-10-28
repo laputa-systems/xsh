@@ -262,6 +262,25 @@ class SourceSnapshotTests(unittest.TestCase):
             output = subprocess.check_output(['python3', '-B', str(OBSERVER), '--common-dir'], cwd=linked, env=env)
             self.assertEqual(os.fsdecode(output).removesuffix('\n'), str(repo / '.git'))
 
+    def test_a_branch_advanced_in_another_worktree_does_not_change_the_snapshot(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
+            repo = Path(directory) / 'repo'
+            linked = Path(directory) / 'linked'
+            identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid']
+            subprocess.run(['git', 'init', '-q', '-b', 'main', str(repo)], check=True)
+            (repo / 'tracked').write_text('original\n')
+            subprocess.run(['git', '-C', str(repo), 'add', 'tracked'], check=True)
+            subprocess.run(['git', '-C', str(repo), *identity, 'commit', '-qm', 'fixture'], check=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'branch.autoSetupMerge=always', 'worktree', 'add', '-q',
+                            '-b', 'lane', str(linked), 'main'], check=True)
+            before = subprocess.check_output(['python3', '-B', str(OBSERVER)], cwd=linked)
+            (repo / 'other').write_text('other\n')
+            subprocess.run(['git', '-C', str(repo), 'add', 'other'], check=True)
+            subprocess.run(['git', '-C', str(repo), *identity, 'commit', '-qm', 'advance'], check=True)
+            self.assertEqual(subprocess.check_output(['python3', '-B', str(OBSERVER)], cwd=linked), before)
+            (linked / 'tracked').write_text('edited\n')
+            self.assertNotEqual(subprocess.check_output(['python3', '-B', str(OBSERVER)], cwd=linked), before)
+
     def test_submodule_changes_affect_the_snapshot(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
             root = Path(directory)
