@@ -63,8 +63,8 @@ changed source, a changed or missing product, or an unreadable record. Status
 only observes source and products; it starts no Docker, Cargo or tests.
 Scenario and Laputa cases store their record when the external run passes. A Laputa record also
 binds the Laputa root and source digest and, for reuse-count, `xshi`; `--status` with `--laputa-root`
-observes the checkout again and reports a changed root or digest as stale, and without the root it
-reports the record as stale. A `--full` run stores a
+observes the checkout again and reports a changed root or digest as stale. The CLI rejects a status
+request for a Laputa case without `--laputa-root`. A `--full` run stores a
 source-bound record only after every step passes; until then status reports
 `Full: not run`, and a source edit afterwards reports it stale.
 
@@ -170,8 +170,7 @@ mount API (`fsopen`, `fsconfig`, `fsmount`, `fspick`, `open_tree`, `move_mount`,
 without `CAP_SYS_ADMIN`; the kernel still checks capabilities in the target user namespace. The
 container gets no added capability and no device, and `/proc` stays masked and its system
 paths stay read-only. Three tests need an unmasked `/proc` (a `procfs` mount inside the new
-namespace, or credential transitions that depend on one) and one needs `CAP_SYS_ADMIN` in the
-initial user namespace, so they are declared outside every
+namespace, or credential transitions that depend on one), so they are declared outside every
 lane. A native file whose every test is declared outside the unprivileged lane is a reported gap
 that names these scenarios, not a case. A single native file with only some tests outside the
 lane is incomplete, exit 2, whether it is requested by path or by `--case native-FILE`: planning

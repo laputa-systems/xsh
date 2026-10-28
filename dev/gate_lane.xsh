@@ -121,7 +121,7 @@ export const namespace_tests = [
 
 ## Tests no gate lane can run: the lane lacks a service, resource, platform or the skip outcome is the subject.
 export const lane_exclusions: List[Exclusion] = [
-  Exclusion(missing: "an unmasked /proc or CAP_SYS_ADMIN in the initial user namespace, which no confined gate container grants", tests: [
+  Exclusion(missing: "an unmasked /proc, which no confined gate container grants", tests: [
     "core/tests/test-unshare.xsh::test_unshare_mount_proc_accepts_a_directory",
     "core/tests/test-unshare.xsh::test_unshare_mount_proc_shows_the_new_pid_namespace",
     "tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace",
