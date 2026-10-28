@@ -244,6 +244,7 @@ test test_carrier_loss_and_return_revalidate_and_a_recreated_interface_reacquire
   let flap = play(h, rules, [after(5000, "carrier", "down"), after(6000, "carrier", "up"), after(9000, "ask", "stop")])?
   assert counted(flap.session, "sent_request_init_reboot") >= 1
   assert flap.world.kernel.addresses.len() == 1
+  assert flap.world.kernel.routes.len() == 1, "the default route the carrier loss removed is installed again"
 
   let h2 = harness(ctx, "recreate")?
   let recreated = play(h2, rules, [after(5000, "recreate", ""), after(9000, "ask", "stop")])?
@@ -259,6 +260,14 @@ test test_an_interface_that_vanishes_before_it_is_recreated_does_not_stop_the_cl
   assert counted(gone.session, "observe_failed") >= 1
   assert gone.world.kernel.ifindex == 13
   assert gone.world.kernel.addresses.len() == 1, "the lease is revalidated on the recreated device"
+}
+
+test test_a_failed_send_is_counted_and_the_client_acquires_once_sending_works { |ctx|
+  let h = harness(ctx, "deaf")?
+  let rules = [script.always("discover", [offer_with(600)]), script.always("request", [ack_with(600)])]
+  let result = play(h, rules, [after(1, "send_off", ""), after(6000, "send_on", ""), after(30000, "ask", "stop")])?
+  assert counted(result.session, "send_failed") >= 2
+  assert result.world.kernel.addresses.len() == 1, "discovery resumes by itself"
 }
 
 test test_an_address_removed_behind_the_clients_back_with_a_lost_notification_is_repaired { |ctx|

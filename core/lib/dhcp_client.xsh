@@ -114,6 +114,7 @@ export type Session = {
   conflicts: List[network.Conflict],
   stopped: Bool,
   resync: Bool,
+  trouble: Str,
   context: Context,
 }
 
@@ -211,12 +212,16 @@ export pure link_events(state: machine.State, before: network.Observation, after
   []
 }
 
-## True when the machine holds a lease whose owned address is missing from the
-## observation, which means something outside removed it and the client should
-## assert its configuration again.
+## True when the machine holds a lease whose owned address or route is missing
+## from the observation, which means something outside removed it (a carrier
+## loss removes the routes of a link) and the client should assert its
+## configuration again.
 export pure needs_repair(session: Session, fresh: network.Observation) -> Bool {
   guard let lease = session.machine.lease else { return false }
   return false unless session.machine.state == .Bound or session.machine.state == .Renewing or session.machine.state == .Rebinding
+  for item in session.record.owned.routes {
+    return true unless network.holds_route(fresh.routes, item)
+  }
   for item in session.record.owned.addresses {
     return false when item.address == lease.address and network.holds_address(fresh.addresses, item)
   }
@@ -234,6 +239,7 @@ pure status_text(session: Session, report: machine.Report, wall: Int) -> Str {
       rebind_at: report.rebind_at,
       expire_at: report.expire_at,
       resolver: session.resolver,
+      trouble: session.trouble,
       conflicts: [f"{conflict.kind} {conflict.subject}" for conflict in session.conflicts],
       counters: session.counters,
       wall_ms: wall,
@@ -241,20 +247,25 @@ pure status_text(session: Session, report: machine.Report, wall: Int) -> Str {
   ) ?? "{}"
 }
 
+proc transmit(host: ClientIo, ctx: Context, session: Session, outgoing: Outgoing, counted: Str) [fs, process, net, time, error] -> Reaction {
+  let sent = host.send(ctx, outgoing)
+  if let Err(failure) = sent {
+    return {session: {...session, counters: bump(session.counters, "send_failed"), trouble: failure.message}, effects: []}
+  }
+  reaction_of(session, bump(session.counters, counted))
+}
+
 proc settle_one(host: ClientIo, ctx: Context, session: Session, effect: machine.Effect, now: Int) [fs, process, net, time, error] -> Result[Reaction, Error] {
   match effect {
     machine.Send(packet) => {
       let datagram = encode_packet(ctx.link.identity, packet)?
-      host.send(ctx, .SendDhcp({bytes: datagram, destination: if packet.unicast { packet.server } else { BROADCAST }, broadcast: ! packet.unicast, unaddressed: unaddressed(packet.kind)}))
-      Ok(reaction_of(session, bump(session.counters, f"sent_{machine.kind_name(packet.kind)}")))
+      Ok(transmit(host, ctx, session, .SendDhcp({bytes: datagram, destination: if packet.unicast { packet.server } else { BROADCAST }, broadcast: ! packet.unicast, unaddressed: unaddressed(packet.kind)}), f"sent_{machine.kind_name(packet.kind)}"))
     }
     machine.Probe(address) => {
-      host.send(ctx, .SendArp(arp.probe(ctx.link.mac, address)?))
-      Ok(reaction_of(session, bump(session.counters, "sent_arp_probe")))
+      Ok(transmit(host, ctx, session, .SendArp(arp.probe(ctx.link.mac, address)?), "sent_arp_probe"))
     }
     machine.Announce(address) => {
-      host.send(ctx, .SendArp(arp.announce(ctx.link.mac, address)?))
-      Ok(reaction_of(session, bump(session.counters, "sent_arp_announce")))
+      Ok(transmit(host, ctx, session, .SendArp(arp.announce(ctx.link.mac, address)?), "sent_arp_announce"))
     }
     machine.Configure(lease) => configure(host, ctx, session, lease, now)
     machine.Deconfigure(_) => withdraw(host, ctx, session, now)
@@ -367,15 +378,19 @@ pure command_event(command: Request) -> machine.Event {
 
 proc observed_change(host: ClientIo, ctx: Context, session: Session, now: Int) [fs, process, net, time, error] -> Result[Session, Error] {
   let observation = host.observe(ctx)
-  if let Err(_) = observation {
-    let missing = {...bump_session(session, "observe_failed"), resync: true}
-    return settle(host, ctx, feed(missing, .OnLinkDown, now), now)
+  if let Err(failure) = observation {
+    let missing = {...bump_session(session, "observe_failed"), resync: true, trouble: failure.message}
+    let settled = settle(host, ctx, feed(missing, .OnLinkDown, now), now)?
+    if failure.message != session.trouble {
+      let _ = host.apply(ctx, .Publish(status_text(settled, machine.status(settled.machine), host.wall(ctx)?)))?
+    }
+    return Ok(settled)
   }
   let fresh = observation?
   let recreated = fresh.ifindex != session.observed.ifindex
   let bound = if recreated { host.rebind(ctx, fresh)? } else { ctx }
   let record = if recreated { {...session.record, ifindex: fresh.ifindex, owned: network.empty_owned(fresh.ifindex)} } else { session.record }
-  var current = {...session, observed: fresh, context: bound, record: record, resync: false}
+  var current = {...session, observed: fresh, context: bound, record: record, resync: false, trouble: "none"}
   for event in link_events(session.machine.state, session.observed, fresh) {
     current = settle(host, bound, feed(current, event, now), now)?
   }
@@ -414,6 +429,7 @@ pure begin(ctx: Context, beginning: Beginning) -> Session {
     conflicts: [],
     stopped: false,
     resync: false,
+    trouble: "none",
     context: ctx,
   }
 }
@@ -438,8 +454,7 @@ export proc drive(host: ClientIo, ctx: Context, beginning: Beginning, mode: Mode
   }
   let deadline = if let .OneShot(limit) = mode { now + limit } else { null }
   while ! session.stopped {
-    let live = session.context
-    session = observed_change(host, live, session, now)? when session.resync
+    session = observed_change(host, session.context, session, now)? when session.resync
     if let limit = deadline {
       return Ok(session) when session.machine.state == .Bound
       return Err(ClientFailure.NoLease("no lease before the deadline")) when now >= limit
@@ -447,12 +462,16 @@ export proc drive(host: ClientIo, ctx: Context, beginning: Beginning, mode: Mode
     let wake = if let at = session.machine.wake_at { at - now } else { null }
     let limited = if let limit = deadline { min_wait(wake, limit - now) } else { wake }
     let bounded = if session.resync { min_wait(limited, RESYNC_MS) } else { limited }
-    let ready = host.wait(live, bounded)?
-    now = host.now(live)?
+    let ready = host.wait(session.context, bounded)?
+    now = host.now(session.context)?
     if ready.dhcp or ready.arp or ready.events or ready.control {
-      let delivered = host.receive(live)?
+      let delivered = host.receive(session.context)?
       for incoming in delivered |> take(MAX_INCOMING) {
-        session = handle(host, live, session, incoming, now)?
+        let before = session.machine.state
+        session = handle(host, session.context, session, incoming, now)?
+        if session.machine.state == .Bound and before != .Bound {
+          session = observed_change(host, session.context, session, now)?
+        }
         if let .Asked(command) = incoming {
           if command == Stop {
             session = {...session, stopped: true}
@@ -462,7 +481,7 @@ export proc drive(host: ClientIo, ctx: Context, beginning: Beginning, mode: Mode
     }
     if let at = session.machine.wake_at {
       if now >= at {
-        session = settle(host, live, feed(session, .OnTick, now), now)?
+        session = settle(host, session.context, feed(session, .OnTick, now), now)?
       }
     }
   }

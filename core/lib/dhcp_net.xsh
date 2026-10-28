@@ -108,7 +108,8 @@ export pure holds_address(items: List[Address], wanted: Address) -> Bool {
   false
 }
 
-pure holds_route(items: List[Route], wanted: Route) -> Bool {
+## True when `items` holds exactly the route `wanted`.
+export pure holds_route(items: List[Route], wanted: Route) -> Bool {
   for item in items {
     return true when item == wanted
   }
