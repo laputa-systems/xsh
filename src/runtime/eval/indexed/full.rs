@@ -11277,6 +11277,11 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn is_empty_collection_module_call(&self, instruction: usize, annotation: &Type) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = self.expression_view(instruction)? else { return Ok(false) };
+        Ok(args.len() == 0 && matches!((op, annotation.unvalidated()), (RuntimeOp::SetEmpty, Type::Set(_)) | (RuntimeOp::MapEmpty, Type::Map(_, _))))
+    }
+
     fn is_empty_map_module_call(&self, instruction: usize) -> Result<bool, IrVerifyError> {
         let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = self.expression_view(instruction)? else { return Ok(false) };
         Ok(op == RuntimeOp::MapEmpty && args.len() == 0)
@@ -34293,6 +34298,23 @@ assert nullable_name == null
         let (status_value, text_value) = (forged.store.scheme_body_facts[status_fact].value, forged.store.scheme_body_facts[text_fact].value);
         forged.store.scheme_body_facts[status_fact].value = text_value;
         forged.store.scheme_body_facts[text_fact].value = status_value;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn full_verifier_rejects_a_forged_empty_collection_local_initializer() {
+        let program = fixture(
+            "empty-collection-local.xsh",
+            "pure measure(items) { items.len() }\nlet names: Set[Str] = set.empty()\nlet kept = measure(names)\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let operations = program.store.runtime_ops.iter().enumerate()
+            .filter(|(_, op)| **op == RuntimeOp::SetEmpty)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        assert_eq!(operations.len(), 1);
+        let mut forged = program.clone();
+        forged.store.runtime_ops[operations[0]] = RuntimeOp::MapEmpty;
         assert!(FullVerifier::verify(&forged).is_err());
     }
 

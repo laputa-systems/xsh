@@ -4683,7 +4683,7 @@ fn verify_instantiated_call_arguments(
                 };
                 let actual = match derived {
                     Some(actual) => actual,
-                    None => annotated_optional_record_argument_type(store, &decoder, value.raw() as usize, materialization)?
+                    None => annotated_local_argument_type(store, &decoder, value.raw() as usize, materialization)?
                         .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,
                 };
                 ensure_closed_type(&actual)?;
@@ -5210,7 +5210,7 @@ fn checked_argument_type(
     Ok(Some(actual))
 }
 
-fn annotated_optional_record_argument_type(
+fn annotated_local_argument_type(
     store: &FullStore,
     decoder: &FullDecoder<'_>,
     instruction: usize,
@@ -5219,11 +5219,11 @@ fn annotated_optional_record_argument_type(
     let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else {
         return Ok(None);
     };
-    let (annotation, checked_type, initializer) = if super::driver_owner_index(decoder.owner).is_some() {
+    let (annotation, checked_type, initializer, initializer_step) = if super::driver_owner_index(decoder.owner).is_some() {
         let Some(source) = decoder.driver_local_let_source(slot, |amount| materialization.charge(amount))? else {
             return Ok(None);
         };
-        (source.annotation, Some(source.checked_type), source.initializer)
+        (source.annotation, Some(source.checked_type), source.initializer, Some(source.step))
     } else {
         let (has_local_write, initializer) = decoder.local_immutable_let_initializer(slot)?;
         if !has_local_write { return Ok(None); }
@@ -5232,6 +5232,7 @@ fn annotated_optional_record_argument_type(
             decoder.local_immutable_let_annotation(slot)?,
             decoder.checked_slot_type(slot)?,
             initializer,
+            None,
         )
     };
     let Some(annotation) = annotation else { return Ok(None) };
@@ -5245,8 +5246,15 @@ fn annotated_optional_record_argument_type(
         &mut materialization.semantic_types,
     )?;
     ensure_closed_type(&annotation)?;
-    if annotation.contains_any()
-        || !matches!(annotation.unvalidated(), Type::Optional(payload) if matches!(payload.as_ref(), Type::Record(_)))
+    if annotation.contains_any() { return Ok(None); }
+    if matches!(annotation.unvalidated(), Type::Set(_) | Type::Map(_, _)) {
+        let empty = match initializer_step {
+            Some(step) => decoder_for_driver_step(store, step)?.is_empty_collection_module_call(initializer, &annotation)?,
+            None => decoder.is_empty_collection_module_call(initializer, &annotation)?,
+        };
+        return Ok(empty.then_some(annotation));
+    }
+    if !matches!(annotation.unvalidated(), Type::Optional(payload) if matches!(payload.as_ref(), Type::Record(_)))
         || store.tags.get(initializer) != Some(&FullTag::ExprRecord)
     {
         return Ok(None);

@@ -156,3 +156,19 @@ let rejected = known_in_list([1, 2], ["a"])
     stderr: ["[check."],
   )?
 }
+
+test test_full_inference_empty_collection_locals_pass_to_generic_callees { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure measure(items) { items.len() }
+let names: Set[Str] = set.empty()
+let counts: Map[Str, Int] = map.empty()
+let kept = measure(names)
+let mapped = measure(counts)
+print $kept
+print $mapped
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "0\n0\n"
+}
