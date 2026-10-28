@@ -514,7 +514,7 @@ match docker.run_internal(ctx, "dist", false, []) {{
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
   assert "[docker-dist" not in result.stdout, result.stdout
-  assert "build" in docker_marker.read_text()?
+  assert docker_marker.read_text()?.starts_with("build|--provenance=false|"), docker_marker.read_text()?
 }
 
 test test_trace_keeps_process_status_for_a_failed_child { |ctx|

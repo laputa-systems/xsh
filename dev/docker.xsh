@@ -87,6 +87,7 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
         [
           "docker",
           "build",
+          "--provenance=false",
           "--platform",
           selected_platform,
           "-t",
