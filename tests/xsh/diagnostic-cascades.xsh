@@ -71,3 +71,13 @@ test test_unrelated_unresolved_call_is_still_reported_beside_another_error { |ct
   assert "type argument remains unresolved" in stderr, stderr
   assert stderr.split("err[").len() == 3, stderr
 }
+
+test test_failed_callback_call_does_not_reject_later_valid_calls { |ctx|
+  let stderr = diagnose(
+    ctx,
+    "poisoned application",
+    "pure both(callback, first, second) { let a = callback(first); let b = callback(second); a }\npure identity(value) { value }\nlet rejected = both(identity, 1, \"text\")\nlet accepted = both(identity, 1, 2)\nlet other = both(identity, \"a\", \"b\")\n",
+  )?
+  assert_single(stderr, "poisoned application", "check.callable-mismatch")
+  assert ":3:" in stderr, stderr
+}

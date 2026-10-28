@@ -112,6 +112,7 @@ pub(super) struct CallableApplications {
     watchers: BTreeMap<ApplicationDependency, BTreeSet<CallableApplicationId>>,
     pending: VecDeque<CallableApplicationId>,
     queued: BTreeSet<CallableApplicationId>,
+    abandoned: BTreeSet<CallableApplicationId>,
 }
 
 #[cfg(test)]
@@ -741,7 +742,7 @@ impl CallableApplications {
         changes: &mut Vec<ConstraintChange>,
         counters: &super::ConstraintCounters,
     ) {
-        if self.queued.insert(id) {
+        if !self.abandoned.contains(&id) && self.queued.insert(id) {
             self.pending.push_back(id);
             changes.push(ConstraintChange::Application(ApplicationChange::Queued(id)));
             counters.record_application_worklist_wakeup();
@@ -1127,6 +1128,15 @@ impl TypeConstraints {
             Ok::<_, CallableApplicationError>(())
         })?;
         Ok(id)
+    }
+
+    pub(crate) fn abandon_callable_applications(&mut self, ids: &[CallableApplicationId]) {
+        for id in ids {
+            self.applications.abandoned.insert(*id);
+            self.applications.queued.remove(id);
+        }
+        let abandoned = &self.applications.abandoned;
+        self.applications.pending.retain(|id| !abandoned.contains(id));
     }
 
     pub(crate) fn solve_callable_applications(&mut self) -> Result<(), CallableApplicationError> {
