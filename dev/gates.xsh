@@ -626,18 +626,20 @@ pure tier_name(tier: Tier) -> Str {
 const desugar_corpus_test = "desugar::the_desugared_corpus_checks_and_tests_like_the_corpus"
 const lint_format_corpus_filter = "lint_format_invariance::"
 
-pure area_scenario_seconds(stage: Str) -> Int? {
+pure scenario_seconds_for_stage(stage: Str) -> Int? {
   match stage {
     "test-soundness" => 1200
     "test-desugar-corpus" => 1800
     "test-lint-format-corpus" => 1800
     "native-core/tests" => 3600
+    "native-core/tests/test-awk.xsh" => 1800
+    "native-core/tests/test-gnu-sort.xsh" => 1800
     else => null
   }
 }
 
 pure declared_case(spec: contract.CommandSpec, products: List[tests.Product], reasons: List[Str]) -> CatalogCase {
-  let scenario_seconds = area_scenario_seconds(spec.stage)
+  let scenario_seconds = scenario_seconds_for_stage(spec.stage)
   {id: spec.stage, tier: if scenario_seconds != null { Scenario } else { Change },
     limit: RuntimeSeconds(scenario_seconds ?? 300), products: products,
     prerequisite_ids: [], reasons: reasons, execution: RunCommand(spec)}
@@ -1169,6 +1171,11 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       let applet_tests = f"core/tests/test-{changed_path[5..changed_path.byte_len() - 4]}.xsh"
       if fp"{ctx.root}/{applet_tests}".exists()? {
         known_paths += [applet_tests]
+        if scenario_seconds_for_stage(f"native-{applet_tests}") != null {
+          let edit_cases = [case for case in source_edit_cases if case.source == changed_path]
+          for case in edit_cases { selected_ids += [case.id] when case.id not in selected_ids }
+          unresolved += [f"no Change case owns {changed_path}; its module is the explicit native-{applet_tests} scenario"] when edit_cases.is_empty()
+        }
         continue
       }
     }
@@ -1231,7 +1238,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
   let resolved = resolve_selection(chosen, selected_ids, explicit_ids, tier)?
   var scenarios: List[Str] = if soundness_owners(selection.areas) and soundness_scenario_id not in explicit_ids { [soundness_scenario_id] } else { [] }
   for spec in lane_plan(ctx, profile, selection)? {
-    scenarios += [spec.stage] when area_scenario_seconds(spec.stage) != null and spec.stage not in explicit_ids and spec.stage not in scenarios
+    scenarios += [spec.stage] when scenario_seconds_for_stage(spec.stage) != null and spec.stage not in explicit_ids and spec.stage not in scenarios
   }
   {...resolved, unresolved: unresolved, available_scenarios: scenarios}
 }

@@ -2682,8 +2682,9 @@ test test_awk_edit_selects_record_and_program_contracts {
     gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("awk records case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/awk.xsh"], [], gates.Change)?
-  assert [entry.id for entry in change.cases] == ["native-core/tests/test-awk.xsh"]
+  assert [entry.id for entry in change.cases] == ["core/awk/records"]
   assert change.unresolved.is_empty()
+  assert change.available_scenarios == ["native-core/tests/test-awk.xsh"]
 }
 
 test test_json_edit_selects_structured_data_contracts {

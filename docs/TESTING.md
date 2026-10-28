@@ -142,6 +142,11 @@ the repository corpus within 1800 seconds. Change selects `test-desugar` and
 `test-tooling` without them, and a Change request for a shared core path reports that no
 Change case owns it and lists `native-core/tests` as an available scenario. A Change request
 for `core/NAME.xsh` selects the `core/tests/test-NAME.xsh` module when it exists.
+The runner admits at most eight tests of one file at a time, so a module that needs more
+than 2,400 CPU-seconds cannot finish in 300 seconds. `core/tests/test-awk.xsh` (3,300
+CPU-seconds, 429 s wall on a host at load 14 to 27) and the single sort-buffer test in
+`core/tests/test-gnu-sort.xsh` (366 s) are therefore 1800 s Scenario cases; Change for
+`core/awk.xsh` selects its Edit case and lists the module as an available scenario.
 
 Native cases run as the host user inside the gate container, with a private home and
 temporary directory under `.work/tmp`, as the Full native run does. The container itself
