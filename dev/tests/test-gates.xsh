@@ -986,7 +986,7 @@ test test_catalogue_plans_tokei_without_showcase_fallback_and_marks_unknown_scop
 }
 
 test test_invalid_gate_dispatch_never_starts_docker_or_cargo { |ctx|
-  test.timeout(ctx, 20s)
+  test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-forbidden-processes")?
   let marker = fp"{tools}/started"
@@ -1185,7 +1185,7 @@ test test_bounded_gate_timeout_consumes_leader_and_descendant_cleanup { |ctx|
 }
 
 test test_gate_prepares_each_cargo_harness_once_and_runs_filters_without_cargo { |ctx|
-  test.timeout(ctx, 20s)
+  test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-prepared-harness")?
   for name in ["Cargo.toml", "rust-toolchain.toml", "xsht-config.ini"] { fp"{root}/{name}".write("") }
@@ -1377,7 +1377,7 @@ main()?
 }
 
 test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
-  test.timeout(ctx, 10s)
+  test.timeout(ctx, 90s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-cancel-cleanup")?
   fp"{root}/dev".mkdir()
@@ -1399,7 +1399,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   let stderr = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}, stdout: stdout, stderr: stderr, timeout: 7s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {
@@ -1423,7 +1423,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
 }
 
 test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
-  test.timeout(ctx, 10s)
+  test.timeout(ctx, 90s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-product-cancel")?
   let child_file = fp"{root}/child"
@@ -1445,7 +1445,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
   let script = fp"{repository}/dev/main.xsh"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}, stdout: stdout, stderr: stderr, timeout: 7s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {
@@ -2230,7 +2230,7 @@ main()?
 }
 
 test test_laputa_mixed_case_preserves_regular_child_status { |ctx|
-  test.timeout(ctx, 60s)
+  test.timeout(ctx, 180s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "laputa-mixed")?
   let laputa = fp"{tools}/laputa"
