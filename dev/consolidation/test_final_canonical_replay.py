@@ -545,6 +545,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             return runner.IMAGE
 
         with (
+            mock.patch.object(runner, "validate_full_catalogue", return_value=0),
             mock.patch.object(runner, "source_check", return_value={"where": "before"}),
             mock.patch.object(runner, "run_text", side_effect=replace_during_image_check) as run_text,
             mock.patch.object(runner, "stop_container", return_value={"resolved": True}),
@@ -558,6 +559,93 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         run_text.assert_called_once_with(["docker", "image", "inspect", "--format", "{{.Id}}", runner.IMAGE], self.repo)
         popen.assert_not_called()
         self.assertTrue(validated["output_root"].exists())
+
+    def catalogue_fixture(self, status, diagnostic):
+        self.create_bootstrap()
+        validated = self.validate()
+        self.bootstrap.write_text(
+            "#!/bin/sh\n"
+            'test "$1 $2 $3 $4" = "dev/main.xsh -- internal gate-validate-full" || exit 9\n'
+            'test "$TARGET:$DIST_PROFILE" = "x86_64-unknown-linux-musl:verification" || exit 9\n'
+            f"printf '%s\\n' '{diagnostic}' >&2\nexit {status}\n",
+            encoding="utf-8",
+        )
+        validated["bootstrap_receipt"]["artifact"] = runner.host_file(self.bootstrap, executable=True)
+        return validated
+
+    def test_invalid_full_catalogue_prevents_any_docker_operation(self):
+        for diagnostic in ("missing declaration", "cyclic catalogue", "invalid product closure"):
+            with self.subTest(diagnostic=diagnostic):
+                validated = self.catalogue_fixture(2, diagnostic)
+                with mock.patch.object(runner, "source_check", return_value={}), mock.patch.object(runner, "run_text") as docker:
+                    with self.assertRaisesRegex(runner.ReplayError, diagnostic):
+                        runner.run_batch(validated)
+                docker.assert_not_called()
+                self.assertFalse(self.output.exists())
+
+    def test_valid_full_catalogue_reaches_docker_boundary(self):
+        validated = self.catalogue_fixture(0, "valid")
+        with mock.patch.object(runner, "source_check", return_value={}), mock.patch.object(runner, "run_text", side_effect=RuntimeError("Docker boundary")) as docker:
+            with self.assertRaisesRegex(RuntimeError, "Docker boundary"):
+                runner.run_batch(validated)
+        docker.assert_called_once_with(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", runner.IMAGE], self.repo
+        )
+
+    def test_cancelled_full_preflight_preserves_cancel_and_prevents_docker(self):
+        validated = self.catalogue_fixture(130, "cancelled")
+        with mock.patch.object(runner, "source_check", return_value={}), mock.patch.object(runner, "run_text") as docker:
+            self.assertEqual(runner.run_batch(validated), 130)
+        docker.assert_not_called()
+
+    def test_full_preflight_deadline_prevents_docker(self):
+        validated = self.catalogue_fixture(0, "valid")
+        with (
+            mock.patch.object(runner, "source_check", return_value={}),
+            mock.patch.object(runner.subprocess, "run", side_effect=subprocess.TimeoutExpired("planner", 30)) as planner,
+            mock.patch.object(runner, "run_text") as docker,
+        ):
+            with self.assertRaisesRegex(runner.ReplayError, "timed out before Docker"):
+                runner.run_batch(validated)
+        self.assertEqual(planner.call_args.kwargs["timeout"], 30)
+        docker.assert_not_called()
+
+    def test_full_preflight_signal_cancels_and_reaps_its_child(self):
+        validated = self.catalogue_fixture(0, "valid")
+        pid_path = self.scratch_dir / "planner.pid"
+        self.bootstrap.write_text(
+            f"#!{sys.executable}\n"
+            "import os, pathlib, signal, time\n"
+            f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
+            "os.kill(os.getppid(), signal.SIGTERM)\n"
+            "time.sleep(10)\n",
+            encoding="utf-8",
+        )
+        validated["bootstrap_receipt"]["artifact"] = runner.host_file(self.bootstrap, executable=True)
+        previous = signal.getsignal(signal.SIGTERM)
+        with mock.patch.object(runner, "source_check", return_value={}), mock.patch.object(runner, "run_text") as docker:
+            self.assertEqual(runner.run_batch(validated), 130)
+        self.assertIs(signal.getsignal(signal.SIGTERM), previous)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int(pid_path.read_text()), 0)
+        docker.assert_not_called()
+
+    def test_source_change_after_full_preflight_prevents_docker(self):
+        validated = self.catalogue_fixture(0, "valid")
+        original = runner.validate_full_catalogue
+
+        def changed(request):
+            status = original(request)
+            (self.repo / "source.txt").write_text("changed\n", encoding="utf-8")
+            return status
+
+        with (
+            mock.patch.object(runner, "validate_full_catalogue", side_effect=changed),
+            mock.patch.object(runner, "run_text", wraps=runner.run_text) as host_text,
+        ):
+            with self.assertRaises(runner.ReplayError):
+                runner.run_batch(validated)
+        self.assertFalse(any(call.args[0][0] == "docker" for call in host_text.call_args_list))
 
     def test_bootstrap_producer_rejects_failed_build_and_wrong_output_directory(self):
         self.create_build_receipt()
@@ -721,6 +809,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             return {"resolved": True}
 
         with (
+            mock.patch.object(runner, "validate_full_catalogue", return_value=0),
             mock.patch.object(runner, "source_check", return_value={"where": "before"}),
             mock.patch.object(
                 runner,
@@ -988,6 +1077,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             return process
 
         with (
+            mock.patch.object(runner, "validate_full_catalogue", return_value=0),
             mock.patch.object(runner, "source_check", return_value={"where": "before"}),
             mock.patch.object(runner, "run_text", return_value=runner.IMAGE) as run_text,
             mock.patch.object(

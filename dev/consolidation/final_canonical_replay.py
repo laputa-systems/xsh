@@ -1344,6 +1344,55 @@ def run_bootstrap(validated: dict[str, Any]) -> int:
         lock.close()
 
 
+class _FullValidationCancelled(Exception):
+    pass
+
+
+def validate_full_catalogue(validated: dict[str, Any]) -> int:
+    environment = dict(os.environ)
+    environment.pop("LD_PRELOAD", None)
+    environment.update(
+        TARGET=TARGET,
+        DIST_PROFILE=PROFILE,
+        CARGO_TARGET_DIR=str(validated["target_dir"]),
+        TMPDIR=str(validated["scratch_dir"]),
+    )
+    interrupted = False
+
+    def cancel(_signum: int, _frame: Any) -> None:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise _FullValidationCancelled
+
+    previous = {signum: signal.signal(signum, cancel) for signum in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        completed = subprocess.run(
+            [str(validated["bootstrap_path"]), "dev/main.xsh", "--", "internal", "gate-validate-full"],
+            cwd=validated["root"],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except _FullValidationCancelled:
+        return 130
+    except subprocess.TimeoutExpired as error:
+        raise ReplayError("Full catalogue validation timed out before Docker") from error
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    if completed.returncode in (130, -signal.SIGINT, -signal.SIGTERM):
+        return 130
+    if completed.returncode != 0:
+        raise ReplayError(
+            f"Full catalogue validation failed before Docker (raw status {completed.returncode}): "
+            f"{completed.stdout}{completed.stderr}"
+        )
+    return 0
+
+
 def run_batch(validated: dict[str, Any]) -> int:
     root = validated["root"]
     output_root = validated["output_root"]
@@ -1357,6 +1406,9 @@ def run_batch(validated: dict[str, Any]) -> int:
             raise ReplayError(f"native-suite cleanup remains unresolved: {lock_path}")
         before = source_check(validated, "before")
         validate_bootstrap_target(validated["bootstrap_path"], validated["bootstrap_receipt"]["artifact"])
+        if validate_full_catalogue(validated) == 130:
+            return 130
+        source_check(validated, "after_full_preflight")
         image_id = run_text(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE], root)
         if image_id != IMAGE:
             raise ReplayError(f"pinned Docker image ID differs: {image_id}")

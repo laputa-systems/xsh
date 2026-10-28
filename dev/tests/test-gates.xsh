@@ -1733,6 +1733,30 @@ test test_internal_full_rejects_automatic_operation_identity_before_effects {
   }
 }
 
+test test_internal_full_validation_never_starts_verification_commands { |ctx|
+  test.timeout(ctx, 60s)
+  let repository = fs.cwd()?
+  let tools = test.temp_dir(ctx, name: "full-validation-forbidden-processes")?
+  let marker = fp"{tools}/started"
+  for name in ["cargo", "docker"] {
+    fp"{tools}/{name}".write(f"#!/bin/sh\ntouch '{marker}'\nexit 99\n", mode: 0o755)
+  }
+  let source = f"""
+proc main(...arguments: List[Str]) [process, error] {{
+  let command = process.command_argv(p"{ctx.xsh_bin}",
+    ["{ctx.xsh_bin}", "{repository}/dev/main.xsh", "--", "internal", "gate-validate-full", @arguments], cwd: p"{repository}")
+  let status = process.run(command)?
+  exit status.shell_code()?
+}}
+"""
+  let environment = {PATH: f"{tools}:{env.get_or("PATH", "")?}",
+    XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests", TARGET: "x86_64-unknown-linux-musl", DIST_PROFILE: "verification"}
+  let _ = test.expect(ctx, source, status: 0, args: [], env: environment)?
+  assert ! marker.exists()?
+  let _ = test.expect(ctx, source, status: 3, args: ["--full"], env: environment)?
+  assert ! marker.exists()?
+}
+
 test test_laputa_root_is_explicit_and_scoped {
   for arguments in [
     ["--case", "laputa/pm.make/plan"],
