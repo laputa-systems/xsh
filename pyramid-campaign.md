@@ -87,8 +87,23 @@ The first family runs exposed harness defects, now repaired:
 A combined Change selection shares one 300 s budget, so it cannot finish
 under heavy load; per-case runs each get the full budget.
 
-Next: finish item 1 across the remaining Change cases on `master`, then the P0
-baselines (item 4) in a quiet window.
+Item 1 status, 2026-10-28, tip `0a520d1c4`: of the 52 Change cases that were not
+per-file native cases, 49 pass one case per run in the pinned image, and
+`native-core/tests` is no longer a Change case. `native-dev/tests` fails on
+`dev/checks/check_kernel_reads.py` (`core/syslogd.xsh` reads `/proc` or `/sys`
+literals; owned by the syslog lane) and, in about one run in three, on
+`test_laputa_mixed_case_preserves_regular_child_status`, which observes the live
+checkout while the other tests run. `core/cat/external-consumers` and
+`verification/performance-check` each ended `source changed` once and passed on
+two reruns; no tracked or untracked file differed afterward, and the cause is
+unknown. Repairs: native cases run as the host user, tests the unprivileged lane
+cannot run are declared in `dev/gate_lane.xsh` and run by the explicit
+`lane/privileged-native` scenario, and corpus-wide checks (core suite, desugar
+corpus, lint-format corpus, `test-awk.xsh`, `test-gnu-sort.xsh`) are Scenario
+cases. Timings were taken at host load 14 to 123, never idle.
+
+Next: close the two open item 1 failures, then the P0 baselines (item 4) in a quiet
+window.
 
 Automatic discovery now reads staged, unstaged and untracked Git paths with
 NUL delimiters and rejects non-UTF-8 output. The Docker launcher scopes Git's
