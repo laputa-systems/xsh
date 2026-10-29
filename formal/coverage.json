@@ -10070,6 +10070,285 @@
       "status": "fragment",
       "scope": "Internal, host-request and host-response edges of the base expression machine.",
       "boundary": "Covers only the listed BaseExpr language and one host request family; it does not close BASE-STEP for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_decodes_escapes",
+      "module": "Xsh.Conformance.Transport.Json",
+      "declaration": "Xsh.Conformance.Transport.parse_decodes_escapes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The closed v1 exchange JSON grammar of strings, arrays and objects: escapes, duplicate keys, non-protocol atoms, malformed text, and closed-object field sets.",
+      "boundary": "Covers the Lean decoder and its closed grammar only; it proves nothing about Rust's serde-compatible parser, and the Lean grammar is stricter than the Rust one."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_accepts_a_closed_object",
+      "module": "Xsh.Conformance.Transport.Json",
+      "declaration": "Xsh.Conformance.Transport.parse_accepts_a_closed_object",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The closed v1 exchange JSON grammar of strings, arrays and objects: escapes, duplicate keys, non-protocol atoms, malformed text, and closed-object field sets.",
+      "boundary": "Covers the Lean decoder and its closed grammar only; it proves nothing about Rust's serde-compatible parser, and the Lean grammar is stricter than the Rust one."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_rejects_duplicate_keys",
+      "module": "Xsh.Conformance.Transport.Json",
+      "declaration": "Xsh.Conformance.Transport.parse_rejects_duplicate_keys",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The closed v1 exchange JSON grammar of strings, arrays and objects: escapes, duplicate keys, non-protocol atoms, malformed text, and closed-object field sets.",
+      "boundary": "Covers the Lean decoder and its closed grammar only; it proves nothing about Rust's serde-compatible parser, and the Lean grammar is stricter than the Rust one."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_rejects_non_protocol_atoms",
+      "module": "Xsh.Conformance.Transport.Json",
+      "declaration": "Xsh.Conformance.Transport.parse_rejects_non_protocol_atoms",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The closed v1 exchange JSON grammar of strings, arrays and objects: escapes, duplicate keys, non-protocol atoms, malformed text, and closed-object field sets.",
+      "boundary": "Covers the Lean decoder and its closed grammar only; it proves nothing about Rust's serde-compatible parser, and the Lean grammar is stricter than the Rust one."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_rejects_malformed_text",
+      "module": "Xsh.Conformance.Transport.Json",
+      "declaration": "Xsh.Conformance.Transport.parse_rejects_malformed_text",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The closed v1 exchange JSON grammar of strings, arrays and objects: escapes, duplicate keys, non-protocol atoms, malformed text, and closed-object field sets.",
+      "boundary": "Covers the Lean decoder and its closed grammar only; it proves nothing about Rust's serde-compatible parser, and the Lean grammar is stricter than the Rust one."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.closed_object_rejects_missing_and_unknown_fields",
+      "module": "Xsh.Conformance.Transport.Json",
+      "declaration": "Xsh.Conformance.Transport.closed_object_rejects_missing_and_unknown_fields",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The closed v1 exchange JSON grammar of strings, arrays and objects: escapes, duplicate keys, non-protocol atoms, malformed text, and closed-object field sets.",
+      "boundary": "Covers the Lean decoder and its closed grammar only; it proves nothing about Rust's serde-compatible parser, and the Lean grammar is stricter than the Rust one."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.fragment_tag_words_are_distinct",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.fragment_tag_words_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.fragment_tag_words_decode_to_their_tags",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.fragment_tag_words_decode_to_their_tags",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.fragment_tag_names_decode_to_their_tags",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.fragment_tag_names_decode_to_their_tags",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.fragment_tags_exclude_the_unlisted_ordinals",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.fragment_tags_exclude_the_unlisted_ordinals",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.known_transport_tag_is_accepted",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.known_transport_tag_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.unknown_transport_tag_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.unknown_transport_tag_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.tag_carrying_another_tags_ordinal_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.tag_carrying_another_tags_ordinal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.row_with_an_unknown_field_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.row_with_an_unknown_field_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.operation_carrying_another_operations_ordinal_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.operation_carrying_another_operations_ordinal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.source_document_round_trips_exact_text",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.source_document_round_trips_exact_text",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.source_document_rejects_a_reserved_identifier_and_an_unknown_schema",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.source_document_rejects_a_reserved_identifier_and_an_unknown_schema",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.certify_sound",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.certify_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.program_result_is_a_completed_machine_run",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.program_result_is_a_completed_machine_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.validated_observation_is_a_machine_run",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.validated_observation_is_a_machine_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.machine_run_result_is_independent_of_extra_fuel",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.machine_run_result_is_independent_of_extra_fuel",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.base_vertical_artifact_certified",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.base_vertical_artifact_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.unmodified_artifact_is_certified",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.unmodified_artifact_is_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
+      "module": "Xsh.Conformance.Vertical.Certificate",
+      "declaration": "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
+      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
     }
   ],
   "source_identity": {

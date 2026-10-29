@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(762, len(result["fragment_roots"]))
+        self.assertEqual(793, len(result["fragment_roots"]))
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual([], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])

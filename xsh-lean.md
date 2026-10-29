@@ -11,7 +11,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 757
+**State:** `formal/coverage.json` is the only inventory. It lists 793
 fragment theorem roots across 92 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -27,10 +27,19 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
 
 **Open items:**
 
-- BASE-VERTICAL stays planned. It needs the actual source, lowered artifact
-  and Rust example of G1 and a kernel-certified artifact, which depend on G1b's
-  test-only exporter and decoder. The Lean side has the machine, the host
-  trace and the raw-IR tables, but no lowering and no artifact certificate.
+- BASE-VERTICAL stays planned. G1b's first stage exists: a test-only exporter
+  and decoder (`formal_bridge/arithmetic.rs`) emit the real compiler's
+  lowering of `tests/fixtures/runtime/formal-bridge-integer-locals.xsh`, an
+  integer `let` and an arithmetic row over its slot, and
+  `Xsh.Conformance.Vertical.Certificate` kernel-checks that exact
+  source/raw-IR document pair. Left open: the Lean side has no source parser
+  and no lowering relation, so the claim starts at the supplied IR rows and
+  the source is bound by identifier only; the new Rust test postdates the
+  frozen commit, so no `RUST_CONFORMANCE` case exists for it; the artifact
+  has no failure outcome or malformed-IR witness inside it; the coverage
+  schema has no `ARTIFACT_CERTIFIED` row, so the certificate is recorded as a
+  `SPEC_PROVED` fragment root; and the IR subset is two integer functions
+  without parameters, calls or control flow.
 - G1's base theorems cover the base machine only: integer expressions,
   scalar literals, identifiers and one host request family (`time.now`). The
   machine has no assignment or declaration form, so typed store writes are
@@ -575,6 +584,17 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
 
 ### Log
 
+- 2026-10-29: G1b added the first vertical stage. `formal_bridge/arithmetic.rs`
+  exports and decodes a closed raw-IR scope for two integer functions, runs
+  them through the verified Rust path, and rejects wire, program and
+  observation corruptions. `Xsh.Conformance.Transport.Json` and
+  `Xsh.Conformance.Vertical.{Artifact,Meaning,Certificate}` decode the
+  exchanged text, give the IR rows a base-machine meaning, and certify the
+  artifact (`base_vertical_artifact_certified`) with rejected corruptions. The
+  three byte-level theorems use `decide +kernel`: plain `decide` exceeds the
+  recursion limit on a 2.3 KB document. The Lean decoder reads ASCII code
+  points only and rejects other text. BASE-VERTICAL stays planned; see the
+  open items.
 - 2026-10-29: G1 proved base theorems for BASE-ENV
   (`Xsh.Proofs.Base.Env.base_env`), BASE-NUM (`Xsh.Proofs.Base.Num.base_num`),
   BASE-STEP (`Xsh.Proofs.Base.Step.base_step`), BASE-PROGRESS
