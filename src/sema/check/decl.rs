@@ -407,7 +407,7 @@ impl Checker {
             &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(), component,
             &|site: crate::sema::schemes::InstantiationSite<Span>| self.constraint_scope_at(declaration.effect_declaration(), site.source),
         );
-        let (generalized, generalized_body_types, generalized_tail_types, generalized_calls) = match generalized
+        let (generalized, mut generalized_body_types, generalized_tail_types, generalized_calls) = match generalized
         {
             Ok(generalized) => generalized,
             Err(crate::sema::constraints::SchemeOperationError::Build(
@@ -519,6 +519,20 @@ impl Checker {
             };
             crate::sema::builtin_templates::registered_call_is_executable(&plan).then(|| (expression, Arc::new(plan)))
         }).collect::<BTreeMap<_, _>>();
+        if quantified {
+            for (&expression, plan) in &registered_calls {
+                if plan.receiver.is_some() || plan.signature.op != crate::modules::RuntimeOp::ProcessCommandArgv { continue; }
+                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = program.arena.expr(expression).kind else { continue };
+                let args = program.arena.call_args(args);
+                if args.len() != plan.argument_slots.len() { continue; }
+                let Some(index) = plan.argument_slots.iter().position(|slot| *slot == 1) else { continue };
+                if !matches!(args[index].kind, crate::syntax::arena::ArenaCallArgKind::Positional(_) | crate::syntax::arena::ArenaCallArgKind::Named { .. }) { continue; }
+                let argv = super::call_arg_expr_id_arena(&args[index].kind);
+                if matches!(program.arena.expr(argv).kind, crate::syntax::arena::ArenaExprKind::List(_)) && !generalized_body_types.contains_key(&argv) {
+                    generalized_body_types.insert(argv, crate::sema::schemes::SchemeType::List(Box::new(crate::sema::schemes::SchemeType::Ground(Type::Any))));
+                }
+            }
+        }
         if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() {
             let parameter_bindings = params
                 .iter()

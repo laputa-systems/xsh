@@ -1079,3 +1079,20 @@ match bad {
   assert output.stdout.starts_with("5\n")
   assert "unsupported count 'five'" in output.stdout
 }
+
+test test_full_inference_command_argv_words_stay_generic_in_a_literal_list { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc echo_word(word) [process, error] -> Result[Int] {
+  let status = process.run(process.command_argv("echo", ["echo", "word:", word], p".", {}))?
+  status.shell_code()
+}
+proc main() [process, error, io] {
+  let _ = echo_word("text")?
+  let _ = echo_word(p"/tmp")?
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "word: text\nword: /tmp\n"
+}

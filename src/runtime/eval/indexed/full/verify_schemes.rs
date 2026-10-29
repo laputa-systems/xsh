@@ -2520,7 +2520,8 @@ fn verify_body_expression(
         schema::ExprView::List(mut values) => {
             let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list producer has no item contract")); };
             for value in &mut values {
-                if !body_type_matches(&child(value?, budget)?, item, budget)? { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
+                let actual = child(value?, budget)?;
+                if **item != SchemeType::Ground(Type::Any) && !body_type_matches(&actual, item, budget)? { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
             }
             ty.clone()
         }
@@ -2541,7 +2542,7 @@ fn verify_body_expression(
                         _ => return Err(IrVerifyError::new("generic list splice has no list producer")),
                     }
                 } else { actual };
-                if !body_type_matches(&actual, item, budget)? { return Err(IrVerifyError::new("generic list splice disagrees with its item contract")); }
+                if **item != SchemeType::Ground(Type::Any) && !body_type_matches(&actual, item, budget)? { return Err(IrVerifyError::new("generic list splice disagrees with its item contract")); }
             }
             ty.clone()
         }
@@ -3182,6 +3183,17 @@ fn verify_body_expression(
                 command.accept, command.same_group];
             let mut actual = Vec::with_capacity(arguments.len());
             for argument in arguments { actual.push(argument.map(|value| child(value, budget)).transpose()?); }
+            if actual[1].as_ref().is_some_and(commands::is_word_list_of_any) {
+                let mut source = command.argv.raw() as usize;
+                if let schema::ExprView::Param(slot) = decoder.expression_view(source)? {
+                    source = slots.immutable_initializer(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic command argv has no immutable literal initializer"))?;
+                }
+                let mut typed = Vec::new();
+                for (splice, element) in commands::literal_argv_elements(decoder, source, budget)? {
+                    typed.push((splice, types.get(&element).cloned().ok_or_else(|| IrVerifyError::new("generic command argv word has no checked body fact"))?));
+                }
+                actual[1] = Some(commands::literal_argv_stand_in(typed, scheme_scope, budget)?);
+            }
             SchemeType::Ground(commands::process_command_argv(&actual, scheme_scope, budget)?)
         }
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {

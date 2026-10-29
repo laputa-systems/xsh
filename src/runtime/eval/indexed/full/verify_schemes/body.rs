@@ -3596,6 +3596,21 @@ test namespace_borrow {
     }
 
     #[test]
+    fn generic_literal_argv_words_authenticate_process_word_requirements() {
+        let program = prepare("proc echo_word(word) [process, error] -> Result[Int] {\n  let status = process.run(process.command_argv(\"echo\", [\"echo\", word], p\".\", {}))?\n  status.shell_code()\n}\n");
+        FullVerifier::verify(&program).unwrap();
+        for mode in [0, 1, 2, 4, 8, 32] {
+            let mut changed = program.clone();
+            let parameter = changed.store.scheme_type_parameters.iter_mut().find(|parameter| parameter.conversions != 0).unwrap();
+            assert_eq!(parameter.conversions, 16);
+            parameter.conversions = mode;
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("strict word requirement") || error.message.contains("conversion"), "{mode}: {error:?}");
+            if mode == 0 { assert_eq!(error.message, "generic command argv word disagrees with its strict word requirement"); }
+        }
+    }
+
+    #[test]
     fn generic_conversion_proofs_follow_natural_body_work_bounds() {
         for width in [64, 128, 256, 512] {
             let names = (0..width).map(|index| format!("value{index}")).collect::<Vec<_>>();

@@ -6997,6 +6997,19 @@ impl<'a> ProducerProof<'a> {
         Ok(source)
     }
 
+    fn single_declaration_literal_list(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
+        self.budget.charge(1)?;
+        let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(None) };
+        let binding = self.binding(decoder.owner, argument, slot)?;
+        let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None) };
+        let owner = &self.index.owners[&decoder.owner];
+        if declared_slot != slot || owner.storage_bindings.contains_key(&binding) || owner.writers.get(&binding).map(Vec::as_slice) != Some(&[declaration][..]) { return Ok(None); }
+        Ok(match decoder.statement_view(declaration)? {
+            schema::StmtView::Let { value, .. } => Some(value.raw() as usize).filter(|&source| matches!(self.store.tags[source], FullTag::ExprList | FullTag::ExprListBuild)),
+            _ => None,
+        })
+    }
+
     fn fresh_contextual_list_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
         Ok(self.fresh_contextual_argument_source(decoder, argument)?.filter(|&source| matches!(self.store.tags[source], FullTag::ExprList | FullTag::ExprListBuild)))
     }
@@ -7436,6 +7449,20 @@ impl<'a> ProducerProof<'a> {
             for argument in arguments {
                 actual.push(argument.map(|argument| self.scoped_expression_type(decoder, argument.raw() as usize)?
                     .ok_or_else(|| IrVerifyError::new("generic command argument has no owned body contract"))).transpose()?);
+            }
+            if actual[1].as_ref().is_some_and(super::commands::is_word_list_of_any) {
+                let argv = command.argv.raw() as usize;
+                let source = if matches!(self.store.tags[argv], FullTag::ExprList | FullTag::ExprListBuild) { Some(argv) } else { self.single_declaration_literal_list(decoder, argv)? }
+                    .ok_or_else(|| IrVerifyError::new("generic command argv has no fresh literal word list"))?;
+                let mut typed = Vec::new();
+                for (splice, element) in super::commands::literal_argv_elements(decoder, source, &mut self.budget)? {
+                    typed.push((splice, self.scoped_expression_type(decoder, element)?
+                        .ok_or_else(|| IrVerifyError::new("generic command argv word has no owned body contract"))?));
+                }
+                let FullCallableContract::Scheme(id) = self.store.functions[function_index(decoder.owner)?].contract else {
+                    return Err(IrVerifyError::new("generic command has no scheme owner"));
+                };
+                actual[1] = Some(super::commands::literal_argv_stand_in(typed, self.index.scheme_scopes(self.store)?.get(id)?, &mut self.budget)?);
             }
             let FullCallableContract::Scheme(id) = self.store.functions[function_index(decoder.owner)?].contract else {
                 return Err(IrVerifyError::new("generic command has no scheme owner"));
