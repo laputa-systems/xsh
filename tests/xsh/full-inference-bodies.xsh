@@ -604,6 +604,43 @@ print $b
   assert output.stdout == "a.tar\nnone\n"
 }
 
+test test_full_inference_module_overload_with_one_arity_binds_an_unresolved_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc probed(pid) [process, error] -> Int {
+  if let Ok(threads) = process.threads(pid) {
+    return 1
+  }
+  1
+}
+proc main() [process, error] {
+  let seen = probed(1)
+  print $seen
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n"
+}
+
+test test_full_inference_module_overload_still_rejects_an_argument_of_no_overload { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc visible(pid) [process, error] -> Bool {
+  if let Ok(threads) = process.threads(pid) {
+    return true
+  }
+  false
+}
+proc main() [process, error] {
+  print $visible("x")
+}
+""",
+  )?
+  assert output.success == false
+  assert "err[check." in output.stderr, output.stderr
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

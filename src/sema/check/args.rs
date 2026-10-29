@@ -575,6 +575,18 @@ impl Checker {
             return arity_matches[0];
         }
 
+        if let [only] = arity_matches.as_slice()
+            && actuals.iter().any(Type::contains_inference)
+            && let Some(bindings) = bind_module_args_arena(args, only)
+        {
+            for (param_index, arg_index) in bindings.iter().enumerate() {
+                if let Some(arg_index) = *arg_index {
+                    self.expect_type(&only.params[param_index].ty, &actuals[arg_index], call_arg_span_arena(arena, &args[arg_index].kind));
+                }
+            }
+            return only;
+        }
+
         let mut dynamic_boundary = false;
         for (index, (arg, actual)) in args.iter().zip(&actuals).enumerate() {
             if let Some(expected) = common_module_overload_expected_arena(args, overloads, index)
