@@ -1,6 +1,6 @@
 # XSH-55: Native SSH client
 
-Status: planned. Starts after the active Pyramid and inference campaigns close
+Status: planned. Starts after the inference campaign closes
 and Lean's current G1b slice lands; see the [roadmap](../ROADMAP.md#sequence).
 
 ## Summary

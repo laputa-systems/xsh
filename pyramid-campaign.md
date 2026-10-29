@@ -1,11 +1,10 @@
 # Scoped verification across XSH and Laputa
 
-**Status:** active on `master`, resumed 2026-10-28. Finish-line items 1 to 3 are
-complete. Item 4 (P0 baselines) is open and needs a quiet measurement window.
-Item 5 (Close) is met except for its performance, memory and size record, which
-comes from item 4. The independent reviews of 2026-10-28 found no P1. Every P2,
-and the P3s they listed, is fixed on `master`, and the final review of the
-fixes left no P1 or P2. The campaign closes when item 4 is recorded.
+**Status:** closed on 2026-10-29. All five finish-line items are complete.
+Item 4's P0 baselines were recorded in a quiet window on `fcdae517e`. The
+independent reviews of 2026-10-28 found no P1. Every P2, and the P3s they
+listed, is fixed on `master`, and the final review of the fixes left no P1 or
+P2.
 
 Review findings and their fixes:
 - partial lane exclusion was silent: `8b596e5ae`, `26e941fb7`;
@@ -32,11 +31,8 @@ Driver optimization beyond the finish line is out of scope. The G0 candidate is
 qualified separately from its own pinned checkout; see
 [G0](docs/ROADMAP.md#g0-release-candidate).
 
-**Next:** record the P0 timing, memory and size baselines in a quiet
-measurement window, then close item 5. The owner waived the quiet-host
-requirement on 2026-10-28 so correctness work can proceed on a busy host.
-Correctness cases admit on resources alone. Timings taken under the waiver are
-diagnostic, not baselines, and item 4 stays open for a quiet window.
+**Next:** none. Later work compares against the item 4 baselines below and
+repairs any unchanged workload that exceeds twice its P0 CPU or memory.
 
 **Resume:** read `AGENTS.md`, `TODO.md`, and this document. Run the open cases
 with `cargo dev gate --plan --case ID`, then `cargo dev gate --case ID`, one
@@ -74,12 +70,46 @@ Pyramid closes when all of these hold:
 3. Each workload family in Acceptance has a correctness-qualified case with an
    exact oracle, run through the gate. **Complete.**
 4. P0 references are pinned and P0 timing, memory and size baselines are
-   recorded in a quiet measurement window. Timing gates may stay deferred
-   while the host is busy, but that leaves this item open. **Open.**
+   recorded in a quiet measurement window. **Complete.**
 5. The Close row of Acceptance passes, including an independent review.
-   **In progress.**
+   **Complete.**
 
 ## Results that later work depends on
+
+- **Item 4, P0 baselines.** Source `fcdae517e` (tree `f09c582aa`), products
+  built from it in the pinned image `sha256:8ddba911cc1b…`, on a 32-core
+  x86_64 host. References are pinned in code: upstream Tokei 14.0.0 at
+  `8cdd6fa3a54f` (`dev/performance/tokei_scenario.py`) and the uutils corpus at
+  `e7c9f3194280` (`dev/performance/tokei_corpus.py`). Every batch ran under the
+  shared gate lock with the other lanes paused, and `perf-gate-ready` passed
+  before and, with `-1`, after each one; no sample was discarded. Loops ran in
+  the pinned container on the verification products. Wall and CPU are per run;
+  short loops ran in batches and include the shell's spawn cost, so they are
+  upper bounds. Peak memory is the largest process RSS, not a cgroup peak.
+
+  | Loop | Samples | Wall median (p90) | CPU median | Peak RSS |
+  |---|---|---|---|---|
+  | `xsh --startup` | 20 batches of 50 | 0.8 ms (0.8) | 0.8 ms | 15 MB |
+  | `xsht test --exact` one native test | 20 batches of 10 | 28 ms (29) | 127 ms | 75 MB |
+  | `xsht check` one file | 20 batches of 20 | 10 ms (10) | 9.5 ms | 43 MB |
+  | `xsht check core`, 928 files | 5 | 11.2 s (11.5) | 271 s | 2.8 GB |
+  | `cargo dev gate --case check-docs`, warm | 3, interleaved | 56.6 s (59.8) | not measured | not measured |
+  | `cargo dev gate --case test-sema`, warm | 3, interleaved | 99.7 s (108.4) | not measured | not measured |
+
+  The gate rows are host wall time including container start and product
+  freshness checks; their CPU and memory run inside the container and were not
+  measured. `xsht check core` drives about 24 cores by itself, which raised the
+  load average during its batch. Both loop budgets hold: a prepared single
+  regression is far under 30 s, and the focused `test-sema` group is under
+  2 minutes.
+
+  Product sizes in bytes:
+
+  | Product | verification | release (thin LTO) |
+  |---|---|---|
+  | `xsh` | 48,039,856 | 45,461,864 |
+  | `xsht` | 57,345,872 | 60,585,776 |
+  | `xshi` | 587,320 | 566,240 |
 
 - **Item 1.** `native-core/tests` is no longer a Change case. Native cases run
   as the host user. Tests the unprivileged lane cannot run are declared in
