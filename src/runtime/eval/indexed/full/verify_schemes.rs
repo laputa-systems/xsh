@@ -2501,13 +2501,17 @@ fn verify_body_expression(
             decoder.verify_prepared_constant_type(value, &expected, &mut |amount| constant_budget.charge(amount))?;
             ty.clone()
         }
-        schema::ExprView::Tag { type_name, name, fields, .. } => {
+        schema::ExprView::Tag { type_name, name, mut fields, .. } => {
             budget.charge(fields.len().saturating_add(1))?;
-            if fields.len() != 0 { return Err(IrVerifyError::new("generic nullary tag producer has payload fields")); }
             let key = super::CheckedPatternVariantKey { kind: super::CheckedPatternVariantKind::Tag, owner: type_name, variant: Name::intern(name) };
-            let layout = store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("generic nullary tag producer has no declared variant layout"))?;
+            let layout = store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("generic tag producer has no declared variant layout"))?;
             budget.charge(layout.fields.len())?;
-            if !layout.fields.is_empty() { return Err(IrVerifyError::new("generic nullary tag producer disagrees with its declared payload layout")); }
+            if fields.len() != layout.fields.len() { return Err(IrVerifyError::new("generic tag producer disagrees with its declared payload layout")); }
+            for (declared, value) in layout.fields.iter().zip(&mut fields) {
+                let expected = store.semantic.to_type_with_budget(declared.type_id, &mut budget.semantic_types)?;
+                let actual = child(value?, budget)?;
+                if !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic tag payload disagrees with its declared field type")); }
+            }
             SchemeType::Ground(Type::Tag(type_name))
         }
         schema::ExprView::Path(path) => SchemeType::Ground(if ty.closed_ground_type() == Some(Type::rel_path())

@@ -23779,7 +23779,7 @@ pure keep(value, state: State) {
             assert_eq!(FullVerifier::verify(&wrong_family).unwrap_err().message, "generic body expression disagrees with its checked type");
             let mut wrong_layout = cold();
             wrong_layout.store.extra[words.start + 1] = program.store.extra[payload_words.start + 1];
-            assert_eq!(FullVerifier::verify(&wrong_layout).unwrap_err().message, "generic nullary tag producer disagrees with its declared payload layout");
+            assert_eq!(FullVerifier::verify(&wrong_layout).unwrap_err().message, "generic tag producer disagrees with its declared payload layout");
             let mut missing_layout = cold();
             let _symbols = program.symbol_owner().enter();
             let key = CheckedPatternVariantKey { kind: CheckedPatternVariantKind::Tag, owner: type_name, variant: Name::intern(name) };
@@ -23804,7 +23804,32 @@ pure keep(value, state: State) {
             payload.store.extra.extend_from_slice(&[1, end]);
             payload.store.blocks[block.index()].instructions = IrRange::new(start, 2);
             for step in &mut payload.store.driver_steps { step.instruction_start = end + 1; }
-            assert_eq!(FullVerifier::verify(&payload).unwrap_err().message, "generic nullary tag producer has payload fields");
+            assert_eq!(FullVerifier::verify(&payload).unwrap_err().message, "generic tag producer disagrees with its declared payload layout");
+        });
+    }
+
+    #[test]
+    fn generic_payload_tag_producers_authenticate_field_types() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-payload-tag-proofs.xsh", r#"
+enum State { Ready, Payload(Int), Text(Str) }
+pure wrap(label, count: Int) -> State {
+    let _ = label
+    return .Payload(count)
+}
+pure text(label, body: Str) -> State {
+    let _ = label
+    return .Text(body)
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let tag = function_instruction_indices(&program, "wrap", FullTag::ExprTag)[0];
+            let text_tag = function_instruction_indices(&program, "text", FullTag::ExprTag)[0];
+            let words = program.store.data[tag].range().bounds(program.store.extra.len()).unwrap();
+            let text_words = program.store.data[text_tag].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_field = program.clone();
+            wrong_field.store.extra[words.start + 1] = program.store.extra[text_words.start + 1];
+            assert_eq!(FullVerifier::verify(&wrong_field).unwrap_err().message, "generic tag payload disagrees with its declared field type");
         });
     }
 

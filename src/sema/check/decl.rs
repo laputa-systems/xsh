@@ -627,6 +627,7 @@ impl Checker {
                 ).map(|_| span)
             }));
             checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(self.inferred_variants.keys().filter(|span| expression_spans.contains(span)).copied());
             checked_operations.extend(constructor_instances.keys().map(|&expression| program.arena.expr(expression).span));
             checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
                 if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) { return None; }

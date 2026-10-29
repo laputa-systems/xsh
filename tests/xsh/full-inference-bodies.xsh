@@ -851,6 +851,35 @@ proc main() [fs, io, error] {
   assert output.stdout == "0\n0\nreturned the failure\n"
 }
 
+test test_full_inference_inferred_variant_with_payload_is_lowered_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""enum Mode { Once(Int), Pair(Str, Int), Never }
+type Plan = {mode: Mode, tag: Str}
+pure delayed(tag, delay) {
+  let mode: Mode = .Once(delay * 1000)
+  let plan: Plan = {mode: mode, tag: tag}
+  plan
+}
+pure fixed(tag) {
+  let plan: Plan = {mode: .Pair("fixed", 7), tag: tag}
+  plan
+}
+pure describe(plan: Plan) -> Str {
+  match plan.mode {
+    Once(after) => f"once {after}"
+    Pair(label, count) => f"pair {label} {count}"
+    Never => "never"
+  }
+}
+print $describe(delayed("a", 2))
+print $describe(fixed("b"))
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "once 2000\npair fixed 7\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

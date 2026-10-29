@@ -5462,6 +5462,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
+            ArenaExprKind::Call { callee, args } if self.bodies.inferred_variants.contains_key(&expression) => {
+                let Some(crate::sema::check::InferredVariant::Tag { type_name, variant, field_types }) = self.bodies.inferred_variants.get(&expression).cloned() else { return self.block_scheme_lowering_expr(expression) };
+                if field_types.iter().any(Type::has_unsigned_constraint) || !self.record_checked_tag_schema(type_name, variant, &field_types) { return self.block_scheme_lowering_expr(expression); }
+                let arguments = self.program.arena.call_args(args).to_vec();
+                if arguments.len() != field_types.len() { return self.block_scheme_lowering_expr(expression); }
+                if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                let mut fields = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let ArenaCallArgKind::Positional(value) = argument.kind else { return self.block_scheme_lowering_expr(expression) };
+                    fields.push(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?);
+                }
+                let wire = self.declarations.wire_enums.mappings.get(&type_name).cloned();
+                push_build_row!(self, expr, BuildExprRow::Tag { type_name, wire, name: Arc::<str>::from(variant.as_str().as_str()), fields })
+            }
             ArenaExprKind::Call { callee, args } => {
                 if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::ErrorFail) {
                     let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
