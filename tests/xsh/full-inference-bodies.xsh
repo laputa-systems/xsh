@@ -1616,3 +1616,21 @@ proc main() [io] {
   )?
   assert output.stdout == "true\na\n4\n", output.stdout
 }
+
+test test_full_inference_record_override_result_fits_its_schema_by_width { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Run = {failed: Bool, name: Str, count: Int}
+pure mark(state) -> Run { {...state, failed: true} }
+proc main() [io] {
+  let marked = mark({failed: false, name: "a", count: 4, extra: 5})
+  print $marked.failed
+  print $marked.count
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "true\n4\n", output.stdout
+}

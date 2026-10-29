@@ -61,7 +61,11 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
     let matches = if matches!(operation, SealedOperation::RecordOverride { .. }) {
-        operation.result().unwrap().closed_ground_type().as_ref() == Some(&result)
+        let expected = operation.result().unwrap().closed_ground_type();
+        match (expected.as_ref().map(Type::unvalidated), result.unvalidated()) {
+            (Some(Type::Record(expected)), Type::Record(selected)) => expected.iter().all(|(name, ty)| selected.get(name) == Some(ty)),
+            _ => false,
+        }
     } else { body_type_matches(&SchemeType::Ground(result), operation.result().unwrap(), budget)? };
     if !matches { return Err(IrVerifyError::new("sealed operation result disagrees with its input signature")); }
     Ok(signature)

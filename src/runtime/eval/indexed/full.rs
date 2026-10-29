@@ -48357,6 +48357,31 @@ assert first.count == 1
     }
 
     #[test]
+    fn a_record_override_result_fits_its_schema_by_width_and_never_by_a_missing_field() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-record-override-width.xsh", r#"
+type Run = {failed: Bool, name: Str, count: Int}
+pure mark(state) -> Run { {...state, failed: true} }
+let wide = mark({failed: false, name: "a", count: 1, extra: 5})
+assert wide.count == 1
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "mark");
+            let call = scheme_fixture_root_call(&program, "mark");
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == call).unwrap();
+            let rows = instance.arguments.row_arguments.bounds(program.store.call_row_arguments.len()).unwrap();
+            let row = rows.into_iter().next().expect("the receiver remainder is a row argument");
+            let remainder = program.store.call_row_arguments[row].fields.bounds(program.store.call_row_fields.len()).unwrap();
+            let names = remainder.clone().map(|field| program.store.string(program.store.call_row_fields[field].name).unwrap().to_string()).collect::<Vec<_>>();
+            assert!(names.iter().any(|name| name == "extra"));
+            let required = remainder.clone().find(|&field| program.store.string(program.store.call_row_fields[field].name).unwrap() == "count").unwrap();
+            let mut missing = program.clone();
+            missing.store.call_row_fields[required].name = program.store.functions[owner].name;
+            FullVerifier::verify(&missing).expect_err("a result field the receiver does not carry cannot be claimed");
+        });
+    }
+
+    #[test]
     fn a_record_override_of_known_fields_keeps_its_remainder_and_a_new_field_cannot() {
         run_with_large_stack(|| {
             let program = fixture("generic-record-override-known-fields.xsh", r#"
