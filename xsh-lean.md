@@ -1,8 +1,15 @@
 # XSH semantic soundness campaign
 
-**Status:** resumed by the owner on 2026-10-29. G0b is recorded: the source
-is frozen and the first finite Rust conformance cases have run. Next is G1b's
-test-only bridge and the connected milestone below.
+**Status:** resumed by the owner on 2026-10-29, and holding after G1b's first
+vertical stage until the owner restarts lanes. G0b froze the source and ran the
+first finite Rust conformance cases. G1 proved the base theorems as fragment
+roots. G1b certified one exported integer-arithmetic artifact and its rejected
+corruptions. Next, in order: an `artifact_certificates` inventory list so
+ARTIFACT_CERTIFIED evidence stops riding on SPEC_PROVED fragment roots; a new
+freeze and a `RUST_CONFORMANCE` case for the bridge test; a specified-failure
+outcome and a malformed-IR witness inside the artifact; then the connected
+milestone below. The integrator accepted `decide +kernel` for the byte-level
+certificate theorems: it adds no axiom and all six fresh kernels accept it.
 
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor

@@ -17,7 +17,7 @@ instructions, and open items.
 | 1 | G0 release candidate | done | [G0](#g0-release-candidate) | Tagged `xsh-g0-rc1` at `b268b5007`. |
 | 2 | Pyramid: scoped verification | done | [pyramid-campaign.md](../pyramid-campaign.md) | Closed 2026-10-29 with the P0 timing, memory and size baselines recorded on `fcdae517e`. |
 | 3 | Inference: general type, row, and effect inference | active | [full-inference-campaign.md](../full-inference-campaign.md) | Close the two open G3 items, then reduce annotations in G4. |
-| 4 | Lean: connected compiler proof | active | [xsh-lean.md](../xsh-lean.md) | Resumed 2026-10-29; G0b froze the source at `65fcb0f42`. Next: G1b's test-only bridge and the connected milestone (XSH-44). |
+| 4 | Lean: connected compiler proof | holding | [xsh-lean.md](../xsh-lean.md) | G0b, G1's base theorems and G1b's first certified vertical artifact landed 2026-10-29. Holding until the owner restarts lanes; the next steps are listed in the live doc. |
 | 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |
 | 6 | Deser cutover | done, qualification open | [TODO.md](../TODO.md) | Correctness and platform qualification are open items there. |
 | 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
@@ -50,8 +50,8 @@ handles SSH protocol and I/O, XSH handles infrastructure policy.
 
 ### Sequence
 
-Both campaigns start after the active work closes: the inference campaign and
-Lean's current G1b slice. Pyramid closed on 2026-10-29. Lean continues alongside
+Both campaigns start after the inference campaign closes. Pyramid closed and
+Lean's G1b slice landed on 2026-10-29. Lean continues alongside
 them afterwards, since it touches only `formal/` and test-only bridge code.
 XSH-55 comes first. XSH-56's pure planner and resource work may start before
 XSH-55 lands, but its remote execution is not complete until it runs over the
