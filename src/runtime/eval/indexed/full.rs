@@ -40594,7 +40594,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             ("pure read(row) -> Int { var copied: Int = row.value; copied = \"wrong\"; copied }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
             ("pure make(value: Int) -> List[Int] { [value] }\npure read(row) -> List[UInt] { make(row.value) }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
             ("pure item(value: Path) -> Path { value }\npure read(row) -> Result[Str] { item(row.path).read_text() }\n", crate::diagnostic::DiagnosticCode::CheckPureEffect),
-            ("pure read(row) { row.value.keys() }\nlet caller = read({value: b\"x\"})\n", crate::diagnostic::DiagnosticCode::CheckAmbiguousOverload),
+            ("pure read(row) { row.value.lines() }\nlet caller = read({value: b\"x\"})\n", crate::diagnostic::DiagnosticCode::CheckAmbiguousOverload),
         ] {
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pure-limit.xsh", crate::loader::entry_source_from_text("generic-pure-limit.xsh", source.to_string()), Vec::new());
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);

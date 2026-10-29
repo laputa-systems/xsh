@@ -258,14 +258,46 @@ impl ApiSpec {
             selected &= candidate.sig.params.is_empty() && candidate.sig.op == first.sig.op
                 && candidate.receiver_ty.as_ref() == Some(&candidate.sig.return_ty);
         }
-        if uniform { Some(MethodFamilyResult::UniformGround(first.sig.return_ty.clone())) }
-        else if selected && matches!(kind, MethodRequirementKind::Family(_)) { Some(MethodFamilyResult::SelectedSignature) }
+        if uniform && !first.sig.return_ty.contains_builtin_parameter() { Some(MethodFamilyResult::UniformGround(first.sig.return_ty.clone())) }
+        else if selected && matches!(kind, MethodRequirementKind::Family(_)) || matches!(kind, MethodRequirementKind::Overloaded(_)) { Some(MethodFamilyResult::SelectedSignature) }
         else { None }
+    }
+
+    pub(crate) fn method_requirement_return_type(
+        &self,
+        kind: MethodRequirementKind,
+        method: registry::RegisteredMethodId,
+        receiver_type: &Type,
+    ) -> Option<Type> {
+        let (_, _, signature) = self.registered_method(method)?;
+        match kind {
+            MethodRequirementKind::Family(_) => Some(signature.sig.return_ty.clone()),
+            MethodRequirementKind::Overloaded(_) => {
+                let (_, name, _) = self.registered_method(method)?;
+                let (_, actual) = self.selection_receiver(name, receiver_type);
+                crate::sema::builtin_templates::concrete_method_signature(signature, actual).map(|signature| signature.return_ty)
+            }
+        }
     }
 
     pub(crate) fn method_requirement_returns_paths(&self, kind: MethodRequirementKind) -> bool {
         matches!(self.method_requirement_result(kind), Some(MethodFamilyResult::SelectedSignature))
             && self.method_requirement_members(kind).all(|(_, _, _, member)| member.sig.return_ty == Type::Path || member.sig.return_ty == Type::rel_path())
+    }
+
+    fn selection_receiver<'t>(&self, name: &str, receiver_type: &'t Type) -> (Option<MethodReceiver>, &'t Type) {
+        let mut actual = receiver_type;
+        loop {
+            match actual {
+                Type::Validated(validated) => {
+                    if let Some(receiver) = validated.validation().method_receiver()
+                        && self.method_overloads(receiver, name).is_some()
+                    { return (Some(receiver), actual); }
+                    actual = validated.base();
+                }
+                _ => return (None, actual),
+            }
+        }
     }
 
     pub(crate) fn select_method_requirement(
@@ -283,32 +315,30 @@ impl ApiSpec {
             return MethodFamilySelection::Unsupported;
         }
         let Some((_, _, name, _)) = self.method_requirement_members(kind).next() else { return MethodFamilySelection::Unsupported; };
-        let mut actual = receiver_type;
-        let domain = loop {
-            match actual {
-                Type::Validated(validated) => {
-                    if let Some(receiver) = validated.validation().method_receiver()
-                        && self.method_overloads(receiver, name).is_some()
-                    { break Some(receiver); }
-                    actual = validated.base();
-                }
-                _ => break None,
-            }
-        };
+        let (domain, actual) = self.selection_receiver(name, receiver_type);
         let mut selected = None;
         for (id, receiver, _, signature) in self.method_requirement_members(kind) {
             if domain.map_or_else(|| method_receiver_for_type(actual) != Some(receiver), |domain| receiver != domain) { continue; }
+            let instantiated;
+            let parameters = match kind {
+                MethodRequirementKind::Family(_) => &signature.sig.params,
+                MethodRequirementKind::Overloaded(_) => {
+                    let Some(concrete) = crate::sema::builtin_templates::concrete_method_signature(signature, actual) else { continue };
+                    instantiated = concrete.params;
+                    &instantiated
+                }
+            };
             let mut supplied = BTreeSet::new();
             let mut fits = true;
             for (argument, &slot) in arguments.iter().zip(argument_slots) {
                 let slot = slot as usize;
-                let Some(parameter) = signature.sig.params.get(slot) else { fits = false; break; };
+                let Some(parameter) = parameters.get(slot) else { fits = false; break; };
                 if !supplied.insert(slot) || argument.unvalidated() != parameter.ty.unvalidated() {
                     fits = false;
                     break;
                 }
             }
-            if !fits || signature.sig.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !supplied.contains(&slot)) {
+            if !fits || parameters.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !supplied.contains(&slot)) {
                 continue;
             }
             if selected.replace(id).is_some() { return MethodFamilySelection::Ambiguous; }

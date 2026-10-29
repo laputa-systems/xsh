@@ -637,10 +637,42 @@ print $relayed
   assert output.stdout == "a+b+c\na+b+c\n+\n"
 }
 
-test test_full_inference_byte_access_without_a_unique_signature_is_rejected { |ctx|
+test test_full_inference_result_follows_the_selected_overload_member { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure blank(subject) { subject.trim().is_empty() }
+pure position(subject, needle) { subject.find(needle) ?? -1 }
+pure entry(table, key) { table.get(key) ?? "none" }
+pure names(table) { table.keys().len() }
+pure grown(items, extra) { items.push(extra).len() }
+let a = blank("   ")
+let b = blank(b" x ")
+let c = position("hello", "ll")
+let strings: Map[Str, Str] = {x: "1"}
+let counts: Map[Str, Int] = {x: 1, y: 2}
+let f = entry(strings, "x")
+let g = entry(strings, "y")
+let h = names(counts)
+let i = grown([1, 2], 3)
+print $a
+print $b
+print $c
+print $f
+print $g
+print $h
+print $i
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\nfalse\n2\n1\nnone\n2\n3\n"
+}
+
+test test_full_inference_overloaded_method_without_a_unique_signature_is_rejected { |ctx|
   let cases = [
     {name: "receiver without the method", source: "pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }\nlet value = byte_or_none([1, 2], 0)\n"},
     {name: "argument of the wrong type", source: "pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }\nlet value = byte_or_none(\"abc\", \"x\")\n"},
+    {name: "dynamic record receiver", source: "pure entry(table, key) { table.get(key) ?? \"none\" }\nlet value = entry({x: \"1\"}, \"x\")\n"},
+    {name: "member result outside the body contract", source: "pure position(subject, needle) { subject.find(needle) ?? -1 }\nlet value = position(rx\"a\", \"b\")\n"},
     {name: "replacement pattern of the other receiver", source: "pure swap(subject, pattern) { subject.replace(pattern, with: \"+\") }\nlet value = swap(\"abc\", rx\"b\")\n"},
   ]
   for {name, source} in cases {

@@ -227,7 +227,8 @@ impl HostMethodCandidates {
 
     fn select(&mut self, constraints: &mut TypeConstraints, name: &str) -> Result<bool, ConstraintResolutionError> {
         let selected_kind = self.method_requirement(name).and_then(|(kind, slots, _, _)| {
-            matches!(api_spec().method_requirement_result(kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)).then_some((kind, slots))
+            (matches!(kind, MethodRequirementKind::Family(_))
+                && matches!(api_spec().method_requirement_result(kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature))).then_some((kind, slots))
         });
         let mut matching = Vec::new();
         for candidate in std::mem::take(&mut self.candidates) {
@@ -409,6 +410,7 @@ impl Checker {
             if let Some(owner) = continuation.owner
                 && matches!(continuation.source, HostCallSource::Expression(_))
                 && let Some((kind, argument_slots, result, _)) = obligation.method_requirement(name)
+                && matches!(kind, MethodRequirementKind::Family(_))
                 && matches!(api_spec().method_requirement_result(kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature))
             {
                 let requirement = crate::sema::schemes::MethodFamilyRequirement {

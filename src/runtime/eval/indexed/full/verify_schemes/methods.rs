@@ -48,9 +48,8 @@ pub(super) fn authenticates_result_evidence(
     if !matches!(crate::modules::api_spec().method_requirement_result(requirement.kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature)) { return Ok(false); }
     if matches!(substitution, ApplicationSubstitution::Ground(_)) {
         let MethodSelection::Selected(selected) = select(&requirement, budget)? else { return Err(IrVerifyError::new("method output evidence has no canonical input selection")); };
-        let (_, _, signature) = crate::modules::api_spec().registered_method(selected).ok_or_else(|| IrVerifyError::new("method output evidence has no registered member"))?;
-        budget.charge_scheme_clone(&requirement.result)?;
-        if requirement.result.closed_ground_type().as_ref() != Some(&signature.sig.return_ty) {
+        let selected_return = selected_return_type(&requirement, selected, budget)?;
+        if requirement.result.closed_ground_type().as_ref() != Some(&selected_return) {
             return Err(IrVerifyError::new("method output evidence disagrees with its canonical result"));
         }
     }
@@ -165,9 +164,8 @@ pub(super) fn verify_bindings(
         validate_requirement_for_binding(&requirement, budget)?;
         match (select(&requirement, budget)?, binding) {
             (MethodSelection::Selected(expected), FullMethodBinding::Selected(actual)) if expected == actual => {
-                let (_, _, signature) = crate::modules::api_spec().registered_method(expected).ok_or_else(|| IrVerifyError::new("selected method is not registered"))?;
-                budget.charge_scheme_clone(&requirement.result)?;
-                if requirement.result.closed_ground_type().as_ref() != Some(&signature.sig.return_ty) {
+                let selected_return = selected_return_type(&requirement, expected, budget)?;
+                if requirement.result.closed_ground_type().as_ref() != Some(&selected_return) {
                     return Err(IrVerifyError::new("selected method differs from its canonical result signature"));
                 }
             }
@@ -204,6 +202,18 @@ pub(super) fn verify_bindings(
     Ok(())
 }
 
+fn selected_return_type(
+    requirement: &MethodFamilyRequirement<SchemeType>,
+    selected: RegisteredMethodId,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Type, IrVerifyError> {
+    budget.charge_scheme_clone(&requirement.receiver)?;
+    let receiver = requirement.receiver.closed_ground_type().ok_or_else(|| IrVerifyError::new("selected method has an unresolved receiver"))?;
+    crate::modules::api_spec().registered_method(selected).ok_or_else(|| IrVerifyError::new("selected method is not registered"))?;
+    crate::modules::api_spec().method_requirement_return_type(requirement.kind, selected, &receiver)
+        .ok_or_else(|| IrVerifyError::new("selected method has no canonical result for its receiver"))
+}
+
 fn validate_requirement_for_binding(
     requirement: &MethodFamilyRequirement<SchemeType>,
     budget: &mut SchemeInstantiationBudget,
@@ -224,6 +234,9 @@ fn validate_requirement(
     let (family_name, return_type, _, _) = family_contract(requirement.kind, budget)?;
     let result_matches = match return_type {
         crate::modules::signature::MethodFamilyResult::UniformGround(return_type) => body_types_equal(&requirement.result, &SchemeType::Ground(return_type)),
+        crate::modules::signature::MethodFamilyResult::SelectedSignature if matches!(requirement.kind, MethodRequirementKind::Overloaded(_)) => {
+            crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, _, _, member)| scheme_result_may_match(&requirement.result, &member.sig.return_ty))
+        }
         crate::modules::signature::MethodFamilyResult::SelectedSignature => match &requirement.result {
             SchemeType::Parameter(_) => true,
             SchemeType::Ground(actual) => crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, _, _, member)| *actual == member.sig.return_ty),
@@ -269,6 +282,32 @@ fn family_contract(
     Ok((name, return_type, pure, effects))
 }
 
+fn scheme_result_may_match(actual: &SchemeType, declared: &Type) -> bool {
+    match (actual, declared.unvalidated()) {
+        (SchemeType::Parameter(_), _) | (_, Type::BuiltinParameter(_)) => true,
+        (SchemeType::Ground(actual), declared) => type_may_match(actual, declared),
+        (SchemeType::Validated(_, inner), declared) => scheme_result_may_match(inner, declared),
+        (SchemeType::List(actual), Type::List(declared)) | (SchemeType::Set(actual), Type::Set(declared)) | (SchemeType::Stream(actual), Type::Stream(declared))
+            | (SchemeType::Optional(actual), Type::Optional(declared)) => scheme_result_may_match(actual, declared),
+        (SchemeType::Map(actual_key, actual_value), Type::Map(declared_key, declared_value))
+            | (SchemeType::Result(actual_key, actual_value), Type::Result(declared_key, declared_value)) =>
+            scheme_result_may_match(actual_key, declared_key) && scheme_result_may_match(actual_value, declared_value),
+        _ => false,
+    }
+}
+
+fn type_may_match(actual: &Type, declared: &Type) -> bool {
+    match (actual.unvalidated(), declared.unvalidated()) {
+        (_, Type::BuiltinParameter(_)) => true,
+        (Type::List(actual), Type::List(declared)) | (Type::Set(actual), Type::Set(declared)) | (Type::Stream(actual), Type::Stream(declared))
+            | (Type::Optional(actual), Type::Optional(declared)) => type_may_match(actual, declared),
+        (Type::Map(actual_key, actual_value), Type::Map(declared_key, declared_value))
+            | (Type::Result(actual_key, actual_value), Type::Result(declared_key, declared_value)) =>
+            type_may_match(actual_key, declared_key) && type_may_match(actual_value, declared_value),
+        (actual, declared) => !declared.contains_builtin_parameter() && actual == declared,
+    }
+}
+
 fn receiver_may_match(receiver: crate::modules::MethodReceiver, ty: &SchemeType) -> bool {
     use crate::modules::MethodReceiver as R;
     match ty {
@@ -278,6 +317,9 @@ fn receiver_may_match(receiver: crate::modules::MethodReceiver, ty: &SchemeType)
         SchemeType::List(_) => receiver == R::List,
         SchemeType::Map(_, _) => receiver == R::Map,
         SchemeType::Set(_) => receiver == R::Set,
+        SchemeType::Stream(_) => receiver == R::Stream,
+        SchemeType::Result(_, _) => receiver == R::Result,
+        SchemeType::Record { .. } => receiver == R::Record,
         _ => false,
     }
 }
@@ -307,7 +349,8 @@ fn argument_may_match(actual: &SchemeType, expected: &Type) -> bool {
     match actual {
         SchemeType::Parameter(_) => true,
         SchemeType::Validated(_, inner) => argument_may_match(inner, expected),
-        SchemeType::Ground(actual) => actual.unvalidated() == expected.unvalidated(),
+        SchemeType::Ground(actual) => type_may_match(actual, expected),
+        SchemeType::List(_) | SchemeType::Set(_) | SchemeType::Map(_, _) | SchemeType::Stream(_) | SchemeType::Optional(_) | SchemeType::Result(_, _) => expected.contains_builtin_parameter(),
         _ => false,
     }
 }

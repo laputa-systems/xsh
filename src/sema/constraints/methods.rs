@@ -177,12 +177,13 @@ impl TypeConstraints {
                 let crate::modules::signature::MethodFamilySelection::Selected(selected) = api.select_method_requirement(entry.requirement.kind, &receiver, &entry.requirement.argument_slots, &arguments) else {
                     return Err(MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver });
                 };
-                let (_, _, signature) = api.registered_method(selected).ok_or(ConstraintResolutionError::ForeignVariable)?;
-                this.constrain_inner(&entry.requirement.result, &signature.sig.return_ty, entry.span, false, 0, changes)
+                let selected_return = api.method_requirement_return_type(entry.requirement.kind, selected, &receiver)
+                    .ok_or_else(|| MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver: receiver.clone() })?;
+                this.constrain_inner(&entry.requirement.result, &selected_return, entry.span, false, 0, changes)
                     .map_err(|(expected, actual, resolution_error)| MethodConstraintError::Constraint(super::ConstraintConflict {
                         expected, actual, contribution: entry.span, initializer: None, established: None, resolution_error,
                     }))?;
-                if this.resolve(&entry.requirement.result)? != signature.sig.return_ty {
+                if this.resolve(&entry.requirement.result)? != selected_return {
                     return Err(MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver });
                 }
             }

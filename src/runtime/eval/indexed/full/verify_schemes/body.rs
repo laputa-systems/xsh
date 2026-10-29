@@ -3858,6 +3858,37 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn selected_overload_results_authenticate_the_instantiated_member_signature() {
+        let program = prepare("pure first_key(table) { table.keys().len() }\nlet counts: Map[Str, Int] = {x: 1}\nlet found = first_key(counts)\n");
+        FullVerifier::verify(&program).unwrap();
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        assert_eq!(scheme.methods.len, 2);
+        let keys = bounded(scheme.methods, &program.store.scheme_methods, "methods").unwrap().iter().copied().find(|method| {
+            matches!(method.kind, crate::sema::schemes::MethodRequirementKind::Overloaded(id) if crate::modules::api_spec().overloaded_method_name(id) == Some("keys"))
+        }).unwrap();
+        assert_eq!(program.store.scheme_types[keys.result.index()].tag, FullSchemeTypeTag::Parameter);
+        let call = program.store.call_instantiations.iter().find(|call| {
+            call.arguments.method_bindings.len == 2
+                && program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)
+        }).unwrap();
+        let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        let result_binder = program.store.scheme_types[keys.result.index()].first;
+        let result = arguments.clone().find(|&index| program.store.call_type_arguments[index].binder == result_binder).unwrap();
+        let result_type = program.store.call_type_arguments[result].ty;
+        assert_eq!(program.store.scheme_types[result_type.index()].tag, FullSchemeTypeTag::Ground);
+        let other = program.store.call_type_arguments.iter().map(|argument| argument.ty).find(|ty| {
+            program.store.scheme_types[ty.index()].tag == FullSchemeTypeTag::Ground && program.store.scheme_types[ty.index()].first != program.store.scheme_types[result_type.index()].first
+        }).unwrap();
+        let mut wrong_result = program.clone();
+        wrong_result.store.in_place.take();
+        assert!(wrong_result.store.in_place.get().is_none());
+        wrong_result.store.scheme_types[result_type.index()].first = program.store.scheme_types[other.index()].first;
+        let error = FullVerifier::verify(&wrong_result).unwrap_err();
+        assert!(error.message.contains("canonical result"), "{error:?}");
+    }
+
+    #[test]
     fn optional_method_match_subjects_authenticate_their_scheme_fact() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("proc digits(raw) [error] -> Result[Int] {\n  let total = raw.len()\n  var out = []\n  var at = 0\n  while at < total {\n    let next = raw.byte_at(at) ?? 0\n    if next == 48 or (next >= 49 and next <= 55) { out += [next - 48] }\n    at += 1\n  }\n  Ok(bytes.from_ints(out)?.len())\n}\nlet counted = digits(b\"0a7\")\n");
