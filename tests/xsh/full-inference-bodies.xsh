@@ -584,6 +584,26 @@ proc main() [error, io] {
   assert output.stdout == "2\n"
 }
 
+test test_full_inference_guard_let_over_an_unresolved_subject_binds_the_present_value { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Options = {archive: Str?}
+pure label(opts) {
+  guard let name = opts.archive else { return "none" }
+  name
+}
+let present: Options = {archive: "a.tar"}
+let absent: Options = {archive: null}
+let a = label(present)
+let b = label(absent)
+print $a
+print $b
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "a.tar\nnone\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

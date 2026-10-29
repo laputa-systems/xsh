@@ -4575,6 +4575,15 @@ impl Checker {
         // rewritten on every check of this statement, because inference may
         // check a body more than once with a sharper subject type.
         self.optional_binding_spans.remove(&span);
+        let init_ty = match self.type_constraints.resolve(&init_ty) {
+            Ok(Type::Inference(variable)) => {
+                let subject = super::expr::expr_or_run_span_arena(arena, initializer);
+                let present = self.type_constraints.fresh_at_level(subject, self.callable_solver_level());
+                self.expect_type(&Type::Optional(Box::new(present.clone())), &Type::Inference(variable), subject);
+                Type::Optional(Box::new(present))
+            }
+            _ => init_ty,
+        };
         if let Type::Optional(present) = init_ty {
             self.optional_binding_spans.insert(span);
             self.check_optional_guard_arena(
