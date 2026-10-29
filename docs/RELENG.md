@@ -97,12 +97,23 @@ ranges are wide, so they bound the cost:
 | thin LTO, one codegen unit | 26,695,368 | +2.9% | not measured |
 | `-Zmerge-functions=aliases`, LLVM merge-functions | 25,944,584 | none | not measured |
 
-Open decisions for the owner: whether to take either of the first two knobs,
-and whether the verifier may leave the shipped `xsh`, which changes an
-invariant. Unmeasured source candidates, estimated from symbol counts: routing
+Decisions of 2026-10-29: build options stay as they are, so neither knob is
+taken. The verifier stays in the shipped `xsh`: indexed execution relies on
+verified programs, so removing it would trade 2 MB for an unchecked execution
+path. Unmeasured source candidates, estimated from symbol counts: routing
 name-keyed sorts through one helper (0.5 to 0.8 MB), consolidating cold-path
 `BTreeMap` types (0.8 to 1.5 MB), and table-driven host-call errors (0.2 to
 0.4 MB).
+
+## Allocator
+
+`xsh`, `xsht` and `xshi` link mimalloc as the global allocator; it is about
+78 KB of the shipped `xsh`. Without it the products fall back to musl's
+allocator, which is much slower for XSH's allocation-heavy workloads. The
+jemalloc package in `Dockerfile.test` is a different thing: `cargo dev` preloads
+it into compiler steps only, to speed up builds, and no product links it.
+Changing the product allocator needs a paired runtime and memory comparison
+first.
 
 ## Size record
 
