@@ -533,6 +533,7 @@ macro_rules! instruction_schema {
         }
 
         impl FullTag {
+            #[cfg(feature = "native-tests")]
             pub(in crate::runtime::eval) fn from_identity(
                 name: &str,
                 ordinal: u32,

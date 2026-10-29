@@ -7,9 +7,33 @@
 //! keep working, and a failed submission must not leave state that breaks the
 //! next one.
 
+use std::fs::File;
 use xshi::{OneCommandOptions, run_one_command_with_options};
 
+struct StdoutRedirectedToNull {
+    saved: rustix::fd::OwnedFd,
+}
+
+impl StdoutRedirectedToNull {
+    fn new() -> Self {
+        let null = File::options()
+            .write(true)
+            .open("/dev/null")
+            .expect("open /dev/null");
+        let saved = rustix::io::dup(rustix::stdio::stdout()).expect("save stdout");
+        rustix::stdio::dup2_stdout(&null).expect("redirect stdout");
+        Self { saved }
+    }
+}
+
+impl Drop for StdoutRedirectedToNull {
+    fn drop(&mut self) {
+        rustix::stdio::dup2_stdout(&self.saved).expect("restore stdout");
+    }
+}
+
 fn run(source: &str) -> i32 {
+    let _stdout = StdoutRedirectedToNull::new();
     run_one_command_with_options(
         source,
         OneCommandOptions {

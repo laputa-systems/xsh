@@ -75,6 +75,7 @@ pub(in crate::runtime::eval) fn indexed_callable_identity(
 }
 
 impl Evaluator {
+    #[cfg(feature = "native-tests")]
     pub(in crate::runtime::eval) fn call_indexed_direct(
         &mut self,
         function: LoweredFunctionKey,

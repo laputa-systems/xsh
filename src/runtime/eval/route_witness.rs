@@ -1,26 +1,41 @@
 use super::indexed::full::FullTag;
 use super::indexed::full::schema::RouteWitnessCapability;
+#[cfg(feature = "native-tests")]
 use std::cell::RefCell;
 use std::ffi::OsString;
+#[cfg(feature = "native-tests")]
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::io::{Read, Write};
+#[cfg(feature = "native-tests")]
+use std::io::{Seek, SeekFrom};
+#[cfg(feature = "native-tests")]
+use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+#[cfg(feature = "native-tests")]
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::OsStringExt;
+#[cfg(feature = "native-tests")]
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "native-tests")]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(feature = "native-tests")]
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("route-witness descriptor transport supports Linux and macOS only");
 
+#[cfg(feature = "native-tests")]
 pub(crate) const INVOCATION_TEST_ID_OVERLAY: &[u8] =
     b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_INVOCATION_TEST_ID";
+#[cfg(feature = "native-tests")]
 pub(crate) const INVOCATION_OUTPUT_DIR_OVERLAY: &[u8] =
     b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_INVOCATION_OUTPUT_DIR";
 
 const ARTIFACT_FILE: &str = "route-witness.json";
 const ARTIFACT_VERSION: u64 = 1;
+#[cfg(feature = "native-tests")]
 pub(crate) const ENV_PREFIX: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS";
 pub(crate) const HARNESS_ENV_PREFIX: &str = "XSHT_INTERNAL_ROUTE_WITNESS";
 const TRANSPORT_MARKER_ENV: &str = "XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER";
@@ -31,6 +46,7 @@ const TRANSPORT_SOURCE_HASH_BYTES: usize = 64;
 const MAX_TRANSPORT_BYTES: usize = 64 * 1024;
 const FIRST_INHERITABLE_FD: RawFd = 3;
 
+#[cfg(feature = "native-tests")]
 thread_local! {
     static ACTIVE_TRANSPORTS: RefCell<Vec<Option<NativeTestRouteWitnessTransport>>> = const { RefCell::new(Vec::new()) };
 }
@@ -110,12 +126,14 @@ impl ChildCaptureContext {
     }
 }
 
+#[cfg(feature = "native-tests")]
 #[derive(Debug)]
 pub(crate) struct NativeTestRouteWitnessTransport {
     fd: OwnedFd,
     nonce: [u8; TRANSPORT_NONCE_BYTES],
 }
 
+#[cfg(feature = "native-tests")]
 impl NativeTestRouteWitnessTransport {
     pub(crate) fn new(
         test_id: &str,
@@ -200,8 +218,10 @@ impl NativeTestRouteWitnessTransport {
     }
 }
 
+#[cfg(feature = "native-tests")]
 struct ActiveTransportGuard;
 
+#[cfg(feature = "native-tests")]
 impl Drop for ActiveTransportGuard {
     fn drop(&mut self) {
         ACTIVE_TRANSPORTS.with(|transports| {
@@ -210,6 +230,7 @@ impl Drop for ActiveTransportGuard {
     }
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn with_transport<T>(
     transport: Option<NativeTestRouteWitnessTransport>,
     callback: impl FnOnce() -> T,
@@ -219,6 +240,7 @@ pub(crate) fn with_transport<T>(
     callback()
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn attach_active_transport(command: &mut Command) -> std::io::Result<bool> {
     command.env_remove(TRANSPORT_MARKER_ENV);
     ACTIVE_TRANSPORTS.with(|transports| {
@@ -296,12 +318,14 @@ fn inherited_transport_descriptor(
     Ok(Some((unsafe { OwnedFd::from_raw_fd(fd) }, nonce)))
 }
 
+#[cfg(feature = "native-tests")]
 fn random_nonce() -> std::io::Result<[u8; TRANSPORT_NONCE_BYTES]> {
     let mut nonce = [0; TRANSPORT_NONCE_BYTES];
     fs::File::open("/dev/urandom")?.read_exact(&mut nonce)?;
     Ok(nonce)
 }
 
+#[cfg(feature = "native-tests")]
 fn encode_nonce(nonce: &[u8; TRANSPORT_NONCE_BYTES]) -> String {
     nonce.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -367,6 +391,7 @@ impl ChildCapture {
 
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn take_invocation_context(
     overlay: Vec<(Vec<u8>, Vec<u8>)>,
 ) -> Result<(Option<InvocationContext>, Vec<(Vec<u8>, Vec<u8>)>), String> {
@@ -415,6 +440,7 @@ pub(crate) fn take_invocation_context(
     Ok((context, script_overlay))
 }
 
+#[cfg(feature = "native-tests")]
 fn duplicate_cloexec_fd(source_fd: impl AsFd) -> std::io::Result<OwnedFd> {
     rustix::io::fcntl_dupfd_cloexec(source_fd, FIRST_INHERITABLE_FD)
         .map_err(std::io::Error::from)
@@ -489,6 +515,7 @@ fn decode_transport(
     ))
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn validate_artifact(
     output_dir: &Path,
     test_id: &str,
@@ -578,10 +605,12 @@ pub(crate) fn validate_artifact(
     Ok(())
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn artifact_path(output_dir: &Path) -> PathBuf {
     output_dir.join(ARTIFACT_FILE)
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn artifact_exists(output_dir: &Path) -> Result<bool, String> {
     match fs::symlink_metadata(artifact_path(output_dir)) {
         Ok(_) => Ok(true),
@@ -669,6 +698,7 @@ pub(in crate::runtime::eval) fn frame_route(
     }
 }
 
+#[cfg(feature = "native-tests")]
 fn capability_accepts_route(
     capability: RouteWitnessCapability,
     route: RouteWitnessRoute,
@@ -745,6 +775,7 @@ impl RouteWitnessMode {
         }
     }
 
+#[cfg(feature = "native-tests")]
     fn from_name(name: &str) -> Option<Self> {
         match name {
             "normal" => Some(Self::Normal),
@@ -776,6 +807,7 @@ impl RouteWitnessRoute {
         }
     }
 
+#[cfg(feature = "native-tests")]
     fn from_name(name: &str) -> Option<Self> {
         match name {
             "in_place_evaluator_path" => Some(Self::InPlaceEvaluator),
