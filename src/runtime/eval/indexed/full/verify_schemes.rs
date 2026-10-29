@@ -3021,9 +3021,12 @@ fn verify_body_expression(
                 } else { body_type_matches_ground(&actual, &expected) };
                 let checked_accumulator = !source_matches && matches!(&expected, Type::List(_)) && expected.has_unsigned_constraint()
                     && actual.closed_ground_type().is_some_and(|actual| matches!(actual, Type::List(_)) && !actual.contains_any() && !actual.contains_recovery());
-                let identical_source = actual.closed_ground_type().is_some_and(|actual| actual == expected);
+                let source_type = actual.closed_ground_type();
                 let complete_storage = runtime_complete_value_check_type(&expected, budget, 0)?
-                    || identical_source && runtime_complete_check_type(&expected, budget, 0, false, Some(&expected))?;
+                    || match source_type.as_ref() {
+                        Some(source) => runtime_complete_check_type(&expected, budget, 0, false, Some(source))?,
+                        None => false,
+                    };
                 if (!source_matches && !checked_accumulator) || !complete_storage { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
                 if checked_accumulator { checked_accumulators.push(instruction); }
                 SchemeType::Ground(expected)
@@ -5986,6 +5989,7 @@ fn runtime_complete_check_type(
         | Type::FsLock
         | Type::Unit
         => true,
+        Type::Optional(_) if source == Some(&Type::Null) => true,
         Type::List(item) | Type::Optional(item) => {
             let source = match (ty, source) {
                 (Type::List(_), Some(Type::List(source))) | (Type::Optional(_), Some(Type::Optional(source))) => Some(source.as_ref()),
@@ -6039,7 +6043,7 @@ fn runtime_complete_check_type(
             )?,
         },
         Type::Tag(_) => source == Some(ty),
-        Type::Any => allow_dynamic,
+        Type::Any => allow_dynamic || source == Some(&Type::Any),
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Unknown

@@ -1466,3 +1466,27 @@ print $b.label
   assert output.success, output.stderr
   assert output.stdout == "2\ntrue\n6\nb\n"
 }
+
+test test_full_inference_typed_locals_with_dynamic_fields_and_null_optionals_are_complete_storage { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Member = {name: Str, value: Any}
+type Code = {code: Int}
+type Slot = {label: Str, pending: Code?}
+pure m(name: Str, value: Any) -> Member { {name: name, value: value} }
+pure build(extra) {
+  var block: List[Member] = [m("a", 1), m("b", "two")]
+  block += [m("c", 3)]
+  let slot: Slot = {label: "x", pending: null}
+  let _ = extra
+  f"{block.len()}{slot.label}"
+}
+let a = build(1)
+let b = build("s")
+print $a
+print $b
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3x\n3x\n"
+}
