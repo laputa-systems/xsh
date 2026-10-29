@@ -217,7 +217,7 @@ pub(super) fn supports_generalized_body(
         ArenaStmtKind::TailBareIdent(_) => bindings.tails.get(&tail).is_some_and(|identity| read_binding_is_available(bindings, &available, captures, identity, tails.get(&tail))),
         ArenaStmtKind::Expr(expression) => is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, expression),
         ArenaStmtKind::Return(None) if owner_kind == crate::sema::types::CallableKind::Proc && matches!(completion, BodyCompletion::Procedure) => true,
-        ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function | BodyCompletion::Procedure) => {
+        ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function | BodyCompletion::Procedure | BodyCompletion::Value | BodyCompletion::Statement | BodyCompletion::ProcedureStatement) => {
             if matches!(completion, BodyCompletion::Procedure) && positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
                 is_proc_completion_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, expression)
             } else { is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, expression) }

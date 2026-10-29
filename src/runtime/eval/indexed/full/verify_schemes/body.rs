@@ -1536,7 +1536,11 @@ pub(super) fn verify_body(
             }
             Obligation::Block { statements, position, scope, value: value_contract } => {
                 let Some(&instruction) = statements.get(position) else {
-                    if value_contract.is_some() { return Err(IrVerifyError::new("generic value block has no terminal value")); }
+                    let diverges = match statements.last() {
+                        Some(&last) => matches!(decoder.statement_view(last)?, schema::StmtView::Return { .. }),
+                        None => false,
+                    };
+                    if value_contract.is_some() && !diverges { return Err(IrVerifyError::new("generic value block has no terminal value")); }
                     continue;
                 };
                 let active_scheme_scope = scheme_scope.at_instruction(instruction)?;
@@ -4048,6 +4052,27 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
         forged.store.extra[words.start] = 1;
         let error = FullVerifier::verify(&forged).expect_err("the marker cannot stand for the stream receiver");
         assert!(!error.message.contains("unowned rows"), "{error:?}");
+    }
+
+    #[test]
+    fn diverging_handler_branch_requires_its_return_statement() {
+        let program = prepare("proc strict_names(root, marker) [fs, error] {\n  let names = fs.xattr_list(root) ?? { |failure|\n    if failure.errno == 2 { [] } else { return Err(failure) }\n  }\n  let _ = marker\n  names.len()\n}\nproc main() [fs, io, error] { let counted = strict_names(p\"/dev/null/x\", 1)\n  let _ = counted }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "strict_names").unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        let returns = program.store.function_instruction_range(owner).unwrap().filter(|instruction| program.store.tags[*instruction] == FullTag::StmtReturn).collect::<Vec<_>>();
+        assert!(!returns.is_empty());
+        for site in returns {
+            let mut forged = cold();
+            forged.store.tags[site] = FullTag::StmtValue;
+            let error = FullVerifier::verify(&forged).expect_err("a return retagged as the block value");
+            assert!(!error.message.contains("unowned rows"), "{error:?}");
+        }
     }
 
     #[test]

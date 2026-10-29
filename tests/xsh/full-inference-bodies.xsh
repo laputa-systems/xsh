@@ -819,6 +819,38 @@ proc main() [fs, io, error] {
   assert output.stdout == "true\n"
 }
 
+test test_full_inference_fallback_handler_block_is_lowered_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc quiet_names(root, marker) [fs, error] {
+  let names = fs.xattr_list(root) ?? { |failure| [] }
+  let _ = marker
+  names.len()
+}
+proc strict_names(root, marker) [fs, error] {
+  let names = fs.xattr_list(root) ?? { |failure|
+    if failure.errno == 2 { [] } else { return Err(failure) }
+  }
+  let _ = marker
+  names.len()
+}
+proc main() [fs, io, error] {
+  let missing = p"/nonexistent-xsh-fallback-handler"
+  let a = quiet_names(missing, 1)?
+  let b = strict_names(missing, 1)?
+  print $a
+  print $b
+  match strict_names(p"/dev/null/below-a-file", 1) {
+    Ok(_) => print "completed"
+    Err(_) => print "returned the failure"
+  }
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "0\n0\nreturned the failure\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

@@ -3549,18 +3549,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)
             },
             ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
+                let ty = facts.tail_types().get(&statement)?.clone();
                 let mut values = Vec::new();
                 let branches = self.program.arena.if_branches(branches).to_vec();
                 let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
                 for branch in branches {
                     let saved = slots.enter();
                     let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
-                    let value = self.lower_scheme_value_block(branch.block, slots, current_function, facts, visited, lowered_types)?;
+                    let value = self.lower_scheme_branch_value_block(branch.block, &ty, slots, current_function, facts, visited, lowered_types)?;
                     slots.exit(saved);
                     values.push((condition, value, captures));
                 }
-                let else_value = self.lower_scheme_value_block(else_block, slots, current_function, facts, visited, lowered_types)?;
-                let ty = facts.tail_types().get(&statement)?.clone();
+                let else_value = self.lower_scheme_branch_value_block(else_block, &ty, slots, current_function, facts, visited, lowered_types)?;
                 let span = self.program.arena.stmt(statement).span;
                 let value = if has_pattern {
                     push_build_row!(self, expr, BuildExprRow::PatternIf { branches: values, else_value, span })
@@ -3575,6 +3575,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(value)
             }
             ArenaStmtKind::Match { value, arms } => {
+                let join = facts.tail_types().get(&statement)?.clone();
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 let mut lowered_arms = Vec::new();
                 for arm in self.program.arena.match_arms(arms).to_vec() {
@@ -3584,12 +3585,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         Some(guard) => Some(self.lower_scheme_lazy_expression(guard, slots, current_function, facts, visited, lowered_types)?),
                         None => None,
                     };
-                    let value = self.lower_scheme_value_block(arm.block, slots, current_function, facts, visited, lowered_types)?;
+                    let value = self.lower_scheme_branch_value_block(arm.block, &join, slots, current_function, facts, visited, lowered_types)?;
                     cleanup_lowered_pattern_slots(slots, cleanup);
                     lowered_arms.push((pattern, guard, value));
                 }
                 let value = push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered_arms, span: self.program.arena.stmt(statement).span });
-                lowered_types.insert(value, facts.tail_types().get(&statement)?.clone());
+                lowered_types.insert(value, join);
                 Some(value)
             }
             _ => None,
@@ -3656,6 +3657,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         } else {
             self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types).map(|condition| (condition, Vec::new()))
         }
+    }
+
+    fn lower_scheme_branch_value_block(
+        &mut self, block: crate::syntax::arena::BlockId, join: &SchemeType, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        let block_data = self.program.arena.block(block);
+        let statements = self.program.arena.stmt_ids(block_data.statements).map(|statement| self.program.arena.core_stmt_id(statement)).collect::<Vec<_>>();
+        let diverges = statements.last().is_some_and(|tail| matches!(self.program.arena.stmt(*tail).kind, ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(_)))));
+        if !diverges { return self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types); }
+        let saved = slots.enter();
+        let mut body = Vec::new();
+        for statement in statements {
+            self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, &mut body)?;
+        }
+        slots.exit(saved);
+        let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.span(block_data.span) });
+        lowered_types.insert(value, join.clone());
+        Some(value)
     }
 
     fn lower_scheme_value_block(
@@ -5132,8 +5153,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 push_build_row!(self, expr, BuildExprRow::ComparisonChain { first: first?, pairs: lowered })
             }
-            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } if facts.wrapper_site(expression).is_some()
-                && matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right }
+                if matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
                 let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind else { unreachable!() };
                 let (ok, error) = match facts.expression_types().get(&left)? {
                     SchemeType::Result(ok, error) => ((**ok).clone(), (**error).clone()),
