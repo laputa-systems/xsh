@@ -3916,6 +3916,31 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn early_exit_narrowed_reads_require_the_exit_to_dominate_them() {
+        let program = prepare("type Row = {n: Int?}\npure after(row) {\n  let at = row.n\n  return -1 when at == null\n  let kept = at\n  kept + 1\n}\nlet present: Row = {n: 4}\nlet found = after(present)\n");
+        let (owner, _) = generic_owner(&program);
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        let mut moved = cold();
+        let body = IrBlockId::from_raw(moved.store.functions[owner].body).unwrap();
+        let words = moved.store.blocks[body.index()].instructions.bounds(moved.store.extra.len()).unwrap();
+        let decoder = decoder_for_function(&moved.store, owner).unwrap();
+        let statements = ((words.start + 1)..words.end).collect::<Vec<_>>();
+        let word_statement = |word: usize| moved.store.extra[word] as usize;
+        let exit = statements.iter().copied().find(|word| !matches!(decoder.statement_view(word_statement(*word)), Ok(schema::StmtView::Let { .. }))).unwrap();
+        let read = statements.iter().copied().find(|&word| word > exit && matches!(decoder.statement_view(word_statement(word)),
+            Ok(schema::StmtView::Let { value, .. }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(_))))).unwrap();
+        moved.store.extra.swap(exit, read);
+        let error = FullVerifier::verify(&moved).expect_err("a narrowed read before its exit");
+        assert_eq!(error.message, "guard-local body fact has no dominating non-null source proof");
+    }
+
+    #[test]
     fn regex_literal_call_arguments_authenticate_their_literal_type() {
         let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
         program.store.in_place.take();

@@ -3880,11 +3880,12 @@ impl Checker {
 
     pub(super) fn is_proven_nonnull_subject_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
         self.proof_subject_arena(arena, expr).is_some_and(|(_, path, _, binding)| {
-            binding
-                .unrefined_ty
-                .as_ref()
-                .and_then(|ty| super::proof::projected_type(ty, &path))
-                .is_some_and(|ty| matches!(ty, Type::Optional(_)))
+            let unrefined = binding.unrefined_ty.as_ref().and_then(|ty| super::proof::projected_type(ty, &path));
+            match unrefined {
+                Some(Type::Optional(_)) => true,
+                Some(unrefined @ Type::Inference(_)) => super::proof::projected_type(&binding.ty, &path).is_some_and(|refined| matches!(refined, Type::Inference(_)) && refined != unrefined),
+                _ => false,
+            }
         })
     }
 
@@ -4121,6 +4122,7 @@ impl Checker {
             .map(|(name, binding)| (*name, binding.clone()))
             .collect::<FxHashMap<_, _>>();
         let mut reaching = Vec::new();
+        let mut reaching_guards = Vec::new();
         let mut previous_failure = Vec::new();
         for branch in branch_list {
             self.push_scope();
@@ -4141,6 +4143,7 @@ impl Checker {
                 && let Some(bindings) = self.block_exit_bindings.get(&branch.block)
             {
                 reaching.push(bindings.clone());
+                reaching_guards.push(self.scopes.last().and_then(|scope| scope.guard));
             }
             previous_failure.extend(facts.when_false);
             self.scopes = failure_scopes;
@@ -4148,6 +4151,7 @@ impl Checker {
         }
         self.push_scope();
         self.apply_narrowings(&previous_failure);
+        let fallthrough_guard = self.scopes.last().and_then(|scope| scope.guard);
         if let Some(block) = else_block {
             self.check_block_arena(arena, source, block);
             self.check_required_block_exit(arena, block);
@@ -4157,6 +4161,7 @@ impl Checker {
                 && let Some(bindings) = self.block_exit_bindings.get(&block)
             {
                 reaching.push(bindings.clone());
+                reaching_guards.push(fallthrough_guard);
             }
         } else {
             reaching.push(
@@ -4166,9 +4171,11 @@ impl Checker {
                     .map(|(name, binding)| (*name, binding.clone()))
                     .collect(),
             );
+            reaching_guards.push(fallthrough_guard);
         }
         self.pop_scope();
         self.scopes = initial_scopes;
+        let continuation_guard = match reaching_guards.as_slice() { [only] => *only, _ => None };
         for (name, initial) in &original {
             for bindings in &reaching {
                 if let Some(binding) = bindings
@@ -4257,6 +4264,11 @@ impl Checker {
             }
         }
         self.apply_narrowings(&facts);
+        if let Some(guard) = continuation_guard
+            && self.scopes.last().and_then(|scope| scope.guard) != Some(guard)
+        {
+            self.scopes.last_mut().expect("an if statement has an enclosing scope").guard = Some(guard);
+        }
     }
 
     /// Reports a block that an expansion requires to leave the enclosing
@@ -7080,6 +7092,7 @@ impl Checker {
         expectation: Option<super::types::TypeExpectation<'_>>,
         purpose: TailCheckingPurpose,
     ) -> Type {
+        self.record_guarded_node(arena.arena.stmt(id).span);
         let actual = self.check_tail_stmt_with_expectation_arena_inner(arena, source, id, expectation, purpose);
         if matches!(arena.arena.stmt(id).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. }) {
             if purpose == TailCheckingPurpose::ProcCompletion && self.inferred_returns.is_some() {

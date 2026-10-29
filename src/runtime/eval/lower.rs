@@ -3536,7 +3536,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = facts.tail_types().get(&statement)?.clone();
+                let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
                 let value = self.lower_bare_ident_stmt(statement, name, slots)?;
+                self.record_scheme_guard_rows(facts.guard_scopes().statements.get(&statement).copied(), start);
                 lowered_types.insert(value, ty);
                 Some(value)
             }
@@ -5135,6 +5137,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
                 let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::ResultFallback { left, right })
+            }
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right }
+                if !matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_))
+                    && self.bodies.proven_nonnull_fallback_receivers.contains(&left) => {
+                let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
+                let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
+                let unreachable = push_build_row!(self, expr, BuildExprRow::Bool(false));
+                lowered_types.insert(unreachable, SchemeType::Ground(Type::Bool));
+                push_build_row!(self, expr, BuildExprRow::IfExpr { branches: vec![(unreachable, right)], else_value: left, span })
             }
             ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } if !matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
                 let source = facts.expression_types().get(&left)?.closed_ground_type()?;

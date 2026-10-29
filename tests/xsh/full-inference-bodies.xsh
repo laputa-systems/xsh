@@ -673,6 +673,75 @@ test test_full_inference_single_receiver_method_rejects_another_receiver { |ctx|
   }
 }
 
+test test_full_inference_local_stays_narrowed_after_an_early_exit { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Row = {n: Int?}
+pure after_return(row) {
+  let at = row.n
+  return -1 when at == null
+  at
+}
+pure after_block(row) {
+  let at = row.n
+  if at == null { return -1 }
+  at + 1
+}
+pure after_guard(row) {
+  let at = row.n
+  guard at != null else { return -1 }
+  at * 2
+}
+pure after_found(text) {
+  let at = text.find("=")
+  return -1 when at == null
+  at
+}
+let present: Row = {n: 4}
+let absent: Row = {n: null}
+let a = after_return(present)
+let b = after_return(absent)
+let c = after_block(present)
+let d = after_block(absent)
+let e = after_found("ab=c")
+let f = after_found("abc")
+let g = after_guard(present)
+let h = after_guard(absent)
+print $a
+print $b
+print $c
+print $d
+print $e
+print $f
+print $g
+print $h
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4\n-1\n5\n-1\n2\n-1\n8\n-1\n"
+}
+
+test test_full_inference_fallback_after_an_early_exit_reads_the_narrowed_value { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Row = {n: Int?}
+pure width(row) -> Int? {
+  let at = row.n
+  return null when at == null
+  at ?? 0
+}
+let present: Row = {n: 4}
+let absent: Row = {n: null}
+let a = width(present) ?? -1
+let b = width(absent) ?? -1
+print $a
+print $b
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4\n-1\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,
