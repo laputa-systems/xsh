@@ -10,6 +10,9 @@
 #[path = "../../../tests/test_binary.rs"]
 mod test_binary;
 
+#[path = "support/metamorphic.rs"]
+mod metamorphic;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
