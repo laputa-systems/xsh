@@ -7,8 +7,12 @@ proves a property of its Lean definitions; it does not establish correspondence
 with XSH source, indexed IR, Rust runtime, or host behavior.
 
 [`coverage.json`](coverage.json) is the authority for coverage. It records
-the frozen source commit and tree, every universal obligation remains planned,
-and the finite Rust-conformance ledger holds only the named tests that ran
+the frozen source commit and tree. A universal obligation is planned or
+closed. A row closes only when its theorem covers the whole frozen core for
+that obligation; it then names a public theorem in a module reachable from
+`Xsh` that is not a fragment root, and the axiom audit rejects a closed root
+that is absent, not a theorem, or outside the project modules. No row is closed
+yet. The finite Rust-conformance ledger holds only the named tests that ran
 against binaries built from that commit. Each case is evidence for its own test
 only. The fixed source/IR corpus, semantic scenario suite, and replay runner
 have not been introduced. Private bridge fixtures are not conformance cases.

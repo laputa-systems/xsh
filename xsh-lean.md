@@ -11,10 +11,13 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 685
-theorem roots across 92 owners, all `SPEC_PROVED` finite models of selected
-behavior. None establishes source, raw-IR, Rust, OS, or clock correspondence or
-closes a full-language obligation. All 77 universal obligations stay planned.
+**State:** `formal/coverage.json` is the only inventory. It lists 757
+fragment theorem roots across 92 owners, all `SPEC_PROVED` finite models of
+selected behavior. None establishes source, raw-IR, Rust, OS, or clock
+correspondence. All 77 universal obligations stay planned. G1's five base
+theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
+roots: they hold for the base expression machine, which is not the frozen
+core.
 `source_identity` records the frozen commit `65fcb0f42` and its tree, and
 `finite_conformance.cases` holds the four Float equality tests, run once each
 with a fresh verification `xsh`/`xsht` pair built from that commit in the
@@ -24,6 +27,18 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
 
 **Open items:**
 
+- BASE-VERTICAL stays planned. It needs the actual source, lowered artifact
+  and Rust example of G1 and a kernel-certified artifact, which depend on G1b's
+  test-only exporter and decoder. The Lean side has the machine, the host
+  trace and the raw-IR tables, but no lowering and no artifact certificate.
+- G1's base theorems cover the base machine only: integer expressions,
+  scalar literals, identifiers and one host request family (`time.now`). The
+  machine has no assignment or declaration form, so typed store writes are
+  proved on the environment API, not through machine steps. Float arithmetic
+  and Float conversions are not modeled; the Float clauses state only exact
+  bits, IEEE value equality and the total order. BASE-ENV, BASE-NUM,
+  BASE-STEP, BASE-PROGRESS and BASE-RUNNER close only when their theorems hold
+  for the frozen core's syntax, values and host request families.
 - The record-update fragment models the checker's path-prefix overlap rule.
   `docs/SPEC.md` does not state that rule. Add it to the SPEC template or
   record an owner decision.
@@ -560,6 +575,17 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
 
 ### Log
 
+- 2026-10-29: G1 proved base theorems for BASE-ENV
+  (`Xsh.Proofs.Base.Env.base_env`), BASE-NUM (`Xsh.Proofs.Base.Num.base_num`),
+  BASE-STEP (`Xsh.Proofs.Base.Step.base_step`), BASE-PROGRESS
+  (`Xsh.Proofs.Base.Progress.base_progress`) and BASE-RUNNER
+  (`Xsh.Proofs.Base.Runner.base_runner`). Each has an inhabited witness and
+  rejected mutants in its module. The integrator recorded them as fragment
+  roots, not closed obligations, because the base machine is not the frozen
+  core and the existing base-machine roots already disclaim whole-language
+  progress. The inventory schema gained a closed row
+  status naming a root theorem; the axiom audit rejects a closed root that is
+  absent, not a theorem, or outside the project modules.
 - 2026-10-29: The owner resumed Lean. G0b froze the source at `65fcb0f42`
   (tree `6947bd3de`). The four `tests/xsh/float-equality.xsh` tests passed
   through `xsht test --exact` with verification `xsh` and `xsht` built from that
@@ -572,4 +598,4 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
 
 ## For the owner afterwards
 
-Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep all 77 full theorem obligations planned until their complete proofs and required evidence pass.
+Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep each full theorem obligation planned until its complete proof and required evidence pass.

@@ -120,8 +120,9 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(685, len(result["fragment_roots"]))
+        self.assertEqual(762, len(result["fragment_roots"]))
         self.assertEqual(77, len(result["obligations"]))
+        self.assertEqual([], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
         self.assertEqual(
             self.git_object(f"{coverage['source_identity']['commit']}^{{tree}}"),
@@ -1235,12 +1236,23 @@ class InventoryCheckerTests(unittest.TestCase):
             CHECKER.parse_builtin_type_names(fixture),
         )
 
+    def planned_obligations(self) -> list[dict[str, str]]:
+        obligations = CHECKER.load_json(ROOT / "formal/coverage.json")["universal_theorems"]
+        return [
+            {
+                key: value
+                for key, value in entry.items()
+                if key not in ("module", "declaration")
+            }
+            | {"status": "planned"}
+            for entry in obligations
+        ]
+
     def closed_obligation_context(
         self,
     ) -> tuple[str, list[dict[str, str]], dict[str, Path], set[str]]:
         plan = (ROOT / "xsh-lean.md").read_text()
-        obligations = CHECKER.load_json(ROOT / "formal/coverage.json")["universal_theorems"]
-        obligations = [dict(entry) for entry in obligations]
+        obligations = self.planned_obligations()
         fixture = ROOT / "formal/tests/inventory/fixtures/commented_theorem.lean.txt"
         module_sources = {"Xsh.Fixture": fixture}
         obligations[0].update(
@@ -1345,10 +1357,9 @@ class InventoryCheckerTests(unittest.TestCase):
             self.validate_closed(plan, obligations, module_sources, reachable)
 
     def test_missing_obligation_entry_fails(self) -> None:
-        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         plan = (ROOT / "xsh-lean.md").read_text()
         with self.assertRaisesRegex(CHECKER.InventoryError, "plan obligation entries differ"):
-            CHECKER.validate_obligation_entries(plan, coverage["universal_theorems"][:-1])
+            CHECKER.validate_obligation_entries(plan, self.planned_obligations()[:-1])
 
     def test_missing_owner_and_duplicate_items_fail(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
@@ -1625,8 +1636,7 @@ class InventoryCheckerTests(unittest.TestCase):
             CHECKER.validate_coverage(ROOT, coverage)
 
     def test_duplicate_obligation_rows_fail(self) -> None:
-        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
-        obligations = coverage["universal_theorems"]
+        obligations = self.planned_obligations()
         with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate obligation id"):
             CHECKER.validate_obligation_entries(
                 (ROOT / "xsh-lean.md").read_text(), obligations + [obligations[0]]

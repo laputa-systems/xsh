@@ -42,6 +42,13 @@ import Xsh.Semantics.BaseHostTrace
 import Xsh.Proofs.BaseHostTrace
 import Xsh.Proofs.BaseHostRunnerLaws
 import Xsh.Proofs.BaseMachineComposition
+import Xsh.Semantics.BaseInvariant
+import Xsh.Proofs.BaseInvariant
+import Xsh.Proofs.Base.Env
+import Xsh.Proofs.Base.Num
+import Xsh.Proofs.Base.Step
+import Xsh.Proofs.Base.Progress
+import Xsh.Proofs.Base.Runner
 import Xsh.Semantics.Foundation.ObservedMachine
 import Xsh.Semantics.Foundation.ResolvedBinding
 import Xsh.Proofs.Foundation.ObservedMachine

@@ -306,6 +306,123 @@ theorem write_is_visible_through_capture
     simp [StoreWriteResult.storeAfter, replaceAt]
   | isFalse rejected => exact False.elim (rejected member)
 
+theorem resolve_bind_other (environment : LexicalEnvironment) (name other : NameId)
+    (binder : BinderId) (different : other ≠ name) :
+    resolve (bind environment name binder) other = resolve environment other := by
+  cases environment with
+  | nil => simp [bind, resolve, replaceAt, emptyLexicalFrame, different]
+  | cons frame outer => simp [bind, resolve, replaceAt, different]
+
+theorem resolve_enter_scope (environment : LexicalEnvironment) (name : NameId) :
+    resolve (enterScope environment) name = resolve environment name := by
+  simp [enterScope, resolve, emptyLexicalFrame]
+
+theorem resolve_exit_scope_after_inner_bind (environment : LexicalEnvironment)
+    (name : NameId) (binder : BinderId) (other : NameId) :
+    resolve (exitScope (bind (enterScope environment) name binder)) other =
+      resolve environment other := by
+  simp [exitScope, bind, enterScope]
+
+theorem resolveCell_bindCell (environment : ActivationEnvironment) (binder : BinderId)
+    (cell : CellId) : resolveCell (bindCell environment binder cell) binder = some cell := by
+  cases environment with
+  | nil => simp [bindCell, resolveCell, replaceAt]
+  | cons frame outer => simp [bindCell, resolveCell, replaceAt]
+
+theorem resolveCell_bindCell_other (environment : ActivationEnvironment)
+    (binder other : BinderId) (cell : CellId) (different : other ≠ binder) :
+    resolveCell (bindCell environment binder cell) other = resolveCell environment other := by
+  cases environment with
+  | nil => simp [bindCell, resolveCell, replaceAt, emptyActivationFrame, different]
+  | cons frame outer => simp [bindCell, resolveCell, replaceAt, different]
+
+theorem capture_excludes_uncaptured (environment : ActivationEnvironment)
+    (binders : List BinderId) (binder : BinderId) (excluded : binder ∉ binders) :
+    capture environment binders binder = none := by
+  simp [capture, excluded]
+
+theorem write_accepted_iff {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cellId : CellId) (candidate : Value) :
+    (∃ updated, writeCell decideHasType store cellId candidate = .accepted updated) ↔
+      ∃ current, store cellId = some current ∧ current.mutability = .mutable ∧
+        hasType current.contents.typeTag candidate := by
+  constructor
+  · rintro ⟨updated, accepted⟩
+    unfold writeCell at accepted
+    cases present : store cellId with
+    | none => simp [present] at accepted
+    | some current =>
+      rw [present] at accepted
+      cases mutability : current.mutability with
+      | immutable => simp [mutability] at accepted
+      | mutable =>
+        simp only [mutability] at accepted
+        cases decision : decideHasType current.contents.typeTag candidate with
+        | isFalse notMember => simp [decision] at accepted
+        | isTrue member => exact ⟨current, rfl, mutability, member⟩
+  · rintro ⟨current, present, mutableCell, member⟩
+    unfold writeCell
+    rw [present]
+    simp only [mutableCell]
+    cases decision : decideHasType current.contents.typeTag candidate with
+    | isFalse notMember => exact absurd member notMember
+    | isTrue _ => exact ⟨_, rfl⟩
+
+theorem write_rejected_keeps_store {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cellId : CellId) (candidate : Value)
+    (kept : TypedStore TypeTag Value hasType)
+    (rejected : writeCell decideHasType store cellId candidate = .rejected kept) :
+    kept = store := by
+  have same : (writeCell decideHasType store cellId candidate).storeAfter = kept := by
+    rw [rejected]
+    rfl
+  cases present : store cellId with
+  | none => simp [writeCell, present] at rejected; exact rejected.symm
+  | some current =>
+    cases mutability : current.mutability with
+    | immutable => simp [writeCell, present, mutability] at rejected; exact rejected.symm
+    | mutable =>
+      cases decision : decideHasType current.contents.typeTag candidate with
+      | isFalse notMember =>
+        simp [writeCell, present, mutability, decision] at rejected
+        exact rejected.symm
+      | isTrue member => simp [writeCell, present, mutability, decision] at rejected
+
+theorem write_accepted_replaces_only_its_cell {TypeTag Value : Type}
+    {hasType : TypeTag → Value → Prop}
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cellId : CellId) (candidate : Value)
+    (updated : TypedStore TypeTag Value hasType)
+    (accepted : writeCell decideHasType store cellId candidate = .accepted updated) :
+    ∃ current, store cellId = some current ∧
+      (∃ replaced, updated cellId = some replaced ∧
+        replaced.contents.typeTag = current.contents.typeTag ∧
+        replaced.contents.value = candidate ∧ replaced.mutability = current.mutability) ∧
+      ∀ other, other ≠ cellId → updated other = store other := by
+  unfold writeCell at accepted
+  cases present : store cellId with
+  | none => simp [present] at accepted
+  | some current =>
+    rw [present] at accepted
+    cases mutability : current.mutability with
+    | immutable => simp [mutability] at accepted
+    | mutable =>
+      simp only [mutability] at accepted
+      cases decision : decideHasType current.contents.typeTag candidate with
+      | isFalse notMember => simp [decision] at accepted
+      | isTrue member =>
+        simp only [decision, StoreWriteResult.accepted.injEq] at accepted
+        subst accepted
+        refine ⟨current, rfl, ⟨current.replaceContents candidate member, ?_, rfl, rfl, rfl⟩, ?_⟩
+        · simp [replaceAt]
+        · intro other different
+          simp [replaceAt, different]
+
 inductive ExampleType where
   | any
   | integerOrText

@@ -52,7 +52,7 @@ def readResolved? (config : Configuration) (use : ResolvedNameOccurrence) :
   (resolvedBinding? config use).bind fun binding =>
     (config.current.store (BindingId.toCell binding)).map StoreCell.contents
 
-private def decideHasBaseType (typeTag : BaseType) (candidate : CompositeValue) :
+def decideHasBaseType (typeTag : BaseType) (candidate : CompositeValue) :
     Decidable (hasBaseType typeTag candidate) := by
   cases typeTag <;> cases candidate <;> simp only [hasBaseType] <;>
     first

@@ -9377,6 +9377,699 @@
       "status": "fragment",
       "scope": "Disabling the persistent update leaves the base-view target payload stale and is distinguished from the successful update.",
       "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseInvariant.step_decreases_work",
+      "module": "Xsh.Proofs.BaseInvariant",
+      "declaration": "Xsh.Proofs.BaseInvariant.step_decreases_work",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The base machine's work measure, specified-fault invariant, and request-emission invariant.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseInvariant.step_keeps_faults_specified",
+      "module": "Xsh.Proofs.BaseInvariant",
+      "declaration": "Xsh.Proofs.BaseInvariant.step_keeps_faults_specified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The base machine's work measure, specified-fault invariant, and request-emission invariant.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseInvariant.transition_preserves_sound",
+      "module": "Xsh.Proofs.BaseInvariant",
+      "declaration": "Xsh.Proofs.BaseInvariant.transition_preserves_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The base machine's work measure, specified-fault invariant, and request-emission invariant.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseInvariant.trace_ending_in_a_wait_ends_with_its_request",
+      "module": "Xsh.Proofs.BaseInvariant",
+      "declaration": "Xsh.Proofs.BaseInvariant.trace_ending_in_a_wait_ends_with_its_request",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The base machine's work measure, specified-fault invariant, and request-emission invariant.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseInvariant.observed_wait_was_requested",
+      "module": "Xsh.Proofs.BaseInvariant",
+      "declaration": "Xsh.Proofs.BaseInvariant.observed_wait_was_requested",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The base machine's work measure, specified-fault invariant, and request-emission invariant.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseInvariant.trace_without_rejected_responses_has_program_faults",
+      "module": "Xsh.Proofs.BaseInvariant",
+      "declaration": "Xsh.Proofs.BaseInvariant.trace_without_rejected_responses_has_program_faults",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The base machine's work measure, specified-fault invariant, and request-emission invariant.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.lookup_follows_name_binder_cell_chain",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.lookup_follows_name_binder_cell_chain",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.lookup_failure_names_its_stage",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.lookup_failure_names_its_stage",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.accepted_write_is_visible_through_capture",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.accepted_write_is_visible_through_capture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.base_env_witness",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.base_env_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.a_scope_exit_that_keeps_inner_bindings_is_rejected",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.a_scope_exit_that_keeps_inner_bindings_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.reading_a_name_by_its_numeric_payload_is_rejected",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.reading_a_name_by_its_numeric_payload_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.a_write_that_ignores_mutability_is_rejected",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.a_write_that_ignores_mutability_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, the name-binder-cell read chain, and typed store writes of the base machine.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.integer_exact_determines_the_result",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.integer_exact_determines_the_result",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.checked_conversion_is_exact",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.checked_conversion_is_exact",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.applied_operation_has_its_meaning",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.applied_operation_has_its_meaning",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.the_meaning_determines_the_operation",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.the_meaning_determines_the_operation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.negation_is_exact",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.negation_is_exact",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.exact_addition_matches_hardware",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.exact_addition_matches_hardware",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.exact_subtraction_matches_hardware",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.exact_subtraction_matches_hardware",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.exact_multiplication_matches_hardware",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.exact_multiplication_matches_hardware",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.exact_negation_matches_hardware",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.exact_negation_matches_hardware",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.exact_division_matches_hardware",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.exact_division_matches_hardware",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.exact_remainder_matches_hardware",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.exact_remainder_matches_hardware",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.unsigned_boundary_accepts_exactly_the_nonnegative_half",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.unsigned_boundary_accepts_exactly_the_nonnegative_half",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.signed_value_is_unsigned_exactly_when_nonnegative",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.signed_value_is_unsigned_exactly_when_nonnegative",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.duration_addition_is_exact_or_overflow",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.duration_addition_is_exact_or_overflow",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.duration_subtraction_is_exact_or_underflow",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.duration_subtraction_is_exact_or_underflow",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.duration_scaling_is_exact_or_faults",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.duration_scaling_is_exact_or_faults",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.duration_division_is_exact_or_nonpositive",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.duration_division_is_exact_or_nonpositive",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.float_total_order_is_antisymmetric",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.float_total_order_is_antisymmetric",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.float_bits_outside_the_word_are_rejected",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.float_bits_outside_the_word_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.nan_is_unequal_to_every_float",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.nan_is_unequal_to_every_float",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.base_num_witness",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.base_num_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.wrapping_addition_is_rejected",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.wrapping_addition_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.floored_division_is_rejected",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.floored_division_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.remainder_without_division_overflow_is_rejected",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.remainder_without_division_overflow_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.bitwise_float_equality_is_rejected",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.bitwise_float_equality_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.wrapping_duration_addition_is_rejected",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.wrapping_duration_addition_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.internal_edge_iff_step_off_the_clock",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.internal_edge_iff_step_off_the_clock",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.request_edge_iff_step_on_the_clock",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.request_edge_iff_step_on_the_clock",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.response_edge_iff_resumption",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.response_edge_iff_resumption",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.every_step_is_one_labeled_edge",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.every_step_is_one_labeled_edge",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.final_state_has_no_edge",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.final_state_has_no_edge",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.waiting_state_only_takes_responses",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.waiting_state_only_takes_responses",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.edge_keeps_environment",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.edge_keeps_environment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.observed_step_appends_exactly_its_event",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.observed_step_appends_exactly_its_event",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.base_step_witness",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.base_step_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.relabeling_a_request_as_internal_work_is_rejected",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.relabeling_a_request_as_internal_work_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.skipping_the_host_boundary_is_rejected",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.skipping_the_host_boundary_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.responding_to_a_machine_that_is_not_waiting_is_rejected",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.responding_to_a_machine_that_is_not_waiting_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.a_mistyped_response_is_never_accepted_as_a_value",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.a_mistyped_response_is_never_accepted_as_a_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.a_finished_machine_takes_no_edge",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.a_finished_machine_takes_no_edge",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The labeled step relation of the base machine, its determinism, and its agreement with the unlabeled step and resumption functions.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Progress.every_response_to_a_wait_has_an_edge",
+      "module": "Xsh.Proofs.Base.Progress",
+      "declaration": "Xsh.Proofs.Base.Progress.every_response_to_a_wait_has_an_edge",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Progress of well-formed observed configurations: finished, stepping, or waiting on an emitted request, and the faults they reach.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Progress.base_progress_branches_are_inhabited",
+      "module": "Xsh.Proofs.Base.Progress",
+      "declaration": "Xsh.Proofs.Base.Progress.base_progress_branches_are_inhabited",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Progress of well-formed observed configurations: finished, stepping, or waiting on an emitted request, and the faults they reach.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Progress.a_wait_without_its_emitted_request_is_rejected",
+      "module": "Xsh.Proofs.Base.Progress",
+      "declaration": "Xsh.Proofs.Base.Progress.a_wait_without_its_emitted_request_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Progress of well-formed observed configurations: finished, stepping, or waiting on an emitted request, and the faults they reach.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Progress.an_internal_fault_is_never_reachable",
+      "module": "Xsh.Proofs.Base.Progress",
+      "declaration": "Xsh.Proofs.Base.Progress.an_internal_fault_is_never_reachable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Progress of well-formed observed configurations: finished, stepping, or waiting on an emitted request, and the faults they reach.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Progress.a_rejected_host_response_is_specified_but_not_a_program_fault",
+      "module": "Xsh.Proofs.Base.Progress",
+      "declaration": "Xsh.Proofs.Base.Progress.a_rejected_host_response_is_specified_but_not_a_program_fault",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Progress of well-formed observed configurations: finished, stepping, or waiting on an emitted request, and the faults they reach.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.runner_never_internally_stuck",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.runner_never_internally_stuck",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.completed_run_reached_its_outcome",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.completed_run_reached_its_outcome",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.host_request_run_reached_its_wait",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.host_request_run_reached_its_wait",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.out_of_fuel_run_is_still_running",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.out_of_fuel_run_is_still_running",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.a_finished_path_is_completed_with_enough_fuel",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.a_finished_path_is_completed_with_enough_fuel",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.a_waiting_path_is_a_host_request_with_enough_fuel",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.a_waiting_path_is_a_host_request_with_enough_fuel",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.enough_fuel_never_changes_a_settled_run",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.enough_fuel_never_changes_a_settled_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.work_bounds_the_fuel_a_run_needs",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.work_bounds_the_fuel_a_run_needs",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.base_runner_witness",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.base_runner_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.reporting_exhausted_fuel_as_a_language_result_is_rejected",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.reporting_exhausted_fuel_as_a_language_result_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner of the base machine: soundness, completeness, fuel monotonicity, and the work bound.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.resolve_bind_other",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.resolve_bind_other",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Further lexical, activation, capture, and typed-write laws behind the base environment root.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.write_accepted_iff",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.write_accepted_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Further lexical, activation, capture, and typed-write laws behind the base environment root.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.write_rejected_keeps_store",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.write_rejected_keeps_store",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Further lexical, activation, capture, and typed-write laws behind the base environment root.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.write_accepted_replaces_only_its_cell",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.write_accepted_replaces_only_its_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Further lexical, activation, capture, and typed-write laws behind the base environment root.",
+      "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Env.base_env",
+      "module": "Xsh.Proofs.Base.Env",
+      "declaration": "Xsh.Proofs.Base.Env.base_env",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, shadowing, scope exit, captures, and typed cell writes over the formal environment and store API.",
+      "boundary": "Store writes are proved on the environment API; the base machine has no declaration or assignment form. It does not close BASE-ENV for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Num.base_num",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.base_num",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked Int, UInt and Duration arithmetic, signed encoding, Float bits, IEEE Float equality and the Float total order.",
+      "boundary": "Float arithmetic and Float conversions are not modeled. It does not close BASE-NUM for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Progress.base_progress",
+      "module": "Xsh.Proofs.Base.Progress",
+      "declaration": "Xsh.Proofs.Base.Progress.base_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Progress for well-formed observed configurations of the base expression machine.",
+      "boundary": "Covers only the listed BaseExpr language and one host request family; it proves no whole-language progress and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Runner.base_runner",
+      "module": "Xsh.Proofs.Base.Runner",
+      "declaration": "Xsh.Proofs.Base.Runner.base_runner",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite-fuel runner and scripted host driver over the base expression machine.",
+      "boundary": "Covers only the base expression machine; it does not close BASE-RUNNER for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Base.Step.base_step",
+      "module": "Xsh.Proofs.Base.Step",
+      "declaration": "Xsh.Proofs.Base.Step.base_step",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Internal, host-request and host-response edges of the base expression machine.",
+      "boundary": "Covers only the listed BaseExpr language and one host request family; it does not close BASE-STEP for the core and claims no Rust conformance."
     }
   ],
   "source_identity": {
