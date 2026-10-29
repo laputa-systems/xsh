@@ -55,35 +55,6 @@ pub(super) fn operands<'a>(
     Ok(())
 }
 
-pub(super) fn literal_argv_elements(
-    decoder: &super::FullDecoder<'_>, source: usize, budget: &mut SchemeInstantiationBudget,
-) -> Result<Vec<(bool, usize)>, IrVerifyError> {
-    let mut elements = Vec::new();
-    match decoder.expression_view(source)? {
-        super::schema::ExprView::List(mut values) => for value in &mut values { elements.push((false, value?.raw() as usize)); },
-        super::schema::ExprView::ListBuild(mut values) => for value in &mut values { let (splice, value, _) = value?; elements.push((splice, value.raw() as usize)); },
-        _ => return Err(IrVerifyError::new("generic command argv has no literal word list")),
-    }
-    budget.charge(elements.len())?;
-    Ok(elements)
-}
-
-pub(super) fn is_word_list_of_any(actual: &SchemeType) -> bool {
-    actual == &SchemeType::List(Box::new(SchemeType::Ground(Type::Any)))
-}
-
-pub(super) fn literal_argv_stand_in(
-    elements: Vec<(bool, SchemeType)>, scope: &super::SchemeScope, budget: &mut SchemeInstantiationBudget,
-) -> Result<SchemeType, IrVerifyError> {
-    for (splice, ty) in &elements {
-        let conversion = if *splice { super::ValueConversion::ArgvList } else { super::ValueConversion::ProcessWord };
-        if !super::scheme_conversion(ty, conversion, scope, budget)? {
-            return Err(IrVerifyError::new("generic command argv word disagrees with its strict word requirement"));
-        }
-    }
-    Ok(SchemeType::List(Box::new(SchemeType::Ground(Type::Str))))
-}
-
 pub(super) fn process_command_argv(
     arguments: &[Option<SchemeType>], scope: &super::SchemeScope,
     budget: &mut SchemeInstantiationBudget,

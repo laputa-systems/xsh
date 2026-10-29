@@ -1096,3 +1096,20 @@ proc main() [process, error, io] {
   assert output.success, output.stderr
   assert output.stdout == "word: text\nword: /tmp\n"
 }
+
+test test_full_inference_command_argv_word_rejects_a_caller_that_is_not_a_process_word { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc echo_word(word) [process, error] -> Result[Int] {
+  let status = process.run(process.command_argv("echo", ["echo", word], p".", {}))?
+  status.shell_code()
+}
+proc main() [process, error, io] {
+  let _ = echo_word(5)?
+}
+""",
+  )?
+  assert output.success == false
+  assert "Int cannot be used here" in output.stderr
+  assert "command word, which must be Str or Path" in output.stderr
+}

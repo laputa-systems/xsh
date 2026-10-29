@@ -2005,6 +2005,14 @@ fn body_types_equal(actual: &SchemeType, expected: &SchemeType) -> bool {
     actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected)
 }
 
+fn list_item_matches(actual: &SchemeType, item: &SchemeType, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    if body_type_matches(actual, item, budget)? { return Ok(true); }
+    if item.closed_ground_type().as_ref() == Some(Type::process_command_argv_item_type()) {
+        return scheme_conversion(actual, ValueConversion::ProcessWord, scope, budget);
+    }
+    Ok(false)
+}
+
 fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
     if let SchemeType::Optional(inner) = expected {
         budget.charge(1)?;
@@ -2520,8 +2528,7 @@ fn verify_body_expression(
         schema::ExprView::List(mut values) => {
             let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list producer has no item contract")); };
             for value in &mut values {
-                let actual = child(value?, budget)?;
-                if **item != SchemeType::Ground(Type::Any) && !body_type_matches(&actual, item, budget)? { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
+                if !list_item_matches(&child(value?, budget)?, item, scheme_scope, budget)? { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
             }
             ty.clone()
         }
@@ -2542,7 +2549,7 @@ fn verify_body_expression(
                         _ => return Err(IrVerifyError::new("generic list splice has no list producer")),
                     }
                 } else { actual };
-                if **item != SchemeType::Ground(Type::Any) && !body_type_matches(&actual, item, budget)? { return Err(IrVerifyError::new("generic list splice disagrees with its item contract")); }
+                if !list_item_matches(&actual, item, scheme_scope, budget)? { return Err(IrVerifyError::new("generic list splice disagrees with its item contract")); }
             }
             ty.clone()
         }
@@ -3183,17 +3190,6 @@ fn verify_body_expression(
                 command.accept, command.same_group];
             let mut actual = Vec::with_capacity(arguments.len());
             for argument in arguments { actual.push(argument.map(|value| child(value, budget)).transpose()?); }
-            if actual[1].as_ref().is_some_and(commands::is_word_list_of_any) {
-                let mut source = command.argv.raw() as usize;
-                if let schema::ExprView::Param(slot) = decoder.expression_view(source)? {
-                    source = slots.immutable_initializer(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic command argv has no immutable literal initializer"))?;
-                }
-                let mut typed = Vec::new();
-                for (splice, element) in commands::literal_argv_elements(decoder, source, budget)? {
-                    typed.push((splice, types.get(&element).cloned().ok_or_else(|| IrVerifyError::new("generic command argv word has no checked body fact"))?));
-                }
-                actual[1] = Some(commands::literal_argv_stand_in(typed, scheme_scope, budget)?);
-            }
             SchemeType::Ground(commands::process_command_argv(&actual, scheme_scope, budget)?)
         }
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {

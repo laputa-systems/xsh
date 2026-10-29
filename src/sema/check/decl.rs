@@ -529,7 +529,7 @@ impl Checker {
                 if !matches!(args[index].kind, crate::syntax::arena::ArenaCallArgKind::Positional(_) | crate::syntax::arena::ArenaCallArgKind::Named { .. }) { continue; }
                 let argv = super::call_arg_expr_id_arena(&args[index].kind);
                 if matches!(program.arena.expr(argv).kind, crate::syntax::arena::ArenaExprKind::List(_)) && !generalized_body_types.contains_key(&argv) {
-                    generalized_body_types.insert(argv, crate::sema::schemes::SchemeType::List(Box::new(crate::sema::schemes::SchemeType::Ground(Type::Any))));
+                    generalized_body_types.insert(argv, crate::sema::schemes::SchemeType::List(Box::new(crate::sema::schemes::SchemeType::Ground(Type::process_command_argv_item_type().clone()))));
                 }
             }
         }

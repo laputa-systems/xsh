@@ -395,6 +395,17 @@ impl Checker {
             self.expect_type(&conflict.expected, &conflict.actual, conflict.contribution);
             return;
         }
+        if let Some((conversion, value)) = [(&conflict.expected, &conflict.actual), (&conflict.actual, &conflict.expected)]
+            .into_iter()
+            .find_map(|(variable, value)| self.type_constraints.conversion_requirement_rejecting(variable, value).map(|conversion| (conversion, value.clone())))
+        {
+            self.error(
+                conflict.contribution,
+                &format!("{value} cannot be used here: the generic parameter it is bound to is used {}", conversion.requirement()),
+                DiagnosticCode::CheckTypeMismatch,
+            );
+            return;
+        }
         let mut diagnostic = Diagnostic::error("inferred types disagree")
             .with_code(DiagnosticCode::CheckTypeMismatch)
             .with_label(Label::primary(

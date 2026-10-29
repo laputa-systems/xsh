@@ -3605,8 +3605,7 @@ test namespace_borrow {
             assert_eq!(parameter.conversions, 16);
             parameter.conversions = mode;
             let error = FullVerifier::verify(&changed).unwrap_err();
-            assert!(error.message.contains("strict word requirement") || error.message.contains("conversion"), "{mode}: {error:?}");
-            if mode == 0 { assert_eq!(error.message, "generic command argv word disagrees with its strict word requirement"); }
+            assert_eq!(error.message, "generic list item disagrees with its checked contract", "{mode}");
         }
     }
 

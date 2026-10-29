@@ -53,6 +53,13 @@ impl TypeConstraints {
         }
     }
 
+    pub(crate) fn conversion_requirement_rejecting(&self, variable: &Type, value: &Type) -> Option<ValueConversion> {
+        let Type::Inference(id) = variable else { return None };
+        if value.contains_inference() || value.contains_recovery() { return None; }
+        let required = self.conversion_requirements(*id).ok()?;
+        ValueConversion::ALL.into_iter().find(|conversion| required.contains(*conversion) && !conversion.accepts(value))
+    }
+
     pub(super) fn conversion_requirements(&self, id: TypeVariableId) -> Result<ValueConversionSet, ConstraintResolutionError> {
         let root = self.representative_root(id)?;
         let Some(Variable::Representative(variable)) = self.variables.get(&root) else { unreachable!("a conversion requirement belongs to its existing representative") };

@@ -40,6 +40,17 @@ pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWo
 impl ValueConversion {
     pub(crate) const ALL: [Self; 6] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env];
 
+    pub(crate) fn requirement(self) -> &'static str {
+        match self {
+            Self::Display => "as displayed text",
+            Self::Argv => "as a command argument",
+            Self::ArgvOrList => "as a command argument or a list of them",
+            Self::ArgvList => "as a list of command arguments",
+            Self::ProcessWord => "as a command word, which must be Str or Path",
+            Self::Env => "as an environment value",
+        }
+    }
+
     pub(crate) fn accepts(self, ty: &Type) -> bool {
         if ty.contains_recovery() || ty.contains_any() { return false; }
         match self {
