@@ -203,7 +203,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   stages.ensure_dir(fp"{stage}/core")
   fp"{stage}/core/applets.json".write(applet_manifest(ctx)?)
   let archived = [@archive_entries, p"core/applets.json"]
-  archive.tar_create(core_archive, stage, archived, compression: "xz", overwrite: true)
+  archive.create(core_archive, stage, archived, .Tar, compression: .Xz, collision: .Replace)
 
   if core_archive.metadata()?.size == 0 {
     return Err(

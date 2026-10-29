@@ -10433,7 +10433,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathWrite { .. }
             | schema::ExprView::PathMkdir { .. }
             | schema::ExprView::PathRemove { .. }
-            | schema::ExprView::ArchiveTarCreate { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -10880,7 +10879,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathWrite { .. }
             | schema::ExprView::PathMkdir { .. }
             | schema::ExprView::PathRemove { .. }
-            | schema::ExprView::ArchiveTarCreate { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -11785,7 +11783,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathWrite { .. }
             | schema::ExprView::PathMkdir { .. }
             | schema::ExprView::PathRemove { .. }
-            | schema::ExprView::ArchiveTarCreate { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -12066,9 +12063,6 @@ impl<'a> FullDecoder<'a> {
             }
             schema::ExprView::FsTempDir { .. } => {
                 Self::registered_api_operation_return_type(RuntimeOp::FsTempDir).map(Some)
-            }
-            schema::ExprView::ArchiveTarCreate { .. } => {
-                Self::registered_api_operation_return_type(RuntimeOp::ArchiveTarCreate).map(Some)
             }
             schema::ExprView::PathReadText { .. } => Self::registered_path_method_return_type(
                 "read_text",
@@ -12957,12 +12951,6 @@ impl<'a> FullDecoder<'a> {
                     "checked path removal disagrees with its registry signature",
                 )?;
             }
-            schema::ExprView::ArchiveTarCreate { .. } => {
-                require_registered_return(
-                    Self::registered_api_operation_return_type(RuntimeOp::ArchiveTarCreate)?,
-                    "checked archive creation disagrees with its registry signature",
-                )?;
-            }
             schema::ExprView::Slice { base, .. } => {
                 let source = self.derive_checked_expression_type(base.raw() as usize)?.ok_or_else(|| IrVerifyError::new("checked slice producer has no source contract"))?;
                 if Self::checked_slice_type(source)? != ty { return Err(IrVerifyError::new("checked slice fact disagrees with its input producer")); }
@@ -13712,7 +13700,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathWrite { .. }
             | schema::ExprView::PathMkdir { .. }
             | schema::ExprView::PathRemove { .. }
-            | schema::ExprView::ArchiveTarCreate { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -16392,7 +16379,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathWrite { .. }
             | schema::ExprView::PathMkdir { .. }
             | schema::ExprView::PathRemove { .. }
-            | schema::ExprView::ArchiveTarCreate { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -16898,7 +16884,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathWrite { .. }
             | schema::ExprView::PathMkdir { .. }
             | schema::ExprView::PathRemove { .. }
-            | schema::ExprView::ArchiveTarCreate { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -37913,7 +37898,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprPathWrite
             ExprPathMkdir
             ExprPathRemove
-            ExprArchiveTarCreate
             ExprModuleCall
             ExprProcessCommandArgv
             ExprProcessCommandBuilder
@@ -38040,7 +38024,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                         | FullTag::ExprPathWrite
                         | FullTag::ExprPathMkdir
                         | FullTag::ExprPathRemove
-                        | FullTag::ExprArchiveTarCreate
                         | FullTag::ExprTry
                         | FullTag::StmtGuard
                         | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,
@@ -52439,7 +52422,7 @@ test test_with_fallible_path_results_match_their_registered_types {
   with root = fs.tempdir()? {
     let _ = root
   } else { |failure| let _ = failure.message }
-  with tar_result = archive.tar_create(source_path, source_path, [source_path])? {
+  with tar_result = archive.create(source_path, source_path, [source_path], .Tar)? {
     let _ = tar_result
   } else { |failure| let _ = failure.message }
   with contents = source_path.read_text()? {
@@ -52560,11 +52543,6 @@ test test_with_fallible_path_results_match_their_registered_types {
                 FullTag::ExprFsTempDir,
                 alternate_type,
                 "checked temporary-directory result disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprArchiveTarCreate,
-                alternate_type,
-                "checked archive creation disagrees with its registry signature",
             ),
         ] {
             let fact_indices = program

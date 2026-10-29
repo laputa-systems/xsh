@@ -34,13 +34,13 @@ fs.symlink(p"usr/bin/xsh-demo", fp"{src}/xsh-demo-link")?
 fs.symlink(long_rel, fp"{src}/long-target-link")?
 
 let tarball = fp"{root}/payload.tar.gz"
-archive.tar_create(tarball, src, [p"."], "auto", true)?
-let entries = archive.tar_list(tarball)?.collect()
+archive.create(tarball, src, [p"."], .Tar, collision: .Replace)?
+let entries = archive.list(tarball, .Tar)?.collect()
 let dest = fp"{root}/dest"
-archive.tar_extract(tarball, dest)?
+archive.extract(tarball, dest, .Tar)?
 
 let selected = fp"{root}/selected"
-archive.tar_extract(tarball, selected, 0, "auto", false, [long_rel])?
+archive.extract(tarball, selected, .Tar, members: [long_rel])?
 
 let installed = fp"{dest}/usr/bin/xsh-demo"
 let link = fp"{dest}/xsh-demo-link"

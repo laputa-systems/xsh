@@ -1973,6 +1973,10 @@ impl RecordConstructors {
             ArenaTypeExprTag::Qualified => {
                 let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
+                let builtin = Name::intern(format!("{alias}.{name}"));
+                if xsh_registry::enums::builtin_enum(&builtin.as_str()).is_some() {
+                    return Ok(Type::Tag(builtin));
+                }
                 let owner = self
                     .imports
                     .get(&(namespace, alias))

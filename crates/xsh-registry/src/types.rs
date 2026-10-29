@@ -111,6 +111,8 @@ pub enum Type {
     Error,
     ProcessError,
     ErrorFamily(&'static str),
+    /// A payload-free built-in enum declared in `crate::enums`.
+    Enum(&'static str),
     Pure,
     Proc,
     Command,

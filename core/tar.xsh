@@ -384,7 +384,7 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
     tempdir scratch {
       let source = fp"{scratch}/archive"
       source.write(raw)
-      return Ok(archive.decompress_bytes(source, opts.compression)?)
+      return Ok(archive.decompress_bytes(source, wrapping(opts.compression))?)
     }
   }
   let name = opts.archive_path ?? ""
@@ -392,7 +392,16 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
   let raw = source.read_bytes() ?? { |failure| return Err(TarError.Invalid(f"{name}: Cannot open: {gnu.strerror(failure)}")) }
   let format = if opts.compression != "" { opts.compression } else { detected_format(raw) }
   return Ok(raw) when format == ""
-  Ok(archive.decompress_bytes(source, format)?)
+  Ok(archive.decompress_bytes(source, wrapping(format))?)
+}
+
+pure wrapping(name: Str) -> archive.Compression {
+  match name {
+    "gz" => .Gzip
+    "bz2" => .Bzip2
+    "xz" => .Xz
+    _ => .Plain
+  }
 }
 
 pure detected_format(raw: Bytes) -> Str {
@@ -603,10 +612,10 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] {
     let packed = fp"{scratch}/archive.out"
     raw.write(data)
     if opts.archive_path == null {
-      archive.compress(raw, packed, format: opts.compression, overwrite: true)
+      archive.compress(raw, packed, format: wrapping(opts.compression), collision: .Replace)
       gnu.write_bytes(packed.read_bytes()?)
     } else {
-      archive.compress(raw, fp"{opts.archive_path}", format: opts.compression, overwrite: true)
+      archive.compress(raw, fp"{opts.archive_path}", format: wrapping(opts.compression), collision: .Replace)
     }
   }
   Ok()

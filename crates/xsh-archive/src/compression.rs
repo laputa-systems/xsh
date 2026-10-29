@@ -309,6 +309,13 @@ pub fn decoder_with_mtime<R: BufRead + Send + 'static>(
     Ok((decoder, mtime))
 }
 
+pub fn gzip_header_name<R: BufRead>(reader: R) -> Option<Option<Vec<u8>>> {
+    let decoder = flate2::bufread::GzDecoder::new(reader);
+    decoder
+        .header()
+        .map(|header| header.filename().map(<[u8]>::to_vec))
+}
+
 pub fn xz_dictionary_bytes(header: &[u8]) -> Option<u64> {
     const STREAM_HEADER: usize = 12;
     let block = header.get(STREAM_HEADER..)?;

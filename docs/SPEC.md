@@ -1268,6 +1268,15 @@ values, and publishes the result only if the whole value validates. Unknown
 strings report the field or index path. JSON encoding writes the declared
 strings. Ordinary enums cannot be JSON-encoded.
 
+A standard module declares its closed option sets as built-in enums named under
+the module, such as `archive.Format` and `archive.Compression`. A built-in enum
+is nominal and payload-free, and it is a parameter, field, return or annotation
+type like any other (`let wrap: archive.Compression = .Gzip`). Its variants are
+selected only by the target-typed spelling (5.5): they are not bare names or
+module members, a `match` over a built-in enum value is not supported, and a
+value compares with `==` and `!=` against a `.Variant`. Two built-in enums may
+share a variant name.
+
 ### 4.9 Module contracts
 
 ```xsh
@@ -1452,18 +1461,18 @@ implement only the facets below (`xsht api language:facet`);
 
 | Facet | Meaning | Contract |
 |---|---|---|
-| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`. |
-| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`. |
-| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, host OS errors of every kind without a more specific facet. |
-| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, host OS errors of kind `InvalidData`. |
+| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`, `ArchiveError.Canceled`. |
+| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`, `ArchiveError.Limit`. |
+| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of every kind without a more specific facet. |
+| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, `ArchiveError.Open`, `ArchiveError.Io`, `ArchiveError.Corrupt`, `ArchiveError.Truncated`, `ArchiveError.Unsafe`, host OS errors of kind `InvalidData`. |
 | `MismatchedExport` | A module export has another kind or signature than its contract declares. | Implemented by a failed `.require(Contract)` on a module whose export differs from the contract. |
 | `MissingExport` | A module lacks an export its contract requires. | Implemented by a failed `.require(Contract)` on a module without a required export. |
 | `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
-| `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, host OS errors of kind `NotFound`. |
-| `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, host OS errors of kind `PermissionDenied`. |
+| `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of kind `NotFound`. |
+| `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of kind `PermissionDenied`. |
 | `ProcessFailure` | A process could not be spawned, executed, or completed. | Implemented by `ProcessError.UnexpectedExit`, `ProcessError.PipelineFailure`, `ProcessError.ExecFailure`, `ProcessError.Spawn`. |
 | `Signal` | A process was terminated by a signal. | Implemented by `ProcessError.Signal`. |
-| `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, `NetError.ConnectTimeout`, `NetError.Timeout`, host OS errors of kind `TimedOut`. |
+| `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, `NetError.ConnectTimeout`, `NetError.Timeout`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of kind `TimedOut`. |
 | `UnexpectedExport` | A module has an export its exact contract does not list. | Implemented by a failed `.require(Contract)` on a module with an export outside an `exact module` contract. |
 
 ```xsh
@@ -1493,6 +1502,19 @@ none naming a `Location`), `Unsupported` a scheme or method the module does not
 send, `Write` a failure on the destination file (it implements `HostIo`), `Io`
 a failure on an established connection, and `Other` the rest, such as a
 malformed request. Callers branch on the variant: `Err(NetError.Connect)`.
+
+`ArchiveError` is the family of failures the `archive` module returns. Every
+variant carries `message`, `format: archive.Format?`, `entry: Path?` (the raw
+member name) and `offset: UInt?`. `Open` and `Io` are host failures and
+implement the facet their OS error maps to; `Corrupt` is a malformed header,
+checksum, trailer or trailing data, and `Truncated` an input that ended early,
+including a missing archive or compression trailer (both implement
+`InvalidData`); `Unsupported` is a feature, method or combination this build
+does not provide; `NeedsSeek` is a format that needs random access given a pipe
+or stream; `Unsafe` is a member the policy forbids (it implements
+`InvalidData`); `Collision` is a name that is already taken; `Limit` is the
+shared resource budget (it implements `CaptureLimit`); `Canceled` observed
+cancellation; and `Options` an invalid level, filter or combination.
 
 A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
@@ -6172,6 +6194,29 @@ signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
 
 Contracts worth knowing without consulting the reference:
 
+- `archive.list`, `archive.extract` and `archive.create` take a `format:`
+  (`.Tar`, `.Zip`, `.Cpio`) and a `compression:` (`.Auto`, `.Plain`, `.Gzip`,
+  `.Bzip2`, `.Xz`, `.Lzma`, `.Zstd`), both built-in enums (4.8). `.Auto`
+  detects the compression from the first bytes when reading and from the
+  destination suffix when writing. A source is a `Path`, a `Bytes` value or a
+  `Stream[Bytes]`; TAR and CPIO read sequentially, and ZIP needs random access,
+  so a stream is `ArchiveError.NeedsSeek`. A source stream is read as the
+  archive is processed (a script-produced stream through a bounded hand-off to
+  the archive reader). `list` yields records whose unknown fields are `null`,
+  never zero, and checks the archive structure and compression trailer only
+  when it is consumed to the end. `extract` writes into a private staging
+  directory beneath a retained root, never follows a symbolic link, and
+  publishes only after the archive and its compression read to their ends: a
+  new destination appears whole, an existing one receives no-replace renames.
+  Its parameters `collision`, `links`, `special`, `modes` and `ownership` default
+  to the safe untrusted policy: refuse existing names, links that stay inside the
+  destination, no devices or FIFOs, permission bits only, no ownership. A shared
+  budget (`max_output`, `max_entry`, `max_entries`, with fixed metadata and
+  decoder-workspace limits) bounds every layer. Publication is atomic per entry,
+  not durable. Checksums are integrity checks, not authenticity. `create` writes
+  tar or cpio through one compression lifecycle to a temporary file published
+  with a no-replace rename, and `compress`, `decompress` and `decompress_bytes`
+  do the same for single files.
 - `linux.mount(source, target)` accepts the kernel source operand as `Bytes` so
   symbolic sources and filesystem paths keep their exact bytes; `target` is a
   `Path` resolved through the host filesystem boundary. `linux.modinfo` treats a

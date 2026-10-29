@@ -19,7 +19,7 @@ pub use archive::Archive;
 pub use budget::{Budget, Limits, Metered};
 pub use compression::{
     BUFFER_SIZE, Codec, Compression, DEFAULT_LEVEL, Encode, Encoder, GzipHeader, SNIFF_LEN,
-    decoder, decoder_with_mtime,
+    decoder, decoder_with_mtime, gzip_header_name,
 };
 pub use create::{CreateOptions, create};
 pub use cursor::{Completion, Cursor, Entry, Finish};

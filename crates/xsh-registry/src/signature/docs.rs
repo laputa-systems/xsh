@@ -332,29 +332,24 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Each value must be JSON-compatible. At most 1,000,000 items and 128 MiB of total output are accepted; encoding completes before the destination is overwritten.",
             &["json", "lines"],
         )),
-        ("archive", "tar_create") => Some((
-            "Creates a tar archive from paths rooted at a source directory.",
-            "Archive members are supplied as typed paths; compression is selected explicitly or from the destination.",
-            &["archive", "tar", "rooted"],
-        )),
-        ("archive", "cpio_create") => Some((
-            "Creates a cpio archive from paths below a source root.",
-            "Members are interpreted relative to the supplied root and the destination overwrite policy is explicit.",
-            &["archive", "cpio", "rooted"],
-        )),
-        ("archive", "tar_extract" | "cpio_extract" | "zip_extract") => Some((
-            "Extracts an archive into a destination root.",
-            "Unsafe member paths are rejected; extraction never treats archive paths as unrestricted host paths.",
-            &["archive", "extraction", "rooted"],
-        )),
-        ("archive", "tar_list" | "cpio_list" | "zip_list") => Some((
-            "Lists archive members as structured stream records.",
-            "Consume the stream directly when possible; collect only when random access is needed.",
+        ("archive", "list") => Some((
+            "Lists archive members as a stream of structured records, one per pull.",
+            "The source is a path, a Bytes value or a Stream[Bytes]; TAR and CPIO read sequentially and ZIP needs a seekable source (a path or Bytes) and fails with NeedsSeek on a stream. Names and link targets are raw bytes. Unknown metadata is null, never zero. A listing verifies the archive structure and outer compression only when it is consumed to the end; the last pull then returns the error if either is damaged. Entry bodies are skipped, so their checksums are not verified. Listing two names does not verify an archive.",
             &["archive", "listing", "streaming"],
         )),
+        ("archive", "extract") => Some((
+            "Extracts an archive below a destination directory through a retained root.",
+            "Entries are written into a private staging directory, never joined to a host path and never through a symbolic link, and published only after the archive and its compression read to their ends. A new destination appears whole; an existing one receives no-replace renames, so a failed extraction leaves it unchanged, and a rename that fails after others succeeded reports how many entries were published. The default policy refuses existing names, allows relative symbolic links that stay inside the destination, refuses devices and FIFOs, keeps permission bits only and applies no ownership. Publication is atomic per entry and is not durable: nothing is synced. Checksums are integrity checks, not proof of who wrote the archive.",
+            &["archive", "extraction", "rooted"],
+        )),
+        ("archive", "create") => Some((
+            "Creates a tar or cpio archive from paths below a source root.",
+            "Entries are read through the source root without following symbolic links, in sorted order, and written through one compression lifecycle. The archive is written to a temporary file in the destination directory and published with a no-replace rename, so a failed create leaves no destination. The compression follows the destination suffix when it is Auto. Levels are checked per algorithm before anything is written. TAR output carries no timestamps or owners; CPIO keeps the source's. Zip creation is not available.",
+            &["archive", "creation", "rooted"],
+        )),
         ("archive", "compress" | "decompress" | "decompress_bytes") => Some((
-            "Converts archive or file bytes through an explicit compression boundary.",
-            "Keep binary data as Bytes until an explicit UTF-8 conversion is required.",
+            "Converts a single file through an explicit compression boundary.",
+            "Output is published through a temporary file and a no-replace rename. Decompression reads the stream to its end so a damaged or cut trailer is an error, and decoded output is bounded by a budget. Keep binary data as Bytes until an explicit UTF-8 conversion is required.",
             &["archive", "compression", "bytes"],
         )),
         ("patch", "apply") => Some((

@@ -105,14 +105,13 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let archive_path = fp"{archive_arg}"
   let name = archive_path.name()
   let is_zip = name.ends_with(".zip")
-  let entries = if is_zip {
-    archive.zip_list(archive_path)?.collect()
-  } else {
-    archive.tar_list(archive_path)?.collect()
-  }
+  let format: archive.Format = if is_zip { .Zip } else { .Tar }
+  let entries = archive.list(archive_path, format)?.collect()
 
   for e in entries |> sort-by .path {
-    print f"  {e.kind}  {e.path}  {e.size}b"
+    let kind = if e.kind == .Directory { "dir" } else if e.kind == .Symlink { "symlink" } else { "file" }
+    let size = e.size ?? 0
+    print f"  {kind}  {e.path}  {size}b"
   }
 
   print f"{entries.len()} entries in {name}"
@@ -124,11 +123,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
       let output = staged_output(opts.out)?
       defer output.pending.remove()
 
-      if is_zip {
-        archive.zip_extract(archive_path, output.pending)
-      } else {
-        archive.tar_extract(archive_path, output.pending)
-      }
+      archive.extract(archive_path, output.pending, format)?
 
       output.pending.rename(to: output.published)
       print f"extracted to {opts.out}"

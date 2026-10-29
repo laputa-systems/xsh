@@ -156,6 +156,7 @@ pub fn builtin_error_families() -> Vec<ErrorFamily> {
         net_error_family(),
         assertion_error_family(),
         codec_error_family(),
+        archive_error_family(),
     ]
 }
 
@@ -441,4 +442,39 @@ pub const CODEC_ERROR_VARIANTS: &[ErrorVariant] = &[
     ErrorVariant { name: "DuplicateKey", facets: &[ErrorFacet::InvalidData] },
     ErrorVariant { name: "Limit", facets: &[ErrorFacet::CaptureLimit] },
     ErrorVariant { name: "Options", facets: &[] },
+];
+
+pub fn archive_error_family() -> ErrorFamily {
+    ErrorFamily {
+        name: "ArchiveError",
+        fields: vec![
+            ErrorField { name: "message", ty: Type::Str },
+            ErrorField { name: "format", ty: Type::Optional(Box::new(Type::Enum(crate::enums::ARCHIVE_FORMAT))) },
+            ErrorField { name: "entry", ty: Type::Optional(Box::new(Type::Path)) },
+            ErrorField { name: "offset", ty: Type::Optional(Box::new(Type::UInt)) },
+        ],
+        variants: ARCHIVE_ERROR_VARIANTS,
+    }
+}
+
+pub const ARCHIVE_ERROR_VARIANTS: &[ErrorVariant] = &[
+    ErrorVariant { name: "Open", facets: HOST_IO_VARIANT_FACETS },
+    ErrorVariant { name: "Io", facets: HOST_IO_VARIANT_FACETS },
+    ErrorVariant { name: "Corrupt", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Truncated", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Unsupported", facets: &[] },
+    ErrorVariant { name: "NeedsSeek", facets: &[] },
+    ErrorVariant { name: "Unsafe", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Collision", facets: &[] },
+    ErrorVariant { name: "Limit", facets: &[ErrorFacet::CaptureLimit] },
+    ErrorVariant { name: "Canceled", facets: &[ErrorFacet::Canceled] },
+    ErrorVariant { name: "Options", facets: &[] },
+];
+
+const HOST_IO_VARIANT_FACETS: &[ErrorFacet] = &[
+    ErrorFacet::NotFound,
+    ErrorFacet::PermissionDenied,
+    ErrorFacet::Timeout,
+    ErrorFacet::InvalidData,
+    ErrorFacet::HostIo,
 ];

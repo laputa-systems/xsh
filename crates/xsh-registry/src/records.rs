@@ -297,13 +297,21 @@ pub fn fs_data_range_type() -> Type {
 }
 
 pub fn archive_entry_type() -> Type {
+    let optional = |ty: Type| Type::Optional(Box::new(ty));
     Type::Record(name_type_map(vec![
         ("path".to_string(), Type::Path),
-        ("kind".to_string(), Type::Str),
-        ("size".to_string(), Type::Int),
-        ("mode".to_string(), Type::Int),
-        ("modified".to_string(), Type::Int),
-        ("link_name".to_string(), Type::Str),
+        (
+            "kind".to_string(),
+            Type::Enum(crate::enums::ARCHIVE_ENTRY_KIND),
+        ),
+        ("size".to_string(), optional(Type::UInt)),
+        ("mode".to_string(), optional(Type::UInt)),
+        ("modified".to_string(), optional(Type::Int)),
+        ("uid".to_string(), optional(Type::UInt)),
+        ("gid".to_string(), optional(Type::UInt)),
+        ("link_name".to_string(), optional(Type::Path)),
+        ("device_major".to_string(), optional(Type::UInt)),
+        ("device_minor".to_string(), optional(Type::UInt)),
     ]))
 }
 

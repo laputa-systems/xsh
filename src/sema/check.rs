@@ -2422,9 +2422,31 @@ impl Checker {
             statement_root: None,
         };
         checker.register_builtin_process_error_family();
+        checker.register_builtin_enums();
         checker.checked_declarations.builtin_error_families = checker.error_families.clone();
         checker.define_standard_values();
         checker
+    }
+
+    fn register_builtin_enums(&mut self) {
+        for entry in xsh_registry::enums::builtin_enums() {
+            let type_name = Name::intern(entry.name);
+            for variant in entry.variants {
+                let info = TagVariantInfo {
+                    type_name,
+                    field_count: 0,
+                    field_types: Vec::new(),
+                };
+                self.tag_variants.insert(
+                    Name::intern(format!("{}.{}", entry.name, variant.name)),
+                    info.clone(),
+                );
+                self.checked_declarations.builtin_enum_variants.push((
+                    QualifiedName::new(type_name, Name::intern(variant.name)),
+                    info,
+                ));
+            }
+        }
     }
 
     fn register_builtin_process_error_family(&mut self) {

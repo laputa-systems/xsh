@@ -1,6 +1,6 @@
 use super::{
     Arc, ArenaCallArg, ArenaCallArgKind, BuildExprId, CallArgument, CallableParamType, CheckedApiArguments,
-    CheckedApiCall, CompactLowerConstructProbe, ExprId, LoweredArchiveTarCreateArgs,
+    CheckedApiCall, CompactLowerConstructProbe, ExprId,
     LoweredFsFilesArgs, LoweredFsListArgs, LoweredHashVerifyFileArgs, LoweredModuleCallArgs,
     LoweredPathMkdirArgs, LoweredPathRemoveArgs, LoweredPathWriteArgs,
     LoweredProcessCommandArgvArgs, LoweredType, ModuleFnSig, Name, RuntimeOp, SlotScope, Type,
@@ -156,18 +156,6 @@ fn lowered_module_sig_type(sig: &ModuleFnSig) -> Option<LoweredType> {
 
 fn lowered_module_op_supported(op: RuntimeOp) -> bool {
     super::super::Evaluator::lowered_module_op_supported(op)
-}
-
-pub(super) fn lower_archive_tar_create_args(
-    args: &CheckedApiArguments,
-) -> Option<LoweredArchiveTarCreateArgs> {
-    Some(LoweredArchiveTarCreateArgs {
-        path: args.get("path")?,
-        root: args.get("root")?,
-        entries: args.get("entries")?,
-        compression: args.get("compression"),
-        overwrite: args.get("overwrite"),
-    })
 }
 
 pub(super) fn lower_path_mkdir_args(args: &CheckedApiArguments) -> LoweredPathMkdirArgs {

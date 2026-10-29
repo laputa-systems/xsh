@@ -25,6 +25,7 @@ pub fn semantic_symbol_names() -> BTreeSet<String> {
     collect_api_symbols(&mut symbols);
     collect_record_symbols(&mut symbols);
     collect_error_symbols(&mut symbols);
+    collect_enum_symbols(&mut symbols);
     symbols
 }
 
@@ -80,6 +81,16 @@ fn collect_error_symbols(output: &mut BTreeSet<String>) {
     }
 }
 
+fn collect_enum_symbols(output: &mut BTreeSet<String>) {
+    for entry in crate::enums::builtin_enums() {
+        output.insert(entry.name.to_string());
+        for variant in entry.variants {
+            output.insert(variant.name.to_string());
+            output.insert(format!("{}.{}", entry.name, variant.name));
+        }
+    }
+}
+
 fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
     match ty {
         Type::List(inner)
@@ -127,6 +138,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::EnvPathList
         | Type::Error
         | Type::ErrorFamily(_)
+        | Type::Enum(_)
         | Type::ProcessError
         | Type::Pure
         | Type::Proc
@@ -315,6 +327,7 @@ mod tests {
             | Type::EnvPathList
             | Type::Error
             | Type::ErrorFamily(_)
+            | Type::Enum(_)
             | Type::ProcessError
             | Type::Pure
             | Type::Proc

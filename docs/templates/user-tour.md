@@ -763,15 +763,20 @@ root, and rejects member paths that would escape the destination:
 ```
 
 When you create an archive, its name picks the compression (`.gz`, `.bz2`,
-`.xz`, `.lzma`), and readers detect it from the content. Pass `compression:`
-to choose it explicitly.
-`tar_list`, `zip_list`, and `cpio_list` stream records with `path`, `kind`,
-`size`, `mode`, `modified`, and `link_name`. `tar_extract` also takes
-`members:` to extract a selection. Extracting over existing files fails unless
-you pass `overwrite: true`. `zip_extract`, `cpio_create`, and `cpio_extract`
-follow the same shape, and `archive.compress`, `archive.decompress`, and
-`archive.decompress_bytes` handle single files (`gzip`, `bzip2`, `xz`,
-`lzma`).
+`.xz`, `.lzma`, `.zst`), and readers detect it from the content. Pass
+`compression:` (for example `.Zstd`) to choose it explicitly. The `format:`
+argument is `.Tar`, `.Zip`, or `.Cpio`, and the other closed choices are enums
+too, written with a leading dot.
+`archive.list` streams records with `path`, `kind`, `size`, `mode`,
+`modified`, `uid`, `gid`, `link_name`, `device_major`, and `device_minor`; a
+field the format does not store is `null`, never zero. `archive.extract` also
+takes `members:` to extract a selection, and it refuses existing names unless
+you pass `collision: .Replace`. It writes into a private staging directory and
+publishes only after the archive and its compression read to their ends. A TAR
+or CPIO source may be a path, `Bytes`, or a `Stream[Bytes]` such as process
+output; a ZIP source must be a path or `Bytes`, because ZIP needs random access.
+`archive.compress`, `archive.decompress`, and `archive.decompress_bytes` handle
+single files (`.Gzip`, `.Bzip2`, `.Xz`, `.Lzma`, `.Zstd`).
 
 ## Rendering Config from a Template
 

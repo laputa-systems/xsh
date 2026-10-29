@@ -94,6 +94,7 @@ pub struct CheckedDeclarations {
     pub record_constructors: RecordConstructors,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub builtin_error_families: FxHashMap<Name, ErrorFamilyInfo>,
+    pub builtin_enum_variants: Vec<(QualifiedName, TagVariantInfo)>,
     pub(crate) cli_entries: Vec<crate::sema::cli_entry::CliEntryPlan>,
 }
 
@@ -106,6 +107,7 @@ impl CheckedDeclarations {
             error_families_by_name: self.builtin_error_families,
             ..CompactDeclOutput::default()
         };
+        output.qualified_tag_variants.extend(self.builtin_enum_variants);
         for (_, declaration) in self.types {
             output.type_defs += 1;
             output.schema_fields += declaration.schema_field_count;

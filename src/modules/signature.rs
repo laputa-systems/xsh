@@ -869,6 +869,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Error => Type::Error,
         xsh_registry::types::Type::ProcessError => Type::ProcessError,
         xsh_registry::types::Type::ErrorFamily(name) => Type::ErrorFamily(Name::intern(name)),
+        xsh_registry::types::Type::Enum(name) => Type::Tag(Name::intern(name)),
         xsh_registry::types::Type::Pure => Type::Function(crate::sema::types::CallableKind::Pure),
         xsh_registry::types::Type::Proc => Type::Function(crate::sema::types::CallableKind::Proc),
         xsh_registry::types::Type::Command => Type::Command,

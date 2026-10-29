@@ -31,7 +31,7 @@ use super::{
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
     lowered_result_ok, lowered_slice_value, lowered_sort_key_orderable, lowered_splice_arg_items,
     lowered_stats_field_value, lowered_status_segment_record, lowered_stmt_flow_to_flow,
-    lowered_path_list_arg, lowered_str_arg_owned, lowered_str_byte_at_value,
+    lowered_str_arg_owned, lowered_str_byte_at_value,
     lowered_str_byte_len_value,
     lowered_str_count_lines_value, lowered_str_key, lowered_str_list_arg, lowered_str_parts,
     lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
@@ -357,7 +357,6 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprPathWrite
             | FullTag::ExprPathMkdir
             | FullTag::ExprPathRemove
-            | FullTag::ExprArchiveTarCreate
     )
 }
 
@@ -457,9 +456,7 @@ pub(super) enum FrameApplyOperand {
     PathLike(&'static str),
     Bool(&'static str),
     BuilderBool(&'static str),
-    String(&'static str),
     StringList(&'static str),
-    PathList(&'static str),
     Environment(&'static str),
     Duration(&'static str),
     PositiveInt(&'static str),
@@ -474,7 +471,6 @@ pub(super) enum FrameApplyValue {
     Bool(bool),
     String(String),
     StringList(Vec<String>),
-    PathList(Vec<PathValue>),
     Environment(BTreeMap<String, Vec<u8>>),
     Duration(DurationValue),
     Int(i64),
@@ -717,19 +713,6 @@ pub(super) fn indexed_frame_apply_child(
         | ExprView::PathResolve { path, span } => {
             indexed_frame_apply_child_from_fields([Some((path.raw(), None))], position, *span)
         }
-        ExprView::ArchiveTarCreate { path, root, entries, compression, overwrite, span } => {
-            indexed_frame_apply_child_from_fields(
-                [
-                    Some((path.raw(), Some(FrameApplyOperand::Path("archive.tar_create")))),
-                    Some((root.raw(), Some(FrameApplyOperand::Path("archive.tar_create")))),
-                    Some((entries.raw(), Some(FrameApplyOperand::PathList("archive.tar_create")))),
-                    compression.map(|id| (id.raw(), Some(FrameApplyOperand::String("archive.tar_create")))),
-                    overwrite.map(|id| (id.raw(), Some(FrameApplyOperand::Bool("archive.tar_create")))),
-                ],
-                position,
-                *span,
-            )
-        }
         _ => unreachable!("frame apply tag has a matching typed view"),
     };
     Ok(child)
@@ -750,23 +733,9 @@ impl FrameApplyValue {
         value
     }
 
-    fn string(self) -> String {
-        let Self::String(value) = self else {
-            unreachable!("frame-apply string operand was converted before apply")
-        };
-        value
-    }
-
     fn string_list(self) -> Vec<String> {
         let Self::StringList(values) = self else {
             unreachable!("frame-apply string-list operand was converted before apply")
-        };
-        values
-    }
-
-    fn path_list(self) -> Vec<PathValue> {
-        let Self::PathList(values) = self else {
-            unreachable!("frame-apply path-list operand was converted before apply")
         };
         values
     }
@@ -792,9 +761,7 @@ fn convert_frame_apply_operand(
         FrameApplyOperand::PathLike(operation) => Ok(FrameApplyValue::Path(lowered_path_like_arg(value, operation, span)?)),
         FrameApplyOperand::Bool(operation) => Ok(FrameApplyValue::Bool(lowered_bool_arg_or(Some(value), false, operation, span)?)),
         FrameApplyOperand::BuilderBool(field) => Ok(FrameApplyValue::Bool(lowered_bool_builder_field(value, field, span)?)),
-        FrameApplyOperand::String(operation) => Ok(FrameApplyValue::String(lowered_str_arg_owned(Some(value), "", operation, span)?)),
         FrameApplyOperand::StringList(operation) => Ok(FrameApplyValue::StringList(lowered_str_list_arg(Some(value), operation, span)?)),
-        FrameApplyOperand::PathList(operation) => Ok(FrameApplyValue::PathList(lowered_path_list_arg(value, operation, span)?)),
         FrameApplyOperand::Environment(operation) => Ok(FrameApplyValue::Environment(lowered_command_env_arg(value, operation, span)?)),
         FrameApplyOperand::Duration(operation) => Ok(FrameApplyValue::Duration(lowered_duration_arg(Some(value), operation, span)?)),
         FrameApplyOperand::PositiveInt(operation) => {
@@ -850,7 +817,6 @@ fn indexed_frame_apply_prepares_operands(tag: FullTag) -> bool {
             | FullTag::ExprPathWrite
             | FullTag::ExprPathMkdir
             | FullTag::ExprPathRemove
-            | FullTag::ExprArchiveTarCreate
     )
 }
 
@@ -1107,21 +1073,6 @@ fn indexed_frame_apply_host_value(
             assert!(values.next().is_none(), "path write operand count mismatch");
             let op = if atomic { RuntimeOp::FsWriteAtomic } else { RuntimeOp::FsWrite };
             indexed_frame_apply_module_call(evaluator, op, vec![path, data], span)
-        }
-        ExprView::ArchiveTarCreate { compression, overwrite, span, .. } => {
-            let path = values.next().expect("archive output path operand").path();
-            let root = values.next().expect("archive root operand").path();
-            let entries = values.next().expect("archive entries operand").path_list();
-            let compression = compression.map(|_| {
-                values.next().expect("archive compression operand").string()
-            });
-            let overwrite = overwrite.map(|_| {
-                values.next().expect("archive overwrite operand").bool()
-            });
-            assert!(values.next().is_none(), "archive create operand count mismatch");
-            evaluator.eval_archive_tar_create_apply(span, || {
-                Ok((path, root, entries, compression, overwrite))
-            })
         }
         _ => unreachable!("frame-apply tag has a matching typed view"),
     }
@@ -1468,7 +1419,7 @@ impl Evaluator {
             plan.convert_command_words(&mut values.0)?;
         }
         let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
-        if !self.trace_enabled || op == RuntimeOp::ArchiveTarCreate {
+        if !self.trace_enabled {
             let mut result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor)?;
             self.register_returned_lowered_streams(&mut result, span)?;
             return Ok(result);
@@ -2051,7 +2002,6 @@ impl Evaluator {
             ExprViewKind::PathWrite |
             ExprViewKind::PathMkdir |
             ExprViewKind::PathRemove |
-            ExprViewKind::ArchiveTarCreate |
             ExprViewKind::ModuleCall |
             ExprViewKind::ProcessCommandArgv |
             ExprViewKind::ProcessCommandBuilder |

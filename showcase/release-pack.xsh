@@ -70,8 +70,8 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let manifest = fp"{stage}/MANIFEST.json"
   json.write(manifest, {source: absolute_source.display(), files: entries})
   let staged_tarball = fp"{pending}/release.tar"
-  archive.tar_create(staged_tarball, stage, [p"."], "auto")
-  let listed = archive.tar_list(staged_tarball)?.collect()
+  archive.create(staged_tarball, stage, [p"."], .Tar)
+  let listed = archive.list(staged_tarball, .Tar)?.collect()
   let digest = staged_tarball.read_bytes()?.sha256().hex()
   pending.rename(to: output)
   let tarball = fp"{output}/release.tar"

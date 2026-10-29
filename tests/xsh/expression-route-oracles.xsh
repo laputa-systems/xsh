@@ -421,7 +421,7 @@ test test_expr_archive_tar_create { |ctx|
   test.expect(
     ctx,
     r"""let root = Path(args[0])
-archive.tar_create(fp"{root}/payload.tar", root, [p"member"])
+archive.create(fp"{root}/payload.tar", root, [p"member"], .Tar)
 assert fp"{root}/payload.tar".exists()?
 """,
     status: 0,

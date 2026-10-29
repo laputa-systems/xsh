@@ -86,9 +86,6 @@ net = [
 tools = []
 
 [dependencies]
-rawzip = "0.5.1"
-tar = { version = "0.4.46", default-features = false }
-bzip2 = "0.6.1"
 blake3 = "1.5.1"
 crossbeam-channel = "0.5"
 libc = "0.2"
@@ -96,10 +93,8 @@ data-encoding = "2"
 directories = "6.0.0"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
 diffy = { version = "0.5.0", default-features = false, features = ["std"] }
-flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
 graviola = "=0.4.1"
 ignore = "=0.4.25"
-lzma-rust2 = { version = "0.16.5", default-features = false, features = ["std", "encoder", "xz", "optimization"] }
 md-5 = "0.11"
 memchr = "2"
 deser = { path = "crates/deser/deser", features = ["derive"] }
@@ -123,8 +118,8 @@ sm3 = { version = "0.5.0", default-features = false, features = ["alloc"] }
 smallvec = "1.15.2"
 tempfile = "3"
 unicode-width = "=0.2.2"
-zstd = { version = "0.13.3", default-features = false }
 xsh-net = { path = "crates/xsh-net", optional = true }
+xsh-archive = { path = "crates/xsh-archive" }
 xsh-registry = { path = "crates/xsh-registry" }
 xsh-root = { path = "crates/xsh-root" }
 

@@ -279,17 +279,17 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   let release_ctx = fixtures.linux_context(root, "dev")?
   releases.package_core(release_ctx, "fixture")
   let archive_path = fp"{root}/dist/core-fixture.tar.xz"
-  let entries = archive.tar_list(archive_path)?.collect()
+  let entries = archive.list(archive_path, .Tar)?.collect()
   let members = entries |> map .path.display()
   assert members.len() == 3
   assert "core/bin/report.xsh-helper" in members
   assert "core/lib/report.xsh-helper.xsh" in members
   assert "core/applets.json" in members
-  assert (entries |> where .path == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
-  assert (entries |> where .path == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
-  assert (entries |> where .path == "core/applets.json")[0].mode.bit_and(0o777) == 0o644
+  assert ((entries |> where .path == "core/bin/report.xsh-helper")[0].mode ?? 0).bit_and(0o777) == 0o755
+  assert ((entries |> where .path == "core/lib/report.xsh-helper.xsh")[0].mode ?? 0).bit_and(0o777) == 0o644
+  assert ((entries |> where .path == "core/applets.json")[0].mode ?? 0).bit_and(0o777) == 0o644
   let extracted = fp"{root}/extracted"
-  archive.tar_extract(archive_path, extracted)
+  archive.extract(archive_path, extracted, .Tar)
   assert fp"{extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
 """
   assert fp"{extracted}/core/lib/report.xsh-helper.xsh".read_text()? == """print "library"
@@ -309,7 +309,7 @@ test test_core_archive_commands_preserve_arguments_and_resolve_adjacent_librarie
   let release_ctx = fixtures.linux_context(root, "dev")?
   releases.package_core(release_ctx, "execution")
   let extracted = fp"{root}/extracted"
-  archive.tar_extract(fp"{root}/dist/core-execution.tar.xz", extracted)
+  archive.extract(fp"{root}/dist/core-execution.tar.xz", extracted, .Tar)
   let echo_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/echo".display(), "--", "--", "-n"]
   let echo_output = run.bytes @echo_argv
   assert echo_output == b"-- -n\n"
@@ -421,12 +421,12 @@ test test_core_archive_contains_current_system_report { |ctx|
   )
   releases.package_core(release_ctx, "fixture")
   let archive_path = fp"{artifact_dir}/core-fixture.tar.xz"
-  let entries = archive.tar_list(archive_path)?.collect()
+  let entries = archive.list(archive_path, .Tar)?.collect()
   let installed = entries |> where .path == "core/system-report"
   assert installed.len() == 1
-  assert installed[0].mode.bit_and(0o777) == 0o755
+  assert (installed[0].mode ?? 0).bit_and(0o777) == 0o755
   let extracted = fp"{artifact_dir}/extracted"
-  archive.tar_extract(archive_path, extracted)
+  archive.extract(archive_path, extracted, .Tar)
   assert fp"{extracted}/core/system-report".read_bytes()? == fp"{repository}/core/system-report.xsh".read_bytes()?
   assert fp"{extracted}/core/lib/system_report.xsh".exists()?
 }

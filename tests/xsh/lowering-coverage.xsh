@@ -68,8 +68,8 @@ fp"{root}/sub/c.txt".write(data: b"c")?
 let files = fs.files(path: root, hidden: false)?.collect()
 let walked = fs.walk(hidden: false, path: root)?.collect()
 print f"{files.len()} {walked.len()}"
-archive.tar_create(root: root, path: fp"{root}/out.tar", entries: [p"a.txt"], overwrite: true)?
-print f"{archive.tar_list(fp"{root}/out.tar")?.collect().len()}"
+archive.create(root: root, dest: fp"{root}/out.tar", entries: [p"a.txt"], format: .Tar, collision: .Replace)?
+print f"{archive.list(fp"{root}/out.tar", .Tar)?.collect().len()}"
 let found = mime.lookup_ext(ext: "txt")
 print ${found != null}
 let command = process.command_argv(argv: ["true"], target: "true")

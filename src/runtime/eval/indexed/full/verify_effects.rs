@@ -282,7 +282,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
             | FullTag::ExprFsMkdir | FullTag::ExprFsRemove | FullTag::ExprPathReadText | FullTag::ExprPathReadBytes
             | FullTag::ExprPathExists | FullTag::ExprPathExecutable | FullTag::ExprPathDu | FullTag::ExprPathMetadata
             | FullTag::ExprPathReadlink | FullTag::ExprPathResolve | FullTag::ExprPathWrite | FullTag::ExprPathMkdir
-            | FullTag::ExprPathRemove | FullTag::ExprArchiveTarCreate => require(instruction, Some(&[Effect::Fs]), false, &mut captured)?,
+            | FullTag::ExprPathRemove => require(instruction, Some(&[Effect::Fs]), false, &mut captured)?,
             FullTag::ExprRunCapture => {
                 require(instruction, Some(&[Effect::Process]), false, &mut captured)?;
                 let schema::ExprView::RunCapture(run) = decoder.expression_view(instruction)? else { unreachable!() };

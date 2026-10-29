@@ -16,8 +16,8 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.duration-arithmetic" => {
             include_str!("../../../docs/snippets/api/duration-arithmetic.xsh")
         }
-        "module.archive" | "module.archive.tar_list" => {
-            include_str!("../../../docs/snippets/api/archive-tar-list.xsh")
+        "module.archive" | "module.archive.list" => {
+            include_str!("../../../docs/snippets/api/archive-list.xsh")
         }
         "language.core.regex-literals" | "module.regex.compile" => {
             include_str!("../../../docs/snippets/api/regex-literals.xsh")

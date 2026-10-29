@@ -1191,14 +1191,6 @@ instruction_schema! {
             missing_ok: Option<BuildExprId>,
             span: Span,
         } => ExprPathRemove = 94 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
-        ArchiveTarCreate {
-            path: BuildExprId,
-            root: BuildExprId,
-            entries: BuildExprId,
-            compression: Option<BuildExprId>,
-            overwrite: Option<BuildExprId>,
-            span: Span,
-        } => ExprArchiveTarCreate = 96 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         ModuleCall {
             op: RuntimeOp,
             call_plan: Option<Arc<crate::runtime::eval::ModuleCallPlan>>,
@@ -1713,9 +1705,8 @@ mod tests {
             "ExprPathWrite",
             "ExprPathMkdir",
             "ExprPathRemove",
-            "ExprArchiveTarCreate",
         ];
-        assert_eq!(host_apply.len(), 18);
+        assert_eq!(host_apply.len(), 17);
         for name in host_apply {
             let tag = INSTRUCTION_TAGS
                 .iter()
@@ -1801,7 +1792,6 @@ mod tests {
                 "ExprPathWrite",
                 "ExprPathMkdir",
                 "ExprPathRemove",
-                "ExprArchiveTarCreate",
                 "ExprProcessCommandArgv",
                 "ExprAbort",
                 "ExprFail",

@@ -5,6 +5,7 @@
 //! Cargo build cycle.
 
 pub mod api_docs;
+pub mod enums;
 pub mod errors;
 mod examples;
 pub mod managed_resource;

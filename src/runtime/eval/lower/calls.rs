@@ -5,7 +5,7 @@ use super::{
     LoweredStrPredicate,
     LoweredTypeCheck, LoweredValueCheck,
     ModuleExportType, Name, QualifiedName, RuntimeOp, SlotScope, Span, StdlibLowerLinkage, Type,
-    api_spec, call_positional_arguments, is_env_module_expr, lower_archive_tar_create_args,
+    api_spec, call_positional_arguments, is_env_module_expr,
     lower_fs_files_args, lower_fs_list_args, lower_hash_verify_file_args, lower_path_remove_args,
     lower_path_mkdir_args, lower_path_write_args, lower_process_command_argv_args, lowered_method_name,
     lowered_module_call_args, lowered_str_byte_op, script_argument_slots,
@@ -1238,54 +1238,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::FsTempDir { span }
-                        ));
-                    }
-                    if module == "archive" && name == "tar_create" {
-                        let options = lower_archive_tar_create_args(
-                            &self.checked_api_arguments(id, &args_vec)?,
-                        )?;
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::ArchiveTarCreate {
-                                path: self.lower_call_argument(
-                                    &options.path,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                root: self.lower_call_argument(
-                                    &options.root,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                entries: self.lower_call_argument(
-                                    &options.entries,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                compression: match options.compression {
-                                    Some(expr) => Some(self.lower_call_argument(
-                                        &expr,
-                                        slots,
-                                        current_function,
-                                        item_slot,
-                                    )?),
-                                    None => None,
-                                },
-                                overwrite: match options.overwrite {
-                                    Some(expr) => Some(self.lower_call_argument(
-                                        &expr,
-                                        slots,
-                                        current_function,
-                                        item_slot,
-                                    )?),
-                                    None => None,
-                                },
-                                span,
-                            }
                         ));
                     }
                     if module == "process" && name == "command_argv" {

@@ -27,7 +27,7 @@ test test_fs_path_frame_apply_executes_live_host_rows { |ctx|
   assert children.len() == 2
 
   let tarball = fp"{root}/payload.tar"
-  archive.tar_create(tarball, root, [p"nested/payload.txt"])
+  archive.create(tarball, root, [p"nested/payload.txt"], .Tar)
   assert tarball.exists()?
 
   let scoped = fp"{root}/scoped"
@@ -98,22 +98,23 @@ test test_fs_path_frame_apply_evaluates_source_operands_before_host_creation { |
     ctx,
     f"""var order: List[Str] = []
 let invalid: Any = "not a boolean"
-archive.tar_create(
-  if true {{ order += ["path"]; p"{target}" }} else {{ p"{target}" }},
+archive.create(
+  if true {{ order += ["dest"]; p"{target}" }} else {{ p"{target}" }},
   if true {{ order += ["root"]; p"{source}" }} else {{ p"{source}" }},
   if true {{ order += ["entries"]; [p"member"] }} else {{ [p"member"] }},
-  compression: if true {{ order += ["compression"]; "auto" }} else {{ "auto" }},
-  overwrite: if true {{
-    order += ["overwrite"]
+  .Tar,
+  compression: if true {{ order += ["compression"]; .Auto }} else {{ .Auto }},
+  level: if true {{
+    order += ["level"]
     p"{order_file}".write(order.join(","))
-    invalid.require(Bool)?
-  }} else {{ false }},
+    invalid.require(Int)?
+  }} else {{ null }},
 )
 """,
     status: 3,
     stderr: ["schema check failed"],
   )?
-  assert order_file.read_text()? == "path,root,entries,compression,overwrite"
+  assert order_file.read_text()? == "dest,root,entries,compression,level"
   assert ! target.exists()?
 }
 
@@ -140,12 +141,12 @@ target.write(if true {{
   assert ! target.exists()?
 }
 
-test test_archive_tar_create_frame_emits_one_module_trace_pair { |ctx|
+test test_archive_create_emits_one_module_trace_pair { |ctx|
   let root = test.temp_dir(ctx, name: "archive-tar-create-trace")?
   fp"{root}/member".write("payload")
   let traced = test.run_xsht_trace(
     ctx,
-    f"""archive.tar_create(p"{root}/out.tar", p"{root}", [p"member"])
+    f"""archive.create(p"{root}/out.tar", p"{root}", [p"member"], .Tar)
 """,
     ["--trace", "--raw", "--trace-format", "jsonl"],
   )?
@@ -154,12 +155,12 @@ test test_archive_tar_create_frame_emits_one_module_trace_pair { |ctx|
   let calls = [
     line for line in traced.stderr.lines()
     if "\"kind\":\"module.call\"" in line
-      and "\"api_id\":\"module.archive.tar_create\"" in line
+      and "\"api_id\":\"module.archive.create\"" in line
   ]
   let results = [
     line for line in traced.stderr.lines()
     if "\"kind\":\"module.result\"" in line
-      and "\"api_id\":\"module.archive.tar_create\"" in line
+      and "\"api_id\":\"module.archive.create\"" in line
   ]
   assert calls.len() == 1, traced.stderr
   assert results.len() == 1, traced.stderr

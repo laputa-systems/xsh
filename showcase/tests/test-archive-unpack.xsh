@@ -18,7 +18,7 @@ test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
   fp"{src}/a.txt".write("first")
   fp"{src}/b.txt".write("second")
   let tarball = test.temp_path(ctx, name: "partial.tar")
-  archive.tar_create(tarball, src, [p"a.txt", p"b.txt"])
+  archive.create(tarball, src, [p"a.txt", p"b.txt"], .Tar)
 
   let out = test.temp_dir(ctx, name: "partial-out")?
   fp"{out}/b.txt".mkdir()
@@ -34,7 +34,7 @@ test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
   fp"{src}/a.txt".write("first")
   fp"{src}/bad".symlink(to: ../outside)
   let tarball = test.temp_path(ctx, name: "unsafe.tar")
-  archive.tar_create(tarball, src, [p"a.txt", p"bad"])
+  archive.create(tarball, src, [p"a.txt", p"bad"], .Tar)
 
   let out = test.temp_path(ctx, name: "unsafe-out")
   let pending = fp"{out.parent}/.{out.name()}.xsh-stage"

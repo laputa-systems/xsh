@@ -858,6 +858,9 @@ impl Checker {
         if self.error_families.contains_key(&qualified) {
             return Type::ErrorFamily(self.canonical_error_family(qualified));
         }
+        if xsh_registry::enums::builtin_enum(&qualified.as_str()).is_some() {
+            return Type::Tag(qualified);
+        }
         if self.error_facets.contains(&qualified) {
             return Type::ErrorFacet(qualified);
         }

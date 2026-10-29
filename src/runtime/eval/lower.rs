@@ -135,14 +135,6 @@ struct LoweredFsListArgs {
     ordered: Option<CallArgument>,
 }
 
-struct LoweredArchiveTarCreateArgs {
-    path: CallArgument,
-    root: CallArgument,
-    entries: CallArgument,
-    compression: Option<CallArgument>,
-    overwrite: Option<CallArgument>,
-}
-
 struct LoweredPathMkdirArgs {
     parents: Option<CallArgument>,
 }
@@ -257,7 +249,7 @@ mod values;
 use api::{
     call_positional_arguments, positional_call_args, single_positional_arena_call_arg, lowered_str_byte_op,
     script_argument_slots, lower_process_command_argv_args, lowered_module_call_args,
-    lower_hash_verify_file_args, compact_call_arg_expr, lower_archive_tar_create_args,
+    lower_hash_verify_file_args, compact_call_arg_expr,
     lower_path_mkdir_args, lower_path_remove_args, lower_path_write_args, lower_fs_files_args,
     lower_fs_list_args,
 };

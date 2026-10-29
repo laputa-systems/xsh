@@ -319,7 +319,7 @@ test test_api_search_is_local_and_deterministic {
   assert output.status.exited_with(0), output.stderr
   assert_contains(
     output.stdout,
-    ["status: matches", "api: module.archive.tar_create", "api: module.patch.apply"],
+    ["status: matches", "api: module.archive.create", "api: module.patch.apply"],
   )
 }
 

@@ -7616,7 +7616,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::PathWrite |
             ExprViewKind::PathMkdir |
             ExprViewKind::PathRemove |
-            ExprViewKind::ArchiveTarCreate |
             ExprViewKind::ProcessCommandArgv |
             ExprViewKind::Abort |
             ExprViewKind::Fail |

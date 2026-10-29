@@ -313,19 +313,95 @@ fn applet_module() -> ModuleSig {
     ])
 }
 
+fn archive_source_type() -> Type {
+    Type::Union(vec![
+        Type::Path,
+        Type::Bytes,
+        Type::Stream(Box::new(Type::Bytes)),
+    ])
+}
+
+fn archive_result(ok: Type) -> Type {
+    Type::Result(Box::new(ok), Box::new(Type::ErrorFamily("ArchiveError")))
+}
+
+fn archive_enum(name: &'static str) -> Type {
+    Type::Enum(name)
+}
+
 fn archive_module() -> ModuleSig {
+    use crate::enums::{
+        ARCHIVE_COLLISION, ARCHIVE_COMPRESSION, ARCHIVE_FORMAT, ARCHIVE_LINKS, ARCHIVE_MODES,
+        ARCHIVE_OWNERSHIP, ARCHIVE_SPECIAL,
+    };
+    let optional_uint = || Type::Optional(Box::new(Type::UInt));
     module_sig(vec![
+        (
+            "list",
+            sig(
+                vec![
+                    param("source", archive_source_type()),
+                    param("format", archive_enum(ARCHIVE_FORMAT)),
+                    default_param("compression", archive_enum(ARCHIVE_COMPRESSION)),
+                    default_param("members", Type::List(Box::new(Type::Path))),
+                ],
+                archive_result(Type::Stream(Box::new(archive_entry_type()))),
+                false,
+                RuntimeOp::ArchiveList,
+            ),
+        ),
+        (
+            "extract",
+            sig(
+                vec![
+                    param("source", archive_source_type()),
+                    param("dest", Type::Path),
+                    param("format", archive_enum(ARCHIVE_FORMAT)),
+                    default_param("compression", archive_enum(ARCHIVE_COMPRESSION)),
+                    default_param("members", Type::List(Box::new(Type::Path))),
+                    default_param("strip_components", Type::UInt),
+                    default_param("collision", archive_enum(ARCHIVE_COLLISION)),
+                    default_param("links", archive_enum(ARCHIVE_LINKS)),
+                    default_param("special", archive_enum(ARCHIVE_SPECIAL)),
+                    default_param("modes", archive_enum(ARCHIVE_MODES)),
+                    default_param("ownership", archive_enum(ARCHIVE_OWNERSHIP)),
+                    default_param("max_output", optional_uint()),
+                    default_param("max_entry", optional_uint()),
+                    default_param("max_entries", optional_uint()),
+                ],
+                archive_result(Type::Unit),
+                false,
+                RuntimeOp::ArchiveExtract,
+            ),
+        ),
+        (
+            "create",
+            sig(
+                vec![
+                    param("dest", Type::Path),
+                    param("root", Type::Path),
+                    param("entries", Type::List(Box::new(Type::Path))),
+                    param("format", archive_enum(ARCHIVE_FORMAT)),
+                    default_param("compression", archive_enum(ARCHIVE_COMPRESSION)),
+                    default_param("level", Type::Optional(Box::new(Type::Int))),
+                    default_param("collision", archive_enum(ARCHIVE_COLLISION)),
+                ],
+                archive_result(Type::Unit),
+                false,
+                RuntimeOp::ArchiveCreate,
+            ),
+        ),
         (
             "compress",
             sig(
                 vec![
                     param("source", Type::Path),
                     param("dest", Type::Path),
-                    default_param("format", Type::Str),
-                    default_param("level", Type::Int),
-                    default_param("overwrite", Type::Bool),
+                    default_param("format", archive_enum(ARCHIVE_COMPRESSION)),
+                    default_param("level", Type::Optional(Box::new(Type::Int))),
+                    default_param("collision", archive_enum(ARCHIVE_COLLISION)),
                 ],
-                result(Type::Unit),
+                archive_result(Type::Unit),
                 false,
                 RuntimeOp::ArchiveCompress,
             ),
@@ -336,10 +412,10 @@ fn archive_module() -> ModuleSig {
                 vec![
                     param("source", Type::Path),
                     param("dest", Type::Path),
-                    default_param("format", Type::Str),
-                    default_param("overwrite", Type::Bool),
+                    default_param("format", archive_enum(ARCHIVE_COMPRESSION)),
+                    default_param("collision", archive_enum(ARCHIVE_COLLISION)),
                 ],
-                result(Type::Unit),
+                archive_result(Type::Unit),
                 false,
                 RuntimeOp::ArchiveDecompress,
             ),
@@ -349,113 +425,12 @@ fn archive_module() -> ModuleSig {
             sig(
                 vec![
                     param("source", Type::Path),
-                    default_param("format", Type::Str),
+                    default_param("format", archive_enum(ARCHIVE_COMPRESSION)),
+                    default_param("max_bytes", optional_uint()),
                 ],
-                result(Type::Bytes),
+                archive_result(Type::Bytes),
                 false,
                 RuntimeOp::ArchiveDecompressBytes,
-            ),
-        ),
-        (
-            "cpio_create",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    param("root", Type::Path),
-                    param("entries", Type::List(Box::new(Type::Path))),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::ArchiveCpioCreate,
-            ),
-        ),
-        (
-            "cpio_extract",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    param("dest", Type::Path),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::ArchiveCpioExtract,
-            ),
-        ),
-        (
-            "cpio_list",
-            sig(
-                vec![param("path", Type::Path)],
-                result(Type::Stream(Box::new(archive_entry_type()))),
-                false,
-                RuntimeOp::ArchiveCpioList,
-            ),
-        ),
-        (
-            "tar_list",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    default_param("compression", Type::Str),
-                    default_param("members", Type::List(Box::new(Type::Path))),
-                ],
-                result(Type::Stream(Box::new(archive_entry_type()))),
-                false,
-                RuntimeOp::ArchiveTarList,
-            ),
-        ),
-        (
-            "tar_extract",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    param("dest", Type::Path),
-                    default_param("strip_components", Type::Int),
-                    default_param("compression", Type::Str),
-                    default_param("overwrite", Type::Bool),
-                    default_param("members", Type::List(Box::new(Type::Path))),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::ArchiveTarExtract,
-            ),
-        ),
-        (
-            "tar_create",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    param("root", Type::Path),
-                    param("entries", Type::List(Box::new(Type::Path))),
-                    default_param("compression", Type::Str),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::ArchiveTarCreate,
-            ),
-        ),
-        (
-            "zip_extract",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    param("dest", Type::Path),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::ArchiveZipExtract,
-            ),
-        ),
-        (
-            "zip_list",
-            sig(
-                vec![param("path", Type::Path)],
-                result(Type::Stream(Box::new(archive_entry_type()))),
-                false,
-                RuntimeOp::ArchiveZipList,
             ),
         ),
     ])
@@ -4679,7 +4654,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
     let doc: (&'static str, &'static str, &'static [&'static str]) = match name {
         "ArchiveEntry" => (
             "Describes one archive member.",
-            "The path is an archive-relative member name; it is not an unrestricted host path.",
+            "The path and link_name hold the raw archive bytes; the path is an archive-relative member name, not an unrestricted host path. A field the format does not store is null, never zero: size, mode, modified (seconds since the epoch), uid, gid and the device numbers. kind is an archive.EntryKind; Other marks an entry this build cannot classify.",
             &["archive", "path", "record"],
         ),
         "DiffResult" => (

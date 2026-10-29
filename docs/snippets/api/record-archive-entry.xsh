@@ -1,1 +1,1 @@
-let entries = archive.tar_list(p"release.tar")?.collect()
+let entries = archive.list(p"release.tar", .Tar)?.collect()

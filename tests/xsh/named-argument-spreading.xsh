@@ -278,7 +278,8 @@ test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|
   source.write("spread defaults")
   compressed.write("replace this")
   restored.write("replace this")
-  archive.compress(source, compressed, ...{overwrite: true})
-  archive.decompress(compressed, restored, ...{overwrite: true})
+  let replace: archive.Collision = .Replace
+  archive.compress(source, compressed, format: .Gzip, ...{collision: replace})
+  archive.decompress(compressed, restored, ...{collision: replace})
   assert restored.read_text()? == "spread defaults"
 }

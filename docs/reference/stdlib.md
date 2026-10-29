@@ -13,17 +13,12 @@ host-support modules are omitted.
 
 Archive creation, extraction, listing, compression, and decompression.
 
-- `archive.compress(source: Path, dest: Path, format: Str = default, level: Int = default, overwrite: Bool = default) -> Result[Unit, Error]` — Converts archive or file bytes through an explicit compression boundary.
-- `archive.cpio_create(path: Path, root: Path, entries: List[Path], overwrite: Bool = default) -> Result[Unit, Error]` — Creates a cpio archive from paths below a source root.
-- `archive.cpio_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Extracts an archive into a destination root.
-- `archive.cpio_list(path: Path) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` — Lists archive members as structured stream records.
-- `archive.decompress(source: Path, dest: Path, format: Str = default, overwrite: Bool = default) -> Result[Unit, Error]` — Converts archive or file bytes through an explicit compression boundary.
-- `archive.decompress_bytes(source: Path, format: Str = default) -> Result[Bytes, Error]` — Converts archive or file bytes through an explicit compression boundary.
-- `archive.tar_create(path: Path, root: Path, entries: List[Path], compression: Str = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a tar archive from paths rooted at a source directory.
-- `archive.tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -> Result[Unit, Error]` — Extracts an archive into a destination root.
-- `archive.tar_list(path: Path, compression: Str = default, members: List[Path] = default) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` — Lists archive members as structured stream records.
-- `archive.zip_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Extracts an archive into a destination root.
-- `archive.zip_list(path: Path) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` — Lists archive members as structured stream records.
+- `archive.compress(source: Path, dest: Path, format: archive.Compression = default, level: Int? = default, collision: archive.Collision = default) -> Result[Unit, ArchiveError]` — Converts a single file through an explicit compression boundary.
+- `archive.create(dest: Path, root: Path, entries: List[Path], format: archive.Format, compression: archive.Compression = default, level: Int? = default, collision: archive.Collision = default) -> Result[Unit, ArchiveError]` — Creates a tar or cpio archive from paths below a source root.
+- `archive.decompress(source: Path, dest: Path, format: archive.Compression = default, collision: archive.Collision = default) -> Result[Unit, ArchiveError]` — Converts a single file through an explicit compression boundary.
+- `archive.decompress_bytes(source: Path, format: archive.Compression = default, max_bytes: UInt? = default) -> Result[Bytes, ArchiveError]` — Converts a single file through an explicit compression boundary.
+- `archive.extract(source: Union[Path, Bytes, Stream[Bytes]], dest: Path, format: archive.Format, compression: archive.Compression = default, members: List[Path] = default, strip_components: UInt = default, collision: archive.Collision = default, links: archive.Links = default, special: archive.Special = default, modes: archive.Modes = default, ownership: archive.Ownership = default, max_output: UInt? = default, max_entry: UInt? = default, max_entries: UInt? = default) -> Result[Unit, ArchiveError]` — Extracts an archive below a destination directory through a retained root.
+- `archive.list(source: Union[Path, Bytes, Stream[Bytes]], format: archive.Format, compression: archive.Compression = default, members: List[Path] = default) -> Result[Stream[{device_major: UInt?, device_minor: UInt?, gid: UInt?, kind: archive.EntryKind, link_name: Path?, mode: UInt?, modified: Int?, path: Path, size: UInt?, uid: UInt?}], ArchiveError]` — Lists archive members as a stream of structured records, one per pull.
 
 ### `bytes`
 
@@ -960,7 +955,7 @@ YAML 1.2 decoding, encoding, and files.
 
 ## Records
 
-- `ArchiveEntry {kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}` — Describes one archive member.
+- `ArchiveEntry {device_major: UInt?, device_minor: UInt?, gid: UInt?, kind: archive.EntryKind, link_name: Path?, mode: UInt?, modified: Int?, path: Path, size: UInt?, uid: UInt?}` — Describes one archive member.
 - `DiffResult {files: Int, hunks: Int, text: Str}` — Summarizes a generated unified diff.
 - `DnsHost {addr: Str, family: Str, name: Str}` — Describes one resolved DNS host address.
 - `DnsLookup {name: Str, record: Str, ttl: Int, value: Str}` — Describes one DNS record answer.

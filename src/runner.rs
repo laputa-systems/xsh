@@ -1600,10 +1600,10 @@ let work_root = fs.tempdir()?
 defer work_root.close()?
 let work = work_root.host_path()?
 let tarball = fp"{work}/package.tar.gz"
-archive.tar_create(tarball, pkgroot, [p"."], compression: "gz", overwrite: true)?
-let entries = archive.tar_list(tarball)?.collect()
+archive.create(tarball, pkgroot, [p"."], .Tar, compression: .Gzip, collision: .Replace)?
+let entries = archive.list(tarball, .Tar)?.collect()
 let extracted = fp"{work}/extracted"
-archive.tar_extract(tarball, extracted)?
+archive.extract(tarball, extracted, .Tar)?
 let config = fp"{extracted}/etc/demo/config.toml".read_text()?
 let payload = fp"{extracted}/usr/share/demo/payload.txt".read_bytes()?
 print ${entries |> count()} config.count_lines() payload.sha256().hex()

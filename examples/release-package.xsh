@@ -17,10 +17,10 @@ enabled=false
 """)
 
 let tarball = fp"{root}/demo.tar.gz"
-archive.tar_create(tarball, source, [p"."])
-let entries = archive.tar_list(tarball)?.collect()
+archive.create(tarball, source, [p"."], .Tar)
+let entries = archive.list(tarball, .Tar)?.collect()
 let destination = fp"{root}/destination"
-archive.tar_extract(tarball, destination)
+archive.extract(tarball, destination, .Tar)
 
 const patch_text = """--- config
 +++ config
@@ -34,7 +34,7 @@ let patch_report = patch.apply(destination, patch_text)?
 let extracted_tool = fp"{destination}/usr/bin/tool"
 let extracted_config = fp"{destination}/config".read_text()?.trim()
 let compressed = fp"{root}/tool.gz"
-archive.compress(extracted_tool, compressed, format: "gzip")
+archive.compress(extracted_tool, compressed, format: .Gzip)
 let decoded = archive.decompress_bytes(compressed)?.utf8()?.trim()
 let tool_text = extracted_tool.read_text()?.trim()
 let executable = extracted_tool.metadata()?.mode % 512 == 493
