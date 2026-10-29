@@ -1113,3 +1113,44 @@ proc main() [process, error, io] {
   assert "Int cannot be used here" in output.stderr
   assert "command word, which must be Str or Path" in output.stderr
 }
+
+test test_full_inference_guard_only_scheme_is_called_from_a_ground_caller { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc comma_at(text, line: Int) -> Result[Int] {
+  let at = text.find(",")
+  return Err(error.failure(f"no comma in '{text}' on line {line}")) when at == null
+  Ok(at ?? 0)
+}
+proc main() [error, io] {
+  let found = comma_at("a,b", 1)?
+  print $found
+  let missing = comma_at("ab", 2)
+  match missing {
+    Ok(_) => print "unexpected"
+    Err(failure) => print $failure.message
+  }
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\nno comma in 'ab' on line 2\n"
+}
+
+test test_full_inference_erased_record_return_accepts_a_generic_record { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure address_of(socket) -> Record {
+  {family: "unix", address: socket}
+}
+proc main() [io, error] {
+  let row = address_of("/run/sock")
+  let text = json.encode(row)?
+  print $text
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert "unix" in output.stdout
+  assert "/run/sock" in output.stdout
+}

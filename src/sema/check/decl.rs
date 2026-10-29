@@ -476,7 +476,7 @@ impl Checker {
                 return None;
             }
         };
-        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty();
+        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() || !generalized.requirements.guards.is_empty();
         let named_stage_callbacks = body_types.keys().filter_map(|&expression| match program.arena.expr(expression).kind {
             crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
             _ => None,
@@ -533,7 +533,7 @@ impl Checker {
                 }
             }
         }
-        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() {
+        if quantified {
             let parameter_bindings = params
                 .iter()
                 .filter_map(|parameter| {

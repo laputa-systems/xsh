@@ -1887,6 +1887,7 @@ impl SchemeType {
         if let (Self::Result(actual_ok, actual_error), Self::Result(expected_ok, expected_error)) = (self, expected) {
             return actual_ok.matches_body_return(expected_ok) && actual_error.matches_body_return(expected_error);
         }
+        if matches!((self, expected), (Self::Record { .. }, Self::Ground(Type::ErasedRecord))) { return true; }
         match (self.closed_ground_type(), expected.closed_ground_type()) {
             (Some(actual), Some(expected)) => super::types::tail_type_matches_expected(&expected, &actual),
             _ => false,

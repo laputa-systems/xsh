@@ -158,10 +158,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             span,
             current_function,
         )?;
-        if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id))
-            && (!instantiation.type_arguments().is_empty()
-                || !instantiation.row_arguments().is_empty())
-        {
+        if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id)) {
             let Some(ty) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)).copied().map(Type::SchemeCallable).or_else(|| self.bodies.expr_types.get(&id).cloned()).filter(|ty| {
                 !ty.contains_inference() && !ty.contains_recovery()
             }) else {
