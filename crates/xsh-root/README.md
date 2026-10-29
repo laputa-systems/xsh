@@ -26,3 +26,17 @@ creates or truncates for writing. `open_dir` creates a narrower `Root`.
 Calls through `Root` protect pathname resolution only. They do not constrain
 other code that uses `std::fs`, mount points or special files below the root,
 or higher-level authorization and mutation policy.
+
+## Mutation
+
+`mkdir`, `symlink`, `hard_link`, `rename`, `remove_file`, `remove_dir`,
+`set_mode`, `set_owner`, `make_node`, `metadata`, `read_link` and `read_dir`
+operate on a relative path made only of normal components: `.`, `..`, absolute
+and empty paths are `InvalidInput`. Each opens the parent directory with
+`open_dir_strict`, which fails if any component is a symbolic link, then acts on
+one validated leaf name with the matching `*at` call, so a link swapped in after
+a check cannot redirect the operation. `metadata` and `set_owner` never follow a
+final symbolic link, `hard_link` links the link itself, and `set_mode` fails on a
+final link. `OpenOptions::no_symlinks` gives file opens the same strictness.
+`rename` with `RenameMode::NoReplace` fails with `AlreadyExists` instead of
+replacing. `make_node` creates special files on Linux only.

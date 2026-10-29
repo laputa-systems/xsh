@@ -4,6 +4,8 @@ use std::io;
 use std::mem::{size_of, zeroed};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
+use crate::Resolve;
+
 pub(crate) fn open_root(path: &CStr) -> io::Result<OwnedFd> {
     // SAFETY: `path` is a NUL-terminated C string. The flags require a
     // directory descriptor and the returned descriptor is adopted once.
@@ -16,18 +18,29 @@ pub(crate) fn open_root(path: &CStr) -> io::Result<OwnedFd> {
     root_from_fd(fd)
 }
 
-pub(crate) fn open_dir(dirfd: BorrowedFd<'_>, path: &CStr) -> io::Result<OwnedFd> {
+pub(crate) fn open_dir(
+    dirfd: BorrowedFd<'_>,
+    path: &CStr,
+    resolve: Resolve,
+) -> io::Result<OwnedFd> {
     let fd = openat2(
         dirfd,
         path,
         libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC,
         0,
+        resolve,
     )?;
     root_from_fd(fd)
 }
 
 pub(crate) fn open_stat_target(dirfd: BorrowedFd<'_>, path: &CStr) -> io::Result<File> {
-    file_from_fd(openat2(dirfd, path, libc::O_PATH | libc::O_CLOEXEC, 0)?)
+    file_from_fd(openat2(
+        dirfd,
+        path,
+        libc::O_PATH | libc::O_CLOEXEC,
+        0,
+        Resolve::Beneath,
+    )?)
 }
 
 pub(crate) fn open_readable_dir(dirfd: BorrowedFd<'_>) -> io::Result<File> {
@@ -49,8 +62,9 @@ pub(crate) fn open_file(
     path: &CStr,
     flags: libc::c_int,
     mode: libc::mode_t,
+    resolve: Resolve,
 ) -> io::Result<File> {
-    let fd = openat2(dirfd, path, flags | libc::O_CLOEXEC, mode)?;
+    let fd = openat2(dirfd, path, flags | libc::O_CLOEXEC, mode, resolve)?;
     file_from_fd(fd)
 }
 
@@ -59,6 +73,7 @@ fn openat2(
     path: &CStr,
     flags: libc::c_int,
     mode: libc::mode_t,
+    resolve: Resolve,
 ) -> io::Result<libc::c_int> {
     // SAFETY: all-zero is a valid `open_how` baseline; every ABI field is then
     // initialized below before the kernel reads the structure.
@@ -69,7 +84,12 @@ fn openat2(
     } else {
         0
     };
-    how.resolve = libc::RESOLVE_BENEATH | libc::RESOLVE_NO_MAGICLINKS;
+    how.resolve = libc::RESOLVE_BENEATH
+        | libc::RESOLVE_NO_MAGICLINKS
+        | match resolve {
+            Resolve::Beneath => 0,
+            Resolve::NoSymlinks => libc::RESOLVE_NO_SYMLINKS,
+        };
     retry_openat2(|| {
         // SAFETY: `path` points to a NUL-terminated string, `how` is a valid
         // `open_how` with its exact ABI size, and `dirfd` remains borrowed for

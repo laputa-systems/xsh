@@ -2193,6 +2193,8 @@ name = "xsh-root"
 version = "0.0.1"
 dependencies = [
  "libc",
+ "rustix",
+ "tempfile",
 ]
 
 [[package]]

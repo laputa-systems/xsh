@@ -15,6 +15,15 @@ compile_error!("xsh-root supports only Linux 5.6+ and macOS 26+");
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+mod mutate;
+
+pub use mutate::{DirEntry, FileKind, Metadata, NodeKind, RenameMode};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Resolve {
+    Beneath,
+    NoSymlinks,
+}
 
 use std::ffi::CString;
 use std::fs::File;
@@ -55,6 +64,7 @@ impl Root {
             &c_path,
             libc::O_RDONLY | libc::O_DIRECTORY,
             0,
+            Resolve::Beneath,
         ) {
             Ok(directory) => Ok(directory),
             Err(error)
@@ -77,7 +87,12 @@ impl Root {
     pub fn open_with(&self, path: impl AsRef<Path>, options: &OpenOptions) -> io::Result<File> {
         let path = relative_path_to_cstring(path.as_ref())?;
         let (flags, mode) = options.flags()?;
-        platform::open_file(self.fd.as_fd(), &path, flags, mode)
+        let resolve = if options.no_symlinks {
+            Resolve::NoSymlinks
+        } else {
+            Resolve::Beneath
+        };
+        platform::open_file(self.fd.as_fd(), &path, flags, mode, resolve)
     }
 
     /// Creates or truncates a file beneath this root for writing.
@@ -94,7 +109,14 @@ impl Root {
     /// callers that need a narrower anchor.
     pub fn open_dir(&self, path: impl AsRef<Path>) -> io::Result<Self> {
         let path = relative_path_to_cstring(path.as_ref())?;
-        platform::open_dir(self.fd.as_fd(), &path).map(|fd| Self { fd })
+        platform::open_dir(self.fd.as_fd(), &path, Resolve::Beneath).map(|fd| Self { fd })
+    }
+
+    /// Opens a directory beneath this root, failing if any component of the
+    /// path is a symbolic link.
+    pub fn open_dir_strict(&self, path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = relative_path_to_cstring(path.as_ref())?;
+        platform::open_dir(self.fd.as_fd(), &path, Resolve::NoSymlinks).map(|fd| Self { fd })
     }
 }
 
@@ -117,6 +139,7 @@ pub struct OpenOptions {
     truncate: bool,
     create: bool,
     create_new: bool,
+    no_symlinks: bool,
     mode: u32,
 }
 
@@ -156,6 +179,13 @@ impl OpenOptions {
 
     pub fn create_new(&mut self, value: bool) -> &mut Self {
         self.create_new = value;
+        self
+    }
+
+    /// Fails the open if any component of the path, including the last, is a
+    /// symbolic link.
+    pub fn no_symlinks(&mut self, value: bool) -> &mut Self {
+        self.no_symlinks = value;
         self
     }
 
