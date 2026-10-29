@@ -180,7 +180,7 @@ impl Evaluator {
         mut stream: StreamValue,
         span: Span,
         work: impl FnOnce(ChannelReader) -> Result<T, RuntimeError> + Send + 'static,
-    ) -> Result<T, RuntimeError> {
+    ) -> Result<Result<T, RuntimeError>, RuntimeError> {
         let (sender, receiver) = crossbeam_channel::bounded::<Vec<u8>>(8);
         let worker = std::thread::Builder::new()
             .name("archive".to_string())
@@ -230,7 +230,7 @@ impl Evaluator {
         })?;
         match pull_error {
             Some(error) => Err(error),
-            None => outcome,
+            None => Ok(outcome),
         }
     }
 
@@ -288,14 +288,25 @@ impl Evaluator {
     ) -> Result<LoweredValue, RuntimeError> {
         let source = self.archive_source(values[0].clone(), "archive.list", span)?;
         let selection = self.archive_selection(&values, 1, "archive.list", span)?;
+        let limits = LimitOverrides {
+            max_output: optional_unsigned(values.get(4), "archive.list", span)?,
+            max_entry: optional_unsigned(values.get(5), "archive.list", span)?,
+            max_entries: optional_unsigned(values.get(6), "archive.list", span)?,
+        };
         match source {
-            Input::Direct(source) => {
-                lowered_runtime_stream_result(archive_module::list(source, selection, span), span)
-            }
+            Input::Direct(source) => lowered_runtime_stream_result(
+                archive_module::list(source, selection, limits, span),
+                span,
+            ),
             Input::Stream(stream) => {
                 let listed = self.pump(stream, span, move |reader| {
-                    archive_module::list_all(SourceArg::Reader(Box::new(reader)), selection, span)
-                });
+                    archive_module::list_all(
+                        SourceArg::Reader(Box::new(reader)),
+                        selection,
+                        limits,
+                        span,
+                    )
+                })?;
                 let records = listed.and_then(|entries| archive_module::entry_records(&entries, span));
                 lowered_runtime_stream_result(records.map(StreamValue::from_values), span)
             }
@@ -342,7 +353,7 @@ impl Evaluator {
             Input::Stream(stream) => self.pump(stream, span, move |reader| {
                 request.source = SourceArg::Reader(Box::new(reader));
                 archive_module::extract(request, span)
-            }),
+            })?,
         };
         Ok(lowered_unit_result(result))
     }

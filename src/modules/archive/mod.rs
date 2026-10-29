@@ -70,9 +70,10 @@ fn members(values: &[PathValue]) -> Vec<Vec<u8>> {
 pub(crate) fn list(
     source: SourceArg,
     selection: Selection,
+    limits: LimitOverrides,
     span: Span,
 ) -> Result<StreamValue, RuntimeError> {
-    let budget = budget(LimitOverrides::default());
+    let budget = budget(limits);
     let filters = selection
         .members
         .iter()
@@ -95,9 +96,10 @@ pub(crate) fn list(
 pub(crate) fn list_all(
     source: SourceArg,
     selection: Selection,
+    limits: LimitOverrides,
     span: Span,
 ) -> Result<Vec<engine::EntryMeta>, RuntimeError> {
-    let budget = budget(LimitOverrides::default());
+    let budget = budget(limits);
     let filters = selection
         .members
         .iter()

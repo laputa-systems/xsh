@@ -662,3 +662,26 @@ test test_archive_error_variants_carry_the_entry_and_facets { |ctx|
   assert archive.list(fp"{root}/missing.tar", .Tar) is Err(ArchiveError.Open {..})
   assert archive.extract(tarball, fp"{root}/out2", .Tar) is Err(is InvalidData)
 }
+
+test test_archive_lists_a_process_stream_by_draining_bodies_within_the_budget { |ctx|
+  let root = test.temp_dir(ctx, name: "archive-stream-list")?
+  let source = fp"{root}/source"
+  source.mkdir()
+  let line = repeated("a", 1023)
+  run "sh" "-c" "yes \"$1\" | head -c 12582912 > \"$2\"" "sh" $line fp"{source}/huge.txt"
+  let big = fp"{root}/big.tar"
+  archive.create(big, source, [p"."], .Tar)?
+  let drained = run.stream --bytes cat $big
+  let entries = archive.list(drained, .Tar)?.collect()
+  assert entries.len() == 1
+  assert entries[0].size == 12582912
+
+  let many = fp"{root}/many.tar"
+  write_tar(many, [{name: f"f{index}", kind: "0", link: "", data: b"x"} for index in range(6)])
+  let counted = run.stream --bytes cat $many
+  assert archive.list(counted, .Tar, max_entries: 3) is Err(ArchiveError.Limit {..})
+  let sized = run.stream --bytes cat $many
+  assert archive.list(sized, .Tar, max_output: 1024) is Err(ArchiveError.Limit {..})
+  let within = run.stream --bytes cat $many
+  assert archive.list(within, .Tar, max_entries: 6)?.collect().len() == 6
+}
