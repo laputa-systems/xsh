@@ -4287,7 +4287,15 @@ impl FullBuilder {
         } else {
             FullVerifier::verify_with_contexts(&program, verify_schemes::ProducerContexts::Pending(&self.producer_contexts))
         }.map_err(|error| {
-            IrBuildError::format("full_ir_verification", error.span, 0, 0).with_detail(Some(error.message.clone()))
+            let span = error.span.or_else(|| {
+                let function = match error.context? {
+                    super::VerifyContext::Function(function) => function,
+                    super::VerifyContext::Instruction(instruction) => (0..program.store.functions.len())
+                        .find(|&function| program.store.function_instruction_range(function).is_ok_and(|range| range.contains(&instruction)))?,
+                };
+                program.function_definition_spans.get(function).copied()
+            });
+            IrBuildError::format("full_ir_verification", span, 0, 0).with_detail(Some(error.message.clone()))
         })?;
         for (instruction, owner, ty) in contexts {
             let type_id = self.semantic.intern_type(&mut program.store.semantic, &ty)?;
@@ -24068,6 +24076,30 @@ assert triple([[[7]]]) == 7
     }
 
     #[test]
+    fn a_mutable_list_slice_argument_derives_its_type_from_the_local() {
+        run_with_large_stack(|| {
+            let program = fixture("mutable-slice-argument.xsh", r#"
+proc describe(words) [io] { print "words" }
+proc gather(args: List[Str]) [io, error] {
+    var operands: List[Str] = []
+    for word in args { operands += [word] }
+    describe(operands[1..])?
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "gather");
+            let facts = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            let slot = facts.clone().find(|&slot| TypeId::from_raw(program.store.slot_type_facts[slot]).is_some_and(|id| {
+                program.store.semantic.to_type(id).unwrap() == Type::List(Box::new(Type::Str))
+            })).unwrap();
+            let mut wrong = program.clone();
+            let integers = SemanticPoolBuilder::default().intern_type(&mut wrong.store.semantic, &Type::List(Box::new(Type::Int))).unwrap();
+            wrong.store.slot_type_facts[slot] = integers.raw();
+            assert!(FullVerifier::verify(&wrong).is_err());
+        });
+    }
+
+    #[test]
     fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
@@ -24218,6 +24250,7 @@ assert read(Err("absent"), "replacement") == 0
             foreign_binding.store.extra[binding.start] = 0;
             let error = FullVerifier::verify(&foreign_binding).unwrap_err();
             assert_eq!(error.message, "generic call argument has no closed checked type");
+            assert!(matches!(error.context, Some(super::super::VerifyContext::Instruction(_))), "{error:?}");
             let patterns = program.store.patterns.iter().enumerate().filter_map(|(index, tag)| (*tag == FullPatternTag::ResultOk).then_some(index)).collect::<Vec<_>>();
             assert_eq!(patterns.len(), 1);
             let mut wrong_pattern = (*program).clone();

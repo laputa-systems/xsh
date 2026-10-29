@@ -2931,6 +2931,13 @@ impl<'a> ProducerProof<'a> {
             return Err(IrVerifyError::new("derived argument proof has no mandatory producer demand"));
         }
         let decoder = self.owner(owner)?;
+        if let schema::ExprView::Slice { base, .. } = decoder.expression_view(instruction)? {
+            let Some(base_type) = self.derived_argument_type(owner, base.raw() as usize)? else { return Ok(None) };
+            if !matches!(base_type.unvalidated(), Type::List(_) | Type::Str | Type::Bytes) { return Ok(None); }
+            self.budget.charge_clone(&base_type)?;
+            self.expression(owner, instruction, Arc::new(base_type.clone()), false);
+            return Ok(Some(base_type));
+        }
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
             op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
         } | schema::ExprView::ListComp { .. }) {

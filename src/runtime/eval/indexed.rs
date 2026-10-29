@@ -153,6 +153,38 @@ pub struct IrVerifyErrorDetail {
     pub message: String,
     /// The source the failing construct came from, when the IR records it.
     pub span: Option<Span>,
+    /// What the verifier was working on when the error was raised.
+    pub context: Option<VerifyContext>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VerifyContext {
+    Function(usize),
+    Instruction(usize),
+}
+
+thread_local! {
+    static VERIFYING: std::cell::Cell<Option<VerifyContext>> = const { std::cell::Cell::new(None) };
+}
+
+/// Names what a verifier is working on, so an error raised deep inside carries
+/// it without every check passing it along.
+pub(super) struct Verifying(Option<VerifyContext>);
+
+impl Verifying {
+    pub(super) fn function(function: usize) -> Self {
+        Self(VERIFYING.replace(Some(VerifyContext::Function(function))))
+    }
+
+    pub(super) fn instruction(instruction: usize) -> Self {
+        Self(VERIFYING.replace(Some(VerifyContext::Instruction(instruction))))
+    }
+}
+
+impl Drop for Verifying {
+    fn drop(&mut self) {
+        VERIFYING.set(self.0);
+    }
 }
 
 impl std::ops::Deref for IrVerifyError {
@@ -172,6 +204,7 @@ impl IrVerifyError {
         Self(Box::new(IrVerifyErrorDetail {
             message: message.into(),
             span,
+            context: VERIFYING.get(),
         }))
     }
 }

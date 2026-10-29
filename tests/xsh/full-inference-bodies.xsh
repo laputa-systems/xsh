@@ -1359,3 +1359,24 @@ proc work(value) [io, error] {
   assert first.stdout == "captured\ncleanup\ncaptured\ncleanup\n1\ntwo\n", first.stdout
   assert second.stdout == first.stdout, second.stdout
 }
+
+test test_full_inference_slice_of_a_mutable_list_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc describe(host: Str, words) [io] {
+  print $host
+  print $words.len()
+}
+proc gather(args: List[Str]) [io, error] {
+  var operands = []
+  for word in args { operands += [word] }
+  describe(operands[0], operands[1..])
+}
+proc main() [io, error] {
+  gather(["a", "b", "c"])?
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "a\n2\n"
+}

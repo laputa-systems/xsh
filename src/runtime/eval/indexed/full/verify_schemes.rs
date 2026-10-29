@@ -1794,6 +1794,7 @@ fn verify_scheme_body_facts(
         let scheme_id = FullSchemeId::from_raw(u32::try_from(scheme_index).map_err(|_| IrVerifyError::new("full scheme id is out of bounds"))?)?;
         let scheme = store.scheme(scheme_id)?;
         let function_index = owners[scheme_index].ok_or_else(|| IrVerifyError::new("generic scheme has no function owner"))?;
+        let _verifying = super::super::Verifying::function(function_index);
         let function_id = IrFunctionId::new(function_index).map_err(|_| IrVerifyError::new("generic function id is invalid"))?;
         let function = store.functions[function_index];
         let instruction_range = store.function_instruction_range(function_index)?;
@@ -3296,6 +3297,7 @@ fn verify_call_instantiations(
             return Err(IrVerifyError::new("generic call instantiations are duplicated"));
         }
         let instruction = instantiation.instruction as usize;
+        let _verifying = super::super::Verifying::instruction(instruction);
         if instruction >= store.tags.len()
             || !matches!(
                 store.tags[instruction],
