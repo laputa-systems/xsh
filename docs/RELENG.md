@@ -74,6 +74,36 @@ with `release` (9.4 MB there), so measure size on `dist` products. To reproduce
 the attribution, build `dist` with `CARGO_PROFILE_DIST_STRIP=false`, then sum
 `nm -S --size-sort -C` text symbols by their leading path segment.
 
+## Size investigation, 2026-10-29
+
+The 12 MB of `xsh` code is mostly single-copy: `cargo llvm-lines` over the `xsh`
+library (8.57 million IR lines) finds only 4.5% reclaimable duplication in
+`xsh`-owned functions. The duplication sits in standard-library generics
+instantiated over `xsh` types, about 4.3 MB of final code: `BTreeMap` and
+`BTreeSet` across about 301 key and value types (2.7 MB), 239 stable-sort
+instantiations (1.5 MB), and iterator adapters (1.4 MB), overlapping. The
+verifier, which every built program runs, is about 2.0 MB.
+`tools/llvm-lines-repeat-offenders.xsh` reproduces the duplication figures.
+
+Measured `dist` variants of `xsh` against the O2 baseline (25,944,584 bytes
+stripped). CPU ratios are interleaved host pairs with readiness checks; their
+ranges are wide, so they bound the cost:
+
+| Variant | Stripped bytes | Size | CPU cost |
+|---|---|---|---|
+| `xsh` package at `opt-level = "s"` | 21,179,656 | -18.4% | sort 1.15, wc 1.14, startup 1.05 |
+| `-C llvm-args=-inline-threshold=100` | 23,581,192 | -9.1% | sort 1.07, others within spread |
+| `-Zshare-generics=yes` | 26,021,000 | +0.3% | not measured |
+| thin LTO, one codegen unit | 26,695,368 | +2.9% | not measured |
+| `-Zmerge-functions=aliases`, LLVM merge-functions | 25,944,584 | none | not measured |
+
+Open decisions for the owner: whether to take either of the first two knobs,
+and whether the verifier may leave the shipped `xsh`, which changes an
+invariant. Unmeasured source candidates, estimated from symbol counts: routing
+name-keyed sorts through one helper (0.5 to 0.8 MB), consolidating cold-path
+`BTreeMap` types (0.8 to 1.5 MB), and table-driven host-call errors (0.2 to
+0.4 MB).
+
 ## Size record
 
 | Date | Source | Product | Stripped `dist` bytes |
