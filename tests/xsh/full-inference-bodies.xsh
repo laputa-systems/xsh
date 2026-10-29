@@ -1277,3 +1277,85 @@ print $b.n
   assert output.success, output.stderr
   assert output.stdout == "0\nkept\n0\n"
 }
+
+type ImportRoots = {first: Path, second: Path}
+
+proc import_roots_fixture(ctx: TestContext, name: Str) [fs, process, error] -> Result[ImportRoots] {
+  let first = test.temp_dir(ctx, name: f"{name}-first")?
+  let second = test.temp_dir(ctx, name: f"{name}-second")?
+  fp"{first}/alpha.xsh".write(r"""##! A generic list helper.
+## Reads the first item of any list.
+export pure first_of(items) {
+  items[0]
+}
+""")?
+  fp"{second}/beta.xsh".write(r"""##! A generic selection helper.
+## Chooses between two values of one type.
+export pure pick(left, right, flag) {
+  if flag { left } else { right }
+}
+""")?
+  Ok({first, second})
+}
+
+test test_full_inference_imported_generic_schemes_ignore_the_order_of_module_roots { |ctx|
+  let roots = import_roots_fixture(ctx, "root-order")?
+  let program = r"""use alpha
+use beta
+let number: Int = alpha.first_of([4, 5])
+let word: Str = alpha.first_of(["w"])
+let chosen: Str = beta.pick(alpha.first_of(["left"]), "right", false)
+print $number
+print $word
+print $chosen
+"""
+  let forward = test.expect(ctx, program, status: 0, args: [], env: {XSH_MODULE_PATH: f"{roots.first}:{roots.second}"})?
+  let backward = test.expect(ctx, program, status: 0, args: [], env: {XSH_MODULE_PATH: f"{roots.second}:{roots.first}"})?
+  assert forward.stdout == "4\nw\nright\n", forward.stdout
+  assert backward.stdout == forward.stdout, backward.stdout
+}
+
+test test_full_inference_named_and_imported_constants_match_inline_descriptors { |ctx|
+  let root = test.temp_dir(ctx, name: "constant-descriptors")?
+  fp"{root}/shapes.xsh".write(r"""##! Shared descriptors.
+## A shared row.
+export const SHARED = {label: "shared", weight: 3}
+""")?
+  let reader = r"""pure label_of(row) {
+  row.label
+}
+pure weight_of(row) {
+  row.weight + 1
+}
+"""
+  let inline = test.expect(ctx, reader + "let a = label_of({label: \"shared\", weight: 3})\nlet b = weight_of({label: \"shared\", weight: 3})\nprint $a\nprint $b\n", status: 0, args: [], env: {})?
+  let named = test.expect(ctx, reader + "const LOCAL = {label: \"shared\", weight: 3}\nlet a = label_of(LOCAL)\nlet b = weight_of(LOCAL)\nprint $a\nprint $b\n", status: 0, args: [], env: {})?
+  let imported = test.expect(ctx, "use shapes\n" + reader + "let a = label_of(shapes.SHARED)\nlet b = weight_of(shapes.SHARED)\nprint $a\nprint $b\n", status: 0, args: [], env: {XSH_MODULE_PATH: root})?
+  assert inline.stdout == "shared\n4\n", inline.stdout
+  assert named.stdout == inline.stdout, named.stdout
+  assert imported.stdout == inline.stdout, imported.stdout
+}
+
+test test_full_inference_extracting_a_helper_keeps_capture_and_cleanup_order { |ctx|
+  let shared = "let marker = {tag: \"captured\"}\n"
+  let direct = r"""proc work(value) [io, error] {
+  defer { print "cleanup" }
+  print $marker.tag
+  value
+}
+"""
+  let extracted = r"""proc announce(tag) [io, error] {
+  print $tag
+}
+proc work(value) [io, error] {
+  defer { print "cleanup" }
+  announce(marker.tag)?
+  value
+}
+"""
+  let uses = "let a = work(1)?\nlet b = work(\"two\")?\nprint $a\nprint $b\n"
+  let first = test.expect(ctx, shared + direct + uses, status: 0, args: [], env: {})?
+  let second = test.expect(ctx, shared + extracted + uses, status: 0, args: [], env: {})?
+  assert first.stdout == "captured\ncleanup\ncaptured\ncleanup\n1\ntwo\n", first.stdout
+  assert second.stdout == first.stdout, second.stdout
+}
