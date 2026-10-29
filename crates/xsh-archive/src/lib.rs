@@ -4,6 +4,7 @@ mod archive;
 mod budget;
 mod compression;
 mod cpio_reader;
+mod create;
 mod cursor;
 mod entry;
 mod error;
@@ -18,6 +19,7 @@ pub use compression::{
     BUFFER_SIZE, Codec, Compression, DEFAULT_LEVEL, Encode, Encoder, GzipHeader, SNIFF_LEN,
     decoder,
 };
+pub use create::{CreateOptions, create};
 pub use cursor::{Completion, Cursor, Entry, Finish};
 pub use entry::{EntryKind, EntryMeta, Format};
 pub use error::{Error, ErrorKind, Result};

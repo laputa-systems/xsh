@@ -43,6 +43,8 @@ pub struct Metadata {
     pub inode: u64,
     pub device: u64,
     pub link_count: u64,
+    pub special_device: (u32, u32),
+    pub modified: i64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -256,6 +258,11 @@ impl Root {
             inode: stat.st_ino,
             device: narrow(stat.st_dev),
             link_count: narrow(stat.st_nlink),
+            special_device: (
+                narrow(rustix::fs::major(stat.st_rdev)),
+                narrow(rustix::fs::minor(stat.st_rdev)),
+            ),
+            modified: narrow(stat.st_mtime),
         })
     }
 
