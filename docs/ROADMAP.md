@@ -22,7 +22,7 @@ instructions, and open items.
 | 6 | Deser cutover | done, qualification open | [TODO.md](../TODO.md) | Correctness and platform qualification are open items there. |
 | 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | Reuse system-report for remote inspection and redacted diagnostics; the util-linux resource rerun remains XSH-1. |
-| 9 | SSH-native remote XSH | planned, next capability | [Remote XSH](#next-capability-ssh-native-remote-xsh) | Qualify one typed execution/file-transfer path against an established SSH implementation, then evolve the transport without rewriting its consumers. |
+| 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | planned, after rows 2 to 4 | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | Starts when Pyramid and inference close and Lean's G1b slice lands; see [Sequence](#sequence). |
 
 When inference changes a Pyramid input or contract, rerun the affected checks.
 Lean's source-bound correspondence uses the qualified source available after
@@ -38,8 +38,26 @@ outstanding correctness and platform qualification are not passes.
 not another catalog of utility ports. Preserve the [design principles](DESIGN.md):
 small reusable host mechanisms, ordinary XSH userspace policy, and mature
 external engines where they reduce risk. No new language syntax, async runtime,
-mandatory resident management daemon, or general configuration-management
-framework is implied.
+or mandatory resident management daemon is implied, and XSH itself gains no
+configuration-management framework; xsh-infra is a separate application.
+
+Two campaigns implement it. [XSH-55](rfc/XSH-55-native-ssh-client.md) builds a
+native SSH client on OxiSH's sans-I/O protocol code and Graviola, exposed
+through a small typed XSH API. [XSH-56](rfc/XSH-56-xsh-infra.md) builds
+xsh-infra, a small pyinfra-inspired configuration-management tool written in
+XSH in its own repository, as the first substantial consumer: native Rust
+handles SSH protocol and I/O, XSH handles infrastructure policy.
+
+### Sequence
+
+Both campaigns start after the active work closes: Pyramid item 4, the
+inference campaign, and Lean's current G1b slice. Lean continues alongside
+them afterwards, since it touches only `formal/` and test-only bridge code.
+XSH-55 comes first. XSH-56's pure planner and resource work may start before
+XSH-55 lands, but its remote execution is not complete until it runs over the
+native client. Laputa's administration library
+([R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#ssh-native-xsh-administration))
+consumes the same client.
 
 ### Ownership and first consumer
 
@@ -53,20 +71,21 @@ a second PM or service manager.
 The first consumer is one headless Laputa VM administered from a separate
 machine: inspect its generation and xinit services, run an explicit command,
 transfer a verified candidate, and obtain useful diagnostics after failure.
+xsh-infra is the second: reconciling Alpine/Laputa-style hosts that have no
+remote XSH runtime, over a probed remote POSIX shell.
 Target the user's macOS aarch64 administration workflow as well as Linux;
 qualify the host/guest combinations separately. This does not extend G0's
 platform claim or require completing Linux aarch64/Asterinas before a useful
 Linux x86_64 guest slice can land.
 
-### Stage 1: establish the remote-execution contract
+### Stage 1: the remote-execution contract over the native client
 
-Start with a narrow typed interface over an established SSH implementation.
-The OpenSSL-less OpenSSH client in
-[ssh-build](https://github.com/laputa-systems/ssh-build) is prior art and an
-interoperability candidate, not an excuse to silently narrow algorithm support.
-Keep the interface transport-independent so a native Graviola/OxiSH-backed
-client can later satisfy the same contract. Do not write cryptographic
-primitives or weaken host-key verification to get an initial connection.
+XSH-55 implements this contract directly with the native Graviola/OxiSH-backed
+client; the runtime never invokes `ssh`, `scp` or `sftp`. The OpenSSL-less
+OpenSSH client in [ssh-build](https://github.com/laputa-systems/ssh-build) is a
+test oracle against the same servers, never a production fallback, and not an
+excuse to narrow algorithm support. Do not write cryptographic primitives or
+weaken host-key verification to get an initial connection.
 
 Define the following behavior before committing to public API spellings:
 
@@ -75,11 +94,15 @@ Define the following behavior before committing to public API spellings:
   require a deliberate trust decision. No implicit agent forwarding or secret
   material in logs, plans, or diagnostics.
 - Structured executable/argv, environment, working directory, and byte-preserving
-  paths. SSH exec carries a command string, not a native argv vector. Invoke a
-  fixed reviewed remote entrypoint and send bounded, versioned data to it;
-  never interpolate request values into remote shell source. Reuse the existing
-  data/validation model rather than inventing an RPC framework. Separate
-  protocol framing from the invoked program's input and output.
+  paths. SSH exec carries a command string, not a native argv vector. Where
+  the remote runs XSH, as on Laputa, invoke a fixed reviewed remote entrypoint
+  and send bounded, versioned data to it; never interpolate request values into
+  remote shell source. Reuse the existing data/validation model rather than
+  inventing an RPC framework. Separate protocol framing from the invoked
+  program's input and output. A host without XSH, as xsh-infra targets, goes
+  through one audited quoting helper for an explicitly probed remote shell,
+  tested with hostile values; that helper is the only place request values
+  become shell source.
 - Streaming stdin/stdout/stderr, explicit exit status versus transport failure,
   bounded buffering/backpressure, deadlines, and owned channel/process cleanup.
   Non-PTY execution comes first; PTY/interactive behavior is a separate explicit
@@ -108,14 +131,13 @@ those same libraries to inspect xinit, transfer and verify one artifact, and
 run a controlled operation on a disposable Laputa VM. Do not require a rewritten
 SSH server to complete this slice.
 
-### Stage 2: integrate the native transport without changing policy
+### Stage 2: consumers keep policy in XSH
 
-Evaluate the OxiSH client APIs and Graviola provider against Stage 1's tested
-contract. Any native host extension should own only the protocol/crypto/resource
-boundary; keep dispatch, retries, inspection, and deployment policy in XSH.
-Compare dependency closure, supported algorithms, virtual CPU requirements,
-stream ownership, and failure behavior. Retain the established implementation
-as an interoperability oracle until the selected replacement is qualified.
+The native crate owns only the protocol, cryptography, and resource boundary;
+dispatch, retries, inspection, and deployment policy stay in XSH, in Laputa's
+administration library and in xsh-infra. Record the client's dependency
+closure, supported algorithms, CPU requirements, stream ownership, and failure
+behavior with its qualification.
 
 The current ssh-build OxiSH server is Git-only; it is not a general login,
 PTY, or file-transfer server. Do not broaden that server just to remove C from
@@ -140,8 +162,9 @@ and activate it through the normal system lifecycle. It does not require
 rewriting the compiler in XSH or rebuilding the whole world before remote
 administration is useful.
 
-Defer unrelated codecs, coreutils ports, desktop protocols, and generic fleet
-orchestration. No D-Bus, systemd, logind, Ansible clone, or parallel test framework.
+Defer unrelated codecs, coreutils ports, desktop protocols, and fleet
+orchestration inside XSH or Laputa. xsh-infra is a deliberately small separate
+tool, not an Ansible clone. No D-Bus, systemd, logind, or parallel test framework.
 Use existing focused gates and explicit implementation slices; this planning
 update changes no runtime behavior or previously recorded qualification result.
 

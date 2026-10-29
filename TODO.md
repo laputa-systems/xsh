@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 55
+Next: 57
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -73,6 +73,28 @@ out of scope.
 - **Coordination:** XSH-36 owns the resource contracts; Laputa LAP-36 supplies the xinit/PID 1 consumer, and LAP-34 owns its first hermetic lifecycle replay.
 - **Fix with:** lifecycle-concurrency
 - **Effort:** M
+
+### XSH-55 · P2 · Build the native SSH client
+
+- **Area:** Remote execution
+- **Where:** new `crates/xsh-ssh`, a thin adapter beside `crates/xsh-net`'s, `docs/rfc/XSH-55-native-ssh-client.md`
+- **Problem:** XSH has no SSH transport, so Laputa's remote administration and xsh-infra have nothing typed to build on. The runtime must not shell out to `ssh`.
+- **Recommendation:** Follow the RFC: a reusable client over a pinned import of ssh-build's `oxish-proto` and `oxish-graviola`, Graviola as the only cryptographic provider, mandatory host verification, and a small typed exec/stream API with execution certainty.
+- **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental.
+- **Coordination:** Starts after the active campaigns per the [roadmap sequence](docs/ROADMAP.md#sequence). Laputa R6 and XSH-56 consume it.
+- **Fix with:** security
+- **Effort:** L
+
+### XSH-56 · P2 · Build xsh-infra over the native SSH client
+
+- **Area:** Remote execution consumer
+- **Where:** new repository `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
+- **Problem:** No substantial XSH application exercises remote reconciliation; it would show whether XSH supports such an application without moving its logic into Rust.
+- **Recommendation:** Follow the RFC: a small pyinfra-inspired tool written in XSH with typed resources, plan/apply/check, per-host failure data, safe file staging and a remote lock, using only XSH-55 for transport.
+- **Acceptance:** The RFC's per-resource and integration scenarios pass against disposable Alpine SSH hosts, with pyinfra as a differential reference on equivalent hosts; XSH defects found get minimal reproducers in XSH.
+- **Coordination:** Pure planner and resource work may start before XSH-55; remote execution waits for it.
+- **Fix with:** isolate-effects
+- **Effort:** L
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
