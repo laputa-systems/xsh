@@ -96,17 +96,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-57 · P2 · Consolidate archive and compression support
-
-- **Area:** Archives and compression
-- **Where:** new `crates/xsh-archive`, `crates/xsh-root/`, `src/modules/archive/`, `src/modules/compression.rs`, `crates/xsh-registry/`, `docs/rfc/XSH-57-archive-and-compression.md`
-- **Problem:** Eight format-named functions share no entry model, compression has two completion paths and inconsistent level checks, each format applies entries to the filesystem itself with check-then-join paths, a missing archive trailer or a corrupt gzip trailer is accepted, there is no resource budget, ZIP reports `modified: 0`, TAR link names are lossy, and no format reads a stream.
-- **Recommendation:** Follow the RFC: a reusable `xsh-archive` crate with one scoped entry cursor, one compression lifecycle with an explicit fallible finish, one resource budget, completion levels, and rooted staged extraction through `xsh-root`. Replace the format-named functions with `archive.list`, `archive.extract` and `archive.create`, take real enums for format, compression and every closed option set, migrate every caller, and delete the old functions.
-- **Acceptance:** The RFC's test plan passes: malformed and truncated archives, budget expansion, traversal, link escape, collisions, non-UTF-8 names, streamed large bodies, cancellation cleanup, TAR and CPIO from a stream with ZIP rejecting a pipe, failing finish, and interoperability with BusyBox and Python readers and writers. The Laputa PM, installer and seed tests pass on the migrated calls.
-- **Coordination:** XSH-37 shares the `xsh-root` mutation operations. Laputa owns its call-site migration in the same campaign. The inference lane edits `src/sema/` and `src/runtime/eval/`; rebase often.
-- **Fix with:** make-invalid-states-unrepresentable
-- **Effort:** L
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
