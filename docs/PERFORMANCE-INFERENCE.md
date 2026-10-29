@@ -219,6 +219,32 @@ locals (78.35%) can go. If all 758 Proc annotations remain, at most 1,432 of
 2,190 internal sites (65.39%) can go, or 1,230 (56.16%) with all 202 effect
 clauses. These are conditional accounting scenarios, not language limits.
 
+**Core parameter sites, 2026-10-29.** After slice 23, 4,528 of 4,724 private
+parameter annotations in `core/*.xsh` (95.8%) erase alone, and 196 do not. The
+table groups those 196 by the first diagnostic of each failure, so it is a
+heuristic grouping. The optional and nominal rows were read against about 40
+sampled sites; the others were not read site by site.
+
+| Group (first diagnostic) | Sites | Reading |
+|---|---:|---|
+| Verifier or lowering refusal (`compact.indexed-build`) | 69 | Missing inference. The program type-checks, and the indexed verifier or lowering cannot yet prove the generic body. Classes: record override remainder (12), generic call argument with no closed checked type (7), body expression disagreeing with its checked type (5), ground slice and comprehension contracts, duplicated argument requests |
+| Other `check.type-mismatch` | 37 | Mixed. "No standard API overload matches" (9) and a generic record parameter against a concrete record (`T` against `Record`) are missing inference. A `Bytes` or `Str` parameter used where the callee expects `Path` is a body conversion the annotation selects |
+| Callable generalization (`check.local-inference`) | 18 | Missing inference: `UnresolvedWrapper` (12), `RecoveryType` (3), and three others |
+| Optional contract | 17 | Justified. An `Options`, `Entry?` or `Int?` annotation says a field may be absent. The body alone uses the value as present (`expected Path, found Path?`), so inference selects the narrower type. The annotation is the source contract |
+| Nominal `Error` | 10 | Justified. A parameter annotated `Error` is the nominal error family, while the body supports only a row of the fields it reads, and error-variant patterns match on the family. Includes the `try` propagation cases |
+| Operator on an unannotated numeric (`check.operator-type`) | 8 | Missing inference: `+=` or `*=` on a local whose type comes from the erased parameter |
+| Assignment target (`check.assign-target`) | 8 | Missing inference: indexed or field assignment on a value with no closed record or collection type |
+| Inferred variant (`check.inferred-variant`) | 6 | Missing inference: `.Variant` needs an expected type that the erased parameter would supply |
+| Conversion (`check.conversion`) | 6 | Missing inference: a conversion from an unresolved value to `Str`, `Int` or `Path` |
+| Checker panic (`call instantiation is recorded once`) | 6 | Defect, not an annotation question. `let x = generic_call(...).field` checked the call twice; fixed in slice 24, which erases four of the six (ptx `trim_span` and shuf `wide_add`) |
+| `infer-param` default, ambiguous overload, result fallback, display conversion, CLI entry, callable mismatch | 11 | `check.cli-entry` (`dhcpc.xsh`) is justified, because a CLI parameter must be a supported scalar. The four `infer-param` cases need a concrete default or an annotation by rule. The rest are missing inference |
+
+On this reading 28 sites (optional contract and nominal `Error`) plus the CLI
+entry are justified retained annotations, and `smartctl.xsh` `json_document
+options` is a thirtieth, because substituting `Any` into a generic call is
+forbidden. The other 166 are missing inference or implementation work (six of
+them the checker panic), and none is a permanent floor.
+
 ## Practical cohort
 
 The practical cohort is `core/wc.xsh`, `core/sort.xsh`, `core/awk.xsh`, and

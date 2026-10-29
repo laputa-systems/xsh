@@ -34,6 +34,14 @@ impl CallableAlias {
     }
 }
 
+fn is_module_path(program: &ArenaProgram, expression: ExprId) -> bool {
+    match program.arena.expr(expression).kind {
+        ArenaExprKind::Ident(_) => true,
+        ArenaExprKind::Field { base, .. } => is_module_path(program, base),
+        _ => false,
+    }
+}
+
 impl Checker {
     pub(super) fn check_generic_module_alias_initializer(
         &mut self,
@@ -54,6 +62,9 @@ impl Checker {
             )
             && super::api_spec().module(&namespace.as_str()).is_some()
         {
+            return None;
+        }
+        if !is_module_path(program, base) {
             return None;
         }
         let Type::Module(exports) = self.check_expr_arena(program, source, base, None) else {

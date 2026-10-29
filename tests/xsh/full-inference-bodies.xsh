@@ -1549,3 +1549,23 @@ proc main(...argv: List[Str]) [fs, process, error, io] {
   let absent = test.expect(ctx, program, status: 7, args: [f"{root}/missing.txt"], env: {})?
   assert absent.stdout == "", absent.stdout
 }
+
+test test_full_inference_field_of_a_generic_call_initializes_a_local { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Span = {s: Int, e: Int}
+pure make(items, end: Int) -> Span { {s: items[0], e: end} }
+pure last(items: List[Int]) -> Int {
+  let end = make(items, 9).e
+  end
+}
+proc main(...argv: List[Str]) [io] {
+  print $last([3, 4])
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "9\n", output.stdout
+}

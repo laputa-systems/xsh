@@ -1161,6 +1161,12 @@ mod inferred_body_scope_tests {
     }
 
     #[test]
+    fn a_field_of_a_generic_call_may_initialize_a_local() {
+        let source = "type Span = {s: Int, e: Int}\npure make(items, end: Int) -> Span { {s: items[0], e: end} }\npure last(items: List[Int]) -> Int { let end = make(items, 1).e; end }\n";
+        assert_eq!(errors(source), Vec::<DiagnosticCode>::new());
+    }
+
+    #[test]
     fn a_body_may_not_declare_one_name_twice_when_its_return_is_inferred() {
         assert_eq!(errors("pure v(n: Int) { let m = 1; let m = 2; n }\n"), vec![DiagnosticCode::CheckDuplicateName]);
     }
