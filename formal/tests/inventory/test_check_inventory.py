@@ -1235,6 +1235,115 @@ class InventoryCheckerTests(unittest.TestCase):
             CHECKER.parse_builtin_type_names(fixture),
         )
 
+    def closed_obligation_context(
+        self,
+    ) -> tuple[str, list[dict[str, str]], dict[str, Path], set[str]]:
+        plan = (ROOT / "xsh-lean.md").read_text()
+        obligations = CHECKER.load_json(ROOT / "formal/coverage.json")["universal_theorems"]
+        obligations = [dict(entry) for entry in obligations]
+        fixture = ROOT / "formal/tests/inventory/fixtures/commented_theorem.lean.txt"
+        module_sources = {"Xsh.Fixture": fixture}
+        obligations[0].update(
+            {
+                "status": "closed",
+                "module": "Xsh.Fixture",
+                "declaration": "Xsh.Fixture.real_theorem",
+            }
+        )
+        return plan, obligations, module_sources, {"Xsh.Fixture"}
+
+    def validate_closed(
+        self,
+        plan: str,
+        obligations: list[dict[str, str]],
+        module_sources: dict[str, Path] | None,
+        reachable: set[str] | None,
+        fragment_declarations: set[str] | None = None,
+    ) -> list[str]:
+        return CHECKER.validate_obligation_entries(
+            plan, obligations, set(), module_sources, reachable, fragment_declarations
+        )
+
+    def test_closed_obligation_with_live_reachable_root_is_accepted(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        self.assertEqual(
+            77, len(self.validate_closed(plan, obligations, module_sources, reachable))
+        )
+
+    def test_closed_obligation_with_missing_root_fails(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        obligations[0]["declaration"] = "Xsh.Fixture.not_a_theorem"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "not a public theorem"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+        obligations[0]["module"] = "Xsh.Absent"
+        obligations[0]["declaration"] = "Xsh.Absent.real_theorem"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "names missing module"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
+    def test_closed_obligation_root_must_be_qualified_by_its_module(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        obligations[0]["declaration"] = "Xsh.Other.real_theorem"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "qualified by Xsh.Fixture"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
+    def test_closed_obligation_with_unreachable_root_fails(self) -> None:
+        plan, obligations, module_sources, _ = self.closed_obligation_context()
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unreachable from Xsh"):
+            self.validate_closed(plan, obligations, module_sources, set())
+
+    def test_closed_obligation_cannot_reuse_a_fragment_root(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        with self.assertRaisesRegex(CHECKER.InventoryError, "cannot close theorem obligation"):
+            self.validate_closed(
+                plan, obligations, module_sources, reachable, {"Xsh.Fixture.real_theorem"}
+            )
+
+    def test_two_closed_obligations_cannot_share_a_root(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        obligations[1].update(
+            {
+                "status": "closed",
+                "module": "Xsh.Fixture",
+                "declaration": "Xsh.Fixture.real_theorem",
+            }
+        )
+        with self.assertRaisesRegex(CHECKER.InventoryError, "reuses root declaration"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
+    def test_planned_obligation_cannot_claim_a_root(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        obligations[0]["status"] = "planned"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "cannot claim a proof root"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
+    def test_closed_obligation_must_name_its_root(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        del obligations[0]["module"]
+        del obligations[0]["declaration"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must name its root"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
+    def test_closed_obligation_needs_lean_modules(self) -> None:
+        plan, obligations, _, _ = self.closed_obligation_context()
+        with self.assertRaisesRegex(CHECKER.InventoryError, "cannot close without Lean modules"):
+            self.validate_closed(plan, obligations, None, None)
+
+    def test_unknown_obligation_status_fails(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        obligations[0]["status"] = "proved"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "planned or closed"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
+    def test_closed_obligation_keeps_its_full_proof_root_id_and_evidence_class(self) -> None:
+        plan, obligations, module_sources, reachable = self.closed_obligation_context()
+        obligations[0]["proof_root_id"] = "full.OTHER"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "full proof-root id"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+        obligations[0]["proof_root_id"] = f"full.{obligations[0]['id']}"
+        obligations[0]["evidence_class"] = "RUST_CONFORMANCE"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must use SPEC_PROVED"):
+            self.validate_closed(plan, obligations, module_sources, reachable)
+
     def test_missing_obligation_entry_fails(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         plan = (ROOT / "xsh-lean.md").read_text()

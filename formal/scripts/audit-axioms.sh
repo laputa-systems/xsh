@@ -29,6 +29,7 @@ usage: scripts/audit-axioms.sh
 
 Builds and audits every Lean module under formal/ except audit scripts.
 Only propext, Quot.sound, and Classical.choice are permitted dependencies.
+Every closed obligation in coverage.json must name a theorem in a project module.
 EOF
 }
 
@@ -61,8 +62,17 @@ build_project_modules() {
   lake_project build "${project_modules[@]}"
 }
 
+closed_roots() {
+  jaq -r '.universal_theorems[] | select(.status == "closed") | .declaration' coverage.json
+}
+
 audit_source() {
   local prefix=$1
+  local roots=${2-}
+  local root
+  if [[ $# -lt 2 ]]; then
+    roots=$(closed_roots)
+  fi
   {
     printf 'import Lean\n'
     for module in "${project_modules[@]}"; do
@@ -72,6 +82,11 @@ audit_source() {
     for module in "${project_modules[@]}"; do
       printf '  `%s,\n' "$module"
     done
+    printf ']\n'
+    printf 'def xshClosedRoots : Array Lean.Name := #[\n'
+    while IFS= read -r root; do
+      [[ -n "$root" ]] && printf '  `%s,\n' "$root"
+    done <<<"$roots"
     printf ']\n'
     if [[ -n "$prefix" ]]; then
       printf '%s\n' "$prefix"
@@ -84,9 +99,10 @@ expect_rejected() {
   local label=$1
   local expected=$2
   local prefix=$3
+  local roots=${4-}
   local output status=0
 
-  output=$(audit_source "$prefix" 2>&1) || status=$?
+  output=$(audit_source "$prefix" "$roots" 2>&1) || status=$?
   if (( status == 0 )); then
     printf 'negative control unexpectedly passed: %s\n' "$label" >&2
     return 1
@@ -107,6 +123,9 @@ self_test() {
   expect_rejected custom 'project axiom declaration rejected: OutsideXsh.forbidden' "$custom_control"
   expect_rejected native 'project axiom declaration rejected: OutsideXsh.nativeRoot._native.native_decide.' "$native_control"
   expect_rejected sorry 'sorryRoot depends on forbidden axioms' "$sorry_control"
+  expect_rejected missing-root 'closed proof root is not a declaration: Xsh.Absent.root' '' 'Xsh.Absent.root'
+  expect_rejected non-theorem-root 'closed proof root is not a theorem: Xsh.Foundation.Word32.decode?' '' 'Xsh.Foundation.Word32.decode?'
+  expect_rejected outside-root 'closed proof root is outside the project modules: Nat.add_comm' '' 'Nat.add_comm'
 }
 
 prepare_work_root

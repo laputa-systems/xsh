@@ -29,6 +29,15 @@ run_cmd do
       let forbidden := axioms.filter (fun axiomName => !isAllowedAxiom axiomName)
       if !forbidden.isEmpty then
         throwError m!"{name} depends on forbidden axioms {forbidden}"
+  for root in xshClosedRoots do
+    let some info := env.find? root
+      | throwError m!"closed proof root is not a declaration: {root}"
+    unless info matches .thmInfo _ do
+      throwError m!"closed proof root is not a theorem: {root}"
+    let some index := env.getModuleIdxFor? root
+      | throwError m!"closed proof root is outside the project modules: {root}"
+    unless xshAuditProjectModules.contains env.header.moduleNames[index.toNat]! do
+      throwError m!"closed proof root is outside the project modules: {root}"
   if checkedDeclarations == 0 then
     throwError "no project declarations found"
-  logInfo m!"Axiom allowlist passed for {checkedDeclarations} project declaration(s)"
+  logInfo m!"Axiom allowlist passed for {checkedDeclarations} project declaration(s) and {xshClosedRoots.size} closed root(s)"

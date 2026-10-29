@@ -1810,25 +1810,67 @@ def compare_owner_items(owner_id: str, inventoried: Any, live: list[str]) -> Non
         )
 
 
+PLANNED_OBLIGATION_KEYS = {"id", "gate", "evidence_class", "status", "proof_root_id"}
+CLOSED_OBLIGATION_KEYS = PLANNED_OBLIGATION_KEYS | {"module", "declaration"}
+
+
+def validate_closed_root(
+    identifier: str,
+    entry: dict[str, Any],
+    module_sources: dict[str, Path] | None,
+    reachable_modules: set[str] | None,
+    fragment_declarations: set[str],
+    closed_declarations: set[str],
+) -> None:
+    if module_sources is None or reachable_modules is None:
+        raise InventoryError(f"theorem obligation {identifier} cannot close without Lean modules")
+    module = entry["module"]
+    declaration = entry["declaration"]
+    if not isinstance(module, str) or not module.startswith("Xsh."):
+        raise InventoryError(f"closed obligation {identifier} must name an Xsh module")
+    if not isinstance(declaration, str) or not declaration.startswith(f"{module}."):
+        raise InventoryError(
+            f"closed obligation {identifier} must name a declaration qualified by {module}"
+        )
+    path = module_sources.get(module)
+    if path is None:
+        raise InventoryError(f"closed obligation {identifier} names missing module {module}")
+    if module not in reachable_modules:
+        raise InventoryError(f"closed obligation {identifier} root module {module} is unreachable from Xsh")
+    if declaration not in lean_theorem_declarations(path.read_text(encoding="utf-8")):
+        raise InventoryError(
+            f"closed obligation {identifier} root is not a public theorem in {module}: {declaration}"
+        )
+    if declaration in fragment_declarations:
+        raise InventoryError(
+            f"fragment root declaration {declaration} cannot close theorem obligation {identifier}"
+        )
+    if declaration in closed_declarations:
+        raise InventoryError(f"closed obligation {identifier} reuses root declaration {declaration}")
+    closed_declarations.add(declaration)
+
+
 def validate_obligation_entries(
     plan: str,
     obligations: Any,
     fragment_root_ids: set[str] | None = None,
+    module_sources: dict[str, Path] | None = None,
+    reachable_modules: set[str] | None = None,
+    fragment_declarations: set[str] | None = None,
 ) -> list[str]:
     required = required_plan_obligations(plan)
     if not isinstance(obligations, list):
         raise InventoryError("obligations must be an array")
     fragment_root_ids = fragment_root_ids or set()
+    fragment_declarations = fragment_declarations or set()
     seen: set[str] = set()
     seen_root_ids: set[str] = set()
+    closed_declarations: set[str] = set()
     for entry in obligations:
-        if not isinstance(entry, dict) or set(entry) != {
-            "id",
-            "gate",
-            "evidence_class",
-            "status",
-            "proof_root_id",
-        }:
+        if not isinstance(entry, dict) or set(entry) not in (
+            PLANNED_OBLIGATION_KEYS,
+            CLOSED_OBLIGATION_KEYS,
+        ):
             raise InventoryError("obligation row has an invalid shape")
         identifier = entry["id"]
         if not isinstance(identifier, str) or identifier in seen:
@@ -1836,7 +1878,7 @@ def validate_obligation_entries(
         seen.add(identifier)
         root_id = entry["proof_root_id"]
         if not isinstance(root_id, str) or not root_id.strip():
-            raise InventoryError(f"theorem obligation {identifier} needs a planned proof-root id")
+            raise InventoryError(f"theorem obligation {identifier} needs a proof-root id")
         if root_id in fragment_root_ids:
             raise InventoryError(
                 f"fragment root {root_id} cannot close theorem obligation {identifier}"
@@ -1848,8 +1890,27 @@ def validate_obligation_entries(
         seen_root_ids.add(root_id)
         if entry["evidence_class"] != "SPEC_PROVED":
             raise InventoryError(f"theorem obligation {identifier} must use SPEC_PROVED")
-        if entry["status"] != "planned":
-            raise InventoryError(f"theorem obligation {identifier} must remain visibly planned")
+        status = entry["status"]
+        if status == "planned":
+            if set(entry) != PLANNED_OBLIGATION_KEYS:
+                raise InventoryError(
+                    f"planned theorem obligation {identifier} cannot claim a proof root"
+                )
+        elif status == "closed":
+            if set(entry) != CLOSED_OBLIGATION_KEYS:
+                raise InventoryError(f"closed theorem obligation {identifier} must name its root")
+            validate_closed_root(
+                identifier,
+                entry,
+                module_sources,
+                reachable_modules,
+                fragment_declarations,
+                closed_declarations,
+            )
+        else:
+            raise InventoryError(
+                f"theorem obligation {identifier} must be planned or closed, not {status!r}"
+            )
         if entry["gate"] != required.get(identifier):
             raise InventoryError(f"theorem obligation {identifier} is bound to the wrong plan gate")
     if seen != set(required):
@@ -2246,7 +2307,12 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         coverage["fragment_roots"], module_sources, reachable_modules
     )
     obligation_ids = validate_obligation_entries(
-        plan, coverage["universal_theorems"], fragment_root_ids
+        plan,
+        coverage["universal_theorems"],
+        fragment_root_ids,
+        module_sources,
+        reachable_modules,
+        {root["declaration"] for root in coverage["fragment_roots"]},
     )
     validate_finite_conformance(
         coverage["finite_conformance"],
@@ -2257,6 +2323,11 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         "owners": live,
         "fragment_roots": fragment_root_ids,
         "obligations": obligation_ids,
+        "closed_obligations": [
+            entry["id"]
+            for entry in coverage["universal_theorems"]
+            if entry["status"] == "closed"
+        ],
     }
 
 
@@ -2278,7 +2349,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"inventory ok: {len(result['owners'])} owner sets, "
         f"{len(result['fragment_roots'])} Lean fragment roots, "
-        f"{len(result['obligations'])} planned theorem obligations"
+        f"{len(result['obligations'])} theorem obligations "
+        f"({len(result['closed_obligations'])} closed)"
     )
     return 0
 
