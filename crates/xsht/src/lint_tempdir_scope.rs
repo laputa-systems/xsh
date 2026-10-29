@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn a_tail_exit_remains_an_allowed_tempdir_scope_body() {
-        let source = "proc finish() [fs, error] -> Result[Unit] {\n  let root = fs.tempdir()?\n  defer root.close()?\n  let dir = root.host_path()?\n  exit 0\n}\n";
+        let source = "proc finish() [fs, process, error] -> Result[Unit] {\n  let root = fs.tempdir()?\n  defer root.close()?\n  let dir = root.host_path()?\n  exit 0\n}\n";
         let output = diagnostics(source);
         assert_eq!(output.len(), 1, "{source}: {output:?}");
     }
