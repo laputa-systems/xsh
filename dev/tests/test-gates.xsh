@@ -639,6 +639,22 @@ test test_route_witness_selector_preserves_broad_shared_runtime_gates {
   assert "--skip" in runtime[0].argv
 }
 
+test test_sema_gate_runs_the_library_unit_tests_of_the_files_it_owns {
+  let ctx = fixtures.linux_context(/repo)?
+
+  let plan = gates.lane_plan(ctx, tests.Verification, gates.select(["src/sema/builtin_templates.rs"])?)?
+  let unit = [spec for spec in plan |> where .stage == "test-sema-unit"]
+  assert unit.len() == 1
+  assert "--lib" in unit[0].argv
+  assert "sema::" in unit[0].argv
+  assert "sema::check::resource::tests::w9_resource_scope_attribution" in unit[0].argv
+  let integration = [spec for spec in plan |> where .stage == "test-sema"]
+  assert integration.len() == 1
+  assert "--lib" not in integration[0].argv
+  let changed = gates.plan_paths(ctx, tests.Verification, ["src/sema/builtin_templates.rs"], [], gates.Change)?
+  assert "test-sema-unit" in [entry.id for entry in changed.cases]
+}
+
 test test_compile_and_soundness_leaf_gates_skip_product_builds {
   let ctx = fixtures.linux_context(/repo)?
 

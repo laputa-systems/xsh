@@ -752,7 +752,7 @@ mod tests {
                 }
             }
         }
-        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set, MethodReceiver::FsRoot];
+        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set, MethodReceiver::FsRoot, MethodReceiver::Result, MethodReceiver::Stream];
         assert_eq!(domains.len(), expected.len());
         assert!(expected.iter().all(|domain| domains.contains(domain)));
     }

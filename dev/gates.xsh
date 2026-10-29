@@ -545,7 +545,7 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
         ctx.root, tests.cargo_environment(ctx)?)],
       Syntax => plan += [rust_gate(ctx, profile, "test-syntax", [@xsht_target, "syntax::", "--", @tests.sibling_syntax_exclusions])?, rust_gate(ctx, profile, "test-grammar-rust", [@root_target, "grammar::"])?, native_gate(ctx, profile, "tests/xsh/formatter.xsh")],
       Grammar => plan += [rust_gate(ctx, profile, "test-grammar", ["-p", "xsh-fuzz", "--test", "soundness", "generated_programs_are_grammar_sentences"])?, native_gate(ctx, profile, "tests/xsh/tooling-commands.xsh")],
-      Checker => plan += [rust_gate(ctx, profile, "test-sema", [@root_target, "sema::"])?, native_gate(ctx, profile, "tests/xsh/checker-")],
+      Checker => plan += [rust_gate(ctx, profile, "test-sema", [@root_target, "sema::"])?, rust_gate(ctx, profile, "test-sema-unit", [@root_lib, "sema::", "--", "--skip", "sema::check::resource::tests::w9_resource_scope_attribution"], debug: true)?, native_gate(ctx, profile, "tests/xsh/checker-")],
       Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval"], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_annotations_agree_with_binding_facts"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
       Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
       RouteWitness => {
