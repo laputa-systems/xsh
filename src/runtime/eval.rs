@@ -66,6 +66,7 @@ use indexed::full::{
 };
 mod lowered_ops;
 use lowered_ops::lowered_value_from_runtime;
+pub(crate) use lowered_ops::registered_method_receiver_executes;
 mod lowered_run;
 mod module_contract;
 mod modules;

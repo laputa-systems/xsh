@@ -1316,6 +1316,16 @@ pub(super) fn lowered_registered_method_identity_value(
     lowered_canonical_registered_method_value(domain, name, receiver, args, span)
 }
 
+pub(crate) fn registered_method_receiver_executes(domain: crate::modules::MethodReceiver) -> bool {
+    use crate::modules::MethodReceiver as Domain;
+    matches!(
+        domain,
+        Domain::Str | Domain::Bytes | Domain::Int | Domain::Float | Domain::Path | Domain::RelPath | Domain::Digest
+            | Domain::Regex | Domain::Status | Domain::List | Domain::NonEmpty | Domain::Map | Domain::Set
+            | Domain::Result | Domain::Record | Domain::Stream | Domain::FsRoot
+    )
+}
+
 fn lowered_canonical_registered_method_value(
     domain: crate::modules::MethodReceiver,
     name: &str,
