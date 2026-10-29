@@ -1059,3 +1059,23 @@ print $equal
   assert output.success, output.stderr
   assert output.stdout == "-1\n1\n0\n"
 }
+
+test test_full_inference_result_context_is_lowered_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure parse_labeled(label, raw: Str) -> Result[Int] {
+  raw.parse_int().context("usage", f"unsupported {label} '{raw}'")
+}
+let good = parse_labeled("count", "5")?
+print $good
+let bad = parse_labeled("count", "five")
+match bad {
+  Ok(_) => print "unexpected"
+  Err(failure) => print $failure.message
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout.starts_with("5\n")
+  assert "unsupported count 'five'" in output.stdout
+}
