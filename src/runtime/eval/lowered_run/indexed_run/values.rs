@@ -258,6 +258,22 @@ impl Evaluator {
         }
     }
 
+    fn eval_indexed_registered_method_value(
+        &mut self,
+        plan: &crate::sema::schemes::RegisteredCallPlan,
+        receiver: LoweredValue,
+        values: Vec<LoweredValue>,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        match receiver {
+            LoweredValue::Stream(stream) if plan.receiver == Some(crate::modules::MethodReceiver::Stream) && &*plan.name == "collect" && values.is_empty() => {
+                let items = self.collect_stream_values(*stream, span)?;
+                super::super::lowered_runtime_value(Value::List(items), span)
+            }
+            receiver => super::super::super::lowered_ops::lowered_registered_method_value(plan, receiver, values, span),
+        }
+    }
+
     pub(super) fn eval_indexed_registered_method_dispatch(
         &mut self,
         plan: &crate::sema::schemes::RegisteredCallPlan,
@@ -274,11 +290,11 @@ impl Evaluator {
             };
             let trace_name = format!("{}.{}", xsh_registry::signature::receiver_name(domain), plan.name);
             self.trace_enter(TraceKind::MethodCall, Some(span), Some(&trace_name), TracePayload::None);
-            let result = super::super::super::lowered_ops::lowered_registered_method_value(plan, receiver, values, span);
+            let result = self.eval_indexed_registered_method_value(plan, receiver, values, span);
             self.trace_exit(TraceKind::MethodResult, Some(span), Some(&trace_name), TracePayload::None);
             result?
         } else {
-            super::super::super::lowered_ops::lowered_registered_method_value(plan, receiver, values, span)?
+            self.eval_indexed_registered_method_value(plan, receiver, values, span)?
         };
         let mut result = ControlFlow::Continue(value);
         self.register_returned_lowered_streams(&mut result, span)?;

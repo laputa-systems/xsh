@@ -423,7 +423,7 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
         || plan.receiver.is_some_and(|receiver| receiver != MethodReceiver::FsRoot) && slots.iter().copied().ne(0..slots.len())
     { return false; }
     match plan.receiver {
-        Some(domain) => matches!(domain, MethodReceiver::Result | MethodReceiver::Path | MethodReceiver::Int | MethodReceiver::Float | MethodReceiver::List | MethodReceiver::Map | MethodReceiver::Record | MethodReceiver::Str | MethodReceiver::Bytes | MethodReceiver::Status | MethodReceiver::Digest | MethodReceiver::Regex | MethodReceiver::NonEmpty | MethodReceiver::RelPath | MethodReceiver::Set | MethodReceiver::FsRoot)
+        Some(domain) => matches!(domain, MethodReceiver::Result | MethodReceiver::Path | MethodReceiver::Int | MethodReceiver::Float | MethodReceiver::List | MethodReceiver::Map | MethodReceiver::Record | MethodReceiver::Str | MethodReceiver::Bytes | MethodReceiver::Status | MethodReceiver::Digest | MethodReceiver::Regex | MethodReceiver::NonEmpty | MethodReceiver::RelPath | MethodReceiver::Set | MethodReceiver::Stream | MethodReceiver::FsRoot)
             && crate::modules::api_spec().method_overloads(domain, &plan.name).is_some_and(|methods| methods.iter().any(|method| std::ptr::eq(&method.sig, signature))),
         None => crate::modules::api_spec().module_entries().any(|(_, module)| module.functions.iter().any(|function| function.name == plan.name.as_ref() && function.overloads.iter().any(|candidate| std::ptr::eq(candidate, signature)))),
     }

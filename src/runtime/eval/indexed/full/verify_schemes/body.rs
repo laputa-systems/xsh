@@ -4027,6 +4027,30 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn stream_collect_in_a_generic_body_authenticates_its_stream_receiver() {
+        let program = prepare("proc counted(root, marker) [fs, error] {\n  let listing = fs.children(root)?\n  let entries = listing.collect()\n  let _ = marker\n  entries.len()\n}\nproc main() [fs, io, error] {\n  let total = counted(p\".\", 1)?\n  let _ = total\n}\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "counted").unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let method = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "collect", .. }))).unwrap();
+        let schema::ExprView::Method { receiver, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let receiver = receiver.raw() as usize;
+        assert_eq!(program.store.tags[receiver], FullTag::ExprParam);
+        let mut forged = cold();
+        let words = forged.store.data[receiver].range().bounds(forged.store.extra.len()).unwrap();
+        assert_ne!(forged.store.extra[words.start], 1);
+        forged.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&forged).expect_err("the marker cannot stand for the stream receiver");
+        assert!(!error.message.contains("unowned rows"), "{error:?}");
+    }
+
+    #[test]
     fn regex_literal_call_arguments_authenticate_their_literal_type() {
         let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
         program.store.in_place.take();

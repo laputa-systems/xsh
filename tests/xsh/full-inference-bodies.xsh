@@ -800,6 +800,25 @@ print $b
   assert output.stdout == "/etc/hosts\n/usr/bin\n"
 }
 
+test test_full_inference_stream_collect_is_lowered_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc entry_count(root, marker) [fs, error] {
+  let listing = fs.children(root)?
+  let entries = listing.collect()
+  entries.len()
+}
+proc main() [fs, io, error] {
+  let counted = entry_count(p".", 1)?
+  let plausible = counted >= 0
+  print $plausible
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,
