@@ -265,6 +265,8 @@ mod host_anchor_tests {
             "type Row = {value: Int}\npure keys(value: Row) -> List[Str] { value.keys() }\n",
             "pure keys(value: Map[Str, Int]) -> List[Str] { value.keys() }\n",
             "pure signed(value: Int) -> Float { value.float() }\npure unsigned(value: UInt) -> Float { value.float() }\n",
+            "pure keys(value) -> List[Str] { value.keys() }\nlet output = keys({value: 1})\n",
+            "pure number(value) -> Float { value.float() }\nlet output = number(1)\n",
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -272,8 +274,8 @@ mod host_anchor_tests {
             assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
         }
         for (source, code) in [
-            ("pure keys(value) -> List[Str] { value.keys() }\nlet output = keys({value: 1})\n", DiagnosticCode::CheckAmbiguousOverload),
-            ("pure number(value) -> Float { value.float() }\nlet output = number(1)\n", DiagnosticCode::CheckLocalInference),
+            ("pure keys(value) -> List[Str] { value.keys() }\nlet output = keys(1)\n", DiagnosticCode::CheckCallableMismatch),
+            ("pure number(value) -> Float { value.float() }\nlet output = number(\"x\")\n", DiagnosticCode::CheckCallableMismatch),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -336,19 +338,19 @@ mod host_anchor_tests {
     }
 
     #[test]
-    fn inferred_host_obligations_reject_actual_ambiguity_without_caller_evidence() {
+    fn inferred_host_obligations_retain_generic_receivers_without_caller_evidence() {
         for caller in ["\"a\\tb\"", "rx\"a\""] {
             let source = format!("pure anchor(value: Str) -> Bool {{ value == \"x\" }}\npure ambiguous(text) -> Str {{ let flat = text.replace(\"\\t\", with: \" \"); let anchored = anchor(flat); flat }}\nlet output = ambiguous({caller})\n");
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
-            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)), "{:?}", checked.diagnostics);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         }
         let source = "pure ambiguous(raw) -> Int? { raw.byte_at(0) }\nlet output = ambiguous(b\"A\")\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
-        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
     #[test]
@@ -419,7 +421,7 @@ mod host_anchor_tests {
     }
 
     #[test]
-    fn inferred_host_anchors_preserve_ambiguity_arguments_effects_and_annotations() {
+    fn inferred_host_anchors_preserve_arguments_effects_and_annotations() {
         for (source, code) in [
             (
                 "pure invalid(text) -> Str { text.replace(1, with: \" \") }\n",
@@ -428,10 +430,6 @@ mod host_anchor_tests {
             (
                 "pure invalid(text) -> Str { text.unregistered_operation() }\n",
                 DiagnosticCode::CheckUnknownMethod,
-            ),
-            (
-                "pure first_byte(raw) -> Int { raw.byte_at(0) ?? 0 }\nlet byte: Int = first_byte(b\"A\")\n",
-                DiagnosticCode::CheckAmbiguousOverload,
             ),
             (
                 "pure anchor(value: Str) -> Bool { value == \"x\" }\npure invalid(text) -> Str { let changed = text.replace(1, with: \" \"); let anchored = anchor(text); changed }\n",

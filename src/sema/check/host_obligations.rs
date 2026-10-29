@@ -1321,7 +1321,7 @@ mod tests {
     }
 
     #[test]
-    fn host_obligation_selection_publishes_api_evidence_and_real_ambiguity() {
+    fn host_obligation_selection_publishes_api_evidence_and_retains_generic_receivers() {
         let selected_source = "pure first_byte(raw: Str) -> Int? { raw.byte_at(0) }\n";
         let selected = crate::syntax::parser::Parser::parse_source_arena_only(
             crate::source::SourceId::new(0),
@@ -1352,9 +1352,7 @@ mod tests {
             ambiguous_source,
             crate::sema::check::CheckOptions::for_execution(),
         );
-        assert!(checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
-        }));
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(checked.api_calls.is_empty());
     }
 
@@ -1425,7 +1423,7 @@ let observed = probe({argument})
     }
 
     #[test]
-    fn common_host_results_preserve_receiver_ambiguity_and_distinct_return_domains() {
+    fn common_host_results_retain_receiver_requirements_and_distinct_return_domains() {
         for source in [
             "pure ambiguous(raw) { raw.byte_at(0) == 65 }\n",
             "pure ambiguous(raw) { raw.trim() }\n",
@@ -1433,7 +1431,7 @@ let observed = probe({argument})
             let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
-            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)), "{source}\n{:?}", checked.diagnostics);
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
             assert!(checked.api_calls.is_empty());
         }
         let source = "pure anchor(raw: Bytes) -> Bytes { raw }\npure narrowed(raw) { let trimmed = raw.trim(); let known = anchor(raw); trimmed }\nlet actual: Bytes = narrowed(b\" A \")\n";

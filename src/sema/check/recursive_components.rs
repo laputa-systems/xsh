@@ -468,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_command_words_require_available_checked_bindings() {
+    fn generic_command_words_publish_their_read_bindings() {
         let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -479,22 +479,8 @@ mod tests {
             let declaration = output.checked_declarations.functions.values().next().unwrap();
             assert!(declaration.scheme.as_ref().unwrap().callable().is_quantified());
             let facts = declaration.scheme_body_facts.as_ref().unwrap();
-            let body = program.statement_ids().find_map(|statement| match program.arena.stmt(statement).kind {
-                crate::syntax::arena::ArenaStmtKind::ProcDef(definition) => Some(program.arena.function_def(definition).body),
-                _ => None,
-            }).unwrap();
-            let bindings = &output.resolved_bindings;
-            let parameters = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "payload").then_some(id)).collect::<super::super::FxHashSet<_>>();
-            let captures = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "directory").then_some((id, super::super::scheme_body::CapturedBindingAccess::ReadOnly))).collect::<super::super::scheme_body::CapturedBindings>();
-            let commands = bindings.value_sites.iter().map(|(&site, &binding)| (site, binding)).collect::<BTreeMap<_, _>>();
-            let calls = output.module_commands.keys().copied().collect::<super::super::FxHashSet<_>>();
-            let accepts = |captures| super::super::scheme_body::supports_generalized_body(
-                program, declaration.scheme.as_ref().unwrap().kind(), &output.prepared_constants, &commands, body, bindings, &parameters, captures,
-                facts.tail_types(), &output.statement_positions, &calls, facts.registered_calls(), facts.expression_types(),
-                facts.constructor_producers(), facts.noncompleting_expressions(), &output.checked_control_flow.result_constructors, &output.collect_yields, super::super::scheme_body::BodyCompletion::Function,
-            );
-            assert!(accepts(&captures));
-            assert!(!accepts(&super::super::scheme_body::CapturedBindings::default()));
+            let directory = output.resolved_bindings.declarations.iter().find_map(|(&id, declaration)| (declaration.name == "directory").then_some(id)).unwrap();
+            assert!(facts.read_bindings().contains(&directory));
         });
     }
 

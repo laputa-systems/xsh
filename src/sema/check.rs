@@ -980,13 +980,6 @@ pub(super) struct BindingSchemaFacts {
 }
 
 #[derive(Clone, Debug)]
-struct LiteralCapturePayload {
-    statement: crate::syntax::arena::StmtId,
-    initializer: crate::syntax::arena::ExprId,
-    namespace: Option<Name>,
-}
-
-#[derive(Clone, Debug)]
 pub(super) struct Binding {
     id: Option<BindingId>,
     recovery: bool,
@@ -1000,7 +993,6 @@ pub(super) struct Binding {
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
-    literal_capture_payload: Option<LiteralCapturePayload>,
     schemas: BindingSchemaFacts,
 }
 
@@ -1019,7 +1011,6 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
-            literal_capture_payload: None,
             schemas: BindingSchemaFacts::default(),
         }
     }

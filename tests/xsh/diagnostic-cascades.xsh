@@ -27,7 +27,7 @@ test test_generic_body_rejection_does_not_hide_an_independent_declaration { |ctx
     "pure convert(n: Int) -> Int { n }\npure broken(value) { convert(\"a\") }\nproc invoke(value, action: Proc) { let observed = action.call(); value }\n",
   )?
   assert "err[check.type-mismatch]" in stderr, stderr
-  assert "generic callable body requires" in stderr, stderr
+  assert "generic effectful callable requires a known checked effect contract" in stderr, stderr
   assert stderr.split("err[").len() == 3, stderr
 }
 
@@ -38,7 +38,7 @@ test test_generic_body_rejection_reports_one_diagnostic { |ctx|
     "proc invoke(value, action: Proc) { let observed = action.call(); value }\n",
   )?
   assert_single(stderr, "unsupported body", "check.local-inference")
-  assert "generic callable body requires" in stderr, stderr
+  assert "generic effectful callable requires a known checked effect contract" in stderr, stderr
 }
 
 test test_failed_statement_callback_application_reports_one_diagnostic { |ctx|

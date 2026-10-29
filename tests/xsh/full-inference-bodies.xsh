@@ -1195,3 +1195,44 @@ print $resolve(AliasLink("b"), "x")
   assert output.success, output.stderr
   assert output.stdout == "none\na:2\nb:x\n"
 }
+
+test test_full_inference_constant_inside_a_receiver_list_stays_generic { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""const HEADERS = ["name", "size"]
+pure table(rows: List[List[Str]], title) -> Int {
+  let lines = [HEADERS].extend(rows)
+  lines.len() + f"{title}".byte_len()
+}
+print $table([["a", "1"]], "t")
+print $table([], 7)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n2\n"
+}
+
+test test_full_inference_generic_body_reads_a_literal_record_capture { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""let marker = {value: 1, nested: {items: [2, 3], name: "kept"}}
+pure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }
+print $read({anchor: 1})
+print $read({anchor: "x"})
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n1\n"
+}
+
+test test_full_inference_generic_body_rejects_mutable_and_computed_captures { |ctx|
+  let cases = [
+    {name: "mutable capture", source: "var marker = {value: 1}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\nprint $read({anchor: 1})\n", message: "generic body captures resource state"},
+    {name: "computed record capture", source: "type Marker = {value: Int}\npure make() -> Marker { {value: 1} }\nlet marker = make()\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\nprint $read({anchor: 1})\n", message: "generic record capture has a nonliteral payload"},
+  ]
+  for {name, source, message} in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, name
+    assert message in output.stderr, f"{name}: {output.stderr}"
+  }
+}

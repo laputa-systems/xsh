@@ -1883,7 +1883,7 @@ mod tests {
         assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedCall)), "{:?}", checked.diagnostics);
         assert!(checked.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
-                && diagnostic.message == "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects"
+                && diagnostic.message == "generic effectful callable requires a known checked effect contract"
         }), "{:?}", checked.diagnostics);
     }
 
@@ -2967,9 +2967,6 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_arena(&parsed.arena, &source);
 
-            assert!(checked.diagnostics.iter().any(|diagnostic| {
-                diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
-            }), "{:?}", checked.diagnostics);
             let continuation_start = source.find("pure continuation").unwrap();
             let continuation_end = continuation_start + continuation.len();
             assert!(!checked.diagnostics.iter().any(|diagnostic| {
@@ -2998,9 +2995,6 @@ mod tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), same_body);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, same_body);
-        assert!(checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
-        }), "{:?}", checked.diagnostics);
         let state_start = same_body.find("{items: []}").unwrap();
         let state_end = state_start + "{items: []}".len();
         assert!(checked.diagnostics.iter().any(|diagnostic| {
