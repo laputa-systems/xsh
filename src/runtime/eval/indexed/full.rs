@@ -24155,6 +24155,33 @@ pure go(p: Pair, other: List[Int], precision: Int) -> Float {
     }
 
     #[test]
+    fn a_generic_environment_record_is_checked_against_the_erased_record_option() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-environment-record.xsh", r#"
+proc launch(label) [process, error] {
+    let environment = {LABEL: label, FIXED: "x"}
+    let command = process.command_argv("/bin/true", ["true"], env: environment)
+    let status = process.run(command)?
+    status.shell_code()
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "launch");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let command = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ProcessCommandArgv(_)))).unwrap();
+            let schema::ExprView::ProcessCommandArgv(view) = decoder.expression_view(command).unwrap() else { unreachable!() };
+            let environment = view.env.unwrap().raw() as usize;
+            let label = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            assert_ne!(environment, label);
+            let mut wrong = program.clone();
+            wrong.store.tags.swap(environment, label);
+            wrong.store.data.swap(environment, label);
+            assert!(FullVerifier::verify(&wrong).is_err());
+        });
+    }
+
+    #[test]
     fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
@@ -48294,6 +48321,29 @@ assert result.extra == 9
             let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction == record as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Operation(_))).unwrap();
             fact.function = IrFunctionId::new(other).unwrap();
             FullVerifier::verify(&wrong_owner).expect_err("the record relationship must belong to its actual body owner");
+        });
+    }
+
+    #[test]
+    fn a_record_override_of_known_fields_keeps_its_remainder_and_a_new_field_cannot() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-record-override-known-fields.xsh", r#"
+pure bump(state) { {...state, count: state.count + 1} }
+pure extend(state) { let _ = state.count; {...state, count: 0, added: 1} }
+let a = bump({count: 1, other: "kept"})
+let b = extend({count: 1, other: "kept"})
+assert a.count == 2
+assert b.added == 1
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "extend");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
+            let scheme = program.store.scheme(id).unwrap();
+            let operation = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap().start;
+            let schemes::FullSealedOperation::RecordOverride { receiver, result, .. } = program.store.scheme_operations[operation] else { unreachable!() };
+            let mut shared_tail = program.clone();
+            shared_tail.store.scheme_types[result.index()].first = program.store.scheme_types[receiver.index()].first;
+            FullVerifier::verify(&shared_tail).expect_err("a new field cannot keep the receiver's remainder");
         });
     }
 

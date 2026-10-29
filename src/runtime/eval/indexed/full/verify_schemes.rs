@@ -2332,6 +2332,8 @@ fn body_type_matches_ground(actual: &SchemeType, expected: &Type) -> bool {
     if let Some(actual) = actual.closed_ground_type() { return actual.matches_expected(expected); }
     match (actual, expected) {
         (SchemeType::Record { fields, .. }, Type::Record(expected)) => expected.iter().all(|(name, expected)| fields.get(name).is_some_and(|actual| body_type_matches_ground(actual, expected))),
+        (SchemeType::Record { .. }, Type::ErasedRecord) => true,
+        (actual, Type::Union(members)) => members.iter().any(|member| body_type_matches_ground(actual, member)),
         _ => false,
     }
 }

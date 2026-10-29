@@ -1424,3 +1424,45 @@ print $b
   assert output.success, output.stderr
   assert output.stdout == "2.5\n4\n"
 }
+
+test test_full_inference_environment_record_with_a_generic_field_reaches_the_child { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc launch(label) [process, error, io] {
+  let environment = {LABEL: label, FIXED: "x"}
+  let status = process.run(process.command_argv("sh", ["sh", "-c", "printf '%s-%s\n' \"$LABEL\" \"$FIXED\""], env: environment))?
+  status.shell_code()
+}
+proc main() [process, error, io] {
+  let a = launch("text")?
+  let b = launch(Path("/tmp"))?
+  print $a
+  print $b
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "text-x\n/tmp-x\n0\n0\n"
+}
+
+test test_full_inference_record_override_of_known_fields_keeps_the_row_or_closes_the_view { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type State = {count: Int, label: Str}
+pure bump(state) {
+  {...state, count: state.count + 1}
+}
+pure closed(state) -> State {
+  {...state, count: state.count + 1, label: state.label}
+}
+let a = bump({count: 1, label: "a", extra: true})
+let b = closed({count: 5, label: "b"})
+print $a.count
+print $a.extra
+print $b.count
+print $b.label
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\ntrue\n6\nb\n"
+}

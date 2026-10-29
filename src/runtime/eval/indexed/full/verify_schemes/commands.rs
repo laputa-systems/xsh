@@ -81,7 +81,7 @@ pub(super) fn process_command_argv(
             fits &= match actual {
                 Some(actual) => {
                     budget.charge_scheme_clone(actual)?;
-                    actual.closed_ground_type().is_some_and(|actual| actual.matches_expected(&parameter.ty))
+                    super::body_type_matches_ground(actual, &parameter.ty)
                 }
                 None => parameter.defaulted,
             };

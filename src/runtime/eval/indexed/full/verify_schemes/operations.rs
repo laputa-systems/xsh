@@ -212,6 +212,7 @@ pub(super) fn verify_record_override_site(
         return Err(IrVerifyError::new("record override site disagrees with its owned requirement"));
     }
     let (mut derived, input_tail) = record_contract(receiver, budget)?;
+    let known_before = derived.keys().copied().collect::<Vec<_>>();
     let (output_fields, output_tail) = record_contract(result, budget)?;
     for (required, (name, ty)) in fields.iter().zip(overrides) {
         budget.charge(1)?;
@@ -226,6 +227,8 @@ pub(super) fn verify_record_override_site(
     match (input_tail, output_tail) {
         (SchemeRowTail::Closed, SchemeRowTail::Closed) if derived.len() == output_fields.len() => {}
         (SchemeRowTail::Parameter(input), SchemeRowTail::Parameter(output)) if input != output => {}
+        (SchemeRowTail::Parameter(input), SchemeRowTail::Parameter(output)) if input == output && overrides.iter().all(|(name, _)| known_before.contains(name)) => {}
+        (SchemeRowTail::Parameter(_), SchemeRowTail::Closed) if derived.len() == output_fields.len() => {}
         _ => return Err(IrVerifyError::new("record override result has no independent remainder")),
     }
     Ok(())
