@@ -57,7 +57,9 @@ XSH-55 comes first. XSH-56's pure planner and resource work may start before
 XSH-55 lands, but its remote execution is not complete until it runs over the
 native client. Laputa's administration library
 ([R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#ssh-native-xsh-administration))
-consumes the same client.
+consumes the same client. Work stops before XSH-55 starts: the owner reclaims
+the accumulated build and worktree state first, and XSH-55 begins from a fresh
+checkout state.
 
 ### Ownership and first consumer
 
