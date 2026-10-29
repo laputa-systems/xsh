@@ -2938,6 +2938,29 @@ impl<'a> ProducerProof<'a> {
             self.expression(owner, instruction, Arc::new(base_type.clone()), false);
             return Ok(Some(base_type));
         }
+        if let schema::ExprView::IfExpr { branches, else_value, .. } = decoder.expression_view(instruction)? {
+            let arms = branches.map(|branch| branch.map(|(_, value)| value.raw() as usize))
+                .chain(std::iter::once(Ok(else_value.raw() as usize)))
+                .collect::<Result<Vec<_>, _>>()?;
+            self.budget.charge(arms.len())?;
+            let mut joined: Option<Type> = None;
+            for arm in arms {
+                let arm_type = match self.need_context(&decoder, arm)? {
+                    Some(arm_type) => Some((*arm_type).clone()),
+                    None => self.derived_argument_type(owner, arm)?,
+                };
+                let Some(arm_type) = arm_type else { return Ok(None) };
+                match &joined {
+                    None => joined = Some(arm_type),
+                    Some(previous) if *previous == arm_type => {}
+                    Some(_) => return Ok(None),
+                }
+            }
+            let Some(joined) = joined else { return Ok(None) };
+            self.budget.charge_clone(&joined)?;
+            self.expression(owner, instruction, Arc::new(joined.clone()), false);
+            return Ok(Some(joined));
+        }
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
             op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
         } | schema::ExprView::ListComp { .. }) {
@@ -2947,7 +2970,7 @@ impl<'a> ProducerProof<'a> {
             match binding {
                 ProducerBinding::ScopedDeclaration(declaration, _) => {
                     if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
-                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. } | schema::StmtView::ForStrLines { .. } | schema::StmtView::Guard { .. })
+                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. } | schema::StmtView::ForStrLines { .. } | schema::StmtView::Guard { .. } | schema::StmtView::LetRecord { .. } | schema::StmtView::ForRecord { .. })
                     { return Ok(None); }
                 }
                 ProducerBinding::HeaderParameter(parameter) => {

@@ -1380,3 +1380,47 @@ proc main() [io, error] {
   assert output.success, output.stderr
   assert output.stdout == "a\n2\n"
 }
+
+test test_full_inference_conditional_over_a_loop_variable_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc show(pid: Int, label) [io] {
+  print $pid
+  print $label
+}
+proc go(first: Int, flag: Bool) [io, error] {
+  var targets = [first]
+  if flag { targets = [first, 2] }
+  for target in targets {
+    show(if flag { target } else { 0 }, "new")?
+  }
+}
+proc main() [io, error] {
+  go(9, true)?
+  go(9, false)?
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "9\nnew\n2\nnew\n0\nnew\n"
+}
+
+test test_full_inference_destructured_binding_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Pair = {value: Float, tail: Str}
+pure scale(x: Float, precision) -> Float { x }
+pure go(p: Pair, precision) -> Float {
+  let {value: whole, tail: rest, ..} = p
+  let _ = rest
+  scale(whole, precision)
+}
+let a = go({value: 2.5, tail: "t"}, 3)
+let b = go({value: 4.0, tail: "u"}, "wide")
+print $a
+print $b
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2.5\n4\n"
+}

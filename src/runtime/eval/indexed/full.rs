@@ -24100,6 +24100,61 @@ proc gather(args: List[Str]) [io, error] {
     }
 
     #[test]
+    fn a_conditional_argument_over_a_loop_variable_joins_its_branch_types() {
+        run_with_large_stack(|| {
+            let program = fixture("conditional-loop-argument.xsh", r#"
+proc show(pid: Int, label) [io] { print $pid }
+proc go(first: Int, flag: Bool) [io, error] {
+    var targets = [first]
+    if flag { targets = [first, 2] }
+    for target in targets {
+        show(if flag { target } else { 0 }, "new")?
+    }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "go");
+            let decoder = function_view_decoder(&program.store, owner);
+            let conditional = function_instruction_indices(&program, "go", FullTag::ExprIf)[0];
+            let schema::ExprView::IfExpr { else_value, .. } = decoder.expression_view(conditional).unwrap() else { unreachable!() };
+            let zero = else_value.raw() as usize;
+            let label = function_instruction_indices(&program, "go", FullTag::ExprStr)[0];
+            let mut wrong = program.clone();
+            wrong.store.tags.swap(zero, label);
+            wrong.store.data.swap(zero, label);
+            assert!(FullVerifier::verify(&wrong).is_err());
+        });
+    }
+
+    #[test]
+    fn a_destructured_binding_argument_takes_its_type_from_the_source_record() {
+        run_with_large_stack(|| {
+            let program = fixture("destructured-argument.xsh", r#"
+type Pair = {value: Float, tail: Str}
+pure scale(x: Float, precision) -> Float { x }
+pure go(p: Pair, other: List[Int], precision: Int) -> Float {
+    let {value: whole, tail: rest, ..} = p
+    let _ = other
+    scale(whole, precision)
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "go");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let source = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::LetRecord { source, .. }) => Some(source.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let other = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.tags.swap(source, other);
+            wrong.store.data.swap(source, other);
+            assert!(FullVerifier::verify(&wrong).is_err());
+        });
+    }
+
+    #[test]
     fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
