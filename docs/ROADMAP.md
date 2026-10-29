@@ -11,7 +11,7 @@ instructions, and open items.
 | 4 | Lean: connected compiler proof | paused | [xsh-lean.md](../xsh-lean.md) | Paused by the owner on 2026-10-15. Resumes only on an explicit order, after the source freeze. |
 | 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |
 | 6 | Deser cutover | done, qualification open | [TODO.md](../TODO.md) | Correctness and platform qualification are open items there. |
-| 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | active | [TODO.md](../TODO.md) | Tracked there and in the [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md). |
+| 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Distribution rollout is the owner's; the RFC lists the integration steps. |
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | The util-linux resource rerun is XSH-1. |
 
 When inference changes a Pyramid input or contract, rerun the affected checks.

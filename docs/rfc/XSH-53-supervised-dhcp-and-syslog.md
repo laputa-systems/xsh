@@ -413,3 +413,60 @@ Accepted on 2026-10-28 with these answers to the open questions:
    shares only the test socket directory, not as a gate case.
 5. Refuse and report.
 6. S9 starts after S6 and S7 are accepted; D9 starts after D8 is accepted.
+
+## Outcome
+
+Delivered on XSH `master` through `991bbf29b` and Laputa `xinit/` through
+`75a6afd`. Nothing is installed by a Laputa package or profile; that rollout
+belongs to the owner.
+
+- Syslog: S1 to S9. The service is `core/syslogd.xsh`, with
+  `core/lib/syslog_*.xsh`. The new substrate is `unix.poll_fds`,
+  `time.boottime` and `linux.recvfrom(..., rights: "close")`, which adds `size`
+  and `rights_closed` and is breaking.
+- DHCPv4: D1 to D10. The client is `core/dhcpc.xsh`, with
+  `core/lib/dhcp_*.xsh`, and `ifup`/`ifdown` run on it. Route identity gains
+  `tos`, `FsRoot.write_atomic` gains `mode:` and `replace:`, and the five
+  `linux.dhcp_*` operations are removed (breaking). Option 121 is implemented.
+  The lease record is version 2; a version 1 record is refused and the client
+  acquires again.
+- `xinit`: `ready()` hooks are polled per scanner pass, and a failing
+  `status()` degrades to `status-error=`. The reference services are
+  `xinit/docs/syslog-service.xsh` and `xinit/docs/dhcp-service.xsh`.
+
+Evidence and measurements are in [Testing](../TESTING.md): see "Syslog
+receiver", "DHCP client" and "DHCP virtual machine qualification". These lanes
+run the tests:
+- `cargo dev gate --case lane/namespace-native` runs the namespace suites;
+- `cargo dev gate --case lane/root-native` runs the distinct-uid syslog case;
+- the `dnsmasq` reference comparison and the `/dev/kmsg` device test run only in
+  a manual `docker run --privileged` container, because they need real root or
+  a host device;
+- the glibc client ran once in a disposable glibc container.
+
+Platform gaps:
+- aarch64 and macOS runtime were not exercised.
+- Asterinas is not claimed.
+- PCI hot-unplug was not available in the qualification guest; the guest
+  removed and rescanned its own device instead.
+
+Residual risks:
+- Unix datagram loss in the kernel queue is unobservable
+  (`net.unix.max_dgram_qlen`, 10 on the development host).
+- A stalled receiver stalls blocking `syslog(3)` callers, so `syslogd` drops
+  on an unwritable sink rather than waiting.
+- Under QEMU's default paravirtual clock a VM pause moves none of the guest's
+  clocks, so `CLOCK_BOOTTIME` cannot detect it. Without kvmclock the pause
+  reads as elapsed time and the client rediscovers.
+- `ifup` without a supervised client acquires once and never renews.
+- Syslog throughput is interpreter-bound at about 1,400 records per second per
+  core.
+
+Integration for a distribution:
+1. Expose `syslogd` and `dhcpc` as command links in the `xsh` package
+   filetree, which currently lists the exposed applets explicitly.
+2. Install the reference modules as `/usr/lib/xinit/services/logger.xsh` and
+   `/usr/lib/xinit/services/dhcp-IFACE.xsh`, changing `interface`.
+3. Validate them with `xinit check logger` and `xinit check dhcp-IFACE`.
+4. Run the namespace and root lanes above, plus the privileged-container
+   suites, against the release products.
