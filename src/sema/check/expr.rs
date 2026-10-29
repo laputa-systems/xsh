@@ -1906,6 +1906,12 @@ impl Checker {
                 match actual.into_unvalidated() {
                     Type::List(ty) => *ty,
                     Type::Unknown => Type::Unknown,
+                    Type::Inference(variable) => {
+                        let level = self.type_constraints.type_level(variable).expect("a spliced value belongs to its inference problem");
+                        let item = self.type_constraints.fresh_at_level(span, level);
+                        self.expect_type(&Type::List(Box::new(item.clone())), &Type::Inference(variable), span);
+                        item
+                    }
                     _ => {
                         self.error(span, "list literal splice requires List; handle Results explicitly and collect Streams explicitly", DiagnosticCode::CheckListSpliceType);
                         Type::Unknown

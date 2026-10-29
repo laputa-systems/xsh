@@ -1490,3 +1490,22 @@ print $b
   assert output.success, output.stderr
   assert output.stdout == "3x\n3x\n"
 }
+
+test test_full_inference_splice_of_an_unannotated_parameter_requires_a_list_at_the_call { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure extended(items, extra) {
+  [@items, extra]
+}
+let numbers = extended([1, 2], 3)
+let words = extended(["a"], "b")
+print $numbers.len()
+print $words.len()
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n2\n"
+  let rejected = test.run_xsh(ctx, "pure extended(items, extra) { [@items, extra] }\nlet bad = extended(5, 3)\n")?
+  assert rejected.success == false
+  assert "err[check." in rejected.stderr, rejected.stderr
+}
