@@ -580,7 +580,10 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
       rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?,
       rust_gate(ctx, profile, "test-root-security", ["-p", "xsh-root", "--test", "security"], debug: true)?,
       rust_gate(ctx, profile, "test-root-mutation", ["-p", "xsh-root", "--test", "mutation"], debug: true)?,
-      rust_gate(ctx, profile, "test-archive", ["-p", "xsh-archive", "--test", "create", "--test", "extract", "--test", "files", "--test", "reading"], debug: true)?,
+      rust_gate(ctx, profile, "test-archive-create", ["-p", "xsh-archive", "--test", "create"], debug: true)?,
+      rust_gate(ctx, profile, "test-archive-extract", ["-p", "xsh-archive", "--test", "extract"], debug: true)?,
+      rust_gate(ctx, profile, "test-archive-files", ["-p", "xsh-archive", "--test", "files"], debug: true)?,
+      rust_gate(ctx, profile, "test-archive-reading", ["-p", "xsh-archive", "--test", "reading"], debug: true)?,
     ]
     Syntax => [rust_gate(ctx, profile, "test-syntax-unit", [@root_lib, "syntax::"], debug: true)?]
     Checker => [
