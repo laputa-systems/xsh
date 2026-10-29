@@ -26,6 +26,7 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | architecture, invariants, contribution and content tiers | [Architecture](docs/ARCHITECTURE.md) |
 | design principles and syntax rationale | [Design](docs/DESIGN.md) |
 | builds, test gates, profiles, platforms, generated docs | [Testing](docs/TESTING.md) |
+| optimization levels, shipped product configuration, product sizes | [Release engineering](docs/RELENG.md) |
 | tooling and configuration | [XSHT](docs/XSHT.md) |
 | formatter policy | [XSHT-FMT](docs/XSHT-FMT.md) |
 | core commands and system reporting | [Core](docs/CORE.md), [system report](docs/SYSTEM-REPORT.md), [btop](docs/BTOP.md) |
